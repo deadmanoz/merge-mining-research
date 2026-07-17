@@ -1,0 +1,33 @@
+services:
+  argentumd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/argentumd:latest
+    container_name: argentumd
+    restart: unless-stopped
+    # Docker's built-in init (PID-1 reaping); replaces tini, which is not
+    # available in Debian stretch main.
+    init: true
+
+    # RPC port bound to loopback only — AuxPoW extractor runs on the same host.
+    # P2P port published publicly so any inbound peers (rare in 2026) can reach.
+    ports:
+      - "127.0.0.1:13581:13581"
+      - "13580:13580"
+
+    volumes:
+      # Override ARGENTUM_DATA_DIR for production deployments.
+      - ${ARGENTUM_DATA_DIR:-./data}:/home/argentum/.argentum
+
+    # argentum.conf must already exist in ./data; see init.sh.
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/argentum/.argentum"
+
+    healthcheck:
+      test: ["CMD", "argentum-cli", "-datadir=/home/argentum/.argentum", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

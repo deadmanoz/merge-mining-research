@@ -1,0 +1,14 @@
+# Pinned upstream public data dependencies, fetched by scripts/fetch-data.sh.
+#
+# These are living datasets this project both consumes and contributes back to,
+# so they are fetched into gitignored data/ subdirectories rather than committed
+# or vendored as git submodules. Each is checked out at the commit pinned below
+# so that stale-block analysis stays reproducible: the pins should
+# be the upstream state the committed results/ were generated against. Bump a
+# pin with `just upstream-update <key>` and commit the resulting manifest diff.
+#
+# Override the stale-blocks destination with STALE_BLOCKS_DIR. fetch-data.sh
+# will not disturb a clone that is on a branch or dirty.
+#
+# Columns (tab-separated): key, repo_url, pinned_ref, dest_subdir
+stale-blocks	https://github.com/bitcoin-data/stale-blocks.git	ab7ebc10ced218ef84a2f5ac8770b1fcd7fc410b	data/stale-blocks

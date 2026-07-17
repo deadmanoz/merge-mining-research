@@ -1,0 +1,62 @@
+default:
+    @just --list
+
+# Render jincoin.conf from peers.list (if non-empty) + DNS seeds (all dead).
+init:
+    ./init.sh
+
+# Build the jincoind image (~10-20 min first time on <archival-host>).
+build:
+    docker compose build
+
+# Start jincoind (detached). All seeds dead — expect 0 peers without a
+# manually-added private addnode.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the jincoind logs.
+logs:
+    docker compose logs -f --tail=200 jincoind
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec jincoind jincoin-cli -datadir=/home/jincoin/.jincoin getblockcount
+
+# Peer count.
+peers:
+    docker compose exec jincoind jincoin-cli -datadir=/home/jincoin/.jincoin getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec jincoind jincoin-cli -datadir=/home/jincoin/.jincoin getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec jincoind jincoin-cli -datadir=/home/jincoin/.jincoin getpeerinfo
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec jincoind bash
+
+# Probe every seed in chainparams.cpp and the contrib/seeds nodes_main.txt
+# entry. All known to be dead 2026-05-16; re-run periodically in case a
+# project domain comes back online.
+probe-seeds:
+    @echo "==> DNS seeds (chainparams.cpp)"
+    @for d in seed1.jin.exchange seed2.jin.exchange seed3.jin-coin.info \
+              seed1.jin-coin.com seed2.jin-coin.com seed3.jin-coin.com; do \
+        printf "%-30s " "$$d"; \
+        dig +short +time=2 +tries=1 "$$d" || echo "(no answer)"; \
+    done
+    @echo "==> Project domains"
+    @for d in jin-coin.com jin-coin.info jin.exchange explorer.jin-coin.com; do \
+        printf "%-30s " "$$d"; \
+        dig +short +time=2 +tries=1 "$$d" || echo "(no answer)"; \
+    done
+    @echo "==> Hardcoded mainnet seed (pnSeed6_main)"
+    @timeout 5 bash -c "</dev/tcp/192.52.166.125/23099" 2>&1 \
+        && echo "192.52.166.125:23099 OPEN" \
+        || echo "192.52.166.125:23099 unreachable"

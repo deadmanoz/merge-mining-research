@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "source": {
+    "kind": "esplora",
+    "api_base": "https://mempool.space/api",
+    "service_documentation": "https://mempool.space/docs/api/rest",
+    "api_specification": "https://github.com/Blockstream/esplora/blob/master/API.md"
+  },
+  "retarget_interval": 2016,
+  "confirmation_depth": 6,
+  "observed_tip_height": 958906,
+  "finalized_horizon": {
+    "height": 958900,
+    "hash": "00000000000000000001161243db3275c08a3e590ae618f17dbdc9455a518a84",
+    "time": 1784559831,
+    "mediantime": 1784558397,
+    "bits": "1702369d"
+  },
+  "epoch_rows": 476
+}

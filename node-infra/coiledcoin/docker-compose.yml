@@ -1,0 +1,21 @@
+services:
+  coiledcoind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coiledcoind:local
+    container_name: coiledcoind
+    restart: unless-stopped
+
+    # No ports published — the chain is dead, no useful peers exist. RPC is
+    # accessed via `docker compose exec` (the legacy 2012 client only exposes
+    # `getinfo` and a handful of read commands; we don't need network RPC).
+    volumes:
+      - ./data:/data
+
+    healthcheck:
+      test: ["CMD", "coiledcoind", "-datadir=/data", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

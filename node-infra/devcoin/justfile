@@ -1,0 +1,36 @@
+default:
+    @just --list
+
+# Build the devcoind image (~10 min first time).
+build:
+    docker compose build
+
+up:
+    docker compose up -d
+
+down:
+    docker compose down
+
+logs:
+    docker compose logs -f --tail=200 devcoind
+
+height:
+    docker compose exec devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblockcount
+
+peers:
+    docker compose exec devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getconnectioncount
+
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getpeerinfo | head -40
+
+shell:
+    docker compose exec devcoind bash
+
+# Hex-dump a block by height. JSON RPC does not expose AuxPoW headers on
+# this codebase, so AuxPoW extraction reads the raw hex instead.
+getblockhex height:
+    @hash=$(docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblockhash {{height}}); \
+    docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblock $$hash 0

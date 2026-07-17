@@ -1,0 +1,61 @@
+default:
+    @just --list
+
+# Render argentum.conf from peers.list (DNS seeds are dead — peers.list is required).
+init:
+    ./init.sh
+
+# Build the argentumd image (~10-20 min first time on a modern host).
+build:
+    docker compose build
+
+# Start argentumd (detached). IBD via addnode= entries in argentum.conf
+# because all three DNS seeds in source code (seed.argentum.cc,
+# dnsseed.argentum.cc, dnsseed.argentumcoin.cc) NXDOMAIN as of 2026-05-16.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the argentumd logs.
+logs:
+    docker compose logs -f --tail=200 argentumd
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec argentumd argentum-cli -datadir=/home/argentum/.argentum getblockcount
+
+# Peer count.
+peers:
+    docker compose exec argentumd argentum-cli -datadir=/home/argentum/.argentum getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec argentumd argentum-cli -datadir=/home/argentum/.argentum getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec argentumd argentum-cli -datadir=/home/argentum/.argentum getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec argentumd bash
+
+# Re-harvest peers.list from chainetics.com (currently broken — server-side
+# IP resolver returns empty across all chains as of 2026-05-16; kept here
+# for the day chainetics fixes it). Falls back to the 41 hard-coded fixed
+# seeds bundled in src/contrib/seeds/nodes_main.txt from the active fork.
+refresh-peers:
+    @echo "==> Probing chainetics.com/nodes/arg.php for live IPs"
+    @curl -sL --max-time 15 "https://chainetics.com/nodes/arg.php" \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}:13580' \
+        | sort -u > peers.list.chainetics
+    @wc -l peers.list.chainetics
+    @if [ ! -s peers.list.chainetics ]; then \
+        echo "==> chainetics still broken; keeping current peers.list (fixed-seed snapshot)"; \
+        rm -f peers.list.chainetics; \
+    else \
+        mv peers.list.chainetics peers.list; \
+        echo "==> peers.list refreshed from chainetics"; \
+    fi

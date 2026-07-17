@@ -1,0 +1,22 @@
+# Xaya mainnet P2P reachability probe (P2P port 8394, magic cc be b4 fe)
+#
+# Source of these IPs: src/chainparamsseeds.h chainparams_seed_main (3 entries,
+# BIP155 IPv4, port field 0 = use default 8394). All are DigitalOcean boxes,
+# i.e. the Xaya team's own fixed seeds.
+#
+# DNS seeds seed.xaya.io / seed.xaya.domob.eu: NO records of any type
+# (A/AAAA/NS/CNAME/SOA) as of 2026-05-31. seed.testnet.xaya.io also empty.
+# The seed subdomains were removed from DNS post-migration (Oct 2025).
+#
+# Probe date: 2026-05-31. Egress verified working (reached live BTC nodes on 8333).
+#
+# IP                ping        8394/tcp                  notes
+# 46.101.15.140     no reply    closed/filtered           host down or fully firewalled
+# 178.62.99.51      no reply    closed/filtered           host down or fully firewalled
+# 139.59.173.255    REPLIES     Connection refused (RST)  box up, only SSH/22 open; xayad gone
+#
+# VERDICT: legacy Xaya Core P2P network is fully down. No reachable peer to sync
+# an archive node from. F2Pool CHI pool (chi.f2pool.com:5300) no longer resolves.
+# No addnode targets recoverable from GitHub issues, forum, or community search.
+#
+# Add any externally-supplied addnode targets below (host:port or ip), one per line:

@@ -1,0 +1,35 @@
+services:
+  lyncoind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LYNCOIN_VERSION: "4.0.0"
+        LYNCOIN_SHA256: "048d3ac9268b68c598d49e94f6d93a475ade3cd75e4818a8d3e0367bf66f4e6f"
+        LYNCOIN_URL: "https://github.com/lyncoin/lyncoin/releases/download/v4.0.0/lyncoin-4.0.0-linux-x64.tar.gz"
+    image: merge-mining-research/lyncoind:4.0.0
+    platform: linux/amd64
+    container_name: lyncoind
+    restart: unless-stopped
+
+    # RPC is loopback-only on the host. P2P remains publicly reachable.
+    ports:
+      - "127.0.0.1:5053:5053"
+      - "5054:5054"
+
+    volumes:
+      - ${LYNCOIN_DATA_DIR:-./data}:/home/lyncoin/.lyncoin
+
+    command:
+      - "-datadir=/home/lyncoin/.lyncoin"
+      - "-dbcache=4096"
+      # Recovery validates the chain normally but disables the header pre-sync
+      # anti-DoS work floor, which otherwise delays the needed pre-Flex blocks.
+      - "-minimumchainwork=0"
+
+    healthcheck:
+      test: ["CMD", "lyncoin-cli", "-datadir=/home/lyncoin/.lyncoin", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

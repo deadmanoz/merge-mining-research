@@ -1,0 +1,22 @@
+services:
+  doichaind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stale-blocks-research/doichaind:latest
+    container_name: doichaind
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8339:8339"
+      - "8338:8338"
+    volumes:
+      - ${DOICHAIN_DATA_DIR:-./data}:/home/doichain/.doichain
+    command:
+      - "-datadir=/home/doichain/.doichain"
+      - "-printtoconsole"
+    healthcheck:
+      test: ["CMD", "doichain-cli", "-datadir=/home/doichain/.doichain", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

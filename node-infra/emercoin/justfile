@@ -1,0 +1,49 @@
+default:
+    @just --list
+
+# Render emercoin.conf from peers.list (if non-empty) + DNS seeds.
+init:
+    ./init.sh
+
+# Build the emercoind image (~10-20 min first time on a modern host).
+build:
+    docker compose build
+
+# Start emercoind (detached). IBD via DNS seeds.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the emercoind logs.
+logs:
+    docker compose logs -f --tail=200 emercoind
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec emercoind emercoin-cli -datadir=/home/emercoin/.emercoin getblockcount
+
+# Peer count.
+peers:
+    docker compose exec emercoind emercoin-cli -datadir=/home/emercoin/.emercoin getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec emercoind emercoin-cli -datadir=/home/emercoin/.emercoin getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec emercoind emercoin-cli -datadir=/home/emercoin/.emercoin getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec emercoind bash
+
+# Refresh peers.list by resolving the DNS seed (no chainz.cryptoid.info entry
+# for EMC at scaffold time — "unknown or hosting expired" — so we use dig).
+refresh-peers:
+    @echo "==> Resolving seed.emercoin.com"
+    @dig +short seed.emercoin.com A | awk '$$0 != "" {print $$0 ":6661"}' > peers.list.new
+    @wc -l peers.list.new
+    @mv peers.list.new peers.list

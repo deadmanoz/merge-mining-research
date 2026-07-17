@@ -1,0 +1,52 @@
+[project]
+# The distribution is named after the repository; the installable package
+# stays `stale_blocks_analysis` (the stale-block-recovery strand — future
+# research directions get their own packages).
+name = "merge-mining-research"
+version = "0.1.0"
+description = "Bitcoin merge-mining research: AuxPoW stale-block recovery and monitor-facing evidence datasets"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "deadmanoz" }]
+keywords = ["bitcoin", "stale-blocks", "mining-pools", "blockchain-research"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/deadmanoz/merge-mining-research"
+Issues = "https://github.com/deadmanoz/merge-mining-research/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stale_blocks_analysis"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Hard-error gate (also what CI enforces): syntax errors plus the likely-bug
+# pyflakes rules, including F821 undefined-name which catches the path/import
+# bug class. Style-only rules (F401 unused-import, F841 unused-var, F541, E402,
+# ...) are intentionally NOT enforced repo-wide here; the
+# dynamically-resolved per-chain *_CSV imports in stale_blocks.py carry a local
+# `# noqa: F401` documenting the LoaderSpec monkeypatch contract.
+select = ["E9", "F63", "F7", "F82"]

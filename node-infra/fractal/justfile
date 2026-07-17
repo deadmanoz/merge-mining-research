@@ -1,0 +1,45 @@
+default:
+    @just --list
+
+# Render bitcoin.conf in the datadir (FRACTAL_DATA_DIR, default ./data).
+init:
+    ./init.sh
+
+# Build the fractald image (downloads the pre-built upstream tarball).
+build:
+    docker compose build
+
+# Start fractald (detached). IBD over a ~2 TB chain takes days.
+up:
+    docker compose up -d
+
+# Stop and remove the container (the data volume persists).
+down:
+    docker compose down
+
+# Tail the fractald logs.
+logs:
+    docker compose logs -f --tail=200 fractald
+
+# Blockchain height from inside the container.
+height:
+    docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getblockcount
+
+# Peer count.
+peers:
+    docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec fractald bash
+
+# One-line IBD status with deltas since the last check.
+sync-status:
+    ./sync-status.sh

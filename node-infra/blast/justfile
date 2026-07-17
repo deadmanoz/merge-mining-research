@@ -1,0 +1,62 @@
+default:
+    @just --list
+
+# Render blast.conf from peers.list (if non-empty) + DNS seeds (all wildcard-dead).
+init:
+    ./init.sh
+
+# Build the blastd image.
+build:
+    docker compose build
+
+# Start blastd (detached). DNS seeds all wildcard to a dead GCP IP — expect 0
+# peers without a manually-added private addnode.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the blastd logs.
+logs:
+    docker compose logs -f --tail=200 blastd
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec blastd blast-cli -datadir=/home/blast/.blast getblockcount
+
+# Peer count.
+peers:
+    docker compose exec blastd blast-cli -datadir=/home/blast/.blast getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec blastd blast-cli -datadir=/home/blast/.blast getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec blastd blast-cli -datadir=/home/blast/.blast getpeerinfo
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec blastd bash
+
+# Probe every DNS seed and the project domain. All known to wildcard-resolve
+# to the same single dead GCP IP 35.220.144.141 (PTR
+# 141.144.220.35.bc.googleusercontent.com.); re-run periodically in case the
+# project comes back online.
+probe-seeds:
+    @echo "==> DNS seeds (chainparams.cpp)"
+    @for d in seed.blastblastblast.com seed1.blastblastblast.com seed2.blastblastblast.com; do \
+        printf "%-32s " "$$d"; \
+        dig +short +time=2 +tries=1 "$$d" || echo "(no answer)"; \
+    done
+    @echo "==> Project / web domains"
+    @for d in testseed.blastblastblast.com www.blastblastblast.com blastblastblast.com; do \
+        printf "%-32s " "$$d"; \
+        dig +short +time=2 +tries=1 "$$d" || echo "(no answer)"; \
+    done
+    @echo "==> P2P 64640 reachability on declared seed IP"
+    @timeout 5 bash -c "</dev/tcp/35.220.144.141/64640" 2>&1 \
+        && echo "35.220.144.141:64640 OPEN" \
+        || echo "35.220.144.141:64640 unreachable"

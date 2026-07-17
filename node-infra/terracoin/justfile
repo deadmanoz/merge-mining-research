@@ -1,0 +1,50 @@
+default:
+    @just --list
+
+# Fetch bootstrap.dat.gz, verify, decompress, render terracoin.conf.
+init:
+    ./bootstrap.sh
+
+# Build the terracoind image.
+build:
+    docker compose build
+
+# Start terracoind (detached). First run consumes bootstrap.dat (~1-3 hours).
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the terracoind logs.
+logs:
+    docker compose logs -f --tail=200 terracoind
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec terracoind terracoin-cli -datadir=/home/terracoin/.terracoincore getblockcount
+
+# Peer count.
+peers:
+    docker compose exec terracoind terracoin-cli -datadir=/home/terracoin/.terracoincore getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo "--- blockchain ---"
+    @docker compose exec terracoind terracoin-cli -datadir=/home/terracoin/.terracoincore getblockchaininfo | head -30
+    @echo "--- peers ---"
+    @docker compose exec terracoind terracoin-cli -datadir=/home/terracoin/.terracoincore getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec terracoind bash
+
+# Refresh peers.list from the Chainz API (re-run when peers churn).
+refresh-peers:
+    @echo "==> Pulling live peer list from chainz.cryptoid.info"
+    @curl -sL --max-time 10 "https://chainz.cryptoid.info/trc/api.dws?q=nodes" \
+        | python3 -c "import sys,json; [print(f'{ip}:13333') for g in json.load(sys.stdin) for ip in g.get('nodes',[])]" \
+        > peers.list.new
+    @wc -l peers.list.new
+    @mv peers.list.new peers.list

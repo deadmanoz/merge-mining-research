@@ -1,0 +1,41 @@
+default:
+    @just --list
+
+# Render xaya.conf from peers.list (if non-empty) + DNS seeds.
+init:
+    ./init.sh
+
+# Build the xayad image (~10-20 min first time on a modern host).
+build:
+    docker compose build
+
+# Start xayad (detached). IBD via DNS seeds.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the xayad logs.
+logs:
+    docker compose logs -f --tail=200 xayad
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec xayad xaya-cli -datadir=/home/xaya/.xaya getblockcount
+
+# Peer count.
+peers:
+    docker compose exec xayad xaya-cli -datadir=/home/xaya/.xaya getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec xayad xaya-cli -datadir=/home/xaya/.xaya getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec xayad xaya-cli -datadir=/home/xaya/.xaya getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec xayad bash

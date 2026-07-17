@@ -1,0 +1,31 @@
+services:
+  jincoind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/jincoind:latest
+    container_name: jincoind
+    restart: unless-stopped
+
+    # RPC port bound to loopback only — AuxPoW extractor runs on the same host.
+    # P2P port published publicly so any surviving JIN node can dial in (DNS
+    # seeds and the hardcoded mainnet seed are all dead as of 2026-05-16, so
+    # inbound is the only realistic discovery channel).
+    ports:
+      - "127.0.0.1:23098:23098"
+      - "23099:23099"
+
+    volumes:
+      - ./data:/home/jincoin/.jincoin
+
+    # jincoin.conf must already exist in ./data; see init.sh.
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/jincoin/.jincoin"
+
+    healthcheck:
+      test: ["CMD", "jincoin-cli", "-datadir=/home/jincoin/.jincoin", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

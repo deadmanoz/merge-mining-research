@@ -1,0 +1,41 @@
+default:
+    @just --list
+
+# Render lyncoin.conf from peers.list and local environment overrides.
+init:
+    ./init.sh
+
+# Build the pinned official v4.0.0 Linux x64 release image.
+build:
+    docker compose build
+
+# Start lyncoind and begin IBD.
+up:
+    docker compose up -d
+
+# Stop and remove the container while preserving chain data.
+down:
+    docker compose down
+
+# Tail daemon logs.
+logs:
+    docker compose logs -f --tail=200 lyncoind
+
+# Current child-chain height.
+height:
+    docker compose exec lyncoind lyncoin-cli -datadir=/home/lyncoin/.lyncoin getblockcount
+
+# Current P2P connection count.
+peers:
+    docker compose exec lyncoind lyncoin-cli -datadir=/home/lyncoin/.lyncoin getconnectioncount
+
+# Blockchain and peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec lyncoind lyncoin-cli -datadir=/home/lyncoin/.lyncoin getblockchaininfo
+    @echo '--- peers ---'
+    @docker compose exec lyncoind lyncoin-cli -datadir=/home/lyncoin/.lyncoin getpeerinfo
+
+# Shell in the running container.
+shell:
+    docker compose exec lyncoind bash

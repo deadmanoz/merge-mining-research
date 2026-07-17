@@ -1,0 +1,30 @@
+default:
+    @just --list
+
+# Build the coiledcoind image. Includes a libdb 4.8.30 build from source
+# (one-off, ~5 minutes) plus the 2012 makefile.unix build (~2 minutes).
+build:
+    docker compose build
+
+# Start coiledcoind. Requires data/ to be pre-seeded with the chain (the
+# network has been dead since 2012; there's no IBD path).
+up:
+    docker compose up -d
+
+down:
+    docker compose down
+
+logs:
+    docker compose logs -f --tail=200 coiledcoind
+
+# Block height — only `getblockcount` and `getinfo` work on this codebase.
+height:
+    docker compose exec coiledcoind coiledcoind -datadir=/data getblockcount
+
+# Full daemon info (legacy `getinfo` is the closest thing to getblockchaininfo).
+status:
+    docker compose exec coiledcoind coiledcoind -datadir=/data getinfo
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec --user root coiledcoind bash
