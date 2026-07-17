@@ -1,0 +1,54 @@
+default:
+    @just --list
+
+# Render 611.conf from the verified peers list.
+init:
+    ./init.sh
+
+# Pull the digest-pinned official image.
+pull:
+    docker compose pull
+
+# Common node-infra build entry point. This source uses a pinned upstream image.
+build: pull
+
+# Start 611d and begin IBD.
+up:
+    docker compose up -d
+
+# Stop and remove the container while preserving chain data.
+down:
+    docker compose down
+
+# Tail daemon logs.
+logs:
+    docker compose logs -f --tail=200 sixelevend
+
+# Current child-chain height.
+height:
+    docker compose exec sixelevend 611d -datadir=/sixeleven getblockcount
+
+# Current P2P connection count.
+peers:
+    docker compose exec sixelevend 611d -datadir=/sixeleven getconnectioncount
+
+# Blockchain and peer snapshot supported by this legacy daemon.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec sixelevend 611d -datadir=/sixeleven getinfo
+    @echo '--- peers ---'
+    @docker compose exec sixelevend 611d -datadir=/sixeleven getpeerinfo
+
+# Extract Bitcoin-difficulty AuxPoW candidates from the synced numbered block files.
+extract OUTPUT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ../../.venv/bin/activate
+    python ../../scripts/extract/extract_auxpow_from_blkdat.py \
+        --chain sixeleven \
+        --blocks-dir "${SIXELEVEN_DATA_DIR:-./data}" \
+        --output "{{OUTPUT}}"
+
+# Shell in the running container.
+shell:
+    docker compose exec sixelevend bash

@@ -1,0 +1,41 @@
+services:
+  crownd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # <archival-host> is Linux/amd64. Pin the build platform so dev-host arm64
+      # (e.g. Apple Silicon) doesn't pull a different package set — bionic
+      # universe ships `tini` for amd64 only.
+      platforms:
+        - "linux/amd64"
+    image: merge-mining-research/crownd:0.14.0.4
+    platform: linux/amd64
+    container_name: crownd
+    restart: unless-stopped
+    # PID 1 zombie reaping (we dropped tini from the image to avoid the
+    # bionic-universe apt step).
+    init: true
+
+    # RPC port bound to loopback only — AuxPoW extractor runs on the same host.
+    # P2P port published publicly so addnodes + inbound peers work.
+    ports:
+      - "127.0.0.1:9341:9341"
+      - "9340:9340"
+
+    volumes:
+      # Chain data lives on a large external volume on the deployment host.
+      # Set CROWN_DATA_DIR (e.g. via a .env file beside this compose file) to
+      # that absolute path; defaults to ./data for fresh local deploys.
+      - ${CROWN_DATA_DIR:-./data}:/home/crown/.crown
+
+    # crown.conf is rendered by bootstrap.sh.
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/crown/.crown"
+
+    healthcheck:
+      test: ["CMD", "crown-cli", "-datadir=/home/crown/.crown", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

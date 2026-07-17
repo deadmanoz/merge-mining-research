@@ -1,0 +1,3789 @@
+{
+  "batch_format_version": 1,
+  "batches": [
+    {
+      "count": 1,
+      "end_height": 0,
+      "file": "batches/0000000000-0000000000.lhbatch",
+      "first_hash": "000000002b8761c63862f5047afb9ac5fdd1c67e87cd376c387628bc772bb39d",
+      "last_hash": "000000002b8761c63862f5047afb9ac5fdd1c67e87cd376c387628bc772bb39d",
+      "metadata": {
+        "created_at": "2026-07-10T13:23:56.154004Z",
+        "end_height": 0,
+        "peer": null,
+        "response_header_count": 1,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "pinned Lyncoin Core v4.0.0 genesis",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 0
+      },
+      "sha256": "5168756418731df6f8379483bf831d4d5b8cb722e06978bbe8fe7a0364920512",
+      "size_bytes": 365,
+      "start_height": 0
+    },
+    {
+      "count": 2000,
+      "end_height": 2000,
+      "file": "batches/0000000001-0000002000.lhbatch",
+      "first_hash": "1fca5a9820c1df3f93db087cd2bab0ebf2d375cf87ef9122e684fb7eb4634d9d",
+      "last_hash": "efb52e612027fe4c1a3b844aaf71cfa310824dc8195cd14ead5fd40e1718a499",
+      "metadata": {
+        "created_at": "2026-07-10T13:23:59.239098Z",
+        "end_height": 2000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 1
+      },
+      "sha256": "c4506f3a61f296d586d2da4845a8c710d59a074f217ad581059ed5fcb1349c09",
+      "size_bytes": 1469243,
+      "start_height": 1
+    },
+    {
+      "count": 2000,
+      "end_height": 4000,
+      "file": "batches/0000002001-0000004000.lhbatch",
+      "first_hash": "f9dacd34c87e14003250e4016266e5fc34a014eb69b1f885f946395d9a128cf3",
+      "last_hash": "adf9f8120c192eeec2348e45b4e490521b61a556351652fbae2741a966cc4614",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:00.602714Z",
+        "end_height": 4000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 2001
+      },
+      "sha256": "d8b30263ca513c8932d079b52f625d93f19173dd73b7d3a75e4d95abcbb79332",
+      "size_bytes": 1487038,
+      "start_height": 2001
+    },
+    {
+      "count": 2000,
+      "end_height": 6000,
+      "file": "batches/0000004001-0000006000.lhbatch",
+      "first_hash": "b2ba35bf886436df297733cf033da1095d70651c65dc84f9f5d10ec34cf21017",
+      "last_hash": "705ab52515fdc916a1971407473de0d64c40a0ee03be4a9090028beb15f109c6",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:01.581353Z",
+        "end_height": 6000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 4001
+      },
+      "sha256": "8abb04a89e1accf9bcd01b85734f80880f8c2414c8a559d0d3d362fbe42f74f4",
+      "size_bytes": 1547096,
+      "start_height": 4001
+    },
+    {
+      "count": 2000,
+      "end_height": 8000,
+      "file": "batches/0000006001-0000008000.lhbatch",
+      "first_hash": "bd573d50bcdf9e952e5a66f9ff2dbedbfb74650574076d6bbb4c86630d3ac655",
+      "last_hash": "0000000000013397f7beac0e57d7442a82db13d74c06ef81763dad79ab855bb2",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:02.575857Z",
+        "end_height": 8000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 6001
+      },
+      "sha256": "4a552bb61109ddd5bbc8cfde0a78eac20d3946ad698cd3f6ab75ff12024de30c",
+      "size_bytes": 790204,
+      "start_height": 6001
+    },
+    {
+      "count": 2000,
+      "end_height": 10000,
+      "file": "batches/0000008001-0000010000.lhbatch",
+      "first_hash": "00000000021a0f58faf7fa0c7ed71e19beed79cefe108160a47a4a1409705bd2",
+      "last_hash": "000000000002ce00fce2f53c833902878c457c7ad04c411c7cb7c484e91327b5",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:03.333013Z",
+        "end_height": 10000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 8001
+      },
+      "sha256": "7fce1f0400a78e8c9c088ef4a1e3851c22e53e4f0b6385ae8384fe51d89392ef",
+      "size_bytes": 437669,
+      "start_height": 8001
+    },
+    {
+      "count": 2000,
+      "end_height": 12000,
+      "file": "batches/0000010001-0000012000.lhbatch",
+      "first_hash": "7b6b2180045eb954283747921191eb6227a95619a87efccbce35a32a34d9c257",
+      "last_hash": "96c44e34562b41c135d38fad8d1c55a3cd7df019971bd844ba9ab6870139ce99",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:04.810150Z",
+        "end_height": 12000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 10001
+      },
+      "sha256": "2cc2990721c4ec4d1919903ba5bfd2fbdfea6612e75bfc7ad1a1a2087f3dd86c",
+      "size_bytes": 372180,
+      "start_height": 10001
+    },
+    {
+      "count": 2000,
+      "end_height": 14000,
+      "file": "batches/0000012001-0000014000.lhbatch",
+      "first_hash": "00000000000283c8420ebc8690640f29f81e873699277f6187bd0862eae2ac01",
+      "last_hash": "0000000000056ce0704b720d06bfb64340e93667cde6af9ced6be24b3f4ef4db",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:05.602001Z",
+        "end_height": 14000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 12001
+      },
+      "sha256": "b6846c43a66ad79caee5c900c236a794478b45631b109200765ffcba18cef0e0",
+      "size_bytes": 418308,
+      "start_height": 12001
+    },
+    {
+      "count": 2000,
+      "end_height": 16000,
+      "file": "batches/0000014001-0000016000.lhbatch",
+      "first_hash": "00000000000237465c73890147408285e918879195b28d82f5b5edf51c8cbd4f",
+      "last_hash": "000000000000afb618d49054a3e9433482634a33a47e34ec94317a77a6e8e609",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:06.347035Z",
+        "end_height": 16000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 14001
+      },
+      "sha256": "e75dd4ba36a0fb4957f2a08157d2031d36c7511c0fbb58422e41e1268fb417fe",
+      "size_bytes": 583538,
+      "start_height": 14001
+    },
+    {
+      "count": 2000,
+      "end_height": 18000,
+      "file": "batches/0000016001-0000018000.lhbatch",
+      "first_hash": "00000000000002a2e523670b8daade7707856df4322955e41463d39abfef5869",
+      "last_hash": "48df4ffb9c4e3f9d889ce7199a939cc5c86b31396241cd23667b367e78fddcfb",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:07.433404Z",
+        "end_height": 18000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 16001
+      },
+      "sha256": "9e4b331217df76543a67589551f5995c6723259bb40a8c5d76a6cb1c4b7e874b",
+      "size_bytes": 901612,
+      "start_height": 16001
+    },
+    {
+      "count": 2000,
+      "end_height": 20000,
+      "file": "batches/0000018001-0000020000.lhbatch",
+      "first_hash": "a11775c4bbd5e926b7a6acca786c00573866f276ce64ad8faeb7a434e38dcef7",
+      "last_hash": "2ed35f5d1e12679cb9ee0761e055c84d6d9f016489732ef275a0bf8f0f6b1a30",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:08.253296Z",
+        "end_height": 20000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 18001
+      },
+      "sha256": "04c78e66271eae2306315b398be44055775c3c6cc58a334c1fbfab123d201ffa",
+      "size_bytes": 1116614,
+      "start_height": 18001
+    },
+    {
+      "count": 2000,
+      "end_height": 22000,
+      "file": "batches/0000020001-0000022000.lhbatch",
+      "first_hash": "00000000000003aa6c3e9d6e95abd08457a4bf8d1b342629f29d96c0a4beb4fa",
+      "last_hash": "d2fc357955eb41e3b588bddeee2028579c0980b1a8c01eefbde0ed3cb208d3a7",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:10.539477Z",
+        "end_height": 22000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 20001
+      },
+      "sha256": "e13c114d46f1196ec07c83d8ef85502c120e5be3b49df6d0a3e510cfe83dd365",
+      "size_bytes": 1386648,
+      "start_height": 20001
+    },
+    {
+      "count": 2000,
+      "end_height": 24000,
+      "file": "batches/0000022001-0000024000.lhbatch",
+      "first_hash": "7abc09a5e719ed9e27627620977ccf278b0a0e412c021631847b51f9b356ca35",
+      "last_hash": "83d1840ec94e9bcea37b26fbac791c6a1f02bb779d08ef44574ca13f500b1495",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:11.307248Z",
+        "end_height": 24000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 22001
+      },
+      "sha256": "ea8402f32e018413908c8f71f6e90fab29775d92c2a2315fcaf74f03f31484d3",
+      "size_bytes": 1407912,
+      "start_height": 22001
+    },
+    {
+      "count": 2000,
+      "end_height": 26000,
+      "file": "batches/0000024001-0000026000.lhbatch",
+      "first_hash": "7468c371ec8050f4ff509e7418e805361275d32c4a2e3b0acf6812321cf9462d",
+      "last_hash": "000000000000002e2013f183e241a58dc8d203ce3553a3918bae8017494844f6",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:12.007926Z",
+        "end_height": 26000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 24001
+      },
+      "sha256": "50c492b29dd0593fe5133884ce639c7995462f3429c9ca207495f11d3e9555e0",
+      "size_bytes": 1168172,
+      "start_height": 24001
+    },
+    {
+      "count": 2000,
+      "end_height": 28000,
+      "file": "batches/0000026001-0000028000.lhbatch",
+      "first_hash": "0000000000000017632149b5b46375a88dd308a80bad30753f1243af92ff87a2",
+      "last_hash": "d1def3005b411afd00d2360aa7e6b0ba59ac38fa8e3bb3563505985774c825bc",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:12.731308Z",
+        "end_height": 28000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 26001
+      },
+      "sha256": "af72ec3faa3a34776c4fa9b290df95d8ed10d5ed430aad1a5902ab18f4e5bcca",
+      "size_bytes": 942695,
+      "start_height": 26001
+    },
+    {
+      "count": 2000,
+      "end_height": 30000,
+      "file": "batches/0000028001-0000030000.lhbatch",
+      "first_hash": "d4cb0170dbfe04726481ffc78aa8941d8c9614a1971d6f05242c936ca1b5200c",
+      "last_hash": "5427dbfe4804300d7a8f5a73ec1bda71ca1cdc0bbbba5e7518a6fa42358534e9",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:13.549281Z",
+        "end_height": 30000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 28001
+      },
+      "sha256": "ccbd4354beb0a7bc32502cc30d61148710bfe6bb894386bf9e61a98441f62697",
+      "size_bytes": 1101282,
+      "start_height": 28001
+    },
+    {
+      "count": 2000,
+      "end_height": 32000,
+      "file": "batches/0000030001-0000032000.lhbatch",
+      "first_hash": "b0130b6b13f0f3f4b4b87a4219bf749978a389722d453ff5094580cb5e1346bd",
+      "last_hash": "563bd005d7cfb45256f457c0e51c042d9093b7ce3ad1a885e029334f66ed0989",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:14.613022Z",
+        "end_height": 32000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 30001
+      },
+      "sha256": "3dc29b0e38cb1ce1843af3017aac2da01d7838f8680c2de59f383d24ff70aa77",
+      "size_bytes": 1123907,
+      "start_height": 30001
+    },
+    {
+      "count": 2000,
+      "end_height": 34000,
+      "file": "batches/0000032001-0000034000.lhbatch",
+      "first_hash": "e68ffb3b4b8a9a56d64974de1fab9fa47adcd3fec8d34285540d5f73af12d15c",
+      "last_hash": "f88cdcf76bf25c6a6f9811407c7b8c3de844a437b95844337bec1029b0958844",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:15.742334Z",
+        "end_height": 34000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 32001
+      },
+      "sha256": "034abc93308f6957a5dfa00becafaf50e7f11da39d871c3e678b8859e4dedf09",
+      "size_bytes": 1158073,
+      "start_height": 32001
+    },
+    {
+      "count": 2000,
+      "end_height": 36000,
+      "file": "batches/0000034001-0000036000.lhbatch",
+      "first_hash": "5dec3599a976dd30ed603864aff9a24cf9b673222de9b34c3661c87a133495f1",
+      "last_hash": "da3ccb9239de6ceeb54fc2a558acfba4467b911517bcfeb380e62cc371bd34a8",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:16.521727Z",
+        "end_height": 36000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 34001
+      },
+      "sha256": "046ee636ad63778a37a0ac3314fd7c3e18b6fb7aeba7ab2eb6c78b9ee3261346",
+      "size_bytes": 1231126,
+      "start_height": 34001
+    },
+    {
+      "count": 2000,
+      "end_height": 38000,
+      "file": "batches/0000036001-0000038000.lhbatch",
+      "first_hash": "da3916295fa300ec211559e66cac2063113194f90da217366f472dd1b0d05338",
+      "last_hash": "ff5ea42f570a8c9e97e984da593d34eff24c5fae78ae17e41b3b14b7d5c7db87",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:17.409706Z",
+        "end_height": 38000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 36001
+      },
+      "sha256": "fe0b661ed06b5cb0d153cfbe0210259f32bf3cc629d38e4291cebe61db2bcfc5",
+      "size_bytes": 1273617,
+      "start_height": 36001
+    },
+    {
+      "count": 2000,
+      "end_height": 40000,
+      "file": "batches/0000038001-0000040000.lhbatch",
+      "first_hash": "cc635eede24013bb50efea08aa5f9f160cf5369a9935989ce86e93234a2426b2",
+      "last_hash": "ff3c7d78cb9054a3602867f23958f441aacc87d29ec0968df4904ae9dc85c184",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:18.280598Z",
+        "end_height": 40000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 38001
+      },
+      "sha256": "832b5641e796ebc3e856a134f8b1c5d65b8a05dae4a26eb27c906e9ccfdc1d36",
+      "size_bytes": 1248999,
+      "start_height": 38001
+    },
+    {
+      "count": 2000,
+      "end_height": 42000,
+      "file": "batches/0000040001-0000042000.lhbatch",
+      "first_hash": "5deee90f89599c5854bb14bd943963ec2a62802f1b1e29feb426f9c7a90b8ec3",
+      "last_hash": "f58aa027005f4c4663d04a13b50046cf80aa511eed8b9e1cbd253dd6960b14df",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:19.225167Z",
+        "end_height": 42000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 40001
+      },
+      "sha256": "3dc4c157c59d0b2c37fdaa21f7da4ca1941a39ba05f0c299f980edc347efccd6",
+      "size_bytes": 1246402,
+      "start_height": 40001
+    },
+    {
+      "count": 2000,
+      "end_height": 44000,
+      "file": "batches/0000042001-0000044000.lhbatch",
+      "first_hash": "69d18c4fa26ddcc24ca543383d79aeddc68dfb51b588846cd05666739c1e4607",
+      "last_hash": "bb483ef1c5d233a9741cb78997c0b4dfc5e551d06ca2e52287124b69206e358d",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:20.798340Z",
+        "end_height": 44000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 42001
+      },
+      "sha256": "13b79595964732b291b0b7cb86edc10d8e7ea3c8473e5be83cda473f5e87704e",
+      "size_bytes": 1212096,
+      "start_height": 42001
+    },
+    {
+      "count": 2000,
+      "end_height": 46000,
+      "file": "batches/0000044001-0000046000.lhbatch",
+      "first_hash": "47a11f26c25c8d53db0feccdd5c53e2f1d0c2594428d8eba3ab00dc5f76ef657",
+      "last_hash": "c541deeaedab410ff2ed2496256176c036f1e6d04ad959580a39d5635cb674ba",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:21.606064Z",
+        "end_height": 46000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 44001
+      },
+      "sha256": "a04a8f7b8510c7728c3782a11d705ec203fc83cdfe73676844bb59d9b9a67167",
+      "size_bytes": 1198422,
+      "start_height": 44001
+    },
+    {
+      "count": 2000,
+      "end_height": 48000,
+      "file": "batches/0000046001-0000048000.lhbatch",
+      "first_hash": "c71c20c96d8b43b2e8d9a197a9cd9850fda52f5ca4f4c078747ce7bcf9ca2686",
+      "last_hash": "73d94023906e8963a553647d245d066947f75c1ba2898ecbb2d0bd71dc95a382",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:22.321072Z",
+        "end_height": 48000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 46001
+      },
+      "sha256": "1d5a16a2781c53893cad8fefe7ee4842151a0c771de85c71a880964853e86392",
+      "size_bytes": 1256981,
+      "start_height": 46001
+    },
+    {
+      "count": 2000,
+      "end_height": 50000,
+      "file": "batches/0000048001-0000050000.lhbatch",
+      "first_hash": "287292426b84979ede81d58f4e2004256abcd29f178feb511f9fd78167f7872c",
+      "last_hash": "7aa3a580745059f06694d2b3e91037d7b764a48c49d39a6463e8ebb94460ef74",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:23.133247Z",
+        "end_height": 50000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 48001
+      },
+      "sha256": "4b526eb62e50c8b22430950f37c29ba2e97a2d21fef6b53b393d0563f06a1c2b",
+      "size_bytes": 1075115,
+      "start_height": 48001
+    },
+    {
+      "count": 2000,
+      "end_height": 52000,
+      "file": "batches/0000050001-0000052000.lhbatch",
+      "first_hash": "7f47a1c31cf7fe009eb7025dc25be3d13b2b11ebbbb6b6c136338ecea3c6545b",
+      "last_hash": "4b4e74108725fae068c26840d1b8944e1b86a999d15786af34b103a58a695cd1",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:24.034278Z",
+        "end_height": 52000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 50001
+      },
+      "sha256": "c0e3b14c18490ca88504add31136afd4e06dd2b8f3868f58542ac21380cad27e",
+      "size_bytes": 971972,
+      "start_height": 50001
+    },
+    {
+      "count": 2000,
+      "end_height": 54000,
+      "file": "batches/0000052001-0000054000.lhbatch",
+      "first_hash": "f47f03c4090e4517fce4e91376ecf65bfbffa141ff2463d324c68d3e8c0d6b92",
+      "last_hash": "8f91afa8bf199fd1d9db29a65e78940c50f3b28d0e1d775f899ddc29ea68825e",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:25.156281Z",
+        "end_height": 54000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 52001
+      },
+      "sha256": "cd0d53d1f9d3b0f76659954c23f7e46dbaddb1eba79e278785a30428db9aa227",
+      "size_bytes": 1145308,
+      "start_height": 52001
+    },
+    {
+      "count": 2000,
+      "end_height": 56000,
+      "file": "batches/0000054001-0000056000.lhbatch",
+      "first_hash": "50e3eb8c8ed66997a9d80b2a2772f187a60a8ff2ece99df47f5dc010e7da22a1",
+      "last_hash": "6503719d7fdb6e9f556bc12033a6850ae1a6910637313357aed7cec69e78768d",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:25.920271Z",
+        "end_height": 56000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 54001
+      },
+      "sha256": "7521b55e29b9ad842f0aa6228a544e62374d57a967f94eee73fccb15cd1ddd9f",
+      "size_bytes": 1142168,
+      "start_height": 54001
+    },
+    {
+      "count": 2000,
+      "end_height": 58000,
+      "file": "batches/0000056001-0000058000.lhbatch",
+      "first_hash": "beeca22632ac2b07364dccad2b6457fb5a57e288726239b40df7ceffb55f3282",
+      "last_hash": "4d07c82973456481d4c9401bcdd3dcaa7cde264503e224be55cad60d538951a8",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:26.721918Z",
+        "end_height": 58000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 56001
+      },
+      "sha256": "c442a06acb8a90184b2c44ae27bd51c48411286f99be5b3b95e69b5427db8fc2",
+      "size_bytes": 1319014,
+      "start_height": 56001
+    },
+    {
+      "count": 2000,
+      "end_height": 60000,
+      "file": "batches/0000058001-0000060000.lhbatch",
+      "first_hash": "df70a7a6197146f312f0aaa6c6e6f180487245e2b3ef6b87c3b9dabbf5c9a794",
+      "last_hash": "9eb558eb1779eeda5ad1cac490acc82f866754756da22e0db0806e540538a13c",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:27.631016Z",
+        "end_height": 60000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 58001
+      },
+      "sha256": "c39090394d9cbc3da0310b728768c03854854ff5d7011807ba571c8a5e8d15b4",
+      "size_bytes": 1662230,
+      "start_height": 58001
+    },
+    {
+      "count": 2000,
+      "end_height": 62000,
+      "file": "batches/0000060001-0000062000.lhbatch",
+      "first_hash": "95b5a31e061c403b3611c1cf3b8172cec85ea9500d01f6f97c9286ea65c055c0",
+      "last_hash": "8070792ad6e54681e81bac09f1d73eeab2930fc4939f59ce99761c05f51e126c",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:28.414129Z",
+        "end_height": 62000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 60001
+      },
+      "sha256": "46a68ceb2ae73d4c282ef59d4122dd5bc0900198525ce9f6341af89a29086522",
+      "size_bytes": 1660378,
+      "start_height": 60001
+    },
+    {
+      "count": 2000,
+      "end_height": 64000,
+      "file": "batches/0000062001-0000064000.lhbatch",
+      "first_hash": "99ab093cf03154d761316c93145676dcbfe78c358043d4cfe30e70f03ce9a1fb",
+      "last_hash": "201cf71d2e33b7967351bd9aa1a32d5a17186b0bb34a4fb49a41234495a65163",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:29.228715Z",
+        "end_height": 64000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 62001
+      },
+      "sha256": "8b9911c427d6d912b39f0df4a6ea52b1cd5dba53efe6a3869adc67b48c4264f8",
+      "size_bytes": 1663944,
+      "start_height": 62001
+    },
+    {
+      "count": 2000,
+      "end_height": 66000,
+      "file": "batches/0000064001-0000066000.lhbatch",
+      "first_hash": "160467f1a3885e7be1b1a5c68e2104ae31a899153c2ec7b378d2f2055f26de14",
+      "last_hash": "f6d48c561ff6500cd289d121392d31b0e3575f27e17f452181c7152d0606d280",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:30.422481Z",
+        "end_height": 66000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 64001
+      },
+      "sha256": "f24fdd8d3e756262525034bf9b00e7803b5b259017653541ce76e21d15f34191",
+      "size_bytes": 1568787,
+      "start_height": 64001
+    },
+    {
+      "count": 2000,
+      "end_height": 68000,
+      "file": "batches/0000066001-0000068000.lhbatch",
+      "first_hash": "5542be86e4fb4ce08480324d14a8a78fea8cd764a25dd76d7ccde9be21c3f659",
+      "last_hash": "cc4e3c3476ea0271f0491fbad4b3b4cedc5b928ae0ee11c68086fd8809e03a3f",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:31.371075Z",
+        "end_height": 68000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 66001
+      },
+      "sha256": "d4566a246bbcb4ce2ae8645367784b4f7161f1c20352037f3d59f296e930acfe",
+      "size_bytes": 1516402,
+      "start_height": 66001
+    },
+    {
+      "count": 2000,
+      "end_height": 70000,
+      "file": "batches/0000068001-0000070000.lhbatch",
+      "first_hash": "0bde022312887c13edf798d5a020bd7fe7a7852e63a4a6307b3396feee9ff505",
+      "last_hash": "84f0df6fbcfeb6d864af1ba85ac62ab6bda03adc6ad54008b26a0bba702a7d35",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:32.285839Z",
+        "end_height": 70000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 68001
+      },
+      "sha256": "3657ed8774cb6dfa08c8a9deddc7e10a8616d5b6aaf663238b2c7fc95ce734f2",
+      "size_bytes": 1505064,
+      "start_height": 68001
+    },
+    {
+      "count": 2000,
+      "end_height": 72000,
+      "file": "batches/0000070001-0000072000.lhbatch",
+      "first_hash": "f0ba9f827dda9241d9fa00a5d2b16889d1d7365a0c49569ca0fa22a1fa84d245",
+      "last_hash": "4b3e152468a968ea1a3d4a9f8d60e43a572a5c0ced24ee9519d4d82cd8eb6240",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:33.298015Z",
+        "end_height": 72000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 70001
+      },
+      "sha256": "7e5aedbf3a73f858aae1a9e80be6fb8ee2f836bebdf17082871d0be3378a5716",
+      "size_bytes": 1593174,
+      "start_height": 70001
+    },
+    {
+      "count": 2000,
+      "end_height": 74000,
+      "file": "batches/0000072001-0000074000.lhbatch",
+      "first_hash": "762a57fd0244f5dad6401a76e2b892e15eff52c4bc68a23c311c94aa351891fa",
+      "last_hash": "fc4a2d14f9b720217e4678addbab456de89a417bbf0b49d8ec484f7fe5088712",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:34.300278Z",
+        "end_height": 74000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 72001
+      },
+      "sha256": "ad264a8da8090db90e753bbd2cb0274ecd20168247949ba9cde606ec4609a05a",
+      "size_bytes": 1308991,
+      "start_height": 72001
+    },
+    {
+      "count": 2000,
+      "end_height": 76000,
+      "file": "batches/0000074001-0000076000.lhbatch",
+      "first_hash": "cdfc6a4434422450c979021878e418319f67d46f0aca95ae7f1325437288c0ed",
+      "last_hash": "1b310cd5a8623c2177c6c3cd4d0a53853a73d33feec06a24dddd817559761203",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:35.793783Z",
+        "end_height": 76000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 74001
+      },
+      "sha256": "62a3d3c7434db2dd0d46adc723c45fcf71149e9cc60ddd2f6eda093a8a357930",
+      "size_bytes": 1413620,
+      "start_height": 74001
+    },
+    {
+      "count": 2000,
+      "end_height": 78000,
+      "file": "batches/0000076001-0000078000.lhbatch",
+      "first_hash": "7e2edb5bfb4acf31f0300b12f3eb2f5756427931040c6ba421e19bb2793f4530",
+      "last_hash": "7e870cf9bd458e376c3aec3d78c3219c7087a9ab967ac48477348a83dc94142f",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:36.663616Z",
+        "end_height": 78000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 76001
+      },
+      "sha256": "5a013741075c9fafc7c92207298c79a7a0cc6084bf0ff1ae28b32a6dbba3cf7e",
+      "size_bytes": 1393343,
+      "start_height": 76001
+    },
+    {
+      "count": 2000,
+      "end_height": 80000,
+      "file": "batches/0000078001-0000080000.lhbatch",
+      "first_hash": "32ab0e3e88b35caffa60ce7443aeb8e33167aa1fd53b099ef98630ec48463306",
+      "last_hash": "3934eef0bda0567058223c6b89bc20f5564a0e771762587b1f87a494f050f86c",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:37.645000Z",
+        "end_height": 80000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 78001
+      },
+      "sha256": "9b7870b754eda2a808591b966f18523a600ac784e4f69e7b27c924900760f563",
+      "size_bytes": 1411244,
+      "start_height": 78001
+    },
+    {
+      "count": 2000,
+      "end_height": 82000,
+      "file": "batches/0000080001-0000082000.lhbatch",
+      "first_hash": "c898e906f86f54fc8edd666dc748776895fda3255f39441e7bc94df202231850",
+      "last_hash": "e81c4b60b4b22bc678a42f3f605a78c20a855a0f64e52a99b2bd78ae15851dbc",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:38.800796Z",
+        "end_height": 82000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 80001
+      },
+      "sha256": "8c16fdf934e8395933f2e1d3acdf9e3baa80250013dc74ba4d9c423379fa75a9",
+      "size_bytes": 1349961,
+      "start_height": 80001
+    },
+    {
+      "count": 2000,
+      "end_height": 84000,
+      "file": "batches/0000082001-0000084000.lhbatch",
+      "first_hash": "b9946b27fd4395762064ecdd695edfb0725b8600ccc4bc1c94d926435f8a61bb",
+      "last_hash": "c0fd975f89232ef207f4741109bd7a1abe7759b1c923682af89eb35e760781d1",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:39.733456Z",
+        "end_height": 84000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 82001
+      },
+      "sha256": "17df3612335ba6743b2c07d892899855dd27d101466ad7547967c9b2162fbb98",
+      "size_bytes": 1413978,
+      "start_height": 82001
+    },
+    {
+      "count": 2000,
+      "end_height": 86000,
+      "file": "batches/0000084001-0000086000.lhbatch",
+      "first_hash": "cff8b4a93dc89611aa6e8704b326894fc8610ec040fe4046bfd29071ef26843b",
+      "last_hash": "2c922060bb2fa2979fdfa76f530ca4237381da720ecb5adc81f6f13d1faab81f",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:41.794964Z",
+        "end_height": 86000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 84001
+      },
+      "sha256": "4150d757cc4c143d39afa5699a73f07f22a4d844f46f038b3bfcb709db8985c0",
+      "size_bytes": 1292497,
+      "start_height": 84001
+    },
+    {
+      "count": 2000,
+      "end_height": 88000,
+      "file": "batches/0000086001-0000088000.lhbatch",
+      "first_hash": "854f4ed16837f48e7d469a0794f1eee34702587ef25eaa9fd41b5b793f742ee9",
+      "last_hash": "6fcc33b9d441e0c3a8315bed6b561339bfe45e0abbc0f5aab49ab70bdefa9b5b",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:42.575830Z",
+        "end_height": 88000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 86001
+      },
+      "sha256": "2c4253ca2b7c952ae9011d85c01bc8f0cc801ba384aa70ae44f2a93e7cdc544a",
+      "size_bytes": 1355262,
+      "start_height": 86001
+    },
+    {
+      "count": 2000,
+      "end_height": 90000,
+      "file": "batches/0000088001-0000090000.lhbatch",
+      "first_hash": "e0634bac1a506b12ba5c0fae58d05fe20607f9d7b87c9257687f8592b86b7a80",
+      "last_hash": "7f8fd1e35f306a4bb994bf43b9c1fb89df9b1d356064237e7c4aaeb9161b3e7b",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:43.751916Z",
+        "end_height": 90000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 88001
+      },
+      "sha256": "f4c0541eab3b9954c0b416165b465eee151a16c5f441390c66c5cb541d21ad7d",
+      "size_bytes": 1349303,
+      "start_height": 88001
+    },
+    {
+      "count": 2000,
+      "end_height": 92000,
+      "file": "batches/0000090001-0000092000.lhbatch",
+      "first_hash": "df54711a508841cdcdc7fee4983b4021c979748fe6f98b6f11a067380d619b89",
+      "last_hash": "681959e34b44cd9bb14f0d1c9f9461bd45c5c150593fa23df7678e3e4664107d",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:44.771482Z",
+        "end_height": 92000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 90001
+      },
+      "sha256": "738892c8924937dbef0f61a969fe67ffc76b3c17309ef395964fdca3bdc5a53b",
+      "size_bytes": 1323592,
+      "start_height": 90001
+    },
+    {
+      "count": 2000,
+      "end_height": 94000,
+      "file": "batches/0000092001-0000094000.lhbatch",
+      "first_hash": "34fb836c22ea8aa371146ede11cba72cfcb2a2d3259475c3b12e4542fc3425e6",
+      "last_hash": "1b74655ea0218ce0ad3d123a2cf207b7b507ccc67cfd6923280c6cb628153f82",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:46.214211Z",
+        "end_height": 94000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 92001
+      },
+      "sha256": "afdbe13e613bc51d89bdcea7cb96b61ee766aa345bee989763ff22cda568bf65",
+      "size_bytes": 1470314,
+      "start_height": 92001
+    },
+    {
+      "count": 2000,
+      "end_height": 96000,
+      "file": "batches/0000094001-0000096000.lhbatch",
+      "first_hash": "14219284f14f751c4329a250425fa87dd0331e0034d6a9b68d2daf2eb8df4948",
+      "last_hash": "a23361311f4cfc90b7ecdad89ced3156e035e7de45a9421076f994396015fc72",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:47.047772Z",
+        "end_height": 96000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 94001
+      },
+      "sha256": "350195b52de57f1e50bf7dd47e45f3c1881f415375eb43a152ccce884b480fa7",
+      "size_bytes": 1430123,
+      "start_height": 94001
+    },
+    {
+      "count": 2000,
+      "end_height": 98000,
+      "file": "batches/0000096001-0000098000.lhbatch",
+      "first_hash": "7f184f7587e24679a3430870b45a6574da73b772c6128eb12df895dc807da8d2",
+      "last_hash": "118047ef169320373a3e40586717a8ff1473bce11f1d2ca6841a3f220c1a2c9f",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:48.240670Z",
+        "end_height": 98000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 96001
+      },
+      "sha256": "636402e06f1714e2fd6279811474215c677adb00ec99eddaa36eb13ebe127c96",
+      "size_bytes": 1399090,
+      "start_height": 96001
+    },
+    {
+      "count": 2000,
+      "end_height": 100000,
+      "file": "batches/0000098001-0000100000.lhbatch",
+      "first_hash": "26d46666457ba3199630dc8cf79777a19a08e244681807c085750c3d23d22843",
+      "last_hash": "96833a9b1298412904c0b49f1004a733883e84907b8b8479391ccb3de058ce86",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:49.259602Z",
+        "end_height": 100000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 98001
+      },
+      "sha256": "8c310b014a21467b68039fb39f09629015a9b1bce902ba348d7e72ed63c50a5e",
+      "size_bytes": 1503179,
+      "start_height": 98001
+    },
+    {
+      "count": 2000,
+      "end_height": 102000,
+      "file": "batches/0000100001-0000102000.lhbatch",
+      "first_hash": "5aad104fcc57c369ef46a565b8c3cac73739977e7fbf3d8d1de12b031800e088",
+      "last_hash": "2daa2da7e005cf280dadcbdb4d1cc8ce26692ee7b0f7327dd06c5c10f961c7a8",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:51.023936Z",
+        "end_height": 102000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 100001
+      },
+      "sha256": "232bd7b45e85260e6fbde6e488c73bd289f188b6b2b68362f71c72a2842be24a",
+      "size_bytes": 1366144,
+      "start_height": 100001
+    },
+    {
+      "count": 2000,
+      "end_height": 104000,
+      "file": "batches/0000102001-0000104000.lhbatch",
+      "first_hash": "f67745addbdcfd0bbe2070b3190d287988182780688434be64d1afec8c74f39c",
+      "last_hash": "4428c987dcd1b5afc892f2b7884bcc4d5a6b98a4972159b20e79fd37eceecd31",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:52.142102Z",
+        "end_height": 104000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 102001
+      },
+      "sha256": "d7ce6ca4d48cd4e0ed830961e8273b9e5b79021c42c76e623af662a84c98d888",
+      "size_bytes": 1413868,
+      "start_height": 102001
+    },
+    {
+      "count": 2000,
+      "end_height": 106000,
+      "file": "batches/0000104001-0000106000.lhbatch",
+      "first_hash": "42fc79529365a134f5fc3e69da1371d526674ecac9913a82cbd057f277d563c8",
+      "last_hash": "34d109173014e844a51a4f5fc41c91c5919f00c5bdf8330744f0dd2c49550820",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:53.215335Z",
+        "end_height": 106000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 104001
+      },
+      "sha256": "218ea3463df5acbb4cacea1df8322eb827b2c7013bdc8c8b9f3febae199ff785",
+      "size_bytes": 1387245,
+      "start_height": 104001
+    },
+    {
+      "count": 2000,
+      "end_height": 108000,
+      "file": "batches/0000106001-0000108000.lhbatch",
+      "first_hash": "b02ba1e8747cd7e3ebd1c4510fb0351402118fe4c980c393c67192e3e9233fc4",
+      "last_hash": "196af8e68d7c61855f37a418e5c6258785d179dc27c715f4526855605f7d248d",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:54.309350Z",
+        "end_height": 108000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 106001
+      },
+      "sha256": "52da1f0ab084ae486d5a368ca9b9259686084cd51c10c864995f3e8cc9c225d5",
+      "size_bytes": 1465006,
+      "start_height": 106001
+    },
+    {
+      "count": 2000,
+      "end_height": 110000,
+      "file": "batches/0000108001-0000110000.lhbatch",
+      "first_hash": "f6fdb58ae135012010192679b72b2d8fd14d62cbede5cfc9cc1d16639f33624c",
+      "last_hash": "39d2e22963a3b89fe59189181cc5f6e543073a693eb7ef2cb23c2e44f98b23d9",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:56.161184Z",
+        "end_height": 110000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 108001
+      },
+      "sha256": "ac1ad12e0ea86f838635b15d79a591f487c4c57aacf45e79e8a3c9aa20b6fce6",
+      "size_bytes": 1548518,
+      "start_height": 108001
+    },
+    {
+      "count": 2000,
+      "end_height": 112000,
+      "file": "batches/0000110001-0000112000.lhbatch",
+      "first_hash": "6d39159051e1c639af4e3270f9d8e8b2c7a01cb57a34b6f5d0cf9951cb4bdd96",
+      "last_hash": "9c3e73f3df87e7b2fcfd6038c9d8dd53016bd5f0ffcefb409173f8a6dec7c0e0",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:57.141718Z",
+        "end_height": 112000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 110001
+      },
+      "sha256": "ffcc540996613707c9d340bda36f419f2e704e423660e006f9ef9e71b8b7942e",
+      "size_bytes": 1445553,
+      "start_height": 110001
+    },
+    {
+      "count": 2000,
+      "end_height": 114000,
+      "file": "batches/0000112001-0000114000.lhbatch",
+      "first_hash": "6de71183817b6633521770085205695033653b4a7c99ab2ac6c34503eee24626",
+      "last_hash": "2f43bca61e671c3fb70c977c4ba3b4ceeff369a737c82a1989f6d38a0dfd8ce0",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:58.147667Z",
+        "end_height": 114000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 112001
+      },
+      "sha256": "d51043b8c65a175a9988994334716cff57d9a26568ee04708476f7d67cd1281e",
+      "size_bytes": 1365800,
+      "start_height": 112001
+    },
+    {
+      "count": 2000,
+      "end_height": 116000,
+      "file": "batches/0000114001-0000116000.lhbatch",
+      "first_hash": "b06036c63e6a2c8686eb107e1533f9499392b269bc62a8c42a99b4f87aaf8331",
+      "last_hash": "2db09d060795f3f394daf4a8575c0c20dc3fc6c4203a8b5f207d8619b2c58d9c",
+      "metadata": {
+        "created_at": "2026-07-10T13:24:59.464108Z",
+        "end_height": 116000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 114001
+      },
+      "sha256": "9a8b42fabe3025014ee9939c8ef0a5739b9e2f578e6e1f2a4383356d873b03fa",
+      "size_bytes": 1452386,
+      "start_height": 114001
+    },
+    {
+      "count": 2000,
+      "end_height": 118000,
+      "file": "batches/0000116001-0000118000.lhbatch",
+      "first_hash": "0250428a275818d96fab8fa163130314f03f9f9ee189737df986333ed79c2b7b",
+      "last_hash": "3ab10bfa7e3be8140d2817e534e02e868a54dee1794b14f46ab017380c614954",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:00.933853Z",
+        "end_height": 118000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 116001
+      },
+      "sha256": "c865cd4a49d6c24aa06a5c67817b8da80c22640307f163229506ede584fc6676",
+      "size_bytes": 1462627,
+      "start_height": 116001
+    },
+    {
+      "count": 2000,
+      "end_height": 120000,
+      "file": "batches/0000118001-0000120000.lhbatch",
+      "first_hash": "d2f5bf1198b48dd29793f12245337ac900818abae4b395da865e3f0f3e4b563a",
+      "last_hash": "7128ff745463066a4e471ed1bd7c12ea982193ce546478e02f42e690598c3861",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:01.878932Z",
+        "end_height": 120000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 118001
+      },
+      "sha256": "ae07ee067556c671abb2d12053087738f0d993ee33891eee3bb4ab90aac84591",
+      "size_bytes": 1394638,
+      "start_height": 118001
+    },
+    {
+      "count": 2000,
+      "end_height": 122000,
+      "file": "batches/0000120001-0000122000.lhbatch",
+      "first_hash": "59f291ae5697a8f2813790a9091ed8c794dfbedec38b4854677837c095f9037c",
+      "last_hash": "8a12e966d4aa092bca23d2794cc78040eec427f53a68c110c38d25c5bc571d45",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:03.232136Z",
+        "end_height": 122000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 120001
+      },
+      "sha256": "eb775f510b3b21c7d86cba03057590b9a0d41dda3366bb15d92aa96ef38ad05a",
+      "size_bytes": 1461505,
+      "start_height": 120001
+    },
+    {
+      "count": 2000,
+      "end_height": 124000,
+      "file": "batches/0000122001-0000124000.lhbatch",
+      "first_hash": "2cf82b9036b9700aa02a213f71b5301f849cdff009566350e030e3da8ee91436",
+      "last_hash": "d8f9e6519e0838d986b27821107cda2c3e63c5b60c49c36be3c1864d042dfa3d",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:04.174477Z",
+        "end_height": 124000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 122001
+      },
+      "sha256": "eac034fb74d055fcc25a57c79ff6a0ed91108459c2f1f9cdd43ce1553b77facd",
+      "size_bytes": 1382646,
+      "start_height": 122001
+    },
+    {
+      "count": 2000,
+      "end_height": 126000,
+      "file": "batches/0000124001-0000126000.lhbatch",
+      "first_hash": "ba95e0067cfacf0c7257e91c6b6cc09bc92bc1876590c90adc01bb84e03ff1cb",
+      "last_hash": "6f4c4a7ba32c51cffdf8f2d25041241252f39be892b0c76797ae6ea334b23506",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:04.982969Z",
+        "end_height": 126000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 124001
+      },
+      "sha256": "2778b6f52786eeae9861c8ebb7e5ef00bebcf6cb9fcd0c399bc83c7bb1c9a4b1",
+      "size_bytes": 1275721,
+      "start_height": 124001
+    },
+    {
+      "count": 2000,
+      "end_height": 128000,
+      "file": "batches/0000126001-0000128000.lhbatch",
+      "first_hash": "73f4c0ba565afd4bdbbb91e001134168cc7d17b3f70663ac55ef2f56680379c3",
+      "last_hash": "0977f458f1f5042e45f0757df5461fdec51064876f60e48d4da21d689d71220a",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:05.926955Z",
+        "end_height": 128000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 126001
+      },
+      "sha256": "720477ba47b062e4ee8b635ede5a2a8503d590da22b3bc989a5052fdeefece28",
+      "size_bytes": 1325053,
+      "start_height": 126001
+    },
+    {
+      "count": 2000,
+      "end_height": 130000,
+      "file": "batches/0000128001-0000130000.lhbatch",
+      "first_hash": "7d5a8bec707bc7f34f76a0d8e82b0890156016484dec7365a9fb2ac7399eeebd",
+      "last_hash": "bfb9511bc2ab99c8940b84a8418d5e683790fa27e76d50dc4c5ae700ec01104d",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:06.733007Z",
+        "end_height": 130000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 128001
+      },
+      "sha256": "1a412909de727d1a3a57791137ee5a3130b11b0591f5b6d3954cfddc698bd8ca",
+      "size_bytes": 1291979,
+      "start_height": 128001
+    },
+    {
+      "count": 2000,
+      "end_height": 132000,
+      "file": "batches/0000130001-0000132000.lhbatch",
+      "first_hash": "e4e956ab54c14539c866b3e368e327a1eb4c48bbf8e602e6b602237218fc9c43",
+      "last_hash": "4a424aa4856d205635fca81310d0b45ee31ca5040adb7c2e5d7d50e5c1463339",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:07.500392Z",
+        "end_height": 132000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 130001
+      },
+      "sha256": "b7616aadb1de366782eac8b4071dd8a8494daf2a3b3119396ba85cd71f7d12f7",
+      "size_bytes": 1350253,
+      "start_height": 130001
+    },
+    {
+      "count": 2000,
+      "end_height": 134000,
+      "file": "batches/0000132001-0000134000.lhbatch",
+      "first_hash": "750e602677fa0470ef459b2ca223f1a76c9e1313b2ebc64ea9535d30103c333e",
+      "last_hash": "c73a189224ae91b54523a1876b9bc246ebe925ca45e91a6b0c061cf83d8692ba",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:08.279622Z",
+        "end_height": 134000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 132001
+      },
+      "sha256": "81d045764ab425bd1b6b96ee0a3a589f1db87bd10ba661177deb4acb22059b23",
+      "size_bytes": 1218085,
+      "start_height": 132001
+    },
+    {
+      "count": 2000,
+      "end_height": 136000,
+      "file": "batches/0000134001-0000136000.lhbatch",
+      "first_hash": "cba6b0d45620eeb1dd45faad83ab49958bc432d03951fbce18c9db120ba7f335",
+      "last_hash": "08ad3639e5478339fe3b539d51ab5d82e4ed7626ee48f04771572514236e9801",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:09.646414Z",
+        "end_height": 136000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 134001
+      },
+      "sha256": "e625fa70cc2fca68d61bd54fd61cd02cd83616e2223eb583c95a0acfe24398c8",
+      "size_bytes": 1254607,
+      "start_height": 134001
+    },
+    {
+      "count": 2000,
+      "end_height": 138000,
+      "file": "batches/0000136001-0000138000.lhbatch",
+      "first_hash": "c78cc89080a5002af20985695fc6d665e00870ebfcef4a802a626cef70eb9fce",
+      "last_hash": "9da6655a3098d86200a89073850922b6774f113b529aef8691b23e945bf91233",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:10.576902Z",
+        "end_height": 138000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 136001
+      },
+      "sha256": "3ad68d5447f7630ff48069c55a5a3999dc97f1175604a219031716660eccbdbf",
+      "size_bytes": 1372106,
+      "start_height": 136001
+    },
+    {
+      "count": 2000,
+      "end_height": 140000,
+      "file": "batches/0000138001-0000140000.lhbatch",
+      "first_hash": "27266690c84dbe578f65261120e9253de727c5bf84c363a5c0455977f17c13fb",
+      "last_hash": "05e5824c026e4a5238e0eef0155af385ac5a89dfff60e1080f431422556cb333",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:12.116061Z",
+        "end_height": 140000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 138001
+      },
+      "sha256": "53aeb801a100b7af2d438344ee17194f20251a573554b9b18337f8788b118d25",
+      "size_bytes": 1431159,
+      "start_height": 138001
+    },
+    {
+      "count": 2000,
+      "end_height": 142000,
+      "file": "batches/0000140001-0000142000.lhbatch",
+      "first_hash": "bc77bb9b78d1558ad3375a0d3f28cca50ccf61bcb3aaa307306dc4623ed912f9",
+      "last_hash": "f18442f8599a86c1a85e13b6397a4b5f1033b0d49e6b0984c774c6cf0ef53255",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:13.224326Z",
+        "end_height": 142000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 140001
+      },
+      "sha256": "1ec7d0899e43e7ac377db25a29df4151ed708913009e7b8e1798e459a97f14cd",
+      "size_bytes": 1464953,
+      "start_height": 140001
+    },
+    {
+      "count": 2000,
+      "end_height": 144000,
+      "file": "batches/0000142001-0000144000.lhbatch",
+      "first_hash": "b2123f4cdf2209dbf48361afbccbd85fba9e22f57fc5fecb937a11271b53e6e6",
+      "last_hash": "7663f7e273282cd00d916cf5fccd130bb7228e179ee0a8be1f3f36b78f2e788b",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:14.431216Z",
+        "end_height": 144000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 142001
+      },
+      "sha256": "a6947675c55c1782045829750a4a2b5b270958615b29973f2293432cc76a5b61",
+      "size_bytes": 1374745,
+      "start_height": 142001
+    },
+    {
+      "count": 2000,
+      "end_height": 146000,
+      "file": "batches/0000144001-0000146000.lhbatch",
+      "first_hash": "e163ada4e0b30a58bdfb52e6ce1e738cda440efb7c2f47413a6d7fb8ef2e644c",
+      "last_hash": "7575b9596fcfb93b8be66153a4bce663d31e2a1513cbae5ae66785dc296d11a2",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:15.553337Z",
+        "end_height": 146000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 144001
+      },
+      "sha256": "8fc979ee7e87920169e2f70410dfa0de97802feb068c12e1898d721f075f2bcc",
+      "size_bytes": 1380650,
+      "start_height": 144001
+    },
+    {
+      "count": 2000,
+      "end_height": 148000,
+      "file": "batches/0000146001-0000148000.lhbatch",
+      "first_hash": "df8476b385a5f0e8d3e180a064fdd27eed48d116fbd187709960c7509ae38088",
+      "last_hash": "fc205e6d508aa56e4eef459e0e3c68eda90cbe62b6a0b927d773e6bf42d88d2a",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:17.225400Z",
+        "end_height": 148000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 146001
+      },
+      "sha256": "73b54d49df3fb8861bc958bbee7d22a4b2d3b6351fd8878b95e93b3ecb11718e",
+      "size_bytes": 1433845,
+      "start_height": 146001
+    },
+    {
+      "count": 2000,
+      "end_height": 150000,
+      "file": "batches/0000148001-0000150000.lhbatch",
+      "first_hash": "81ee6e2cbba582a102ec4a388cff8956a69612d5b8d440b215b9957d1b3f7907",
+      "last_hash": "5831d97677cd1e8d7144d2168b2b0156e066a4d1ef538d07b33238e564b97d9a",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:19.410489Z",
+        "end_height": 150000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 148001
+      },
+      "sha256": "9ffbf66def74b7269bb40242bedf6696a3b0929625d31cfc21150096a70470ec",
+      "size_bytes": 1399843,
+      "start_height": 148001
+    },
+    {
+      "count": 2000,
+      "end_height": 152000,
+      "file": "batches/0000150001-0000152000.lhbatch",
+      "first_hash": "dd9a038dd3876d6cf7fb9b5cb1c63c4466c0aef4130a30d0f8bbbaf77a730c77",
+      "last_hash": "e206d1d430228cbb60e87887e13481749ce23c68245aeb0bcabb78f26947e1a8",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:20.521731Z",
+        "end_height": 152000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 150001
+      },
+      "sha256": "88bc4e80048122cc3ee61798ab6aa054945c2c11fc826094afe8123a3d7b9451",
+      "size_bytes": 1411370,
+      "start_height": 150001
+    },
+    {
+      "count": 2000,
+      "end_height": 154000,
+      "file": "batches/0000152001-0000154000.lhbatch",
+      "first_hash": "46f3c35e254bffca7d56775dabe3a4773f156df9df03f7f7e7d49ca6041cc56e",
+      "last_hash": "64c90658eb3e3b677769a7777828e4542fcea78487a2a9e1ce6cc630fb9d1354",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:21.879747Z",
+        "end_height": 154000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 152001
+      },
+      "sha256": "5154884267edfa36f9cbd0b573852c89e7f4339dd2e2a06411b33f148a3e0beb",
+      "size_bytes": 1392846,
+      "start_height": 152001
+    },
+    {
+      "count": 2000,
+      "end_height": 156000,
+      "file": "batches/0000154001-0000156000.lhbatch",
+      "first_hash": "1391fca98f6400a3f56c496dce1cb8704cf3537accc87953568a2d94b0416113",
+      "last_hash": "87359942255b0207ad5bd0ebdb13fea25378caa77b38f584417a952beb8d473d",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:22.749929Z",
+        "end_height": 156000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 154001
+      },
+      "sha256": "26caa1658a7387d7e4ddcf823ef883d1f27b695a0aaa00bb6e7c1f84c0f24ea8",
+      "size_bytes": 1392816,
+      "start_height": 154001
+    },
+    {
+      "count": 2000,
+      "end_height": 158000,
+      "file": "batches/0000156001-0000158000.lhbatch",
+      "first_hash": "37f2134d5dfc899ce1b5fc2ae3b51151bb0ab55591c1b236624dda786cee88d3",
+      "last_hash": "679a13b50301810bd92376191183700436380974d64235fb470020cae849b66c",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:23.591657Z",
+        "end_height": 158000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 156001
+      },
+      "sha256": "ea7d99e9c4f4b40df35e90a1f321fc412c29695e8d28111904f5f94545826182",
+      "size_bytes": 1429497,
+      "start_height": 156001
+    },
+    {
+      "count": 2000,
+      "end_height": 160000,
+      "file": "batches/0000158001-0000160000.lhbatch",
+      "first_hash": "afb85a791514dc904cef0f84a9552d67f0ed6fa541d20aaad0876dd0f7e6d48a",
+      "last_hash": "cc61545b82613acfff947afc9415f36d8846e4edd27a07eff14d9151be9ccd52",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:24.385092Z",
+        "end_height": 160000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 158001
+      },
+      "sha256": "6e7c0c4fb7ec73988a595ccb425b6554d1a6e73626ed4f525e46941a7963bcf8",
+      "size_bytes": 1393089,
+      "start_height": 158001
+    },
+    {
+      "count": 2000,
+      "end_height": 162000,
+      "file": "batches/0000160001-0000162000.lhbatch",
+      "first_hash": "17a72666c10ad717830d1e6a4c50442c7ecd76cb92e94a44a8bd4f723e554fdb",
+      "last_hash": "1d310d5481176a0e6965842f27086acb582f83b6e05e0ac7f201b66a1e738cf5",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:25.182055Z",
+        "end_height": 162000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 160001
+      },
+      "sha256": "41acdcab092632805b25d23b53990944f136110ce69b8e85c05d5207032135da",
+      "size_bytes": 1460512,
+      "start_height": 160001
+    },
+    {
+      "count": 2000,
+      "end_height": 164000,
+      "file": "batches/0000162001-0000164000.lhbatch",
+      "first_hash": "4225148fcb069ddea7730aec465cfd4f6400d0f2cd0f509cd4c2c52dad9ef2f7",
+      "last_hash": "f2fe11dfdc4f73f28baa9fa0f9539ed38db6c0815b2b7a2f310f867bfd56d149",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:26.369731Z",
+        "end_height": 164000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 162001
+      },
+      "sha256": "9a60b1aafe5d9be73cf250892938a2a0bdd9add523a7a35da072402ddbcf0ebf",
+      "size_bytes": 1448735,
+      "start_height": 162001
+    },
+    {
+      "count": 2000,
+      "end_height": 166000,
+      "file": "batches/0000164001-0000166000.lhbatch",
+      "first_hash": "5d5193be85361b358f88763c42bb22d2bbe40434e240ef76be4eddf59b3ebae3",
+      "last_hash": "afd243c2e32eb03e49968a7ee0c9a62748718ce3cecef69d718e20e4bd8b60cb",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:27.355135Z",
+        "end_height": 166000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 164001
+      },
+      "sha256": "b445a01725acd1a0e9722c02ae846add12b6a30b3140d04ba563fd04abd5dde3",
+      "size_bytes": 1431525,
+      "start_height": 164001
+    },
+    {
+      "count": 2000,
+      "end_height": 168000,
+      "file": "batches/0000166001-0000168000.lhbatch",
+      "first_hash": "970c47600c9b4239d7049563592b3fe0d41cc69d1f4072bcd56990b025da5f02",
+      "last_hash": "a951fa2b04f16e39d8342f205035e1023be38abcd46a4c02899c8a2a55fcbeea",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:28.171640Z",
+        "end_height": 168000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 166001
+      },
+      "sha256": "e134c1d142a4de4c5bb89338413c63622df87c09c036f6a2510977410ec424ea",
+      "size_bytes": 1455164,
+      "start_height": 166001
+    },
+    {
+      "count": 2000,
+      "end_height": 170000,
+      "file": "batches/0000168001-0000170000.lhbatch",
+      "first_hash": "da68a57cb5d23adeba27b480a4ec882d724f8c4aea27651c3c2cf051d60c7db6",
+      "last_hash": "ee988b35408a90eef8f713182129d186d2fca775345a2206e6d4b186a5b3f19f",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:29.135062Z",
+        "end_height": 170000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 168001
+      },
+      "sha256": "428bb0eb3ebdcc9e6f5c07b79f4b6f0be2bc56ad435c36debaf9670ed39e9ab2",
+      "size_bytes": 1409487,
+      "start_height": 168001
+    },
+    {
+      "count": 2000,
+      "end_height": 172000,
+      "file": "batches/0000170001-0000172000.lhbatch",
+      "first_hash": "3383915f3093b9617f9dbdc4aa305b47cad9de211bdf7551516424116906e61c",
+      "last_hash": "8870055ad451f296d12179bfbd23412db184659f7be83e24dc93e78907e00311",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:30.071426Z",
+        "end_height": 172000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 170001
+      },
+      "sha256": "94c2fc9b069b8d40cc4ec9f58dcbaa0974cba26af4594c0e3e8968889eeb842c",
+      "size_bytes": 1390537,
+      "start_height": 170001
+    },
+    {
+      "count": 2000,
+      "end_height": 174000,
+      "file": "batches/0000172001-0000174000.lhbatch",
+      "first_hash": "b40cc836d2a1ef37c1212af096fe32617e1b75909103edd8fc5ef6fad134e1a8",
+      "last_hash": "ccf7ef9889fcbbd30a11506fe282f3ebcd0042ccaf3267583f3cd791614ff341",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:31.449012Z",
+        "end_height": 174000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 172001
+      },
+      "sha256": "066412c8bef55eb1c68e195ad23a354c3e0d3f707f958d0a16f1c267d2fb0532",
+      "size_bytes": 1410007,
+      "start_height": 172001
+    },
+    {
+      "count": 2000,
+      "end_height": 176000,
+      "file": "batches/0000174001-0000176000.lhbatch",
+      "first_hash": "1c7f4b0481ba7ce3fb54a3a2547533d86676684bdbc3f5bb407ea16cb46a0578",
+      "last_hash": "4adb1a4a283b5aeeec38845fc9b9e7fb58257f24984e0529d74d6dfeb9657b22",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:32.613594Z",
+        "end_height": 176000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 174001
+      },
+      "sha256": "ce9977d8e119e01cff3ce93a3c2714ef19c081863c4fa59cf8e3842738f3e31f",
+      "size_bytes": 1565926,
+      "start_height": 174001
+    },
+    {
+      "count": 2000,
+      "end_height": 178000,
+      "file": "batches/0000176001-0000178000.lhbatch",
+      "first_hash": "9659b6d9d435b1c5b21136c685ee6e45c3344a54be3d55fa050a3d5803035802",
+      "last_hash": "a1cf7343bee26d0e65d37aaf972d48dc142f6aaec65c67c2b8a96005cb11b06b",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:33.560442Z",
+        "end_height": 178000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 176001
+      },
+      "sha256": "9113831e85341d9f82f9a5ede404f754140fd088f1a34635e1f3f0a1117a7c16",
+      "size_bytes": 1638490,
+      "start_height": 176001
+    },
+    {
+      "count": 2000,
+      "end_height": 180000,
+      "file": "batches/0000178001-0000180000.lhbatch",
+      "first_hash": "ec07d6bf495e4febb63f94d3cc00715a37c7b05d413169877578af301cfbf0c5",
+      "last_hash": "fd69302293870f304a112dd90cad33f442a132c303b630150b204799ab62cfc0",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:34.795476Z",
+        "end_height": 180000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 178001
+      },
+      "sha256": "cc5bbcc070390c16c1a39fa32c3235e0709b27a17af650c31c9f30235b842e54",
+      "size_bytes": 1683981,
+      "start_height": 178001
+    },
+    {
+      "count": 2000,
+      "end_height": 182000,
+      "file": "batches/0000180001-0000182000.lhbatch",
+      "first_hash": "bb2b1ffba6dc53ea3fe73887455a7c850e1ebceb26ac75a0a165fb6ec5093301",
+      "last_hash": "40ef22506009af6b93b118a842849a124327c0f5d83ef122e22928360031dbf9",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:35.820059Z",
+        "end_height": 182000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 180001
+      },
+      "sha256": "38a491020f6a7de28d1621419f66cdb193c12d2b476f977d1af9e0999dfaa106",
+      "size_bytes": 1773780,
+      "start_height": 180001
+    },
+    {
+      "count": 2000,
+      "end_height": 184000,
+      "file": "batches/0000182001-0000184000.lhbatch",
+      "first_hash": "3b60ef0cdd4f81101ded7168156225066f364ba89c4598ece0423b1024509bd9",
+      "last_hash": "41774979198bec4c0d6cfa0bcfa58d50679416079758dd68b2522f64859e9158",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:36.977740Z",
+        "end_height": 184000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 182001
+      },
+      "sha256": "8ec1c8a9d73d422baeb5da747adbab10e5024cacce2a986dfe3907db1de4bd86",
+      "size_bytes": 1584508,
+      "start_height": 182001
+    },
+    {
+      "count": 2000,
+      "end_height": 186000,
+      "file": "batches/0000184001-0000186000.lhbatch",
+      "first_hash": "eac5085c59b30e25e565f5209f14794f09a6f3dda0367d13e3c2e6f2c4895f3f",
+      "last_hash": "c2259e593b6d0e9ea94f73135060962e63348072c6450808199fb2b687ef5d0c",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:38.194045Z",
+        "end_height": 186000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 184001
+      },
+      "sha256": "6d0273b8573d0c2f60038f08d340c93dc2b16a88890a48e7c2dd7a693acb7f4f",
+      "size_bytes": 1422728,
+      "start_height": 184001
+    },
+    {
+      "count": 2000,
+      "end_height": 188000,
+      "file": "batches/0000186001-0000188000.lhbatch",
+      "first_hash": "49fa22a48c23a26db2b1310d95acd0f9ac7865864510104b8e06f72b56e2fb42",
+      "last_hash": "f64532deab77c2e84d3cbddb09acaf0afb677017bb8042753df2bf834395a76d",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:39.386649Z",
+        "end_height": 188000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 186001
+      },
+      "sha256": "c9f8677acbe0a8d66a384d50f28d377266ae3a25aef64e288752573dc3befe97",
+      "size_bytes": 1412307,
+      "start_height": 186001
+    },
+    {
+      "count": 2000,
+      "end_height": 190000,
+      "file": "batches/0000188001-0000190000.lhbatch",
+      "first_hash": "e29776c547fc295cf7e0a65335846ca715b7c20a8dd5c342ce8663b27e8aa40c",
+      "last_hash": "3ee334265b2409d93609e1b00aa1654080df66e7caf6d99bd4091b01f3677c96",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:40.726573Z",
+        "end_height": 190000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 188001
+      },
+      "sha256": "528b08cc12b0e294d89243eb77c02a70766217fbb0733ab36349680878ce900e",
+      "size_bytes": 1539851,
+      "start_height": 188001
+    },
+    {
+      "count": 2000,
+      "end_height": 192000,
+      "file": "batches/0000190001-0000192000.lhbatch",
+      "first_hash": "993fa103aae5e02ae099d33e921c047e06a3086459ed0e875a80a4c2d253193e",
+      "last_hash": "17b799177b5d833896f0a3dcf2e3df5d1f7312e91f12fb0ecd76b41f5a5b31b7",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:42.201823Z",
+        "end_height": 192000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 190001
+      },
+      "sha256": "80b3a395f704f805df5bd7f4a94118083f6e3ec6dcc7307e80f111a49680a9da",
+      "size_bytes": 1518363,
+      "start_height": 190001
+    },
+    {
+      "count": 2000,
+      "end_height": 194000,
+      "file": "batches/0000192001-0000194000.lhbatch",
+      "first_hash": "dead57f83aefa94cea54859b44f15729f460f300d5c03eb9633e22f30e95d5ea",
+      "last_hash": "1a9b1b2d7efb52a33992b90b0c6b1d6e9a899c5bf2d877377c1ae49f3df6299c",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:43.005599Z",
+        "end_height": 194000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 192001
+      },
+      "sha256": "4d58274967d1df5f837bea51f6adaff51e8fc621e2a54e6008fa5322c7e5d358",
+      "size_bytes": 1503549,
+      "start_height": 192001
+    },
+    {
+      "count": 2000,
+      "end_height": 196000,
+      "file": "batches/0000194001-0000196000.lhbatch",
+      "first_hash": "1e76aeb6bb14610e8eb69d7917cc43462777dfcc1816db7baa9648faf1df0679",
+      "last_hash": "a84bc6fb6a7a95a7465bc0848ee315661d5c1cc5737fc945a59b5c3881e0d03b",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:43.818190Z",
+        "end_height": 196000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 194001
+      },
+      "sha256": "e3f02ab8444ba56f3ef24f95273ca01f40006e00174f3ab949bdd367fd2e3a15",
+      "size_bytes": 1417837,
+      "start_height": 194001
+    },
+    {
+      "count": 2000,
+      "end_height": 198000,
+      "file": "batches/0000196001-0000198000.lhbatch",
+      "first_hash": "b6c36d0c815f38e99c494ce45535bf420c56902cfd378fc255e34bceee106759",
+      "last_hash": "81c9a4adcdeab9c5491faf70bea7431cad6b2d5f5ad0f7a99dbc2de294755cac",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:44.724229Z",
+        "end_height": 198000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 196001
+      },
+      "sha256": "d959a27bd61dc20b8658744cfb222a4966fd4f015284dc2800707d8e5ed88722",
+      "size_bytes": 1464750,
+      "start_height": 196001
+    },
+    {
+      "count": 2000,
+      "end_height": 200000,
+      "file": "batches/0000198001-0000200000.lhbatch",
+      "first_hash": "1fc3196dfa8d7733a25de60f76e07125e1ddf416d07917559c48667339c2a906",
+      "last_hash": "439e32050ce197fb1489912bd586ea8c2cee68c4c7407bb6e0567d4dd1776fb2",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:45.521667Z",
+        "end_height": 200000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 198001
+      },
+      "sha256": "fdc155cc3f73f2f6f69d92f5fdc781ef56c9de7eb6e407fcf1c589c559036b16",
+      "size_bytes": 1459096,
+      "start_height": 198001
+    },
+    {
+      "count": 2000,
+      "end_height": 202000,
+      "file": "batches/0000200001-0000202000.lhbatch",
+      "first_hash": "61001fa139ad6592d333218a500650557d8d6ff2c618294ad3968e3f9aa5551b",
+      "last_hash": "36fc62327aa95df01b6f92635cf844b07b3fa2dfa6eb8002f69e5d9c366a65cb",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:46.407949Z",
+        "end_height": 202000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 200001
+      },
+      "sha256": "1440c837e60874c9277e05b6ae7968786a5dd2d74fb09cae08124d75a1cad6fb",
+      "size_bytes": 1465315,
+      "start_height": 200001
+    },
+    {
+      "count": 2000,
+      "end_height": 204000,
+      "file": "batches/0000202001-0000204000.lhbatch",
+      "first_hash": "1ba390019ae0cf4886f4fe453a9cfb21ab83949634dfaf1548ca1798c35ba1bf",
+      "last_hash": "3bc99fdeb3d9082535c716bb3cf066a2582fb0082565a9bc209bc23a87df766b",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:47.199439Z",
+        "end_height": 204000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 202001
+      },
+      "sha256": "3a7aaa7a413f2afb2db1e5a1c28dec1ab03937054d8eb37c4aaf32959c574624",
+      "size_bytes": 1531885,
+      "start_height": 202001
+    },
+    {
+      "count": 2000,
+      "end_height": 206000,
+      "file": "batches/0000204001-0000206000.lhbatch",
+      "first_hash": "6513fab7803818cfd8f00ed9e565d35d411d3b8ff624c6379508d1e448bd847a",
+      "last_hash": "c91ab43bce40220efa56baff2bca8422fa74cd60eade9f097b4371da6d8cffbe",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:48.035306Z",
+        "end_height": 206000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 204001
+      },
+      "sha256": "77fc1b2d74e0e91658dddae615331a039279a6f18fdec996224931c064cff4ef",
+      "size_bytes": 1551683,
+      "start_height": 204001
+    },
+    {
+      "count": 2000,
+      "end_height": 208000,
+      "file": "batches/0000206001-0000208000.lhbatch",
+      "first_hash": "c8fd80b343443c7ceaef6c4b92cc996bf7e3444ad79a5952dca53448f7dc7dd0",
+      "last_hash": "5403a80d9baa943fbeb13fdc83ba83469a4a205fef93e39e9c1f82f17570a768",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:48.957846Z",
+        "end_height": 208000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 206001
+      },
+      "sha256": "5c7df28248f738b83977219ed94405f2f09769c4c5b1bd982c206e65911f9a92",
+      "size_bytes": 1528296,
+      "start_height": 206001
+    },
+    {
+      "count": 2000,
+      "end_height": 210000,
+      "file": "batches/0000208001-0000210000.lhbatch",
+      "first_hash": "04ee9a39d119fa71c4248f7aafd3f24a00f134f8c00ba7609e9981683d397c4a",
+      "last_hash": "f336e3f7a494deed2a8b0f5bd546d01f78af470e807782618b5cb9918f2af8c4",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:49.858278Z",
+        "end_height": 210000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 208001
+      },
+      "sha256": "a0291e77922cd77ee2c742801147f00f3a25aa9f189c7948bc50e59742d4ac72",
+      "size_bytes": 1536145,
+      "start_height": 208001
+    },
+    {
+      "count": 2000,
+      "end_height": 212000,
+      "file": "batches/0000210001-0000212000.lhbatch",
+      "first_hash": "598df294902428b9ea057415992df41d1237191a522d75ea4d854ced9927c904",
+      "last_hash": "455b19623b63f349bda41a2915484a436ec722013ce725ffb74537780822353d",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:50.678728Z",
+        "end_height": 212000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 210001
+      },
+      "sha256": "fd4d18d909c167c72c2d0a066a4b94d675acde4d45f6169d4e49ab875252616c",
+      "size_bytes": 1609815,
+      "start_height": 210001
+    },
+    {
+      "count": 2000,
+      "end_height": 214000,
+      "file": "batches/0000212001-0000214000.lhbatch",
+      "first_hash": "e41112afa42755d3207d2a8bd6ee65a798d2fc1ba40c53ba6974afe879f709df",
+      "last_hash": "91d33bd4ef7bc521b5ef2634e25c2c6b58a0ed0cce0afbdcd5c94c7931b24026",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:51.554685Z",
+        "end_height": 214000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 212001
+      },
+      "sha256": "0fc996df6a6deb6e5f19f28d962928f8cb8ce1efaf3fb4fdd1bbc540b65053e8",
+      "size_bytes": 1614850,
+      "start_height": 212001
+    },
+    {
+      "count": 2000,
+      "end_height": 216000,
+      "file": "batches/0000214001-0000216000.lhbatch",
+      "first_hash": "d067373b8893619945115aadfd908e2889953f9149bb6baa44e97858fa32b1d8",
+      "last_hash": "86b5b4285c4aac2259e28246f2ac6172de7121c131b311cdfa997c5cde16efc9",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:52.429831Z",
+        "end_height": 216000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 214001
+      },
+      "sha256": "9b0d608cadf9960cd7d8770374813ec22260fa68663b934b3b4ce08bf7cc5fee",
+      "size_bytes": 1663987,
+      "start_height": 214001
+    },
+    {
+      "count": 2000,
+      "end_height": 218000,
+      "file": "batches/0000216001-0000218000.lhbatch",
+      "first_hash": "78000358b5a4e176cc0b8c2270497d48441f3aefa39b57cdc67ae265b0eea5bd",
+      "last_hash": "9b1da7960f82640bf1fe26dab28e6a8a4244981d6ef7c86d1c5d9bf50a01c5eb",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:53.462519Z",
+        "end_height": 218000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 216001
+      },
+      "sha256": "fcbc8531f469b99852d644094347e89a3c8c85be6e3a9ed3e495a43a74d4016c",
+      "size_bytes": 1708185,
+      "start_height": 216001
+    },
+    {
+      "count": 2000,
+      "end_height": 220000,
+      "file": "batches/0000218001-0000220000.lhbatch",
+      "first_hash": "e82079898add9e8cc0fc27db6cd9233084a26b6bd8ae8ed06fb57b426f3a7a0f",
+      "last_hash": "fb33ccc13491f1631fe5e8957ec16391ba8c13ba068337eff56b0ba9dff60aeb",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:54.486706Z",
+        "end_height": 220000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 218001
+      },
+      "sha256": "b5386b231c6324f9d609d8247ee93529b4a6db57d24c431ccdc69117fea7f729",
+      "size_bytes": 1676510,
+      "start_height": 218001
+    },
+    {
+      "count": 2000,
+      "end_height": 222000,
+      "file": "batches/0000220001-0000222000.lhbatch",
+      "first_hash": "5e7ec15e8bdec949398da83b91217a0939b223455dd79f29e14309d93240a489",
+      "last_hash": "bf78d844f625fcb7f2ee5ceaec9a6c2b9d647b1837d95e3fc3da86c566e84a63",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:55.435410Z",
+        "end_height": 222000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 220001
+      },
+      "sha256": "9bc54af935de113b1e0a2744098903d597fc728cedf203518bd8aac7c203a121",
+      "size_bytes": 1575427,
+      "start_height": 220001
+    },
+    {
+      "count": 2000,
+      "end_height": 224000,
+      "file": "batches/0000222001-0000224000.lhbatch",
+      "first_hash": "d9625f56443327ab52e24bfff29ba6e688d3d66da7cce39548d457afa8414fb4",
+      "last_hash": "8f5b3c094589945ebc4d851837ac5d9a251e30b7cb1922cd1aafbd3a7385dd10",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:56.404988Z",
+        "end_height": 224000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 222001
+      },
+      "sha256": "4e9621b9a99484223c0bb373f7e552fe80c4107951e40ffb706fb190fc334d76",
+      "size_bytes": 1528750,
+      "start_height": 222001
+    },
+    {
+      "count": 2000,
+      "end_height": 226000,
+      "file": "batches/0000224001-0000226000.lhbatch",
+      "first_hash": "3ad55cec75aabeab1470d8b0d398124a059678d568936f0aa88cd94d9dae7a6c",
+      "last_hash": "920fd2669fb3f26779dfaa3f553a6a1ef404f686edc8cb5da9f132a4b6e9d0cf",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:57.995791Z",
+        "end_height": 226000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 224001
+      },
+      "sha256": "39aa345408e2ad2d023898482d8afb25e7830e1ebe18beb2d297fdc5bdd6f79a",
+      "size_bytes": 1601577,
+      "start_height": 224001
+    },
+    {
+      "count": 2000,
+      "end_height": 228000,
+      "file": "batches/0000226001-0000228000.lhbatch",
+      "first_hash": "1bc4358316f6ffbb6bc10b01af7ddfc5e4f2e0b54a1ef80f1bcdf24304b6fde3",
+      "last_hash": "252aa057681e97389fb7976aece1a98de1bfcc1dbb659aed958c547513fe67bc",
+      "metadata": {
+        "created_at": "2026-07-10T13:25:58.867753Z",
+        "end_height": 228000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 226001
+      },
+      "sha256": "ceef45021b0fdbe10dcda112edc29597cc0826d12109ea0f7b8edb1c3be1461d",
+      "size_bytes": 1535504,
+      "start_height": 226001
+    },
+    {
+      "count": 2000,
+      "end_height": 230000,
+      "file": "batches/0000228001-0000230000.lhbatch",
+      "first_hash": "7da64a6097fdbd8ce59f06351fb78dbc2c2b1390817f948ab76897bfd384f06b",
+      "last_hash": "38c2c46e753c89a6f229987d7fc24d9f30d9e6413905723ecbea92c960c87413",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:00.044753Z",
+        "end_height": 230000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 228001
+      },
+      "sha256": "a0326a6a16e05f60a1605b121d5cd23d393d19e5923a8ca131d96686ac56a360",
+      "size_bytes": 1616163,
+      "start_height": 228001
+    },
+    {
+      "count": 2000,
+      "end_height": 232000,
+      "file": "batches/0000230001-0000232000.lhbatch",
+      "first_hash": "6e7544b95b718a709f1b1da0077fb1346c18c644918cf2c2b877c9d96599b40b",
+      "last_hash": "f1a8ace1f25ce144d8a504245d47707b9fbfc801fd256a5cb2bd274ba66dd23e",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:01.143696Z",
+        "end_height": 232000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 230001
+      },
+      "sha256": "917c7a384c562e2aab53b63c2d206bee9f813d103d1e5f02476bb8368c2e3f23",
+      "size_bytes": 1583416,
+      "start_height": 230001
+    },
+    {
+      "count": 2000,
+      "end_height": 234000,
+      "file": "batches/0000232001-0000234000.lhbatch",
+      "first_hash": "2d4146538d7c751823d12df8525fd35caa1745bdc8ba2b579f6a727c04e40f80",
+      "last_hash": "f9c5d87eb6166c7af39504874da4e85972a949faa535bcbfd70b10169499974b",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:03.087448Z",
+        "end_height": 234000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 232001
+      },
+      "sha256": "4c9eafa0bb037458909204a53cc38e2b9556236678308fb7d5e1f49f8f209806",
+      "size_bytes": 1662914,
+      "start_height": 232001
+    },
+    {
+      "count": 2000,
+      "end_height": 236000,
+      "file": "batches/0000234001-0000236000.lhbatch",
+      "first_hash": "42b7d000459671b04cf54c3448eb20515b1e0b356547f838cf9f4a0fc13152a7",
+      "last_hash": "df1132afa74d1076446b6dd227ddc2d733e79e539730d309e10aad9628fa2e7b",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:03.966613Z",
+        "end_height": 236000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 234001
+      },
+      "sha256": "af358765513f7bb0d6a33485d1f83fda8c2309a81135aee88a703703835eb064",
+      "size_bytes": 1553969,
+      "start_height": 234001
+    },
+    {
+      "count": 2000,
+      "end_height": 238000,
+      "file": "batches/0000236001-0000238000.lhbatch",
+      "first_hash": "9a1c1e45cf41a64591d9a7381ecf62df46c0123e66f85887f2ddeb7aba49bfe0",
+      "last_hash": "fcaec9accfa01921e9118b16b96f852e993ca2117a42a4f48b39fc7b14579caf",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:04.866815Z",
+        "end_height": 238000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 236001
+      },
+      "sha256": "040ee818979a2792a8c9affe32a301c1bdb879ed9f08a0791cc716b15a41d07e",
+      "size_bytes": 1514282,
+      "start_height": 236001
+    },
+    {
+      "count": 2000,
+      "end_height": 240000,
+      "file": "batches/0000238001-0000240000.lhbatch",
+      "first_hash": "ab618b4cf7eedd2b22e297ea17fd7835349c94602ea1a03fb58fc2f0e1cb6125",
+      "last_hash": "aa5be1e666f8352a68f4115bbbc757c987a4b292177f453433152b02a72be3bf",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:05.863127Z",
+        "end_height": 240000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 238001
+      },
+      "sha256": "3e6ee4e5d56077573a38cd5f2e08b3eb31d9cf63241850ba1f0fb3140be64813",
+      "size_bytes": 1542564,
+      "start_height": 238001
+    },
+    {
+      "count": 2000,
+      "end_height": 242000,
+      "file": "batches/0000240001-0000242000.lhbatch",
+      "first_hash": "399e5ee906c5a5621ddde772875342f81b98f678bc0dbbfd2837881f3df94333",
+      "last_hash": "197d6156b0eb2b24e42fb9ff10e59b5699a19e2960456b3e8efbfa9913c2422f",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:06.920317Z",
+        "end_height": 242000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 240001
+      },
+      "sha256": "79f11e2d63dd330062c1b4f819b636b1d54be4f964d1e7d26310842485038c84",
+      "size_bytes": 1828152,
+      "start_height": 240001
+    },
+    {
+      "count": 2000,
+      "end_height": 244000,
+      "file": "batches/0000242001-0000244000.lhbatch",
+      "first_hash": "3aacd505ae13b0c743e119bcb32bd58fa8e31e9edc5fe9cb47a37e8ef71555a8",
+      "last_hash": "8ab74020a449ede6ee8250e571beeb1fa38364b18a0e801e7f14b46bca390736",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:07.788938Z",
+        "end_height": 244000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 242001
+      },
+      "sha256": "04be7e32c820e64a9e0d647b442f7d2dc1f9e3ccff2bc7f57a90e3e9362c06e0",
+      "size_bytes": 1631666,
+      "start_height": 242001
+    },
+    {
+      "count": 2000,
+      "end_height": 246000,
+      "file": "batches/0000244001-0000246000.lhbatch",
+      "first_hash": "b7607d95b07c7e08884806cd9bf14c257f5b1ac54d26479c95c34796ca4e1db3",
+      "last_hash": "c2661eb0860e8b4be97ffd39dced4c5981696b6e8c6fbd1ebe69c2bf9e6899b8",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:08.797390Z",
+        "end_height": 246000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 244001
+      },
+      "sha256": "aa4bf721f7e9917ae9fa73dcdc0f29308b641a4d852fc59bc40b962e6b677e0c",
+      "size_bytes": 1495530,
+      "start_height": 244001
+    },
+    {
+      "count": 2000,
+      "end_height": 248000,
+      "file": "batches/0000246001-0000248000.lhbatch",
+      "first_hash": "3e8b869d39ade267da64da576a2b65e03c2e81212e6d480b93bf3ba46a36cfc9",
+      "last_hash": "73dd5076ea3ba4ec1531addb95e2243df92a26f9acfec5252dd7e48d0f603496",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:09.657948Z",
+        "end_height": 248000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 246001
+      },
+      "sha256": "0782e904671927d7f46a45801fd91c0a71d1717a143a7dee71e44399e6caedc6",
+      "size_bytes": 1542880,
+      "start_height": 246001
+    },
+    {
+      "count": 2000,
+      "end_height": 250000,
+      "file": "batches/0000248001-0000250000.lhbatch",
+      "first_hash": "d94c17dfc8a4ef40500582b6095c6eb87c0bf1e79cfecb1d7e1c39a9b2de0edf",
+      "last_hash": "fcd4d137334aedad9c8e821d4c09238b16cdc30a8e3d4f53c81922120f89f03f",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:10.778780Z",
+        "end_height": 250000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 248001
+      },
+      "sha256": "5adeb9e0b39ac2addb58abd190818264d0ec4a2b3dd218475edd23cfe612504d",
+      "size_bytes": 1496574,
+      "start_height": 248001
+    },
+    {
+      "count": 2000,
+      "end_height": 252000,
+      "file": "batches/0000250001-0000252000.lhbatch",
+      "first_hash": "3317e0aae7c05fd17ec6247b7eb84e7e045c6259c1c1e8fb41d533714138c771",
+      "last_hash": "2a5d5b3d89fa14d77cb9c05c6c446477f9582956f903add501446679114adfeb",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:11.752333Z",
+        "end_height": 252000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 250001
+      },
+      "sha256": "e5e6587afc797751e60f8aa3ebfb56a9de31a2d0d6ef0632aeb0e6ac913c7a46",
+      "size_bytes": 1531517,
+      "start_height": 250001
+    },
+    {
+      "count": 2000,
+      "end_height": 254000,
+      "file": "batches/0000252001-0000254000.lhbatch",
+      "first_hash": "6ba7fa22c5586bc90d89e5eff091bd00c3deb24ca3b297471e827aeb67278f34",
+      "last_hash": "b9eee35af0b9008fc7308bfc95992eec828c1ddc5ba7e6162dedf5bf133be9ea",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:13.417453Z",
+        "end_height": 254000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 252001
+      },
+      "sha256": "33eb81399629ea33ff7674107c2b03f2dc43ec8395e91b3c9fd67a02a5f7dc0d",
+      "size_bytes": 1579493,
+      "start_height": 252001
+    },
+    {
+      "count": 2000,
+      "end_height": 256000,
+      "file": "batches/0000254001-0000256000.lhbatch",
+      "first_hash": "79bf111e0ef57ae0262d6b76f0c3fe00220a5a796926351e4d1b2d7cfcb3bdf2",
+      "last_hash": "463a9dcef3eb0d4c9bb8d9dd21a6cc5b6c0afc1b489d3ace628831b7d40e6dd0",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:14.261246Z",
+        "end_height": 256000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 254001
+      },
+      "sha256": "4f3b7312f8945485e1e640a1b3b71491e4379fb0bdaded2ed48c85c5e865d8b5",
+      "size_bytes": 1574418,
+      "start_height": 254001
+    },
+    {
+      "count": 2000,
+      "end_height": 258000,
+      "file": "batches/0000256001-0000258000.lhbatch",
+      "first_hash": "00e501ed679f157fce160b7fdcdbb50aac7fd23ad7024464a311c46d8523c2fc",
+      "last_hash": "1f76cfbfb41c6d8b7891117a23e7813397ff997881e7117fd4000d311409f316",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:15.072597Z",
+        "end_height": 258000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 256001
+      },
+      "sha256": "bdaf533877ab61b9ddbcb64e403718e7805eb78cc841da1a8bbe230d19e5e2ef",
+      "size_bytes": 1538475,
+      "start_height": 256001
+    },
+    {
+      "count": 2000,
+      "end_height": 260000,
+      "file": "batches/0000258001-0000260000.lhbatch",
+      "first_hash": "4cf857369a370f96d13f1b8bd2702bd86da9abda7b77be3c955efe6880714905",
+      "last_hash": "4b0e20a8596bff5e76fea4a4c6e832b08e6f35faa74b0741c3fdd6d42041c4de",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:16.090076Z",
+        "end_height": 260000,
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 258001
+      },
+      "sha256": "af6a38ded63a0d931994fbe13155a99bdabd6109680e47de3b83270d439f09ed",
+      "size_bytes": 1590710,
+      "start_height": 258001
+    },
+    {
+      "count": 499,
+      "end_height": 260499,
+      "file": "batches/0000260001-0000260499.lhbatch",
+      "first_hash": "0239127603e7167adc5beb7d0af3f4bbd61fa74bae09498bfc977032f1fc9284",
+      "last_hash": "eb4839dce13105db03a539fae182074a5e370c16c83411168fd714465da81ca7",
+      "metadata": {
+        "created_at": "2026-07-10T13:26:16.853863Z",
+        "end_height": 260499,
+        "flex_boundary": {
+          "bits_hex": "2000ffff",
+          "height": 260500,
+          "prev_hash": "eb4839dce13105db03a539fae182074a5e370c16c83411168fd714465da81ca7",
+          "raw_header_hex": "04810d0ba71ca85d4614d78f161134c8160c375e4a0782e1fa39a503db0531e1dc3948eb355fcc06e5aac35d545f6c27e6c766dde8e15d08e5356d20e9ef3b5ea54d5ca5ba6ea066ffff00200000000008000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4303f859122dfa08656d6da80263412931e6eee9f5a02403461c780621d12bd725daa68a27517613d22f450200000000000000089e75e6cf00000000072f6d706f6f6c2fffffffff03008d380c01000000160014b2f37faf39c645f046d096cf722d715a480883d40065cd1d000000001600143635552e61f1c1e2b5e7f86e25ecf921f0fff9730000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000100000000800020964c2fcec9a90599eeeb953d8964eec1c17550a201b4b9cf8c87641cac402d02950074898b9491595432f0759d1a360b0c273738cf3fe990d703558971c0db28ba6ea066f1d22a1d04800800",
+          "serialized_sha256": "f082c381e1e2b2952a4cd1b2bb66f25405798daae995df12d90c478434783331",
+          "time": 1721790138,
+          "validation_scope": "linkage/version/chain_id/nBits only; Flex PoW not computed",
+          "version": 185434372,
+          "version_u32": 185434372
+        },
+        "peer": "141.95.28.213:5054",
+        "peer_version": {
+          "protocol": 110016,
+          "relay": true,
+          "services": 3149,
+          "start_height": 1364098,
+          "timestamp": 1783689836,
+          "user_agent": "/Lyncoin Core:4.0.0/"
+        },
+        "response_header_count": 2000,
+        "schema": "lyncoin-p2p-header-recovery-v1",
+        "source": "Lyncoin P2P headers response",
+        "source_commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+        "start_height": 260001
+      },
+      "sha256": "d9abae0991aa3ee2ab8c34c20107441b3d5d0f74eb44cf09c316ac444bef6f16",
+      "size_bytes": 445307,
+      "start_height": 260001
+    }
+  ],
+  "candidate_artifact": {
+    "consumer": "scripts/classify/classify_auxpow_candidates.py",
+    "file": "lyncoin_auxpow_candidates.csv",
+    "rows": 56653,
+    "schema": [
+      "child_sequence",
+      "child_height",
+      "child_block_hash",
+      "child_block_hash_display",
+      "child_version",
+      "child_block_time",
+      "btc_hash",
+      "btc_prev_hash",
+      "btc_time",
+      "btc_bits_hex",
+      "btc_bip34_height",
+      "btc_nonce",
+      "coinbase_scriptsig_hex",
+      "coinbase_outputs",
+      "btc_header_hex"
+    ],
+    "sha256": "83eb5c13419eedddfe7040b7fe1d4506f217f4f636f47b6b3563b25c872bea56",
+    "size_bytes": 42321195
+  },
+  "complete": true,
+  "counts": {
+    "auxpow_headers": 249640,
+    "btc_difficulty_candidates": 56653,
+    "headers": 260500,
+    "last_height": 260499,
+    "solo_headers": 10860
+  },
+  "created_at": "2026-07-10T13:23:56.154004Z",
+  "flex_boundary": {
+    "bits_hex": "2000ffff",
+    "height": 260500,
+    "prev_hash": "eb4839dce13105db03a539fae182074a5e370c16c83411168fd714465da81ca7",
+    "raw_header_hex": "04810d0ba71ca85d4614d78f161134c8160c375e4a0782e1fa39a503db0531e1dc3948eb355fcc06e5aac35d545f6c27e6c766dde8e15d08e5356d20e9ef3b5ea54d5ca5ba6ea066ffff00200000000008000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4303f859122dfa08656d6da80263412931e6eee9f5a02403461c780621d12bd725daa68a27517613d22f450200000000000000089e75e6cf00000000072f6d706f6f6c2fffffffff03008d380c01000000160014b2f37faf39c645f046d096cf722d715a480883d40065cd1d000000001600143635552e61f1c1e2b5e7f86e25ecf921f0fff9730000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000100000000800020964c2fcec9a90599eeeb953d8964eec1c17550a201b4b9cf8c87641cac402d02950074898b9491595432f0759d1a360b0c273738cf3fe990d703558971c0db28ba6ea066f1d22a1d04800800",
+    "serialized_sha256": "f082c381e1e2b2952a4cd1b2bb66f25405798daae995df12d90c478434783331",
+    "time": 1721790138,
+    "validation_scope": "linkage/version/chain_id/nBits only; Flex PoW not computed",
+    "version": 185434372,
+    "version_u32": 185434372
+  },
+  "schema": "lyncoin-p2p-header-recovery-v1",
+  "scope": {
+    "flex_activation_height": 260500,
+    "start_height": 0,
+    "target_height": 260499
+  },
+  "source": {
+    "commit": "c289540da7ea3bb78f6e9eb661ad72b90476cc40",
+    "name": "Lyncoin Core v4.0.0",
+    "network_magic": "52030e2f",
+    "protocol_version": 110016,
+    "url": "https://github.com/lyncoin/lyncoin/tree/c289540da7ea3bb78f6e9eb661ad72b90476cc40"
+  },
+  "updated_at": "2026-07-10T13:26:50.168779Z",
+  "validation": {
+    "checks": [
+      "P2P network magic, payload length, and double-SHA256 checksum",
+      "canonical CompactSize encodings and bounded extended-header parse",
+      "genesis trust anchor and every available official source checkpoint",
+      "continuous child previous-hash linkage",
+      "exact Lyncoin v4 pre-Flex difficulty-transition rules",
+      "chain ID, Flex activation boundary, and claimed proof of work",
+      "full Namecoin-family CAuxPow merkle and coinbase commitment rules"
+    ],
+    "flex_boundary_limit": "Height 260,500 linkage/version/chain-ID/nBits are validated; the Flex PoW hash itself is not computed.",
+    "official_checkpoints": {
+      "0": "000000002b8761c63862f5047afb9ac5fdd1c67e87cd376c387628bc772bb39d",
+      "1000": "fad7864364b1bd1fa259b72ce7fbe29830615412f77675781f4e90f0996f607d",
+      "10000": "000000000002ce00fce2f53c833902878c457c7ad04c411c7cb7c484e91327b5",
+      "100000": "96833a9b1298412904c0b49f1004a733883e84907b8b8479391ccb3de058ce86",
+      "20000": "2ed35f5d1e12679cb9ee0761e055c84d6d9f016489732ef275a0bf8f0f6b1a30",
+      "200000": "439e32050ce197fb1489912bd586ea8c2cee68c4c7407bb6e0567d4dd1776fb2",
+      "30000": "5427dbfe4804300d7a8f5a73ec1bda71ca1cdc0bbbba5e7518a6fa42358534e9",
+      "40000": "ff3c7d78cb9054a3602867f23958f441aacc87d29ec0968df4904ae9dc85c184",
+      "50000": "7aa3a580745059f06694d2b3e91037d7b764a48c49d39a6463e8ebb94460ef74",
+      "60000": "9eb558eb1779eeda5ad1cac490acc82f866754756da22e0db0806e540538a13c",
+      "70000": "84f0df6fbcfeb6d864af1ba85ac62ab6bda03adc6ad54008b26a0bba702a7d35",
+      "80000": "3934eef0bda0567058223c6b89bc20f5564a0e771762587b1f87a494f050f86c",
+      "90000": "7f8fd1e35f306a4bb994bf43b9c1fb89df9b1d356064237e7c4aaeb9161b3e7b"
+    }
+  }
+}

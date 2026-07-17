@@ -1,0 +1,35 @@
+services:
+  sixelevend:
+    # Official amd64 image, pinned to the platform manifest behind the edge
+    # tag as published on 2025-08-06.
+    image: 611project/611coin@sha256:64a174792a4a2112d06c895a72bfcb70c8d25b2ab19bfe624d235cc75a156283
+    platform: linux/amd64
+    container_name: sixelevend
+    restart: unless-stopped
+
+    # RPC is loopback-only on the host. P2P remains publicly reachable.
+    ports:
+      - "127.0.0.1:8663:8663"
+      - "8661:8661"
+
+    volumes:
+      - ${SIXELEVEN_DATA_DIR:-./data}:/sixeleven
+      - ./container-entrypoint.sh:/recovery-entrypoint.sh:ro
+
+    # Require the generated config and keep the upstream entrypoint from
+    # printing its RPC credentials. The wrapper then delegates to /entrypoint.sh.
+    entrypoint: ["/recovery-entrypoint.sh"]
+
+    # The upstream entrypoint expects 611d as argv[1] before daemon options.
+    command:
+      - "611d"
+      - "-datadir=/sixeleven"
+      - "-dbcache=2048"
+      - "-printtoconsole"
+
+    healthcheck:
+      test: ["CMD", "611d", "-datadir=/sixeleven", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

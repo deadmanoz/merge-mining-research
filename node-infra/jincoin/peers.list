@@ -1,0 +1,16 @@
+# Jincoin (JIN) peer hints, one per line, in addnode= format
+# (host[:port]; port defaults to 23099 if omitted).
+#
+# This file is consulted by init.sh; non-empty entries are rendered into
+# data/jincoin.conf as addnode= directives. Blank lines and lines starting
+# with # are ignored.
+#
+# 2026-05-16: empty. All six DNS seeds in src/chainparams.cpp resolve to
+# NXDOMAIN, the project's three domains (jin-coin.com, jin-coin.info,
+# jin.exchange) are dead, and the single hardcoded mainnet peer in
+# src/chainparamsseeds.h:
+#
+#     192.52.166.125:23099   # unreachable from multiple vantage points
+#
+# is unreachable. Adding it as an addnode= is pointless until either it
+# comes back online or a private archive surfaces a working peer.

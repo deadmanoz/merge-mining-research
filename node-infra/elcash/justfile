@@ -1,0 +1,37 @@
+default:
+    @just --list
+
+# Render elcash.conf in the datadir (ELCASH_DATA_DIR, default ./data).
+init:
+    ./init.sh
+
+# Build the elcashd image from the upstream source (autotools, no wallet/GUI).
+build:
+    docker compose build
+
+# Start elcashd and begin IBD.
+up:
+    docker compose up -d
+
+# Stop and remove the container while preserving chain data.
+down:
+    docker compose down
+
+# Tail daemon logs.
+logs:
+    docker compose logs -f --tail=200 elcashd
+
+# Current child-chain height.
+height:
+    docker compose exec elcashd elcash-cli -datadir=/data getblockcount
+
+# Peer count.
+peers:
+    docker compose exec elcashd elcash-cli -datadir=/data getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec elcashd elcash-cli -datadir=/data getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec elcashd elcash-cli -datadir=/data getpeerinfo | head -40

@@ -1,0 +1,26 @@
+services:
+  devcoind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/devcoind:latest
+    container_name: devcoind
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:52332:52332"
+      - "52333:52333"
+
+    volumes:
+      - ./data:/home/devcoin/.devcoin
+
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/devcoin/.devcoin"
+
+    healthcheck:
+      test: ["CMD", "devcoin-cli", "-datadir=/home/devcoin/.devcoin", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

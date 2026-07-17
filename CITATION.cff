@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: merge-mining-research
+message: "If you use this software or its datasets, please cite the project as below. Dataset licensing is documented in LICENSE-DATA."
+type: software
+authors:
+  - name: deadmanoz
+repository-code: "https://github.com/deadmanoz/merge-mining-research"
+abstract: >-
+  Research into Bitcoin merge mining and what it reveals about Bitcoin mining
+  generally. When a sibling chain merge-mines Bitcoin, its merge-mining evidence
+  can preserve the Bitcoin parent headers miners built on (canonical and
+  competing) and coinbase evidence. The most developed aspect recovers
+  direct-stale header candidates from that evidence, applies documented
+  available-evidence validation gates, and publishes reproducible recovery
+  evidence. The project also ships
+  tested marker definitions for future census work on canonical-chain
+  merge-mining commitments; mining-pool attribution is not part of this release.
+keywords:
+  - bitcoin
+  - merge-mining
+  - auxpow
+  - stale-blocks
+  - mining-pools
+  - blockchain-research
+license: MIT
+version: 0.1.0

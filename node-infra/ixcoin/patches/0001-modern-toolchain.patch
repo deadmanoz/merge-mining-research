@@ -1,0 +1,143 @@
+diff --git a/src/httpserver.cpp b/src/httpserver.cpp
+index b296b2850..c793470de 100644
+--- a/src/httpserver.cpp
++++ b/src/httpserver.cpp
+@@ -27,6 +27,7 @@
+ #include <event2/buffer.h>
+ #include <event2/util.h>
+ #include <event2/keyvalq_struct.h>
++#include <deque>
+ 
+ #ifdef EVENT__HAVE_NETINET_IN_H
+ #include <netinet/in.h>
+diff --git a/src/init.cpp b/src/init.cpp
+index e197ef98d..694e65a50 100644
+--- a/src/init.cpp
++++ b/src/init.cpp
+@@ -1477,8 +1477,9 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
+ 
+     // Either install a handler to notify us when genesis activates, or set fHaveGenesis directly.
+     // No locking, as this happens before any background thread is started.
++    boost::signals2::connection conn_genesis_wait;
+     if (chainActive.Tip() == NULL) {
+-        uiInterface.NotifyBlockTip.connect(BlockNotifyGenesisWait);
++        conn_genesis_wait = uiInterface.NotifyBlockTip.connect(BlockNotifyGenesisWait);
+     } else {
+         fHaveGenesis = true;
+     }
+@@ -1501,7 +1502,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
+         while (!fHaveGenesis) {
+             condvar_GenesisWait.wait(lock);
+         }
+-        uiInterface.NotifyBlockTip.disconnect(BlockNotifyGenesisWait);
++        conn_genesis_wait.disconnect();
+     }
+ 
+     // ********************************************************* Step 11: start node
+diff --git a/src/main.cpp b/src/main.cpp
+index c0be38413..6d5eb588d 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -92,7 +92,7 @@ FeeFilterRounder filterRounder(::minRelayTxFee);
+ struct IteratorComparator
+ {
+     template<typename I>
+-    bool operator()(const I& a, const I& b)
++    bool operator()(const I& a, const I& b) const
+     {
+         return &(*a) < &(*b);
+     }
+diff --git a/src/miner.h b/src/miner.h
+index 5d6ba4626..845ba9b63 100644
+--- a/src/miner.h
++++ b/src/miner.h
+@@ -73,7 +73,7 @@ struct modifiedentry_iter {
+ // except operating on CTxMemPoolModifiedEntry.
+ // TODO: refactor to avoid duplication of this logic.
+ struct CompareModifiedEntry {
+-    bool operator()(const CTxMemPoolModifiedEntry &a, const CTxMemPoolModifiedEntry &b)
++    bool operator()(const CTxMemPoolModifiedEntry &a, const CTxMemPoolModifiedEntry &b) const
+     {
+         double f1 = (double)a.nModFeesWithAncestors * b.nSizeWithAncestors;
+         double f2 = (double)b.nModFeesWithAncestors * a.nSizeWithAncestors;
+@@ -88,7 +88,7 @@ struct CompareModifiedEntry {
+ // This is sufficient to sort an ancestor package in an order that is valid
+ // to appear in a block.
+ struct CompareTxIterByAncestorCount {
+-    bool operator()(const CTxMemPool::txiter &a, const CTxMemPool::txiter &b)
++    bool operator()(const CTxMemPool::txiter &a, const CTxMemPool::txiter &b) const
+     {
+         if (a->GetCountWithAncestors() != b->GetCountWithAncestors())
+             return a->GetCountWithAncestors() < b->GetCountWithAncestors();
+diff --git a/src/txmempool.h b/src/txmempool.h
+index 6f67dd91d..080cb273e 100644
+--- a/src/txmempool.h
++++ b/src/txmempool.h
+@@ -224,7 +224,7 @@ struct mempoolentry_txid
+ class CompareTxMemPoolEntryByDescendantScore
+ {
+ public:
+-    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
++    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+     {
+         bool fUseADescendants = UseDescendantScore(a);
+         bool fUseBDescendants = UseDescendantScore(b);
+@@ -246,7 +246,7 @@ public:
+     }
+ 
+     // Calculate which score to use for an entry (avoiding division).
+-    bool UseDescendantScore(const CTxMemPoolEntry &a)
++    bool UseDescendantScore(const CTxMemPoolEntry &a) const
+     {
+         double f1 = (double)a.GetModifiedFee() * a.GetSizeWithDescendants();
+         double f2 = (double)a.GetModFeesWithDescendants() * a.GetTxSize();
+@@ -261,7 +261,7 @@ public:
+ class CompareTxMemPoolEntryByScore
+ {
+ public:
+-    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
++    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+     {
+         double f1 = (double)a.GetModifiedFee() * b.GetTxSize();
+         double f2 = (double)b.GetModifiedFee() * a.GetTxSize();
+@@ -275,7 +275,7 @@ public:
+ class CompareTxMemPoolEntryByEntryTime
+ {
+ public:
+-    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
++    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+     {
+         return a.GetTime() < b.GetTime();
+     }
+@@ -284,7 +284,7 @@ public:
+ class CompareTxMemPoolEntryByAncestorFee
+ {
+ public:
+-    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
++    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+     {
+         double aFees = a.GetModFeesWithAncestors();
+         double aSize = a.GetSizeWithAncestors();
+@@ -703,7 +703,7 @@ typedef std::pair<double, CTxMemPool::txiter> TxCoinAgePriority;
+ 
+ struct TxCoinAgePriorityCompare
+ {
+-    bool operator()(const TxCoinAgePriority& a, const TxCoinAgePriority& b)
++    bool operator()(const TxCoinAgePriority& a, const TxCoinAgePriority& b) const
+     {
+         if (a.first == b.first)
+             return CompareTxMemPoolEntryByScore()(*(b.second), *(a.second)); //Reverse order to make sort less than
+diff --git a/src/validationinterface.cpp b/src/validationinterface.cpp
+index 6ddf37658..6d43db882 100644
+--- a/src/validationinterface.cpp
++++ b/src/validationinterface.cpp
+@@ -4,6 +4,8 @@
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.
+ 
+ #include "validationinterface.h"
++#include <boost/bind/bind.hpp>
++using namespace boost::placeholders;
+ 
+ static CMainSignals g_signals;
+ 
+[<u[?25h

@@ -1,0 +1,30 @@
+default:
+    @just --list
+
+# Build the ixcoind image (~5-10 min first time).
+build:
+    docker compose build
+
+up:
+    docker compose up -d
+
+down:
+    docker compose down
+
+logs:
+    docker compose logs -f --tail=200 ixcoind
+
+height:
+    docker compose exec ixcoind ixcoin-cli -datadir=/home/ixcoin/.ixcoin getblockcount
+
+peers:
+    docker compose exec ixcoind ixcoin-cli -datadir=/home/ixcoin/.ixcoin getconnectioncount
+
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec ixcoind ixcoin-cli -datadir=/home/ixcoin/.ixcoin getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec ixcoind ixcoin-cli -datadir=/home/ixcoin/.ixcoin getpeerinfo | head -40
+
+shell:
+    docker compose exec ixcoind bash

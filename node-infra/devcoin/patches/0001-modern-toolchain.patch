@@ -1,0 +1,1012 @@
+diff --git a/src/addrdb.h b/src/addrdb.h
+index 1acafcb..99710df 100644
+--- a/src/addrdb.h
++++ b/src/addrdb.h
+@@ -6,6 +6,8 @@
+ #ifndef DEVCOIN_ADDRDB_H
+ #define DEVCOIN_ADDRDB_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <fs.h>
+ #include <net_types.h> // For banmap_t
+ #include <serialize.h>
+diff --git a/src/auxpow.h b/src/auxpow.h
+index 7090219..7661561 100644
+--- a/src/auxpow.h
++++ b/src/auxpow.h
+@@ -7,6 +7,7 @@
+ #ifndef DEVCOIN_AUXPOW_H
+ #define DEVCOIN_AUXPOW_H
+ 
++#include <cstdint>
+ #include <consensus/params.h>
+ #include <primitives/pureheader.h>
+ #include <primitives/transaction.h>
+@@ -148,4 +149,4 @@ public:
+ 
+ };
+ 
+-#endif // DEVCOIN_AUXPOW_H
+\ No newline at end of file
++#endif // DEVCOIN_AUXPOW_H
+diff --git a/src/bench/nanobench.h b/src/bench/nanobench.h
+index 030d6eb..1b09aa7 100644
+--- a/src/bench/nanobench.h
++++ b/src/bench/nanobench.h
+@@ -39,6 +39,8 @@
+ // public facing api - as minimal as possible
+ ///////////////////////////////////////////////////////////////////////////////////////////////////
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <chrono>  // high_resolution_clock
+ #include <cstring> // memcpy
+ #include <iosfwd>  // for std::ostream* custom output target in Config
+diff --git a/src/blockencodings.h b/src/blockencodings.h
+index 7aa4233..e3a4d71 100644
+--- a/src/blockencodings.h
++++ b/src/blockencodings.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_BLOCKENCODINGS_H
+ #define DEVCOIN_BLOCKENCODINGS_H
+ 
++#include <cstdint>
+ #include <primitives/block.h>
+ 
+ 
+diff --git a/src/bloom.h b/src/bloom.h
+index 93469d0..e60a1cb 100644
+--- a/src/bloom.h
++++ b/src/bloom.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_BLOOM_H
+ #define DEVCOIN_BLOOM_H
+ 
++#include <cstdint>
+ #include <serialize.h>
+ 
+ #include <vector>
+diff --git a/src/chain.h b/src/chain.h
+index 7a227f7..8fb6be8 100644
+--- a/src/chain.h
++++ b/src/chain.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_CHAIN_H
+ #define DEVCOIN_CHAIN_H
+ 
++#include <cstdint>
+ #include <arith_uint256.h>
+ #include <consensus/params.h>
+ #include <flatfile.h>
+diff --git a/src/chainparams.h b/src/chainparams.h
+index 3fdba7c..8328875 100644
+--- a/src/chainparams.h
++++ b/src/chainparams.h
+@@ -6,6 +6,8 @@
+ #ifndef DEVCOIN_CHAINPARAMS_H
+ #define DEVCOIN_CHAINPARAMS_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <chainparamsbase.h>
+ #include <consensus/params.h>
+ #include <netaddress.h>
+diff --git a/src/chainparamsbase.h b/src/chainparamsbase.h
+index b54eefc..a4909b1 100644
+--- a/src/chainparamsbase.h
++++ b/src/chainparamsbase.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_CHAINPARAMSBASE_H
+ #define DEVCOIN_CHAINPARAMSBASE_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <memory>
+ #include <string>
+ 
+diff --git a/src/coins.h b/src/coins.h
+index 8d0be57..2bdcf08 100644
+--- a/src/coins.h
++++ b/src/coins.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_COINS_H
+ #define DEVCOIN_COINS_H
+ 
++#include <stdexcept>
+ #include <compressor.h>
+ #include <core_memusage.h>
+ #include <memusage.h>
+diff --git a/src/compat/cpuid.h b/src/compat/cpuid.h
+index e328521..0d8b769 100644
+--- a/src/compat/cpuid.h
++++ b/src/compat/cpuid.h
+@@ -8,6 +8,7 @@
+ #if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
+ #define HAVE_GETCPUID
+ 
++#include <cstdint>
+ #include <cpuid.h>
+ 
+ // We can't use cpuid.h's __get_cpuid as it does not support subleafs.
+diff --git a/src/compressor.h b/src/compressor.h
+index c2276a2..c90adfa 100644
+--- a/src/compressor.h
++++ b/src/compressor.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_COMPRESSOR_H
+ #define DEVCOIN_COMPRESSOR_H
+ 
++#include <cstdint>
+ #include <prevector.h>
+ #include <primitives/transaction.h>
+ #include <script/script.h>
+diff --git a/src/consensus/params.h b/src/consensus/params.h
+index 786c742..c9d3f66 100644
+--- a/src/consensus/params.h
++++ b/src/consensus/params.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_CONSENSUS_PARAMS_H
+ #define DEVCOIN_CONSENSUS_PARAMS_H
+ 
++#include <cstdint>
+ #include <uint256.h>
+ #include <limits>
+ 
+diff --git a/src/consensus/validation.h b/src/consensus/validation.h
+index 78ba441..c15f0e9 100644
+--- a/src/consensus/validation.h
++++ b/src/consensus/validation.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_CONSENSUS_VALIDATION_H
+ #define DEVCOIN_CONSENSUS_VALIDATION_H
+ 
++#include <cstdint>
+ #include <string>
+ #include <version.h>
+ #include <consensus/consensus.h>
+diff --git a/src/crypto/chacha_poly_aead.h b/src/crypto/chacha_poly_aead.h
+index e801c24..a2ff378 100644
+--- a/src/crypto/chacha_poly_aead.h
++++ b/src/crypto/chacha_poly_aead.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_CRYPTO_CHACHA_POLY_AEAD_H
+ #define DEVCOIN_CRYPTO_CHACHA_POLY_AEAD_H
+ 
++#include <cstdint>
+ #include <crypto/chacha20.h>
+ 
+ #include <cmath>
+diff --git a/src/cuckoocache.h b/src/cuckoocache.h
+index 3ddf80c..3c3338d 100644
+--- a/src/cuckoocache.h
++++ b/src/cuckoocache.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_CUCKOOCACHE_H
+ #define DEVCOIN_CUCKOOCACHE_H
+ 
++#include <cstdint>
+ #include <algorithm> // std::find
+ #include <array>
+ #include <atomic>
+diff --git a/src/dbwrapper.h b/src/dbwrapper.h
+index 09736e8..303bc25 100644
+--- a/src/dbwrapper.h
++++ b/src/dbwrapper.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_DBWRAPPER_H
+ #define DEVCOIN_DBWRAPPER_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <clientversion.h>
+ #include <fs.h>
+ #include <serialize.h>
+diff --git a/src/devcoin.h b/src/devcoin.h
+index 8da08c2..0c10ba8 100644
+--- a/src/devcoin.h
++++ b/src/devcoin.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_DEVCOIN_H
+ #define DEVCOIN_DEVCOIN_H
+ 
++#include <cstdint>
+ #include <amount.h>
+ #include <inttypes.h>
+ #include <string>
+@@ -20,4 +21,4 @@ static const int64_t fallbackReduction = roundint64((initialSubsidy + devcoinSha
+ static const int devcoinStep = 4000;
+ const std::string receiverCSV = std::string("receiver.csv");
+ 
+-#endif // DEVCOIN_DEVCOIN_H
+\ No newline at end of file
++#endif // DEVCOIN_DEVCOIN_H
+diff --git a/src/hash.h b/src/hash.h
+index b999c9d..662107d 100644
+--- a/src/hash.h
++++ b/src/hash.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_HASH_H
+ #define DEVCOIN_HASH_H
+ 
++#include <cstdint>
+ #include <attributes.h>
+ #include <crypto/common.h>
+ #include <crypto/ripemd160.h>
+diff --git a/src/i2p.h b/src/i2p.h
+index 017307e..9b03d53 100644
+--- a/src/i2p.h
++++ b/src/i2p.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_I2P_H
+ #define DEVCOIN_I2P_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <compat.h>
+ #include <fs.h>
+ #include <netaddress.h>
+diff --git a/src/index/coinstatsindex.h b/src/index/coinstatsindex.h
+index 803703d..1a98255 100644
+--- a/src/index/coinstatsindex.h
++++ b/src/index/coinstatsindex.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_INDEX_COINSTATSINDEX_H
+ #define DEVCOIN_INDEX_COINSTATSINDEX_H
+ 
++#include <cstdint>
+ #include <chain.h>
+ #include <crypto/muhash.h>
+ #include <flatfile.h>
+diff --git a/src/key.h b/src/key.h
+index a4f6425..f2a2c39 100644
+--- a/src/key.h
++++ b/src/key.h
+@@ -7,6 +7,7 @@
+ #ifndef DEVCOIN_KEY_H
+ #define DEVCOIN_KEY_H
+ 
++#include <cstdint>
+ #include <pubkey.h>
+ #include <serialize.h>
+ #include <support/allocators/secure.h>
+diff --git a/src/leveldb/db/db_impl.h b/src/leveldb/db/db_impl.h
+index 685735c..8761480 100644
+--- a/src/leveldb/db/db_impl.h
++++ b/src/leveldb/db/db_impl.h
+@@ -5,6 +5,7 @@
+ #ifndef STORAGE_LEVELDB_DB_DB_IMPL_H_
+ #define STORAGE_LEVELDB_DB_DB_IMPL_H_
+ 
++#include <cstdint>
+ #include <atomic>
+ #include <deque>
+ #include <set>
+diff --git a/src/leveldb/db/version_edit.h b/src/leveldb/db/version_edit.h
+index 0de4531..92aeeff 100644
+--- a/src/leveldb/db/version_edit.h
++++ b/src/leveldb/db/version_edit.h
+@@ -5,6 +5,7 @@
+ #ifndef STORAGE_LEVELDB_DB_VERSION_EDIT_H_
+ #define STORAGE_LEVELDB_DB_VERSION_EDIT_H_
+ 
++#include <cstdint>
+ #include <set>
+ #include <utility>
+ #include <vector>
+diff --git a/src/leveldb/db/version_set.h b/src/leveldb/db/version_set.h
+index 69f3d70..8adef69 100644
+--- a/src/leveldb/db/version_set.h
++++ b/src/leveldb/db/version_set.h
+@@ -15,6 +15,7 @@
+ #ifndef STORAGE_LEVELDB_DB_VERSION_SET_H_
+ #define STORAGE_LEVELDB_DB_VERSION_SET_H_
+ 
++#include <cstdint>
+ #include <map>
+ #include <set>
+ #include <vector>
+diff --git a/src/leveldb/port/port_example.h b/src/leveldb/port/port_example.h
+index 1a8fca2..ba83612 100644
+--- a/src/leveldb/port/port_example.h
++++ b/src/leveldb/port/port_example.h
+@@ -10,6 +10,7 @@
+ #ifndef STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
+ #define STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
+ 
++#include <cstdint>
+ #include "port/thread_annotations.h"
+ 
+ namespace leveldb {
+diff --git a/src/memusage.h b/src/memusage.h
+index 7444de5..1eedc8a 100644
+--- a/src/memusage.h
++++ b/src/memusage.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_MEMUSAGE_H
+ #define DEVCOIN_MEMUSAGE_H
+ 
++#include <cstdint>
+ #include <indirectmap.h>
+ #include <prevector.h>
+ 
+diff --git a/src/net_permissions.h b/src/net_permissions.h
+index ec3c979..6ef67df 100644
+--- a/src/net_permissions.h
++++ b/src/net_permissions.h
+@@ -2,6 +2,7 @@
+ // Distributed under the MIT software license, see the accompanying
+ // file COPYING or http://www.opensource.org/licenses/mit-license.php.
+ 
++#include <cstdint>
+ #include <netaddress.h>
+ 
+ #include <string>
+diff --git a/src/net_processing.h b/src/net_processing.h
+index e4415b9..8ac386d 100644
+--- a/src/net_processing.h
++++ b/src/net_processing.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_NET_PROCESSING_H
+ #define DEVCOIN_NET_PROCESSING_H
+ 
++#include <cstdint>
+ #include <net.h>
+ #include <validationinterface.h>
+ 
+diff --git a/src/node/utxo_snapshot.h b/src/node/utxo_snapshot.h
+index 43ac691..ec1b77f 100644
+--- a/src/node/utxo_snapshot.h
++++ b/src/node/utxo_snapshot.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_NODE_UTXO_SNAPSHOT_H
+ #define DEVCOIN_NODE_UTXO_SNAPSHOT_H
+ 
++#include <cstdint>
+ #include <uint256.h>
+ #include <serialize.h>
+ 
+diff --git a/src/policy/feerate.h b/src/policy/feerate.h
+index 0cf0202..789c96f 100644
+--- a/src/policy/feerate.h
++++ b/src/policy/feerate.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_POLICY_FEERATE_H
+ #define DEVCOIN_POLICY_FEERATE_H
+ 
++#include <cstdint>
+ #include <amount.h>
+ #include <serialize.h>
+ 
+diff --git a/src/policy/packages.h b/src/policy/packages.h
+index 979ffba..b5d5ef7 100644
+--- a/src/policy/packages.h
++++ b/src/policy/packages.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_POLICY_PACKAGES_H
+ #define DEVCOIN_POLICY_PACKAGES_H
+ 
++#include <cstdint>
+ #include <consensus/validation.h>
+ #include <policy/policy.h>
+ #include <primitives/transaction.h>
+diff --git a/src/policy/policy.h b/src/policy/policy.h
+index 92dd9c4..88c582e 100644
+--- a/src/policy/policy.h
++++ b/src/policy/policy.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_POLICY_POLICY_H
+ #define DEVCOIN_POLICY_POLICY_H
+ 
++#include <cstdint>
+ #include <consensus/consensus.h>
+ #include <policy/feerate.h>
+ #include <script/interpreter.h>
+diff --git a/src/policy/settings.h b/src/policy/settings.h
+index fdf7d17..6abfb74 100644
+--- a/src/policy/settings.h
++++ b/src/policy/settings.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_POLICY_SETTINGS_H
+ #define DEVCOIN_POLICY_SETTINGS_H
+ 
++#include <cstdint>
+ #include <policy/policy.h>
+ 
+ class CFeeRate;
+diff --git a/src/primitives/pureheader.h b/src/primitives/pureheader.h
+index 3ed7615..41aa685 100644
+--- a/src/primitives/pureheader.h
++++ b/src/primitives/pureheader.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_PRIMITIVES_PUREHEADER_H
+ #define DEVCOIN_PRIMITIVES_PUREHEADER_H
+ 
++#include <cstdint>
+ #include <serialize.h>
+ #include <uint256.h>
+ /**
+diff --git a/src/psbt.h b/src/psbt.h
+index 43d21a3..dd9aff2 100644
+--- a/src/psbt.h
++++ b/src/psbt.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_PSBT_H
+ #define DEVCOIN_PSBT_H
+ 
++#include <cstdint>
+ #include <attributes.h>
+ #include <node/transaction.h>
+ #include <policy/feerate.h>
+diff --git a/src/pubkey.h b/src/pubkey.h
+index eb9aabb..e257b46 100644
+--- a/src/pubkey.h
++++ b/src/pubkey.h
+@@ -7,6 +7,7 @@
+ #ifndef DEVCOIN_PUBKEY_H
+ #define DEVCOIN_PUBKEY_H
+ 
++#include <cstdint>
+ #include <hash.h>
+ #include <serialize.h>
+ #include <span.h>
+diff --git a/src/qt/clientmodel.h b/src/qt/clientmodel.h
+index b00f712..e2fdff9 100644
+--- a/src/qt/clientmodel.h
++++ b/src/qt/clientmodel.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_CLIENTMODEL_H
+ #define DEVCOIN_QT_CLIENTMODEL_H
+ 
++#include <cstdint>
+ #include <QObject>
+ #include <QDateTime>
+ 
+diff --git a/src/qt/devcoin.h b/src/qt/devcoin.h
+index da9bcfa..e39f238 100644
+--- a/src/qt/devcoin.h
++++ b/src/qt/devcoin.h
+@@ -6,6 +6,7 @@
+ #define DEVCOIN_QT_DEVCOIN_H
+ 
+ #if defined(HAVE_CONFIG_H)
++#include <cstdint>
+ #include <config/devcoin-config.h>
+ #endif
+ 
+diff --git a/src/qt/guiutil.h b/src/qt/guiutil.h
+index d81717d..06ff498 100644
+--- a/src/qt/guiutil.h
++++ b/src/qt/guiutil.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_GUIUTIL_H
+ #define DEVCOIN_QT_GUIUTIL_H
+ 
++#include <cstdint>
+ #include <amount.h>
+ #include <fs.h>
+ #include <net.h>
+diff --git a/src/qt/intro.h b/src/qt/intro.h
+index eba4c2d..1f2812c 100644
+--- a/src/qt/intro.h
++++ b/src/qt/intro.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_INTRO_H
+ #define DEVCOIN_QT_INTRO_H
+ 
++#include <cstdint>
+ #include <QDialog>
+ #include <QMutex>
+ #include <QThread>
+diff --git a/src/qt/optionsdialog.h b/src/qt/optionsdialog.h
+index 9d6871e..40c8b97 100644
+--- a/src/qt/optionsdialog.h
++++ b/src/qt/optionsdialog.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_OPTIONSDIALOG_H
+ #define DEVCOIN_QT_OPTIONSDIALOG_H
+ 
++#include <cstdint>
+ #include <QDialog>
+ #include <QValidator>
+ 
+diff --git a/src/qt/recentrequeststablemodel.h b/src/qt/recentrequeststablemodel.h
+index c8a87d4..ef0f3a2 100644
+--- a/src/qt/recentrequeststablemodel.h
++++ b/src/qt/recentrequeststablemodel.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_RECENTREQUESTSTABLEMODEL_H
+ #define DEVCOIN_QT_RECENTREQUESTSTABLEMODEL_H
+ 
++#include <cstdint>
+ #include <qt/sendcoinsrecipient.h>
+ 
+ #include <QAbstractTableModel>
+diff --git a/src/qt/rpcconsole.h b/src/qt/rpcconsole.h
+index eecabc1..5679fa9 100644
+--- a/src/qt/rpcconsole.h
++++ b/src/qt/rpcconsole.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_RPCCONSOLE_H
+ #define DEVCOIN_QT_RPCCONSOLE_H
+ 
++#include <cstdint>
+ #include <qt/guiutil.h>
+ #include <qt/peertablemodel.h>
+ 
+diff --git a/src/qt/transactionrecord.h b/src/qt/transactionrecord.h
+index 3725143..a6dd5ea 100644
+--- a/src/qt/transactionrecord.h
++++ b/src/qt/transactionrecord.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_QT_TRANSACTIONRECORD_H
+ #define DEVCOIN_QT_TRANSACTIONRECORD_H
+ 
++#include <cstdint>
+ #include <amount.h>
+ #include <uint256.h>
+ 
+diff --git a/src/receiver.h b/src/receiver.h
+index a31b508..c429032 100644
+--- a/src/receiver.h
++++ b/src/receiver.h
+@@ -5,6 +5,9 @@
+ #ifndef DEVCOIN_RECEIVER_H
+ #define DEVCOIN_RECEIVER_H
+ 
++#include <cstdint>
++#include <map>
++#include <string>
+ #include <boost/asio.hpp>
+ #include <devcoin.h>
+ 
+diff --git a/src/rpc/auxpow_miner.h b/src/rpc/auxpow_miner.h
+index 9a1f1f7..9894aec 100644
+--- a/src/rpc/auxpow_miner.h
++++ b/src/rpc/auxpow_miner.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_RPC_AUXPOW_MINER_H
+ #define DEVCOIN_RPC_AUXPOW_MINER_H
+ 
++#include <cstdint>
+ #include <miner.h>
+ #include <rpc/request.h>
+ #include <script/script.h>
+diff --git a/src/rpc/util.h b/src/rpc/util.h
+index fd63560..25e3911 100644
+--- a/src/rpc/util.h
++++ b/src/rpc/util.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_RPC_UTIL_H
+ #define DEVCOIN_RPC_UTIL_H
+ 
++#include <cstdint>
+ #include <node/coinstats.h>
+ #include <node/transaction.h>
+ #include <outputtype.h>
+diff --git a/src/script/descriptor.h b/src/script/descriptor.h
+index 51a66d3..7250918 100644
+--- a/src/script/descriptor.h
++++ b/src/script/descriptor.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_SCRIPT_DESCRIPTOR_H
+ #define DEVCOIN_SCRIPT_DESCRIPTOR_H
+ 
++#include <cstdint>
+ #include <outputtype.h>
+ #include <script/script.h>
+ #include <script/sign.h>
+diff --git a/src/script/keyorigin.h b/src/script/keyorigin.h
+index 068292c..3dcf877 100644
+--- a/src/script/keyorigin.h
++++ b/src/script/keyorigin.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_SCRIPT_KEYORIGIN_H
+ #define DEVCOIN_SCRIPT_KEYORIGIN_H
+ 
++#include <cstdint>
+ #include <serialize.h>
+ #include <vector>
+ 
+diff --git a/src/script/sigcache.h b/src/script/sigcache.h
+index 6e2c0e4..8ca7c6f 100644
+--- a/src/script/sigcache.h
++++ b/src/script/sigcache.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_SCRIPT_SIGCACHE_H
+ #define DEVCOIN_SCRIPT_SIGCACHE_H
+ 
++#include <cstdint>
+ #include <script/interpreter.h>
+ #include <span.h>
+ #include <util/hasher.h>
+diff --git a/src/script/sign.h b/src/script/sign.h
+index f1464cd..4b402f3 100644
+--- a/src/script/sign.h
++++ b/src/script/sign.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_SCRIPT_SIGN_H
+ #define DEVCOIN_SCRIPT_SIGN_H
+ 
++#include <cstdint>
+ #include <coins.h>
+ #include <hash.h>
+ #include <pubkey.h>
+diff --git a/src/streams.h b/src/streams.h
+index 6706acf..61316cc 100644
+--- a/src/streams.h
++++ b/src/streams.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_STREAMS_H
+ #define DEVCOIN_STREAMS_H
+ 
++#include <stdexcept>
+ #include <serialize.h>
+ #include <span.h>
+ #include <support/allocators/zeroafterfree.h>
+diff --git a/src/support/allocators/zeroafterfree.h b/src/support/allocators/zeroafterfree.h
+index e6dae90..e2986d1 100644
+--- a/src/support/allocators/zeroafterfree.h
++++ b/src/support/allocators/zeroafterfree.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_SUPPORT_ALLOCATORS_ZEROAFTERFREE_H
+ #define DEVCOIN_SUPPORT_ALLOCATORS_ZEROAFTERFREE_H
+ 
++#include <cstdint>
+ #include <support/cleanse.h>
+ 
+ #include <memory>
+diff --git a/src/support/events.h b/src/support/events.h
+index 674dab2..a85922c 100644
+--- a/src/support/events.h
++++ b/src/support/events.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_SUPPORT_EVENTS_H
+ #define DEVCOIN_SUPPORT_EVENTS_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <ios>
+ #include <memory>
+ 
+diff --git a/src/support/lockedpool.cpp b/src/support/lockedpool.cpp
+index 6ca35a6..0fbb2a3 100644
+--- a/src/support/lockedpool.cpp
++++ b/src/support/lockedpool.cpp
+@@ -5,6 +5,8 @@
+ #include <support/lockedpool.h>
+ #include <support/cleanse.h>
+ 
++#include <stdexcept>
++
+ #if defined(HAVE_CONFIG_H)
+ #include <config/devcoin-config.h>
+ #endif
+diff --git a/src/support/lockedpool.h b/src/support/lockedpool.h
+index 00c3a00..bb994b7 100644
+--- a/src/support/lockedpool.h
++++ b/src/support/lockedpool.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_SUPPORT_LOCKEDPOOL_H
+ #define DEVCOIN_SUPPORT_LOCKEDPOOL_H
+ 
++#include <stdexcept>
+ #include <stdint.h>
+ #include <list>
+ #include <map>
+diff --git a/src/test/util/net.h b/src/test/util/net.h
+index 3eb6d40..6c0f145 100644
+--- a/src/test/util/net.h
++++ b/src/test/util/net.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_TEST_UTIL_NET_H
+ #define DEVCOIN_TEST_UTIL_NET_H
+ 
++#include <cstdint>
+ #include <compat.h>
+ #include <netaddress.h>
+ #include <net.h>
+diff --git a/src/test/util/script.h b/src/test/util/script.h
+index 4e4aaef..3b6c573 100644
+--- a/src/test/util/script.h
++++ b/src/test/util/script.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_TEST_UTIL_SCRIPT_H
+ #define DEVCOIN_TEST_UTIL_SCRIPT_H
+ 
++#include <cstdint>
+ #include <crypto/sha256.h>
+ #include <script/script.h>
+ 
+diff --git a/src/test/util/setup_common.h b/src/test/util/setup_common.h
+index db90a8e..5c12255 100644
+--- a/src/test/util/setup_common.h
++++ b/src/test/util/setup_common.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_TEST_UTIL_SETUP_COMMON_H
+ #define DEVCOIN_TEST_UTIL_SETUP_COMMON_H
+ 
++#include <cstdint>
+ #include <chainparamsbase.h>
+ #include <fs.h>
+ #include <key.h>
+diff --git a/src/torcontrol.h b/src/torcontrol.h
+index 5947468..516c9a9 100644
+--- a/src/torcontrol.h
++++ b/src/torcontrol.h
+@@ -8,6 +8,7 @@
+ #ifndef DEVCOIN_TORCONTROL_H
+ #define DEVCOIN_TORCONTROL_H
+ 
++#include <cstdint>
+ #include <fs.h>
+ #include <netaddress.h>
+ 
+diff --git a/src/txdb.h b/src/txdb.h
+index a60e1b6..c4dde60 100644
+--- a/src/txdb.h
++++ b/src/txdb.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_TXDB_H
+ #define DEVCOIN_TXDB_H
+ 
++#include <cstdint>
+ #include <coins.h>
+ #include <dbwrapper.h>
+ #include <chain.h>
+diff --git a/src/txmempool.h b/src/txmempool.h
+index dd3b430..c7342cd 100644
+--- a/src/txmempool.h
++++ b/src/txmempool.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_TXMEMPOOL_H
+ #define DEVCOIN_TXMEMPOOL_H
+ 
++#include <cstdint>
+ #include <atomic>
+ #include <map>
+ #include <optional>
+diff --git a/src/txorphanage.h b/src/txorphanage.h
+index 847e14d..44a21ea 100644
+--- a/src/txorphanage.h
++++ b/src/txorphanage.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_TXORPHANAGE_H
+ #define DEVCOIN_TXORPHANAGE_H
+ 
++#include <cstdint>
+ #include <net.h>
+ #include <primitives/block.h>
+ #include <primitives/transaction.h>
+diff --git a/src/undo.h b/src/undo.h
+index 23e1067..f14fb00 100644
+--- a/src/undo.h
++++ b/src/undo.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_UNDO_H
+ #define DEVCOIN_UNDO_H
+ 
++#include <cstdint>
+ #include <coins.h>
+ #include <compressor.h>
+ #include <consensus/consensus.h>
+diff --git a/src/univalue/include/univalue.h b/src/univalue/include/univalue.h
+index eba38e2..4f3c4c0 100644
+--- a/src/univalue/include/univalue.h
++++ b/src/univalue/include/univalue.h
+@@ -6,6 +6,7 @@
+ #ifndef __UNIVALUE_H__
+ #define __UNIVALUE_H__
+ 
++#include <stdexcept>
+ #include <stdint.h>
+ #include <string.h>
+ 
+diff --git a/src/util/bip32.h b/src/util/bip32.h
+index 99ec80c..3c2dddb 100644
+--- a/src/util/bip32.h
++++ b/src/util/bip32.h
+@@ -6,6 +6,7 @@
+ #define DEVCOIN_UTIL_BIP32_H
+ 
+ #include <attributes.h>
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+diff --git a/src/util/epochguard.h b/src/util/epochguard.h
+index 9d714af..168e3de 100644
+--- a/src/util/epochguard.h
++++ b/src/util/epochguard.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_UTIL_EPOCHGUARD_H
+ #define DEVCOIN_UTIL_EPOCHGUARD_H
+ 
++#include <cstdint>
+ #include <threadsafety.h>
+ 
+ #include <cassert>
+diff --git a/src/util/hasher.h b/src/util/hasher.h
+index dc2e4c6..f201b4d 100644
+--- a/src/util/hasher.h
++++ b/src/util/hasher.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_UTIL_HASHER_H
+ #define DEVCOIN_UTIL_HASHER_H
+ 
++#include <cstdint>
+ #include <crypto/siphash.h>
+ #include <primitives/transaction.h>
+ #include <uint256.h>
+diff --git a/src/util/settings.h b/src/util/settings.h
+index 94e99ff..908374d 100644
+--- a/src/util/settings.h
++++ b/src/util/settings.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_UTIL_SETTINGS_H
+ #define DEVCOIN_UTIL_SETTINGS_H
+ 
++#include <cstdint>
+ #include <fs.h>
+ 
+ #include <map>
+diff --git a/src/util/sock.h b/src/util/sock.h
+index 96a1b97..fa4f9b2 100644
+--- a/src/util/sock.h
++++ b/src/util/sock.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_UTIL_SOCK_H
+ #define DEVCOIN_UTIL_SOCK_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <compat.h>
+ #include <threadinterrupt.h>
+ #include <util/time.h>
+diff --git a/src/util/string.h b/src/util/string.h
+index 9d9a51c..329f52a 100644
+--- a/src/util/string.h
++++ b/src/util/string.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_UTIL_STRING_H
+ #define DEVCOIN_UTIL_STRING_H
+ 
++#include <cstdint>
+ #include <attributes.h>
+ 
+ #include <algorithm>
+diff --git a/src/validationinterface.h b/src/validationinterface.h
+index adce0f1..cf704f8 100644
+--- a/src/validationinterface.h
++++ b/src/validationinterface.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_VALIDATIONINTERFACE_H
+ #define DEVCOIN_VALIDATIONINTERFACE_H
+ 
++#include <cstdint>
+ #include <primitives/transaction.h> // CTransaction(Ref)
+ #include <sync.h>
+ 
+diff --git a/src/versionbits.h b/src/versionbits.h
+index e06e975..5a287d7 100644
+--- a/src/versionbits.h
++++ b/src/versionbits.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_VERSIONBITS_H
+ #define DEVCOIN_VERSIONBITS_H
+ 
++#include <cstdint>
+ #include <chain.h>
+ #include <sync.h>
+ 
+diff --git a/src/wallet/bdb.h b/src/wallet/bdb.h
+index f871a55..31b330e 100644
+--- a/src/wallet/bdb.h
++++ b/src/wallet/bdb.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_WALLET_BDB_H
+ #define DEVCOIN_WALLET_BDB_H
+ 
++#include <cstdint>
+ #include <clientversion.h>
+ #include <fs.h>
+ #include <serialize.h>
+diff --git a/src/wallet/coinselection.h b/src/wallet/coinselection.h
+index 2dda622..f866f19 100644
+--- a/src/wallet/coinselection.h
++++ b/src/wallet/coinselection.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_WALLET_COINSELECTION_H
+ #define DEVCOIN_WALLET_COINSELECTION_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <amount.h>
+ #include <policy/feerate.h>
+ #include <primitives/transaction.h>
+diff --git a/src/wallet/db.h b/src/wallet/db.h
+index 3d1e532..bab511e 100644
+--- a/src/wallet/db.h
++++ b/src/wallet/db.h
+@@ -6,6 +6,7 @@
+ #ifndef DEVCOIN_WALLET_DB_H
+ #define DEVCOIN_WALLET_DB_H
+ 
++#include <cstdint>
+ #include <clientversion.h>
+ #include <fs.h>
+ #include <streams.h>
+diff --git a/src/wallet/scriptpubkeyman.h b/src/wallet/scriptpubkeyman.h
+index 55fe471..05ea158 100644
+--- a/src/wallet/scriptpubkeyman.h
++++ b/src/wallet/scriptpubkeyman.h
+@@ -5,6 +5,8 @@
+ #ifndef DEVCOIN_WALLET_SCRIPTPUBKEYMAN_H
+ #define DEVCOIN_WALLET_SCRIPTPUBKEYMAN_H
+ 
++#include <stdexcept>
++#include <cstdint>
+ #include <psbt.h>
+ #include <script/descriptor.h>
+ #include <script/signingprovider.h>
+diff --git a/src/wallet/transaction.h b/src/wallet/transaction.h
+index f7f7794..0581b36 100644
+--- a/src/wallet/transaction.h
++++ b/src/wallet/transaction.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_WALLET_TRANSACTION_H
+ #define DEVCOIN_WALLET_TRANSACTION_H
+ 
++#include <cstdint>
+ #include <amount.h>
+ #include <primitives/transaction.h>
+ #include <serialize.h>
+diff --git a/src/wallet/walletutil.h b/src/wallet/walletutil.h
+index e624aac..90ac645 100644
+--- a/src/wallet/walletutil.h
++++ b/src/wallet/walletutil.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_WALLET_WALLETUTIL_H
+ #define DEVCOIN_WALLET_WALLETUTIL_H
+ 
++#include <cstdint>
+ #include <fs.h>
+ #include <script/descriptor.h>
+ 
+diff --git a/src/zmq/zmqabstractnotifier.h b/src/zmq/zmqabstractnotifier.h
+index 4165ead..96ec364 100644
+--- a/src/zmq/zmqabstractnotifier.h
++++ b/src/zmq/zmqabstractnotifier.h
+@@ -6,6 +6,7 @@
+ #define DEVCOIN_ZMQ_ZMQABSTRACTNOTIFIER_H
+ 
+ 
++#include <cstdint>
+ #include <memory>
+ #include <string>
+ 
+diff --git a/src/zmq/zmqnotificationinterface.h b/src/zmq/zmqnotificationinterface.h
+index cc532dc..2730c1f 100644
+--- a/src/zmq/zmqnotificationinterface.h
++++ b/src/zmq/zmqnotificationinterface.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_ZMQ_ZMQNOTIFICATIONINTERFACE_H
+ #define DEVCOIN_ZMQ_ZMQNOTIFICATIONINTERFACE_H
+ 
++#include <cstdint>
+ #include <validationinterface.h>
+ #include <list>
+ #include <memory>
+diff --git a/src/zmq/zmqpublishnotifier.h b/src/zmq/zmqpublishnotifier.h
+index b7e9993..0f378c6 100644
+--- a/src/zmq/zmqpublishnotifier.h
++++ b/src/zmq/zmqpublishnotifier.h
+@@ -5,6 +5,7 @@
+ #ifndef DEVCOIN_ZMQ_ZMQPUBLISHNOTIFIER_H
+ #define DEVCOIN_ZMQ_ZMQPUBLISHNOTIFIER_H
+ 
++#include <cstdint>
+ #include <zmq/zmqabstractnotifier.h>
+ 
+ class CBlockIndex;
+[<u[?25h

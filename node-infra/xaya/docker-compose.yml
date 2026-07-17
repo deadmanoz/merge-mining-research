@@ -1,0 +1,29 @@
+services:
+  xayad:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/xayad:v1.13
+    container_name: xayad
+    restart: unless-stopped
+
+    # RPC bound to 127.0.0.1 only — AuxPoW extractor runs on the same host.
+    # P2P port published publicly so DNS-seeded peers + inbound peers work.
+    ports:
+      - "127.0.0.1:8396:8396"
+      - "8394:8394"
+
+    volumes:
+      - ./data:/home/xaya/.xaya
+
+    # xaya.conf must already exist in ./data; see init.sh.
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/xaya/.xaya"
+
+    healthcheck:
+      test: ["CMD", "xaya-cli", "-datadir=/home/xaya/.xaya", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

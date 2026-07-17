@@ -1,0 +1,50 @@
+default:
+    @just --list
+
+# Render myriadcoin.conf from peers.list (if non-empty) + DNS seeds.
+init:
+    ./init.sh
+
+# Build the myriadcoind image (~10-20 min first time on a modern host).
+build:
+    docker compose build
+
+# Start myriadcoind (detached). IBD via DNS seeds.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the myriadcoind logs.
+logs:
+    docker compose logs -f --tail=200 myriadcoind
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec myriadcoind myriadcoin-cli -datadir=/home/myriadcoin/.myriadcoin getblockcount
+
+# Peer count.
+peers:
+    docker compose exec myriadcoind myriadcoin-cli -datadir=/home/myriadcoin/.myriadcoin getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo '--- blockchain ---'
+    @docker compose exec myriadcoind myriadcoin-cli -datadir=/home/myriadcoin/.myriadcoin getblockchaininfo | head -30
+    @echo '--- peers ---'
+    @docker compose exec myriadcoind myriadcoin-cli -datadir=/home/myriadcoin/.myriadcoin getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec myriadcoind bash
+
+# Refresh peers.list from the Chainz API (re-run when peers churn).
+refresh-peers:
+    @echo "==> Pulling live peer list from chainz.cryptoid.info"
+    @curl -sL --max-time 10 "https://chainz.cryptoid.info/xmy/api.dws?q=nodes" \
+        | python3 -c "import sys,json; [print(f'{ip}:10888') for g in json.load(sys.stdin) for ip in g.get('nodes',[])]" \
+        > peers.list.new
+    @wc -l peers.list.new
+    @mv peers.list.new peers.list

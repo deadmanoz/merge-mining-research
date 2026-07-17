@@ -1,0 +1,16 @@
+# Operator-specific private-infra tokens for `just check-leaks`.
+#
+# Copy this file to .leak-tokens (which is gitignored) and list the tokens that
+# must never appear in a tracked file: internal host aliases, personal handles
+# or emails, or any other private operational string. One POSIX extended-regex
+# per line. Blank lines and lines starting with '#' are ignored.
+#
+# `just check-leaks` always enforces a built-in baseline that matches the
+# common private prefixes 192.168.x and 10.0.0.x. Add any other private ranges
+# you actually use (for example 10.x, 172.16-31.x, 169.254.x) and your host
+# aliases or handles below, so the baseline does not have to guess them.
+#
+# Examples (placeholders; replace with your own and delete these lines):
+# my-archive-host
+# my-proxmox-node
+# firstname\.lastname

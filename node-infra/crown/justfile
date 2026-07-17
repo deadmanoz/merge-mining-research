@@ -1,0 +1,50 @@
+default:
+    @just --list
+
+# Render crown.conf (and any future bootstrap.dat handling).
+init:
+    ./bootstrap.sh
+
+# Build the crownd image.
+build:
+    docker compose build
+
+# Start crownd (detached). First sync from DNS seeds + addnodes.
+up:
+    docker compose up -d
+
+# Stop and remove the container (data volume persists).
+down:
+    docker compose down
+
+# Tail the crownd logs.
+logs:
+    docker compose logs -f --tail=200 crownd
+
+# Blockchain height from the container's perspective.
+height:
+    docker compose exec crownd crown-cli -datadir=/home/crown/.crown getblockcount
+
+# Peer count.
+peers:
+    docker compose exec crownd crown-cli -datadir=/home/crown/.crown getconnectioncount
+
+# Full sync/peer snapshot.
+status:
+    @echo "--- blockchain ---"
+    @docker compose exec crownd crown-cli -datadir=/home/crown/.crown getblockchaininfo | head -30
+    @echo "--- peers ---"
+    @docker compose exec crownd crown-cli -datadir=/home/crown/.crown getpeerinfo | head -40
+
+# Drop into a shell inside the container.
+shell:
+    docker compose exec crownd bash
+
+# Refresh peers.list from the Chainz API (re-run when peers churn).
+refresh-peers:
+    @echo "==> Pulling live peer list from chainz.cryptoid.info"
+    @curl -sL --max-time 10 "https://chainz.cryptoid.info/crw/api.dws?q=nodes" \
+        | python3 -c "import sys,json; [print(f'{ip}:9340') for g in json.load(sys.stdin) for ip in g.get('nodes',[])]" \
+        > peers.list.new
+    @wc -l peers.list.new
+    @mv peers.list.new peers.list

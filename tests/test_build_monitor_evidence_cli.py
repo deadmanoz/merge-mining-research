@@ -1,0 +1,390 @@
+"""Publication-safety tests for the monitor-evidence command."""
+
+from __future__ import annotations
+
+import csv
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+SCRIPT = REPO / "scripts" / "reports" / "build_monitor_evidence.py"
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location("build_monitor_evidence", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_baseline(
+    baseline_dir: Path,
+    *,
+    chain: str,
+    source_kind: str,
+    canonical: int = 0,
+    stale: int = 0,
+    strict: int = 0,
+    weak: int = 0,
+    source_rows: int = 0,
+) -> None:
+    """Write the minimal committed-baseline shape needed by preflight tests."""
+    baseline_dir.mkdir(parents=True)
+    (baseline_dir / "monitor-evidence-counts.csv").write_text(
+        "chain,source_kind,canonical,stale,stale_descendant,strict_btc_orphan,"
+        "weak_btc_orphan,monitor_rows,source_rows\n"
+        f"{chain},{source_kind},{canonical},{stale},0,{strict},{weak},"
+        f"{canonical + stale + strict + weak},{source_rows}\n"
+    )
+    (baseline_dir / "monitor-evidence-manifest.json").write_text(
+        f'{{"strict_weak_verdicts_loaded": {strict + weak}}}\n'
+    )
+
+
+def _preflight_args(module, tmp_path: Path, *, data_dir: Path, archive_dir: Path):
+    inventory = tmp_path / "relevance.csv"
+    inventory.write_text("btc_header_hash,btc_stale_relevance,relevance_reason\n")
+    parser = module.build_parser()
+    args = parser.parse_args(
+        [
+            "--data-dir",
+            str(data_dir),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--chain-archive-dir",
+            str(archive_dir),
+            "--relevance-inventory",
+            str(inventory),
+        ]
+    )
+    return parser, args
+
+
+def test_publication_build_refuses_missing_private_inputs_before_writing(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main(
+            [
+                "--data-dir",
+                str(tmp_path / "data"),
+                "--output-dir",
+                str(output_dir),
+                "--relevance-inventory",
+                str(tmp_path / "missing.csv"),
+            ]
+        )
+
+    assert not output_dir.exists()
+
+
+def test_allow_partial_is_an_explicit_diagnostic_escape_hatch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    output_dir.mkdir()
+    unrelated = output_dir / "operator-notes.txt"
+    unrelated.write_bytes(b"preserve me\n")
+
+    module.main(
+        [
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--output-dir",
+            str(output_dir),
+            "--relevance-inventory",
+            str(tmp_path / "missing.csv"),
+            "--allow-partial",
+            "--skip-canonical",
+        ]
+    )
+
+    assert (output_dir / "monitor-evidence-counts.csv").is_file()
+    assert (output_dir / "monitor-evidence-manifest.json").is_file()
+    manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
+    assert manifest["output_dir"] == "<external>/monitor"
+    assert unrelated.read_bytes() == b"preserve me\n"
+    assert list(tmp_path.glob(".monitor.monitor-build-*")) == []
+    assert "do not replace committed publication artifacts" in capsys.readouterr().err
+
+
+def test_allow_partial_refuses_committed_output_directory() -> None:
+    module = _load_module()
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main(["--allow-partial"])
+
+
+def test_late_supplemental_failure_preserves_existing_publication_set(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    output_dir.mkdir()
+    existing = {
+        "namecoin_monitor_evidence.csv": b"existing artifact\n",
+        "monitor-evidence-counts.csv": b"existing counts\n",
+        "monitor-evidence-manifest.json": b"existing manifest\n",
+        "operator-notes.txt": b"unrelated file\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+        f"1,{'11' * 32},stale,VALID\n"
+    )
+
+    supplemental = tmp_path / "invalid-supplemental.csv"
+    canonical = {field: "" for field in module.EVIDENCE_FIELDS}
+    canonical.update(
+        {
+            "chain": "vcash",
+            "source_kind": "wayback_canonical_hydration",
+            "artifact_scope": "partial_canonical_subset",
+            "provenance": "test",
+            "btc_header_hash": "22" * 32,
+            "classification": "canonical",
+        }
+    )
+    non_monitor = dict(canonical)
+    non_monitor.update({"btc_header_hash": "33" * 32, "classification": "near"})
+    with supplemental.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=module.EVIDENCE_FIELDS)
+        writer.writeheader()
+        writer.writerows([canonical, non_monitor])
+
+    with pytest.raises(ValueError, match="contains non-monitor rows"):
+        module.main(
+            [
+                "--allow-partial",
+                "--data-dir",
+                str(data_dir),
+                "--output-dir",
+                str(output_dir),
+                "--relevance-inventory",
+                str(tmp_path / "missing.csv"),
+                "--supplemental-evidence",
+                str(supplemental),
+            ]
+        )
+
+    assert {path.name for path in output_dir.iterdir()} == set(existing)
+    for name, content in existing.items():
+        assert (output_dir / name).read_bytes() == content
+    assert list(tmp_path.glob(".monitor.monitor-build-*")) == []
+
+
+def test_publication_build_rejects_merely_discoverable_partial_archive(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    source = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    source.parent.mkdir(parents=True)
+    source.write_text("btc_header_hash,classification\n")
+    inventory = tmp_path / "relevance.csv"
+    inventory.write_text(
+        "btc_header_hash,btc_stale_relevance,relevance_reason\n"
+        + "".join(
+            f"{index:064x},strict_btc_orphan,strict_height_nbits_match\n"
+            for index in range(1, 22)
+        )
+    )
+    parser = module.build_parser()
+    args = parser.parse_args(
+        [
+            "--data-dir",
+            str(data_dir),
+            "--chain-archive-dir",
+            str(archive_dir),
+            "--relevance-inventory",
+            str(inventory),
+        ]
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser)
+
+    error = capsys.readouterr().err
+    assert "lacks its private full inventory" in error
+    assert "baseline chain vcash requires --supplemental-evidence" in error
+
+
+def test_canonical_baseline_requires_canonical_classified_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "sixeleven_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    canonical = (
+        archive_dir
+        / "chains"
+        / "sixeleven"
+        / "classified"
+        / "sixeleven_canonical_blocks.csv"
+    )
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("classification\nunknown\nnear\n")
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="sixeleven",
+        source_kind="canonical_blocks",
+        canonical=2,
+        source_rows=2,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert "canonical-classified evidence is below" in capsys.readouterr().err
+
+
+def test_full_inventory_coverage_applies_validated_stale_replacement(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\nstale,VALID\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("classification\nunknown\nstale\nstale\n")
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        stale=1,
+        source_rows=3,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    error = capsys.readouterr().err
+    assert "private inventory is below the publication baseline (2 < 3)" in error
+
+
+def test_full_inventory_must_retain_per_chain_baseline_relevance_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    required_hash = "11" * 32
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        f"btc_header_hash,classification\n{'22' * 32},unknown\n{'33' * 32},unknown\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        strict=1,
+        source_rows=2,
+    )
+    (baseline_dir / "namecoin_monitor_evidence.csv").write_text(
+        "chain,btc_header_hash,btc_stale_relevance\n"
+        f"namecoin,{required_hash},strict_btc_orphan\n"
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.write_text(
+        "btc_header_hash,btc_stale_relevance,relevance_reason\n"
+        f"{required_hash},strict_btc_orphan,strict_height_nbits_match\n"
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert "missing 1 baseline strict/weak source rows" in capsys.readouterr().err
+
+
+def test_malformed_numeric_publication_baseline_is_a_parser_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        source_rows=0,
+    )
+    counts = baseline_dir / "monitor-evidence-counts.csv"
+    counts.write_text(counts.read_text().replace(",0\n", ",not-a-number\n"))
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert "invalid numeric source_rows" in capsys.readouterr().err
+
+
+def test_supplemental_input_must_be_independent_of_output(tmp_path: Path) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    supplemental = output_dir / "vcash_monitor_evidence.csv"
+    supplemental.parent.mkdir(parents=True)
+    supplemental.write_text("chain\nvcash\n")
+
+    with pytest.raises(ValueError, match="independent of the output directory"):
+        module._supplemental_coverage([supplemental], output_dir=output_dir)
+
+
+def test_repo_data_monitor_provenance_paths_exist() -> None:
+    """Committed repo-data provenance must resolve after source-layout changes."""
+    monitor_dir = REPO / "results" / "monitor-evidence"
+    missing: list[tuple[str, int, str]] = []
+    for path in sorted(monitor_dir.glob("*_monitor_evidence.csv")):
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                if row.get("provenance") != "repo-data":
+                    continue
+                source_path = row.get("source_path", "")
+                if not source_path or not (REPO / source_path).is_file():
+                    missing.append((path.name, row_number, source_path))
+
+    assert missing == []

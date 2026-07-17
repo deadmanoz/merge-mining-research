@@ -1,0 +1,39 @@
+default:
+    @just --list
+
+init:
+    ./init.sh
+
+build:
+    docker compose build
+
+up:
+    docker compose up -d
+
+down:
+    docker compose down
+
+logs:
+    docker compose logs -f --tail=200 doichaind
+
+height:
+    docker compose exec doichaind doichain-cli -datadir=/home/doichain/.doichain getblockcount
+
+peers:
+    docker compose exec doichaind doichain-cli -datadir=/home/doichain/.doichain getconnectioncount
+
+status:
+    docker compose exec doichaind doichain-cli -datadir=/home/doichain/.doichain getblockchaininfo
+
+extract OUTPUT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ../../.venv/bin/activate
+    python ../../scripts/extract/extract_auxpow_from_blkdat.py \
+        --chain doichain \
+        --blocks-dir "${DOICHAIN_DATA_DIR:-./data}/blocks" \
+        --all-headers \
+        --output "{{OUTPUT}}"
+
+shell:
+    docker compose exec doichaind bash

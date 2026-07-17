@@ -1,0 +1,32 @@
+services:
+  fractald:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/fractald:0.3.0
+    container_name: fractald
+    restart: unless-stopped
+
+    # RPC port bound to loopback only — the extractor runs on the same host.
+    # P2P port published publicly so addnodes + inbound peers work.
+    # Fractal defaults to 8332/8333 (colliding with Bitcoin Core); init.sh
+    # pins the remapped 18332/18333 pair in bitcoin.conf.
+    ports:
+      - "127.0.0.1:18332:18332"
+      - "18333:18333"
+
+    volumes:
+      # Archival-mode footprint is ~2 TB; point FRACTAL_DATA_DIR at a disk
+      # with headroom for growth.
+      - ${FRACTAL_DATA_DIR:-./data}:/home/fractal/.fractal
+
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/fractal/.fractal"
+
+    healthcheck:
+      test: ["CMD", "fractal-cli", "-datadir=/home/fractal/.fractal", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

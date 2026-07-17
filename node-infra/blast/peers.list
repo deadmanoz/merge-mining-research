@@ -1,0 +1,22 @@
+# BLAST peer hints, one per line, in addnode= format
+# (host[:port]; port defaults to 64640 if omitted).
+#
+# This file is consulted by init.sh; non-empty entries are rendered into
+# data/blast.conf as addnode= directives. Blank lines and lines starting
+# with # are ignored.
+#
+# 2026-05-16: empty. All three DNS seeds in src/chainparams.cpp
+#
+#     seed.blastblastblast.com
+#     seed1.blastblastblast.com
+#     seed2.blastblastblast.com
+#
+# plus their bare-domain / www / testseed siblings all wildcard-resolve to
+# the same single GCP IP 35.220.144.141 (PTR
+# 141.144.220.35.bc.googleusercontent.com.). TCP 64640 on that IP is
+# closed; the host responds only on TCP 80. This is a wildcard A-record on
+# a single dormant GCP instance, not a populated DNS seeder — the strongest
+# single signal that the BLAST network is dead.
+#
+# Add an addnode= here only when a working peer surfaces (BitcoinTalk
+# 2547036 outreach, a former pool operator, an archived peers.dat, etc.).

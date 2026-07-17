@@ -1,0 +1,30 @@
+services:
+  unobtaniumd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/unobtaniumd:master-54d68b08
+    container_name: unobtaniumd
+    restart: unless-stopped
+
+    # RPC bound to 127.0.0.1 only — AuxPoW extractor runs on the same host.
+    # P2P port published publicly so addnodes + inbound peers work.
+    ports:
+      - "127.0.0.1:65535:65535"
+      - "65534:65534"
+
+    volumes:
+      - ./data:/home/uno/.unobtanium
+
+    # unobtanium.conf must already exist in ./data; see init.sh.
+    # CLI args layer on top of whatever is in unobtanium.conf.
+    command:
+      - "-printtoconsole"
+      - "-datadir=/home/uno/.unobtanium"
+
+    healthcheck:
+      test: ["CMD", "unobtanium-cli", "-datadir=/home/uno/.unobtanium", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

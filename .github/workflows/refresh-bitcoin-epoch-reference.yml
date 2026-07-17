@@ -1,0 +1,60 @@
+name: Refresh Bitcoin epoch reference
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-bitcoin-epoch-reference
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project and just
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq just
+
+      - name: Refresh public Bitcoin epoch reference
+        run: just refresh-bitcoin-epoch-reference
+
+      - name: Run focused reference tests
+        run: python -m pytest tests/test_bitcoin_epoch_reference.py tests/test_btc_stale_relevance_classifier.py
+
+      - name: Open refresh pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/bitcoin-epoch-reference
+          delete-branch: true
+          add-paths: |
+            data/bitcoin-epoch-reference/*
+          commit-message: "data(bitcoin): refresh epoch reference"
+          title: "data(bitcoin): refresh epoch reference"
+          body: |
+            ## Summary
+
+            Refresh the committed Bitcoin retarget-epoch and confirmed-horizon
+            reference from mempool.space's public Esplora-compatible API. This
+            keeps the strict and weak BTC-orphan relevance gates current
+            without using private node infrastructure.
+
+            ## Testing
+
+            The workflow ran the focused epoch-reference and stale-relevance
+            classifier tests after regenerating the artifacts.
