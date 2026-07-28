@@ -847,9 +847,9 @@ def test_monitor_export_hydrates_empty_namecoin_header_from_prototype(
 
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
     namecoin = next(row for row in counts if row["chain"] == "namecoin")
-    assert (
-        namecoin["notes"]
-        == "namecoin_header_hydration=hydrated:1/still_missing:0/hash_mismatch_rejected:0"
+    assert namecoin["notes"] == (
+        "namecoin_header_hydration=hydrated:1/still_missing:0/hash_mismatch_rejected:0; "
+        "child_identity_hydration=hydrated:0/missing_identity:1"
     )
 
 
@@ -901,9 +901,9 @@ def test_monitor_export_rejects_and_counts_wrong_namecoin_header(
 
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
     namecoin = next(row for row in counts if row["chain"] == "namecoin")
-    assert (
-        namecoin["notes"]
-        == "namecoin_header_hydration=hydrated:0/still_missing:1/hash_mismatch_rejected:1"
+    assert namecoin["notes"] == (
+        "namecoin_header_hydration=hydrated:0/still_missing:1/hash_mismatch_rejected:1; "
+        "child_identity_hydration=hydrated:0/missing_identity:1"
     )
 
 
@@ -1319,6 +1319,42 @@ def test_publication_flag_fails_on_unhydrated_live_chain_rows(tmp_path: Path) ->
     )
 
     with pytest.raises(ValueError, match="fractal: missing_identity=1"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            relevance_inventory=None,
+            fail_on_missing_child_identity=True,
+        )
+
+
+def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> None:
+    # A live chain with NO identity file at all (missing, empty, or holding
+    # no verified rows) must still trip the publication gate: the live set is
+    # targeted unconditionally, so an absent sidecar can never bypass
+    # fail_on_missing_child_identity by narrowing the target set.
+    import pytest
+
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="99" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "hathor_validated_stales.csv",
+        [
+            {
+                "btc_height": "710000",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "hathor_height": "600",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="hathor: missing_identity=1"):
         build_monitor_evidence_exports(
             data_dir=data_dir,
             output_dir=output_dir,

@@ -1018,6 +1018,16 @@ def hydrate_namecoin_headers(
 
 CHILD_IDENTITY_DIR_NAME = "child-identity"
 
+# The six live-lifecycle chains whose evidence rows REQUIRE a recovered child
+# identity: merge-mining-monitor keys their live-captured events by
+# (source, child_height, child_block_hash), and its importer skips rows
+# without exact identity. Hydration targets these chains unconditionally --
+# a missing or empty identity file must surface as missing_identity, never
+# silently narrow the target set.
+LIVE_CHILD_IDENTITY_CHAINS = frozenset(
+    {"namecoin", "rsk", "syscoin", "hathor", "elastos", "fractal"}
+)
+
 # Evidence columns newer than the pre-built supplemental artifacts; the
 # supplemental required-field checks tolerate their absence and the export
 # writer fills them as empty rather than requiring regeneration.
@@ -1091,22 +1101,27 @@ def hydrate_child_identity(
 ) -> ChildIdentityStats:
     """Fill empty child identity fields from verified recovery rows, in place.
 
-    Targets rows whose ``child_block_hash`` is empty and whose chain has any
-    identity data. The identity row must agree on ``child_height``; a
-    disagreement leaves the row untouched and is counted, so a stale identity
-    file can never mislabel evidence. RSK sidecar fields ride along on the
-    row dict and only reach output when the caller includes them in the
-    export's field list.
+    Targets rows whose ``child_block_hash`` is empty and whose chain either
+    REQUIRES a recovered identity (``LIVE_CHILD_IDENTITY_CHAINS``) or has any
+    loaded identity data -- the live set is targeted unconditionally so a
+    missing, empty, or verification-less identity file surfaces as
+    ``missing_identity`` instead of silently narrowing the target set. The
+    identity row must agree on ``child_height``; a disagreement leaves the
+    row untouched and is counted, so a stale identity file can never
+    mislabel evidence. RSK sidecar fields ride along on the row dict and
+    only reach output when the caller includes them in the export's field
+    list.
     """
     stats = ChildIdentityStats()
-    if not identity:
-        return stats
     chains_with_identity = {chain for chain, _ in identity}
     for row in rows:
         if row.get("child_block_hash"):
             continue
         chain = row.get("chain", "")
-        if chain not in chains_with_identity:
+        if (
+            chain not in LIVE_CHILD_IDENTITY_CHAINS
+            and chain not in chains_with_identity
+        ):
             continue
         block_hash = normalize_hash(row.get("btc_header_hash", ""))
         if not is_hash(block_hash):

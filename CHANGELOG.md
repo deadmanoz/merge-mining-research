@@ -24,8 +24,10 @@ imported rows exactly like live capture and deduplicate against it.
   files.
   Hydrated child hashes use the pipeline's internal (wire) byte order
   (forward for RSK), matching monitor storage. Coverage lands in the counts
-  `notes` as
-  `child_identity_hydration=hydrated:N`.
+  `notes` as `child_identity_hydration=hydrated:N`, and the six live chains
+  are targeted unconditionally: a missing, empty, or verification-less
+  identity file surfaces as `missing_identity` (fatal to a publication
+  build) instead of silently narrowing the target set.
 - The RSK monitor export appends the seven columns the monitor's
   `rsk_merge_mining_evidence` sidecar requires (`rsk_miner`,
   `merge_mining_hash`, `is_uncle`, `uncle_index`, `uncle_parent_height`,
@@ -59,10 +61,12 @@ imported rows exactly like live capture and deduplicate against it.
   analogously and their `publication_exclusions` notes move with the same
   accounting). The published evidence rows are identical under both
   accountings: excluded stales appear in neither build's output. Doichain's
-  counts row now records the archive's `classified/` inventory (0 rows
-  scanned, 0 monitor rows, unchanged output); the previous vintage had
-  scanned the non-standard `2026-06-24-redo/` variant (50,621 rows, also 0
-  monitor rows), which the current discovery does not probe.
+  counts row deliberately keeps the previous vintage's record of the
+  `2026-06-24-redo/` inventory (50,621 rows scanned, 0 monitor rows): that
+  number is the publication preflight's source-coverage floor for the
+  chain's zero-stale result, so a future publication build fails closed
+  until discovery is pointed at an inventory meeting it, rather than
+  passing against the archive's empty `classified/` file.
 
 ## 0.1.0 - 2026-07-22
 

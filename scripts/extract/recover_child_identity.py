@@ -70,11 +70,13 @@ import requests
 # Repo `src/` is on sys.path when installed via `pip install -e .`.
 from stale_blocks_analysis.auxpow_parse import read_auxpow
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.full_evidence import LIVE_CHILD_IDENTITY_CHAINS
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
 load_local_rpc_env()
 
-LIVE_CHAINS = ("namecoin", "rsk", "syscoin", "hathor", "elastos", "fractal")
+# One source of truth with the export hydrator's unconditional target set.
+LIVE_CHAINS = tuple(sorted(LIVE_CHILD_IDENTITY_CHAINS))
 
 DEFAULT_URLS = {
     "namecoin": os.environ.get("NAMECOIN_RPC_URL", "http://127.0.0.1:8436"),
