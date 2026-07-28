@@ -1047,9 +1047,13 @@ RSK_SIDECAR_EXPORT_FIELDS = [
 def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]:
     """Map ``(chain, btc_header_hash)`` -> verified child-identity row.
 
-    Reads every ``data/child-identity/*_child_identity.csv``; only rows whose
-    ``verification`` is non-empty (node-verified) are usable, so an
-    unrecovered row can never inject an unverified identity.
+    Reads every ``data/child-identity/*_child_identity.csv``; a row is usable
+    only when its ``verification`` is non-empty (node-verified) AND its
+    ``child_block_hash`` is a well-formed 32-byte hex value AND its
+    ``child_block_time`` is a positive integer. A verified-but-incomplete row
+    (malformed or manually truncated sidecar) is dropped here, so the
+    affected evidence rows surface as ``missing_identity`` downstream
+    instead of hydrating blanks that defeat the publication gate.
     """
     identity_dir = data_dir / CHILD_IDENTITY_DIR_NAME
     if not identity_dir.is_dir():
@@ -1059,6 +1063,10 @@ def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]
         with path.open(newline="") as f:
             for row in csv.DictReader(f):
                 if not (row.get("verification") or "").strip():
+                    continue
+                child_hash = (row.get("child_block_hash") or "").strip().lower()
+                child_time = (row.get("child_block_time") or "").strip()
+                if not is_hash(child_hash) or not child_time.isdigit():
                     continue
                 chain = (row.get("chain") or "").strip()
                 block_hash = normalize_hash(row.get("btc_header_hash"))
@@ -1072,16 +1080,22 @@ class ChildIdentityStats:
     """Per-chain child-identity hydration coverage.
 
     ``targets`` is the number of rows considered (child hash empty, header
-    hash well-formed) in a chain that has identity data at all; ``hydrated``
-    gained a verified identity; ``missing_identity`` had no verified identity
-    row; ``height_mismatch`` had an identity row recorded at a different
-    child height and was left empty.
+    hash well-formed); ``hydrated`` gained a verified identity;
+    ``missing_identity`` / ``height_mismatch`` count NON-canonical rows left
+    empty (fatal to a publication build: the monitor importer consumes these
+    categories and skips rows without exact identity).
+    ``canonical_unhydrated`` counts canonical rows left empty -- note-only,
+    because the committed sidecars deliberately cover the stale/orphan
+    publication set; a canonical-bearing publication would first extend the
+    recovery to canonical heights, and this counter keeps that gap visible
+    without blocking the documented canonical build.
     """
 
     targets: int = 0
     hydrated: int = 0
     missing_identity: int = 0
     height_mismatch: int = 0
+    canonical_unhydrated: int = 0
 
     def note(self) -> str:
         """One coverage line for a counts notes field; '' when no targets."""
@@ -1092,6 +1106,8 @@ class ChildIdentityStats:
             line += f"/missing_identity:{self.missing_identity}"
         if self.height_mismatch:
             line += f"/height_mismatch:{self.height_mismatch}"
+        if self.canonical_unhydrated:
+            line += f"/canonical_unhydrated:{self.canonical_unhydrated}"
         return line
 
 
@@ -1127,9 +1143,13 @@ def hydrate_child_identity(
         if not is_hash(block_hash):
             continue
         stats.targets += 1
+        is_canonical_row = (row.get("classification") or "") == "canonical"
         candidate = identity.get((chain, block_hash))
         if candidate is None:
-            stats.missing_identity += 1
+            if is_canonical_row:
+                stats.canonical_unhydrated += 1
+            else:
+                stats.missing_identity += 1
             continue
         candidate_height = (candidate.get("child_height") or "").strip()
         row_height = (row.get("child_height") or "").strip()
@@ -1140,7 +1160,10 @@ def hydrate_child_identity(
             # malformed identity height can then never hydrate a row.
             heights_agree = candidate_height == row_height
         if not heights_agree:
-            stats.height_mismatch += 1
+            if is_canonical_row:
+                stats.canonical_unhydrated += 1
+            else:
+                stats.height_mismatch += 1
             continue
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         if not row.get("child_block_time"):

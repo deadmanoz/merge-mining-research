@@ -216,8 +216,10 @@ the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
 rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
 identity for Hathor, whose merge-mined block hash IS its BTC parent header
-hash. All 2,219 unique parent headers across the six chains verified against
-today's canonical child chains.
+hash. All 2,219 chain/header observations across the six chains verified
+against today's canonical child chains (1,870 distinct Bitcoin parent
+headers; 214 parents were observed by more than one chain, a single miner
+attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 `child_height`, `child_block_hash`, `child_block_time`, `verification`, and

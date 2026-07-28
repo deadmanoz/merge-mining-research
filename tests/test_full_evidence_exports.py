@@ -1361,3 +1361,127 @@ def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> 
             relevance_inventory=None,
             fail_on_missing_child_identity=True,
         )
+
+
+def test_verified_identity_rows_with_blank_child_fields_are_rejected(
+    tmp_path: Path,
+) -> None:
+    # A sidecar row carrying a verification token but a blank/malformed child
+    # hash or time must not count as verified: the loader drops it, the row
+    # surfaces as missing_identity, and the publication gate stays closed.
+    import pytest
+
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "elastos_validated_stales.csv",
+        [
+            {
+                "btc_height": "570000",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "ela_height": "700",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "child-identity" / "elastos_child_identity.csv",
+        [
+            {
+                "chain": "elastos",
+                "btc_header_hash": header_hash,
+                "child_height": "700",
+                "child_block_hash": "",  # verified token but no identity
+                "child_block_time": "",
+                "verification": "auxpow_parent_match",
+                "note": "",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="elastos: missing_identity=1"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            relevance_inventory=None,
+            fail_on_missing_child_identity=True,
+        )
+
+
+def test_canonical_live_rows_do_not_trip_the_publication_gate(
+    tmp_path: Path,
+) -> None:
+    # Canonical companions for a live chain are outside the committed
+    # stale/orphan identity sidecars; their shortfall is note-only
+    # (canonical_unhydrated), never fatal, so a canonical-bearing build is
+    # not blocked by the stale-focused sidecars.
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    stale_hex, stale_hash = _header(prev_hash="bb" * 32)
+    canon_hex, canon_hash = _header(prev_hash="cc" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "syscoin_validated_stales.csv",
+        [
+            {
+                "btc_height": "584000",
+                "btc_header_hash": stale_hash,
+                "btc_header_hex": stale_hex,
+                "sys_height": "800",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "syscoin_canonical_blocks.csv",
+        [
+            {
+                "btc_height": "584001",
+                "btc_header_hash": canon_hash,
+                "btc_header_hex": canon_hex,
+                "sys_height": "801",
+                "classification": "canonical",
+                "validation_status": "",
+                "expected_nbits": "",
+                "coinbase_scriptsig_hex": "aabb",
+                "coinbase_outputs": "76a91400",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "child-identity" / "syscoin_child_identity.csv",
+        [
+            {
+                "chain": "syscoin",
+                "btc_header_hash": stale_hash,
+                "child_height": "800",
+                "child_block_hash": "dd" * 32,
+                "child_block_time": "1562940119",
+                "verification": "auxpow_parent_match",
+                "note": "",
+            }
+        ],
+    )
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+        fail_on_missing_child_identity=True,
+    )
+
+    counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    syscoin = next(row for row in counts if row["chain"] == "syscoin")
+    assert (
+        syscoin["notes"]
+        == "child_identity_hydration=hydrated:1/canonical_unhydrated:1"
+    )

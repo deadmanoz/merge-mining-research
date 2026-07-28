@@ -423,10 +423,15 @@ def recover_hathor(chain: str, url: str, targets, limit) -> list[dict]:
     return rows
 
 
-def write_rows(output_dir: Path, chain: str, rows: list[dict]) -> Path:
+def write_rows(
+    output_dir: Path, chain: str, rows: list[dict], complete: bool
+) -> Path:
+    """Write a chain's identity rows; a run with unresolved rows lands in a
+    ``.partial`` sibling so it can never replace a complete committed file."""
     fields = CORE_FIELDS + (RSK_EXTRA_FIELDS if chain == "rsk" else [])
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{chain}_child_identity.csv"
+    name = f"{chain}_child_identity.csv" + ("" if complete else ".partial")
+    path = output_dir / name
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -510,9 +515,9 @@ def main() -> None:
             )
         else:
             rows = recover_hathor(chain, url, targets, limit)
-        path = write_rows(args.output_dir, chain, rows)
         recovered = sum(1 for row in rows if row.get("verification"))
         failed = [row for row in rows if not row.get("verification")]
+        path = write_rows(args.output_dir, chain, rows, complete=not failed)
         print(f"{chain}: {recovered}/{len(rows)} recovered -> {path}")
         for row in failed:
             print(
@@ -520,6 +525,10 @@ def main() -> None:
                 f"h={row['child_height']}: {row.get('note', '')}"
             )
         if failed:
+            print(
+                f"  incomplete recovery kept out of {chain}_child_identity.csv; "
+                "resolve the rows above and re-run"
+            )
             exit_code = 1
     sys.exit(exit_code)
 

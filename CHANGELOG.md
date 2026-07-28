@@ -10,9 +10,10 @@ imported rows exactly like live capture and deduplicate against it.
 - New `scripts/extract/recover_child_identity.py` recovers each row's child
   block hash and timestamp by height -> hash -> block RPC against the live
   child nodes (public API for Hathor), verifying the Bitcoin parent linkage
-  re-derives from every fetched child block. All 2,219 unique parent headers
-  across the six chains verified; results are committed under
-  `data/child-identity/`.
+  re-derives from every fetched child block. All 2,219 chain/header
+  observations across the six chains verified (1,870 distinct Bitcoin
+  parent headers; 214 parents were observed by more than one chain);
+  results are committed under `data/child-identity/`.
 - The evidence schema gains `child_block_time` (after `child_block_hash`),
   and both the monitor and full-evidence exports hydrate the child identity
   columns from `data/child-identity/` at build time, refusing identities
