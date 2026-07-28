@@ -273,9 +273,14 @@ Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The six live-lifecycle
 chains additionally publish `child_block_hash` / `child_block_time` hydrated
 from `data/child-identity/` (coverage recorded in the counts `notes` as
-`child_identity_hydration=hydrated:N`), and the RSK export appends the seven
-`rsk_merge_mining_evidence` sidecar columns listed in the child-identity
-section:
+`child_identity_hydration=hydrated:N`; a publication build fails closed when
+a live-chain row lacks a verified identity), and the RSK export appends the
+seven `rsk_merge_mining_evidence` sidecar columns listed in the
+child-identity section. The three canonical-scope artifacts (VCash,
+Lyncoin, SixEleven) still predate the `child_block_time` column -- their
+regeneration needs the private source artifacts recorded in their
+provenance columns -- and the supplemental-lag contract fills it as empty
+when they are next rebuilt:
 
 | Column | Meaning |
 | --- | --- |

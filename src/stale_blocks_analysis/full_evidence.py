@@ -1153,6 +1153,7 @@ def build_full_evidence_exports(
     sources = discover_evidence_sources(data_dir, chain_archive_dirs)
     canonical_sources = discover_canonical_sources(data_dir, chain_archive_dirs)
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
+    child_identity = load_child_identity(data_dir)
 
     count_rows: list[dict[str, object]] = []
     manifest_rows: list[dict[str, object]] = []
@@ -1182,6 +1183,9 @@ def build_full_evidence_exports(
             stats.missing_btc_header_hex = max(
                 0, stats.missing_btc_header_hex - hydration.hydrated
             )
+        identity_hydration = hydrate_child_identity(rows, child_identity)
+        if identity_hydration.note():
+            stats.notes.add(identity_hydration.note())
         if source.path is not None or companion is not None:
             artifact_path = output_dir / f"{chain}_evidence.csv"
             write_csv(artifact_path, rows, EVIDENCE_FIELDS)
@@ -1409,12 +1413,16 @@ def build_monitor_evidence_exports(
     relevance_inventory: Path | None = DEFAULT_RELEVANCE_INVENTORY,
     supplemental_evidence_paths: Iterable[Path] = (),
     include_canonical: bool = True,
+    fail_on_missing_child_identity: bool = False,
 ) -> dict[str, object]:
     """Write per-chain monitor-facing evidence CSVs plus a counts manifest.
 
     ``include_canonical=False`` skips the canonical-parent companions so the
     exports stay compact (stales, valid descendants, strict/weak orphans
-    only). ``supplemental_evidence_paths`` accepts already-normalized evidence
+    only). ``fail_on_missing_child_identity`` makes an unhydrated live-chain
+    row fatal: the monitor importer deliberately skips rows without exact
+    child identity, so a publication build must fail closed rather than
+    silently publish rows the importer will drop. ``supplemental_evidence_paths`` accepts already-normalized evidence
     for intentionally separate scopes outside ``CHAIN_SPECS``, such as the
     VCash partial canonical hydration. ``reported_output_dir`` is the logical
     final directory recorded in counts and manifests when a caller writes to a
@@ -1442,6 +1450,7 @@ def build_monitor_evidence_exports(
 
     count_rows: list[dict[str, object]] = []
     artifacts: dict[str, str] = {}
+    identity_shortfalls: dict[str, ChildIdentityStats] = {}
 
     def export(
         source: EvidenceSource,
@@ -1496,6 +1505,8 @@ def build_monitor_evidence_exports(
         )
         hydration = hydrate_namecoin_headers(kept, namecoin_paths)
         identity_hydration = hydrate_child_identity(kept, child_identity)
+        if identity_hydration.missing_identity or identity_hydration.height_mismatch:
+            identity_shortfalls[source.chain] = identity_hydration
         artifact_fields = MONITOR_EVIDENCE_FIELDS
         if source.chain == "rsk":
             artifact_fields = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
@@ -1641,6 +1652,18 @@ def build_monitor_evidence_exports(
     for supplemental_path in supplemental_paths:
         export_supplemental(supplemental_path)
 
+    if fail_on_missing_child_identity and identity_shortfalls:
+        detail = "; ".join(
+            f"{chain}: missing_identity={stats.missing_identity}, "
+            f"height_mismatch={stats.height_mismatch}"
+            for chain, stats in sorted(identity_shortfalls.items())
+        )
+        raise ValueError(
+            "live-chain rows lack a verified child identity and the monitor "
+            f"importer would silently drop them ({detail}); regenerate "
+            "data/child-identity/ with scripts/extract/recover_child_identity.py "
+            "or pass --allow-partial for a disposable diagnostic build"
+        )
     counts_path = output_dir / "monitor-evidence-counts.csv"
     manifest_json_path = output_dir / "monitor-evidence-manifest.json"
     reported_counts_path = logical_output_dir / counts_path.name

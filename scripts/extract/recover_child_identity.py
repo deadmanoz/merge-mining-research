@@ -470,6 +470,13 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Rows per chain")
     args = parser.parse_args()
 
+    if args.limit is not None and args.output_dir == Path("data/child-identity"):
+        raise SystemExit(
+            "--limit writes a partial identity file that would replace the "
+            "committed complete one; pass a disposable --output-dir for "
+            "limited smoke runs"
+        )
+
     chains = [chain.strip() for chain in args.chains.split(",") if chain.strip()]
     unknown = sorted(set(chains) - set(LIVE_CHAINS))
     if unknown:

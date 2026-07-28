@@ -1274,3 +1274,54 @@ def test_monitor_export_refuses_unverified_or_mismatched_child_identity(
         syscoin["notes"]
         == "child_identity_hydration=hydrated:0/missing_identity:1/height_mismatch:1"
     )
+
+
+def test_publication_flag_fails_on_unhydrated_live_chain_rows(tmp_path: Path) -> None:
+    # With fail_on_missing_child_identity set (the publication default), a
+    # live-chain row without a verified identity must abort the build: the
+    # monitor importer deliberately skips such rows, so publishing them would
+    # silently shrink the imported evidence.
+    import pytest
+
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="88" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "fractal_validated_stales.csv",
+        [
+            {
+                "btc_height": "860000",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "fb_height": "500",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+    # The chain has identity data, but not for this row.
+    _write_csv(
+        data_dir / "child-identity" / "fractal_child_identity.csv",
+        [
+            {
+                "chain": "fractal",
+                "btc_header_hash": "aa" * 32,
+                "child_height": "1",
+                "child_block_hash": "bb" * 32,
+                "child_block_time": "1728590402",
+                "verification": "auxpow_parent_match",
+                "note": "",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="fractal: missing_identity=1"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            relevance_inventory=None,
+            fail_on_missing_child_identity=True,
+        )

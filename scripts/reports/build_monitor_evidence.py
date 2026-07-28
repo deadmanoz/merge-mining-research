@@ -659,6 +659,10 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             relevance_inventory=args.relevance_inventory,
             supplemental_evidence_paths=args.supplemental_evidence_paths,
             include_canonical=not args.skip_canonical,
+            # A publication build fails closed on an unhydrated live-chain
+            # row (the importer would silently drop it); a partial diagnostic
+            # build reports the shortfall in the counts notes instead.
+            fail_on_missing_child_identity=not args.allow_partial,
         )
         _publish_staged_artifacts(staging_dir, output_dir)
         return summary
