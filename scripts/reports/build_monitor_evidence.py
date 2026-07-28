@@ -29,6 +29,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DEFAULT_RELEVANCE_INVENTORY,
     EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
+    SUPPLEMENTAL_LAG_COLUMNS,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -281,7 +282,11 @@ def _supplemental_coverage(
             )
         with path.open(newline="") as handle:
             reader = csv.DictReader(handle)
-            missing_fields = set(EVIDENCE_FIELDS) - set(reader.fieldnames or [])
+            missing_fields = (
+                set(EVIDENCE_FIELDS)
+                - SUPPLEMENTAL_LAG_COLUMNS
+                - set(reader.fieldnames or [])
+            )
             if missing_fields:
                 raise ValueError(
                     f"supplemental evidence lacks required fields: {path}: "

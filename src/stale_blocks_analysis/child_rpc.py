@@ -90,11 +90,13 @@ class RpcClient:
             return resp.json()
         raise RuntimeError(f"Exceeded {self.max_retries} retries for {label}")
 
-    def call(self, method: str, params: list):
+    def call(self, method: str, params: list | dict):
         """Issue one JSON-RPC call and return its ``result``.
 
-        Retries per ``_request`` and raises ``RuntimeError`` on an RPC-level
-        error or once retries are exhausted.
+        ``params`` is positional (list) or named (dict; JSON-RPC 2.0 chains
+        such as Elastos take named params). Retries per ``_request`` and
+        raises ``RuntimeError`` on an RPC-level error or once retries are
+        exhausted.
         """
         payload = {"jsonrpc": self.jsonrpc, "id": 0, "method": method, "params": params}
         data = self._request(payload, f"{method}({params})")
