@@ -8,13 +8,13 @@
   },
   "retarget_interval": 2016,
   "confirmation_depth": 6,
-  "observed_tip_height": 958906,
+  "observed_tip_height": 959795,
   "finalized_horizon": {
-    "height": 958900,
-    "hash": "00000000000000000001161243db3275c08a3e590ae618f17dbdc9455a518a84",
-    "time": 1784559831,
-    "mediantime": 1784558397,
-    "bits": "1702369d"
+    "height": 959789,
+    "hash": "000000000000000000017091934fc75ef2283a8bef6c0df5fcfb1bd39107eb88",
+    "time": 1785129717,
+    "mediantime": 1785127859,
+    "bits": "17023ad4"
   },
-  "epoch_rows": 476
+  "epoch_rows": 477
 }
