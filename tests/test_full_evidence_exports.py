@@ -1484,3 +1484,60 @@ def test_canonical_live_rows_do_not_trip_the_publication_gate(
     assert (
         syscoin["notes"] == "child_identity_hydration=hydrated:1/canonical_unhydrated:1"
     )
+
+
+def test_live_chain_prepopulated_child_hash_is_replaced_by_verified_identity(
+    tmp_path: Path,
+) -> None:
+    # A raw inventory can prepopulate child_block_hash in display order (the
+    # Hathor extractor writes the API tx_id); for live chains the
+    # node-verified sidecar is authoritative, so the hash is replaced with
+    # the internal-order value and the missing timestamp is filled -- and a
+    # prepopulated row with NO identity still trips the publication gate.
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="dd" * 32)
+    display_hash = "00" * 8 + "ee" * 24
+    internal_hash = bytes.fromhex(display_hash)[::-1].hex()
+    _write_csv(
+        data_dir / "validated-stales" / "hathor_validated_stales.csv",
+        [
+            {
+                "btc_height": "710001",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "hathor_height": "601",
+                "hathor_block_hash": display_hash,  # display-order prepopulation
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "child-identity" / "hathor_child_identity.csv",
+        [
+            {
+                "chain": "hathor",
+                "btc_header_hash": header_hash,
+                "child_height": "601",
+                "child_block_hash": internal_hash,
+                "child_block_time": "1637668048",
+                "verification": "hathor_block_id_match",
+                "note": "",
+            }
+        ],
+    )
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+        fail_on_missing_child_identity=True,
+    )
+
+    rows = _read_csv(output_dir / "hathor_monitor_evidence.csv")
+    assert rows[0]["child_block_hash"] == internal_hash
+    assert rows[0]["child_block_time"] == "1637668048"

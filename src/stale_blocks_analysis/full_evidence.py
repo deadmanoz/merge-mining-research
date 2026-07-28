@@ -1117,9 +1117,12 @@ def hydrate_child_identity(
 ) -> ChildIdentityStats:
     """Fill empty child identity fields from verified recovery rows, in place.
 
-    Targets rows whose ``child_block_hash`` is empty and whose chain either
-    REQUIRES a recovered identity (``LIVE_CHILD_IDENTITY_CHAINS``) or has any
-    loaded identity data -- the live set is targeted unconditionally so a
+    Targets every live-chain row (``LIVE_CHILD_IDENTITY_CHAINS``) regardless
+    of whether the source prepopulated ``child_block_hash`` -- the
+    node-verified sidecar is authoritative there, so a raw inventory's
+    display-order hash is replaced and a missing identity still counts as a
+    shortfall -- plus any other chain's empty-hash rows when identity data
+    was loaded for it. The live set is targeted unconditionally so a
     missing, empty, or verification-less identity file surfaces as
     ``missing_identity`` instead of silently narrowing the target set. The
     identity row must agree on ``child_height``; a disagreement leaves the
@@ -1131,9 +1134,11 @@ def hydrate_child_identity(
     stats = ChildIdentityStats()
     chains_with_identity = {chain for chain, _ in identity}
     for row in rows:
-        if row.get("child_block_hash"):
-            continue
         chain = row.get("chain", "")
+        if row.get("child_block_hash") and chain not in LIVE_CHILD_IDENTITY_CHAINS:
+            # Non-live chains keep their source-supplied identity untouched
+            # (the explicit-recovery artifacts are authoritative for it).
+            continue
         if (
             chain not in LIVE_CHILD_IDENTITY_CHAINS
             and chain not in chains_with_identity
@@ -1165,6 +1170,10 @@ def hydrate_child_identity(
             else:
                 stats.height_mismatch += 1
             continue
+        # The node-verified identity is authoritative for live chains: a
+        # source-prepopulated hash (e.g. a raw Hathor inventory's
+        # display-order tx_id) is replaced with the verified internal-order
+        # value rather than trusted as-is.
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         if not row.get("child_block_time"):
             row["child_block_time"] = (candidate.get("child_block_time") or "").strip()

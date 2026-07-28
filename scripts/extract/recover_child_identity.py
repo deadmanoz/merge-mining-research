@@ -475,7 +475,10 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Rows per chain")
     args = parser.parse_args()
 
-    if args.limit is not None and args.output_dir == Path("data/child-identity"):
+    if (
+        args.limit is not None
+        and args.output_dir.resolve() == Path("data/child-identity").resolve()
+    ):
         raise SystemExit(
             "--limit writes a partial identity file that would replace the "
             "committed complete one; pass a disposable --output-dir for "
