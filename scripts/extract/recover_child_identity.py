@@ -423,9 +423,7 @@ def recover_hathor(chain: str, url: str, targets, limit) -> list[dict]:
     return rows
 
 
-def write_rows(
-    output_dir: Path, chain: str, rows: list[dict], complete: bool
-) -> Path:
+def write_rows(output_dir: Path, chain: str, rows: list[dict], complete: bool) -> Path:
     """Write a chain's identity rows; a run with unresolved rows lands in a
     ``.partial`` sibling so it can never replace a complete committed file."""
     fields = CORE_FIELDS + (RSK_EXTRA_FIELDS if chain == "rsk" else [])

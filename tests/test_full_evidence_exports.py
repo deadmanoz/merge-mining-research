@@ -1482,6 +1482,5 @@ def test_canonical_live_rows_do_not_trip_the_publication_gate(
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
     syscoin = next(row for row in counts if row["chain"] == "syscoin")
     assert (
-        syscoin["notes"]
-        == "child_identity_hydration=hydrated:1/canonical_unhydrated:1"
+        syscoin["notes"] == "child_identity_hydration=hydrated:1/canonical_unhydrated:1"
     )
