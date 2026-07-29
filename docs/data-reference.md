@@ -158,7 +158,7 @@ Each `<chain>_evidence.csv` uses this normalized schema:
 | --- | --- |
 | `chain`, `source_kind`, `source_path`, `source_row_number` | Source identity and row provenance. External archive roots are redacted as `<chain-archive>/...`. |
 | `artifact_scope` | `full_classifier_inventory`, `stale_only_publication`, or `stale_descendant_sidecar`. |
-| `child_height`, `child_block_hash` | Child-chain location when available. |
+| `child_height`, `child_block_hash`, `child_block_time` | Child-chain location and block timestamp when available. For the six live-lifecycle chains the hash and timestamp are hydrated from `data/child-identity/` (see below). |
 | `btc_height`, `btc_header_hash`, `btc_prev_hash`, `btc_time`, `btc_bits`, `btc_nonce`, `btc_header_hex` | Normalized Bitcoin parent header fields. |
 | `coinbase_scriptsig_hex`, `coinbase_outputs`, `full_coinbase_hex` | Coinbase evidence. Hathor-style full rows with only `full_coinbase_hex` are parsed during export. |
 | `classification` | Preserved source classification: `canonical`, `stale`, `unknown` (normalized from the legacy `orphan` spelling on read), `stale_descendant`, `near`, or source-specific values. |
@@ -198,6 +198,48 @@ strict, or weak total may be inferred from them.
 Parallel-schema chains that do not split, such as RSK (miner-address schema)
 and Hathor (canonical in-file), keep their single commingled private inventory.
 
+## Live-chain child identity: `data/child-identity/`
+
+The six live-lifecycle chains (Namecoin, RSK, Syscoin, Hathor, Elastos,
+Fractal) were recovered without child block identity: their acquisition
+artifacts carry the child height but no child block hash or timestamp.
+merge-mining-monitor keys live-captured events by
+`(source, child_height, child_block_hash)`, so imported rows need the exact
+identity to deduplicate against live capture.
+
+`scripts/extract/recover_child_identity.py` recovers the identity per parent
+header by height -> hash -> block RPC against the still-reachable child nodes
+(a public API for Hathor). Every row is verified by re-deriving the Bitcoin
+parent linkage from the fetched child block and requiring it to match the
+row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
+the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
+true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
+rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
+identity for Hathor, whose merge-mined block hash IS its BTC parent header
+hash. All 2,219 chain/header observations across the six chains verified
+against today's canonical child chains (1,870 distinct Bitcoin parent
+headers; 214 parents were observed by more than one chain, a single miner
+attaching one Bitcoin parent to several merge-mined chains at once).
+
+Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
+`child_height`, `child_block_hash`, `child_block_time`, `verification`, and
+`note`. `btc_header_hash` stays in display (RPC) order like every other
+pipeline artifact; `child_block_hash` follows the pipeline's established
+column contract of internal (wire) byte order for the Bitcoin-family chains
+and Hathor, and forward order for RSK, whose keccak block hashes have no
+reversed display convention -- the same orders merge-mining-monitor stores,
+so its importer decodes the column without re-reversing. The RSK file adds
+the fields merge-mining-monitor's `rsk_merge_mining_evidence` sidecar
+requires: `rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
+`uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`.
+
+The monitor-evidence export joins these files by `(chain, btc_header_hash)`
+into the `child_block_hash` / `child_block_time` columns (and, for RSK, the
+sidecar columns) at build time; a row without a verified identity stays
+empty, and an identity recorded at a different child height is refused. The
+per-chain counts note records the join coverage as
+`child_identity_hydration=hydrated:N`.
+
 ## Bitcoin epoch reference: `data/bitcoin-epoch-reference/`
 
 The strict and weak BTC-orphan gates use a compact, committed view of
@@ -230,7 +272,22 @@ family are separate publication artifacts; rebuilding them requires the
 private source artifacts recorded in their provenance columns.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
-columns the monitor's importer parses verbatim:
+columns the monitor's importer parses verbatim. The six live-lifecycle
+chains additionally publish `child_block_hash` / `child_block_time` hydrated
+from `data/child-identity/` (coverage recorded in the counts `notes` as
+`child_identity_hydration=hydrated:N`; a publication build fails closed when
+a live-chain row lacks a verified identity), and the RSK export appends the
+seven `rsk_merge_mining_evidence` sidecar columns listed in the
+child-identity section. The three canonical-scope artifacts (VCash,
+Lyncoin, SixEleven) still predate the `child_block_time` column -- their
+regeneration needs the private source artifacts recorded in their
+provenance columns -- and the supplemental-lag contract fills it as empty
+when they are next rebuilt. The stale-descendants export is deliberately
+outside the exact-child-identity contract: its rows aggregate observations
+from several chains into chain-less rows and merge-mining-monitor's import
+surface has no stale-descendants entry, so its child identity columns stay
+empty (`child_identity=deferred_per_observation_recovery` in the counts
+notes) until a per-observation descendant-identity recovery lands:
 
 | Column | Meaning |
 | --- | --- |

@@ -59,21 +59,28 @@ The rows span:
 
 The current public block-file extractor deliberately writes a reproducible
 `child_sequence`, the child block hash, and a blank `child_height`: block-file
-order is not consensus height. The published helper for resolving child hashes
-through RPC does not currently have a Namecoin configuration. The exact
-`nmc_height` values above therefore remain historical acquisition metadata from
-the legacy inventory and are not reproducible from the compact public artifacts
-alone. A fresh extraction would need to resolve each child hash through a
-Namecoin node before classification.
+order is not consensus height. The `nmc_height` values above originated as
+historical acquisition metadata from the legacy inventory, but every accepted
+row's height is now node-verified: `scripts/extract/recover_child_identity.py`
+(which does carry a Namecoin RPC configuration, `NAMECOIN_RPC_*`) fetched the
+canonical Namecoin block at each recorded height and required its decoded
+CAuxPow parent hash to equal the row's own `btc_header_hash`, committing the
+verified child block hash and timestamp to
+`data/child-identity/namecoin_child_identity.csv`. A fresh extraction can
+either replay that height -> hash -> block verification against a Namecoin
+node or resolve child hashes directly, as before.
 
 `btc_header_hex` is present for 1,397 loader rows. The committed monitor
 evidence publishes hydrated headers for the remaining 228 accepted rows, so
-all 1,625 accepted rows now have a public header source. Every row retains the
-detached parent coinbase scriptSig, and 1,476 retain decoded output data. No row
-retains the complete serialized parent coinbase transaction, its parent-merkle
-branch, the Namecoin child block hash, or a self-contained AuxPoW proof.
-Reproducing the 228 header hydrations still requires prototype or private
-extraction artifacts that are not in the public checkout.
+all 1,625 accepted rows now have a public header source, and every monitor
+row also carries the node-verified Namecoin child block hash and timestamp
+hydrated from `data/child-identity/` (internal byte order, per the
+`child_block_hash` contract). Every row retains the detached parent coinbase
+scriptSig, and 1,476 retain decoded output data. No row retains the complete
+serialized parent coinbase transaction, its parent-merkle branch, or a
+self-contained AuxPoW proof. Reproducing the 228 header hydrations still
+requires prototype or private extraction artifacts that are not in the
+public checkout.
 
 The pinned upstream dataset carries a matching full-block blob for 295 of the
 1,625 direct candidates. The repository confirms that each blob starts with

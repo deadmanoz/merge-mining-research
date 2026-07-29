@@ -29,6 +29,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DEFAULT_RELEVANCE_INVENTORY,
     EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
+    SUPPLEMENTAL_LAG_COLUMNS,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -281,7 +282,11 @@ def _supplemental_coverage(
             )
         with path.open(newline="") as handle:
             reader = csv.DictReader(handle)
-            missing_fields = set(EVIDENCE_FIELDS) - set(reader.fieldnames or [])
+            missing_fields = (
+                set(EVIDENCE_FIELDS)
+                - SUPPLEMENTAL_LAG_COLUMNS
+                - set(reader.fieldnames or [])
+            )
             if missing_fields:
                 raise ValueError(
                     f"supplemental evidence lacks required fields: {path}: "
@@ -654,6 +659,10 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             relevance_inventory=args.relevance_inventory,
             supplemental_evidence_paths=args.supplemental_evidence_paths,
             include_canonical=not args.skip_canonical,
+            # A publication build fails closed on an unhydrated live-chain
+            # row (the importer would silently drop it); a partial diagnostic
+            # build reports the shortfall in the counts notes instead.
+            fail_on_missing_child_identity=not args.allow_partial,
         )
         _publish_staged_artifacts(staging_dir, output_dir)
         return summary

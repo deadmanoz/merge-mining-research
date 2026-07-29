@@ -48,6 +48,7 @@ EVIDENCE_FIELDS = [
     "provenance",
     "child_height",
     "child_block_hash",
+    "child_block_time",
     "btc_height",
     "btc_header_hash",
     "btc_prev_hash",
@@ -411,6 +412,7 @@ def normalize_evidence_row(
         "provenance": source.provenance,
         "child_height": child_height_for(source.chain, row, fieldnames),
         "child_block_hash": child_hash_for(source.chain, row, fieldnames),
+        "child_block_time": get_value(row, fieldnames, ("child_block_time",)),
         "btc_height": btc_height(row, fieldnames, classification),
         "btc_header_hash": header_hash,
         "btc_prev_hash": prev_hash,
@@ -1000,6 +1002,193 @@ def hydrate_namecoin_headers(
     return stats
 
 
+# ── Live-chain child identity hydration ─────────────────────────────────
+#
+# The six live-lifecycle chains (namecoin, rsk, syscoin, hathor, elastos,
+# fractal) were recovered without child block identity: their artifacts carry
+# the child HEIGHT but no child block hash or timestamp. merge-mining-monitor
+# keys live-captured events by (source, child_height, child_block_hash), so
+# imported rows need the exact identity to deduplicate against live capture.
+# scripts/extract/recover_child_identity.py recovers and node-verifies the
+# identity per parent header from the still-reachable child nodes; the
+# committed per-chain CSVs under data/child-identity/ are joined here by
+# (chain, btc_header_hash). RSK rows additionally carry the fields the
+# monitor's rsk_merge_mining_evidence sidecar requires; they are attached to
+# the row and published only in the RSK export's extra columns.
+
+CHILD_IDENTITY_DIR_NAME = "child-identity"
+
+# The six live-lifecycle chains whose evidence rows REQUIRE a recovered child
+# identity: merge-mining-monitor keys their live-captured events by
+# (source, child_height, child_block_hash), and its importer skips rows
+# without exact identity. Hydration targets these chains unconditionally --
+# a missing or empty identity file must surface as missing_identity, never
+# silently narrow the target set.
+LIVE_CHILD_IDENTITY_CHAINS = frozenset(
+    {"namecoin", "rsk", "syscoin", "hathor", "elastos", "fractal"}
+)
+
+# Evidence columns newer than the pre-built supplemental artifacts; the
+# supplemental required-field checks tolerate their absence and the export
+# writer fills them as empty rather than requiring regeneration.
+SUPPLEMENTAL_LAG_COLUMNS = frozenset({"child_block_time"})
+
+RSK_SIDECAR_EXPORT_FIELDS = [
+    "rsk_miner",
+    "merge_mining_hash",
+    "is_uncle",
+    "uncle_index",
+    "uncle_parent_height",
+    "rsk_merkle_proof",
+    "rsk_coinbase_tail",
+]
+
+
+def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]:
+    """Map ``(chain, btc_header_hash)`` -> verified child-identity row.
+
+    Reads every ``data/child-identity/*_child_identity.csv``; a row is usable
+    only when its ``verification`` is non-empty (node-verified) AND its
+    ``child_block_hash`` is a well-formed 32-byte hex value AND its
+    ``child_block_time`` is a positive integer. A verified-but-incomplete row
+    (malformed or manually truncated sidecar) is dropped here, so the
+    affected evidence rows surface as ``missing_identity`` downstream
+    instead of hydrating blanks that defeat the publication gate.
+    """
+    identity_dir = data_dir / CHILD_IDENTITY_DIR_NAME
+    if not identity_dir.is_dir():
+        return {}
+    identity: dict[tuple[str, str], dict[str, str]] = {}
+    for path in sorted(identity_dir.glob("*_child_identity.csv")):
+        with path.open(newline="") as f:
+            for row in csv.DictReader(f):
+                if not (row.get("verification") or "").strip():
+                    continue
+                child_hash = (row.get("child_block_hash") or "").strip().lower()
+                child_time = (row.get("child_block_time") or "").strip()
+                if not is_hash(child_hash) or not child_time.isdigit():
+                    continue
+                chain = (row.get("chain") or "").strip()
+                block_hash = normalize_hash(row.get("btc_header_hash"))
+                if chain and is_hash(block_hash):
+                    identity[(chain, block_hash)] = row
+    return identity
+
+
+@dataclass(slots=True)
+class ChildIdentityStats:
+    """Per-chain child-identity hydration coverage.
+
+    ``targets`` is the number of rows considered (child hash empty, header
+    hash well-formed); ``hydrated`` gained a verified identity;
+    ``missing_identity`` / ``height_mismatch`` count NON-canonical rows left
+    empty (fatal to a publication build: the monitor importer consumes these
+    categories and skips rows without exact identity).
+    ``canonical_unhydrated`` counts canonical rows left empty -- note-only,
+    because the committed sidecars deliberately cover the stale/orphan
+    publication set; a canonical-bearing publication would first extend the
+    recovery to canonical heights, and this counter keeps that gap visible
+    without blocking the documented canonical build.
+    """
+
+    targets: int = 0
+    hydrated: int = 0
+    missing_identity: int = 0
+    height_mismatch: int = 0
+    canonical_unhydrated: int = 0
+
+    def note(self) -> str:
+        """One coverage line for a counts notes field; '' when no targets."""
+        if not self.targets:
+            return ""
+        line = f"child_identity_hydration=hydrated:{self.hydrated}"
+        if self.missing_identity:
+            line += f"/missing_identity:{self.missing_identity}"
+        if self.height_mismatch:
+            line += f"/height_mismatch:{self.height_mismatch}"
+        if self.canonical_unhydrated:
+            line += f"/canonical_unhydrated:{self.canonical_unhydrated}"
+        return line
+
+
+def hydrate_child_identity(
+    rows: list[dict[str, str]],
+    identity: dict[tuple[str, str], dict[str, str]],
+) -> ChildIdentityStats:
+    """Fill empty child identity fields from verified recovery rows, in place.
+
+    Targets every live-chain row (``LIVE_CHILD_IDENTITY_CHAINS``) regardless
+    of whether the source prepopulated ``child_block_hash`` -- the
+    node-verified sidecar is authoritative there, so a raw inventory's
+    display-order hash is replaced and a missing identity still counts as a
+    shortfall -- plus any other chain's empty-hash rows when identity data
+    was loaded for it. The live set is targeted unconditionally so a
+    missing, empty, or verification-less identity file surfaces as
+    ``missing_identity`` instead of silently narrowing the target set. The
+    identity row must agree on ``child_height``; a disagreement leaves the
+    row untouched and is counted, so a stale identity file can never
+    mislabel evidence. RSK sidecar fields ride along on the row dict and
+    only reach output when the caller includes them in the export's field
+    list.
+    """
+    stats = ChildIdentityStats()
+    chains_with_identity = {chain for chain, _ in identity}
+    for row in rows:
+        chain = row.get("chain", "")
+        if row.get("child_block_hash") and chain not in LIVE_CHILD_IDENTITY_CHAINS:
+            # Non-live chains keep their source-supplied identity untouched
+            # (the explicit-recovery artifacts are authoritative for it).
+            continue
+        if (
+            chain not in LIVE_CHILD_IDENTITY_CHAINS
+            and chain not in chains_with_identity
+        ):
+            continue
+        block_hash = normalize_hash(row.get("btc_header_hash", ""))
+        if not is_hash(block_hash):
+            continue
+        stats.targets += 1
+        is_canonical_row = (row.get("classification") or "") == "canonical"
+        candidate = identity.get((chain, block_hash))
+        if candidate is None:
+            if is_canonical_row:
+                stats.canonical_unhydrated += 1
+            else:
+                stats.missing_identity += 1
+            continue
+        candidate_height = (candidate.get("child_height") or "").strip()
+        row_height = (row.get("child_height") or "").strip()
+        try:
+            heights_agree = int(candidate_height) == int(row_height)
+        except ValueError:
+            # Non-numeric heights fall back to exact-string agreement; a
+            # malformed identity height can then never hydrate a row.
+            heights_agree = candidate_height == row_height
+        if not heights_agree:
+            if is_canonical_row:
+                stats.canonical_unhydrated += 1
+            else:
+                stats.height_mismatch += 1
+            continue
+        # The node-verified identity is authoritative for live chains: a
+        # source-prepopulated hash (e.g. a raw Hathor inventory's
+        # display-order tx_id) is replaced with the verified internal-order
+        # value rather than trusted as-is.
+        row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
+        if not row.get("child_block_time"):
+            row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
+        if chain == "rsk":
+            # Sidecar fields are an RSK-only extension; the explicit gate keeps
+            # a stray sidecar-named column in another chain's identity file
+            # from ever leaking into a non-RSK row.
+            for field in RSK_SIDECAR_EXPORT_FIELDS:
+                value = (candidate.get(field) or "").strip()
+                if value:
+                    row[field] = value
+        stats.hydrated += 1
+    return stats
+
+
 def build_full_evidence_exports(
     *,
     data_dir: Path = DATA_DIR,
@@ -1011,6 +1200,7 @@ def build_full_evidence_exports(
     sources = discover_evidence_sources(data_dir, chain_archive_dirs)
     canonical_sources = discover_canonical_sources(data_dir, chain_archive_dirs)
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
+    child_identity = load_child_identity(data_dir)
 
     count_rows: list[dict[str, object]] = []
     manifest_rows: list[dict[str, object]] = []
@@ -1040,6 +1230,9 @@ def build_full_evidence_exports(
             stats.missing_btc_header_hex = max(
                 0, stats.missing_btc_header_hex - hydration.hydrated
             )
+        identity_hydration = hydrate_child_identity(rows, child_identity)
+        if identity_hydration.note():
+            stats.notes.add(identity_hydration.note())
         if source.path is not None or companion is not None:
             artifact_path = output_dir / f"{chain}_evidence.csv"
             write_csv(artifact_path, rows, EVIDENCE_FIELDS)
@@ -1267,12 +1460,16 @@ def build_monitor_evidence_exports(
     relevance_inventory: Path | None = DEFAULT_RELEVANCE_INVENTORY,
     supplemental_evidence_paths: Iterable[Path] = (),
     include_canonical: bool = True,
+    fail_on_missing_child_identity: bool = False,
 ) -> dict[str, object]:
     """Write per-chain monitor-facing evidence CSVs plus a counts manifest.
 
     ``include_canonical=False`` skips the canonical-parent companions so the
     exports stay compact (stales, valid descendants, strict/weak orphans
-    only). ``supplemental_evidence_paths`` accepts already-normalized evidence
+    only). ``fail_on_missing_child_identity`` makes an unhydrated live-chain
+    row fatal: the monitor importer deliberately skips rows without exact
+    child identity, so a publication build must fail closed rather than
+    silently publish rows the importer will drop. ``supplemental_evidence_paths`` accepts already-normalized evidence
     for intentionally separate scopes outside ``CHAIN_SPECS``, such as the
     VCash partial canonical hydration. ``reported_output_dir`` is the logical
     final directory recorded in counts and manifests when a caller writes to a
@@ -1292,6 +1489,7 @@ def build_monitor_evidence_exports(
     # orphan join depends on merging this companion.
     unknown_sources = discover_unknown_sources(data_dir, chain_archive_dirs)
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
+    child_identity = load_child_identity(data_dir)
     orphan_verdicts = load_orphan_relevance_verdicts(relevance_inventory)
     inventory_available = bool(orphan_verdicts) or (
         relevance_inventory is not None and relevance_inventory.exists()
@@ -1299,6 +1497,7 @@ def build_monitor_evidence_exports(
 
     count_rows: list[dict[str, object]] = []
     artifacts: dict[str, str] = {}
+    identity_shortfalls: dict[str, ChildIdentityStats] = {}
 
     def export(
         source: EvidenceSource,
@@ -1352,6 +1551,12 @@ def build_monitor_evidence_exports(
             rows, orphan_verdicts, include_canonical=include_canonical
         )
         hydration = hydrate_namecoin_headers(kept, namecoin_paths)
+        identity_hydration = hydrate_child_identity(kept, child_identity)
+        if identity_hydration.missing_identity or identity_hydration.height_mismatch:
+            identity_shortfalls[source.chain] = identity_hydration
+        artifact_fields = MONITOR_EVIDENCE_FIELDS
+        if source.chain == "rsk":
+            artifact_fields = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
         artifact_path: Path | None = None
         if (
             source.path is not None
@@ -1359,7 +1564,7 @@ def build_monitor_evidence_exports(
             or unknown_companion is not None
         ):
             artifact_path = output_dir / artifact_name
-            write_csv(artifact_path, kept, MONITOR_EVIDENCE_FIELDS)
+            write_csv(artifact_path, kept, artifact_fields)
             reported_artifact_path = logical_output_dir / artifact_name
             artifacts[source.chain] = safe_path(
                 reported_artifact_path, chain=source.chain
@@ -1373,6 +1578,15 @@ def build_monitor_evidence_exports(
             )
         if hydration.note():
             notes_parts.append(hydration.note())
+        if identity_hydration.note():
+            notes_parts.append(identity_hydration.note())
+        if source.chain == "stale-descendants":
+            # The descendants export aggregates observations from several
+            # chains into chain-less rows and is outside the monitor's
+            # import surface, so it is deliberately outside the exact
+            # child-identity contract; a per-observation recovery is
+            # tracked as follow-up work. Keep the deferral visible.
+            notes_parts.append("child_identity=deferred_per_observation_recovery")
         notes = "; ".join(notes_parts)
         reported_artifact_path = (
             logical_output_dir / artifact_name if artifact_path is not None else None
@@ -1392,7 +1606,11 @@ def build_monitor_evidence_exports(
         """Copy one normalized out-of-registry evidence artifact into the export."""
         with path.open(newline="") as handle:
             reader = csv.DictReader(handle)
-            missing_fields = set(EVIDENCE_FIELDS) - set(reader.fieldnames or [])
+            missing_fields = (
+                set(EVIDENCE_FIELDS)
+                - SUPPLEMENTAL_LAG_COLUMNS
+                - set(reader.fieldnames or [])
+            )
             if missing_fields:
                 raise ValueError(
                     f"{path}: supplemental evidence lacks fields: "
@@ -1488,6 +1706,18 @@ def build_monitor_evidence_exports(
     for supplemental_path in supplemental_paths:
         export_supplemental(supplemental_path)
 
+    if fail_on_missing_child_identity and identity_shortfalls:
+        detail = "; ".join(
+            f"{chain}: missing_identity={stats.missing_identity}, "
+            f"height_mismatch={stats.height_mismatch}"
+            for chain, stats in sorted(identity_shortfalls.items())
+        )
+        raise ValueError(
+            "live-chain rows lack a verified child identity and the monitor "
+            f"importer would silently drop them ({detail}); regenerate "
+            "data/child-identity/ with scripts/extract/recover_child_identity.py "
+            "or pass --allow-partial for a disposable diagnostic build"
+        )
     counts_path = output_dir / "monitor-evidence-counts.csv"
     manifest_json_path = output_dir / "monitor-evidence-manifest.json"
     reported_counts_path = logical_output_dir / counts_path.name
