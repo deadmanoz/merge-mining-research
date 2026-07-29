@@ -13,6 +13,14 @@ concurrency:
   group: refresh-bitcoin-epoch-reference
   cancel-in-progress: false
 
+env:
+  # Events raised by the default GITHUB_TOKEN never start another workflow run,
+  # so a pull request opened with it gets no CI and cannot be gated on one.
+  # AUTOMATION_PAT opens the pull request as a real account instead, which lets
+  # ci.yml fire and lets this workflow merge on green. Without the secret the
+  # workflow still opens a reviewable pull request and leaves it for a human.
+  HAS_AUTOMATION_PAT: ${{ secrets.AUTOMATION_PAT != '' }}
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -38,8 +46,10 @@ jobs:
         run: python -m pytest tests/test_bitcoin_epoch_reference.py tests/test_btc_stale_relevance_classifier.py
 
       - name: Open refresh pull request
+        id: refresh_pr
         uses: peter-evans/create-pull-request@v7
         with:
+          token: ${{ secrets.AUTOMATION_PAT || github.token }}
           branch: automation/bitcoin-epoch-reference
           delete-branch: true
           add-paths: |
@@ -57,4 +67,35 @@ jobs:
             ## Testing
 
             The workflow ran the focused epoch-reference and stale-relevance
-            classifier tests after regenerating the artifacts.
+            classifier tests after regenerating the artifacts. Full CI runs on
+            this pull request and must pass before it merges.
+
+      - name: Merge the refresh pull request once CI passes
+        # `pull-request-operation` is also set when a stale pull request is
+        # closed because the reference no longer differs from main; only a
+        # created or updated pull request is a merge candidate.
+        if: >-
+          env.HAS_AUTOMATION_PAT == 'true'
+          && steps.refresh_pr.outputs.pull-request-number != ''
+          && (steps.refresh_pr.outputs.pull-request-operation == 'created'
+              || steps.refresh_pr.outputs.pull-request-operation == 'updated')
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+          PR_NUMBER: ${{ steps.refresh_pr.outputs.pull-request-number }}
+          HEAD_SHA: ${{ steps.refresh_pr.outputs.pull-request-head-sha }}
+        run: |
+          set -euo pipefail
+          # Check runs are registered asynchronously, and `gh pr checks` reports
+          # an error rather than a pending state while none exist yet, so wait
+          # for the first one to appear before watching.
+          for _ in $(seq 1 30); do
+            count="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" --jq '.total_count' 2>/dev/null || echo 0)"
+            if [ "${count:-0}" -gt 0 ]; then
+              break
+            fi
+            sleep 10
+          done
+          # Fails the step if any check fails, or if none ever appeared, which
+          # leaves the pull request open for manual review.
+          gh pr checks "${PR_NUMBER}" --watch --fail-fast --interval 20
+          gh pr merge "${PR_NUMBER}" --squash --delete-branch

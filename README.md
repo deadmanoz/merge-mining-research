@@ -311,9 +311,13 @@ script with `--help` before using it against a node, archive, or API source.
 `just refresh-bitcoin-epoch-reference` incrementally refreshes the compact
 Bitcoin retarget-boundary and confirmed-horizon dataset from mempool.space's
 public Esplora-compatible API. A scheduled GitHub Actions workflow runs the
-same command weekly and opens a reviewable pull request when the reference changes. The
-strict/weak relevance tools consume this committed public input; `cache/`
-remains reserved for transient local lookups.
+same command weekly, opens a reviewable pull request when the reference
+changes, and merges that pull request once CI passes. Auto-merge needs an
+`AUTOMATION_PAT` repository secret, because a pull request opened with the
+default `GITHUB_TOKEN` never triggers CI; without the secret the refresh still
+opens a pull request and leaves it for manual review. The strict/weak relevance
+tools consume this committed public input; `cache/` remains reserved for
+transient local lookups.
 
 ## Data
 
