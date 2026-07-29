@@ -253,7 +253,8 @@ horizon block that closes timestamp coverage through the refresh point.
 Regenerate the three files with `just refresh-bitcoin-epoch-reference`. The
 refresh is incremental, verifies the last retained epoch against the public
 canonical chain, and refuses to continue if that identity changes. Scheduled
-CI runs it weekly and proposes changes as a pull request.
+CI runs it weekly, proposes changes as a pull request, and merges that pull
+request once CI passes.
 
 ## Monitor-facing evidence exports: `results/monitor-evidence/`
 

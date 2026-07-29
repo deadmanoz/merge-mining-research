@@ -75,6 +75,13 @@ imported rows exactly like live capture and deduplicate against it.
   until discovery is pointed at an inventory meeting it, rather than
   passing against the archive's empty `classified/` file.
 
+The scheduled Bitcoin epoch-reference refresh now merges its own pull request
+once CI passes, instead of leaving it for a manual merge. Opening the pull
+request with an `AUTOMATION_PAT` repository secret is what makes this possible:
+a pull request opened with the default `GITHUB_TOKEN` never triggers a workflow
+run, so there was no CI result to gate on. Without the secret the refresh
+degrades to the previous open-and-wait behaviour.
+
 ## 0.1.0 - 2026-07-22
 
 Initial public release of the merge-mining research pipeline, documentation,
