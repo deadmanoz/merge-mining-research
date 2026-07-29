@@ -282,7 +282,12 @@ child-identity section. The three canonical-scope artifacts (VCash,
 Lyncoin, SixEleven) still predate the `child_block_time` column -- their
 regeneration needs the private source artifacts recorded in their
 provenance columns -- and the supplemental-lag contract fills it as empty
-when they are next rebuilt:
+when they are next rebuilt. The stale-descendants export is deliberately
+outside the exact-child-identity contract: its rows aggregate observations
+from several chains into chain-less rows and merge-mining-monitor's import
+surface has no stale-descendants entry, so its child identity columns stay
+empty (`child_identity=deferred_per_observation_recovery` in the counts
+notes) until a per-observation descendant-identity recovery lands:
 
 | Column | Meaning |
 | --- | --- |

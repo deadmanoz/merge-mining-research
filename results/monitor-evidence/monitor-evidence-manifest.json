@@ -453,7 +453,7 @@
       "canonical_evidence_status": "not_applicable",
       "chain": "stale-descendants",
       "monitor_rows": 20,
-      "notes": "",
+      "notes": "child_identity=deferred_per_observation_recovery",
       "source_kind": "stale_descendant_sidecar",
       "source_path": "data/stale_descendants.csv",
       "source_rows": 24,

@@ -1580,6 +1580,13 @@ def build_monitor_evidence_exports(
             notes_parts.append(hydration.note())
         if identity_hydration.note():
             notes_parts.append(identity_hydration.note())
+        if source.chain == "stale-descendants":
+            # The descendants export aggregates observations from several
+            # chains into chain-less rows and is outside the monitor's
+            # import surface, so it is deliberately outside the exact
+            # child-identity contract; a per-observation recovery is
+            # tracked as follow-up work. Keep the deferral visible.
+            notes_parts.append("child_identity=deferred_per_observation_recovery")
         notes = "; ".join(notes_parts)
         reported_artifact_path = (
             logical_output_dir / artifact_name if artifact_path is not None else None

@@ -34,6 +34,12 @@ imported rows exactly like live capture and deduplicate against it.
   `merge_mining_hash`, `is_uncle`, `uncle_index`, `uncle_parent_height`,
   `rsk_merkle_proof`, `rsk_coinbase_tail`), sourced from the live RSK node
   and cross-checked against the classified recovery metadata.
+- The stale-descendants export is deliberately outside the exact
+  child-identity contract: its rows aggregate observations from several
+  chains into chain-less rows and merge-mining-monitor's import surface has
+  no stale-descendants entry, so its child identity columns stay empty and
+  the counts row records `child_identity=deferred_per_observation_recovery`
+  until a per-observation descendant-identity recovery lands as follow-up.
 - Because the strict/weak orphan projections mirror the monitor export's
   schema, the regenerated RSK projection also carries the seven sidecar
   columns; the other chains' projections gain only `child_block_time`.
