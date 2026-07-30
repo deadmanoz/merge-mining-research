@@ -246,7 +246,9 @@ external evidence.
   the node), the `node-infra/elcash/` recipe was ported, and the committed
   CSV was normalized from the legacy 10-column layout to the shared
   12-column validated-stales layout (adding the empty `coinbase_outputs`
-  column and the persisted `expected_nbits` verdict).
+  column and the persisted `expected_nbits` verdict). The 2026-07-30 source
+  regeneration then expanded it to the shared 16-column layout with the four
+  authenticated child-header fields.
 - **2026-07-22** - Audit: all three stale events re-verified against
   canonical Bitcoin (same-height competitor, canonical parent, matching
   nBits); the activation date tightened to the source genesis (2020-12-20);

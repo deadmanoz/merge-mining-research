@@ -8,6 +8,13 @@ the generic pre-normalized supplemental-evidence escape hatch and its separate
 publication guard, preserving the actual child timestamps already carried by
 the VCash recovery source.
 
+Define the standard Bitcoin-family AuxPoW extraction column order once and use
+it across all 12 ordinary RPC extractors. Reject pre-hydration schemas across
+every custom appender, require live identity sidecars to agree with complete
+source-authenticated bundles, reject Git LFS pointers and malformed evidence
+schemas in child-header coverage, and document the shared 16-column validated
+stale layout.
+
 Publish all 28 accepted stale-descendant source observations through their
 exact per-chain monitor rows. The 26 observations sourced from unknown rows
 retain `classification=unknown` and record
