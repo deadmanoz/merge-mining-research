@@ -14,6 +14,8 @@ from stale_blocks_analysis.full_evidence import (
     build_full_evidence_exports,
     build_monitor_evidence_exports,
     discover_evidence_sources,
+    hydrate_child_identity,
+    load_child_identity,
     note_child_height_availability,
     normalize_evidence_row,
     safe_path,
@@ -61,6 +63,47 @@ def test_child_height_unavailable_note_depends_on_emitted_values() -> None:
         [{"child_height": "42"}, {"child_height": ""}],
     )
     assert partial.notes == {"child_height=unavailable"}
+
+
+def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
+    btc_hash = "11" * 32
+    identity_path = tmp_path / "child-identity" / "namecoin_child_identity.csv"
+    _write_csv(
+        identity_path,
+        [
+            {
+                "chain": "namecoin",
+                "btc_header_hash": btc_hash,
+                "child_height": "",
+                "child_block_hash": "22" * 32,
+                "child_block_time": "1322540063",
+                "verification": "auxpow_parent_match",
+                "note": "",
+            }
+        ],
+    )
+    assert load_child_identity(tmp_path) == {}
+
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": btc_hash,
+        "child_height": "",
+        "child_block_hash": "",
+        "classification": "stale",
+    }
+    stats = hydrate_child_identity(
+        [row],
+        {
+            ("namecoin", btc_hash): {
+                "child_height": "",
+                "child_block_hash": "22" * 32,
+                "child_block_time": "1322540063",
+            }
+        },
+    )
+    assert stats.hydrated == 0
+    assert stats.height_mismatch == 1
+    assert row["child_block_hash"] == ""
 
 
 def test_safe_path_resolves_repo_relative_inputs() -> None:

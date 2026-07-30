@@ -1201,12 +1201,13 @@ def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]
     """Map ``(chain, btc_header_hash)`` -> verified child-identity row.
 
     Reads every ``data/child-identity/*_child_identity.csv``; a row is usable
-    only when its ``verification`` is non-empty (node-verified) AND its
-    ``child_block_hash`` is a well-formed 32-byte hex value AND its
-    ``child_block_time`` is a positive integer. A verified-but-incomplete row
-    (malformed or manually truncated sidecar) is dropped here, so the
-    affected evidence rows surface as ``missing_identity`` downstream
-    instead of hydrating blanks that defeat the publication gate.
+    only when its ``verification`` is non-empty (node-verified), its
+    ``child_height`` is a nonnegative integer, its ``child_block_hash`` is a
+    well-formed 32-byte hex value, and its ``child_block_time`` is a positive
+    integer. A verified-but-incomplete row (malformed or manually truncated
+    sidecar) is dropped here, so the affected evidence rows surface as
+    ``missing_identity`` downstream instead of hydrating blanks that defeat
+    the publication gate.
     """
     identity_dir = data_dir / CHILD_IDENTITY_DIR_NAME
     if not identity_dir.is_dir():
@@ -1218,8 +1219,14 @@ def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]
                 if not (row.get("verification") or "").strip():
                     continue
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
+                child_height = int_or_none(row.get("child_height"))
                 child_time = (row.get("child_block_time") or "").strip()
-                if not is_hash(child_hash) or not child_time.isdigit():
+                if (
+                    child_height is None
+                    or child_height < 0
+                    or not is_hash(child_hash)
+                    or not child_time.isdigit()
+                ):
                     continue
                 chain = (row.get("chain") or "").strip()
                 block_hash = normalize_hash(row.get("btc_header_hash"))
@@ -1308,14 +1315,15 @@ def hydrate_child_identity(
             else:
                 stats.missing_identity += 1
             continue
-        candidate_height = (candidate.get("child_height") or "").strip()
-        row_height = (row.get("child_height") or "").strip()
-        try:
-            heights_agree = int(candidate_height) == int(row_height)
-        except ValueError:
-            # Non-numeric heights fall back to exact-string agreement; a
-            # malformed identity height can then never hydrate a row.
-            heights_agree = candidate_height == row_height
+        candidate_height = int_or_none(candidate.get("child_height"))
+        row_height = int_or_none(row.get("child_height"))
+        heights_agree = (
+            candidate_height is not None
+            and candidate_height >= 0
+            and row_height is not None
+            and row_height >= 0
+            and candidate_height == row_height
+        )
         if not heights_agree:
             if is_canonical_row:
                 stats.canonical_unhydrated += 1

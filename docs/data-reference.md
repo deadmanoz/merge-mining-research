@@ -236,7 +236,9 @@ attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 `child_height`, `child_block_hash`, `child_block_time`, `verification`, and
-`note`. `btc_header_hash` stays in display (RPC) order like every other
+`note`. A verified row is usable only when `child_height` is a nonnegative
+integer and the child hash and time are valid. `btc_header_hash` stays in
+display (RPC) order like every other
 pipeline artifact; `child_block_hash` follows the pipeline's established
 column contract of internal (wire) byte order for the Bitcoin-family chains
 and Hathor, and forward order for RSK, whose keccak block hashes have no

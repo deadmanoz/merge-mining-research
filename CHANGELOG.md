@@ -19,6 +19,10 @@ in incomplete coverage bundles, require the stale-descendant coverage input,
 and align canonical-companion `source_rows` accounting with the deduplicated
 publication projection.
 
+Require Huntercoin classification to start from its refreshed raw extraction,
+refuse empty live child-identity recovery work lists, and accept a recovered
+identity only when both source and sidecar heights are nonnegative integers.
+
 Integrate VCash's partial canonical recovery through the standard discovered
 `vcash_canonical_blocks.csv` source and normal evidence validation path. Remove
 the generic pre-normalized supplemental-evidence escape hatch and its separate

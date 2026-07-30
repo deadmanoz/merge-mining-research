@@ -63,6 +63,27 @@ def test_child_identity_recovery_skips_optional_canonical_rows(tmp_path: Path) -
     assert mod.load_targets(evidence) == [("22" * 32, 2)]
 
 
+def test_child_identity_recovery_refuses_empty_target_set(tmp_path: Path) -> None:
+    mod = _load_script("recover_child_identity")
+    evidence = tmp_path / "namecoin_monitor_evidence.csv"
+    with evidence.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["classification", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "classification": "canonical",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+
+    with pytest.raises(SystemExit, match="no non-canonical child-identity targets"):
+        mod.load_targets(evidence)
+
+
 @pytest.mark.parametrize(
     ("relative_path", "loader_name"),
     [

@@ -147,7 +147,8 @@ def load_targets(evidence_path: Path) -> list[tuple[str, int]]:
     heights, which would mean the source artifacts disagree. Canonical rows
     are publishable without exact child identity and are deliberately skipped;
     otherwise uniform canonical publication would turn this bounded recovery
-    into a scan of entire live chains.
+    into a scan of entire live chains. Refuses an empty work list so a partial
+    canonical-only artifact can never replace a recovered identity file.
     """
     targets: dict[str, tuple[int, int]] = {}
     with evidence_path.open(newline="") as f:
@@ -170,6 +171,8 @@ def load_targets(evidence_path: Path) -> list[tuple[str, int]]:
                     f"(row {row_number})"
                 )
             targets.setdefault(btc_hash, (height, row_number))
+    if not targets:
+        raise SystemExit(f"{evidence_path}: no non-canonical child-identity targets")
     return sorted(
         ((btc_hash, height) for btc_hash, (height, _) in targets.items()),
         key=lambda item: (item[1], item[0]),
