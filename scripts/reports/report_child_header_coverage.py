@@ -49,6 +49,9 @@ REPORT_FIELDS = (
     "max_child_parent_delta",
 )
 
+REQUIRED_EVIDENCE_FIELDS = frozenset({*CHILD_HEADER_FIELDS, "btc_header_hash"})
+GIT_LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
+
 
 def load_stale_descendant_observations(path: Path) -> dict[str, frozenset[str]]:
     """Return accepted descendant parent-hash observations by target chain."""
@@ -129,7 +132,20 @@ def summarize_artifact(
     hydrated_descendants: set[str] = set()
     descendant_missing_reasons: dict[str, set[str]] = {}
     with path.open(newline="") as handle:
+        first_line = handle.readline()
+        if first_line.rstrip("\r\n") == GIT_LFS_POINTER_PREFIX:
+            raise ValueError(
+                f"{path}: Git LFS evidence payload is not materialized; "
+                "run git lfs pull before building coverage"
+            )
+        handle.seek(0)
         reader = csv.DictReader(handle)
+        missing_fields = REQUIRED_EVIDENCE_FIELDS.difference(reader.fieldnames or ())
+        if missing_fields:
+            raise ValueError(
+                f"{path}: missing required evidence columns: "
+                + ", ".join(sorted(missing_fields))
+            )
         for row_number, row in enumerate(reader, start=2):
             total += 1
             parent_hash = (

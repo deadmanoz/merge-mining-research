@@ -2136,3 +2136,49 @@ def test_live_chain_prepopulated_child_hash_is_replaced_by_verified_identity(
     rows = _read_csv(output_dir / "hathor_monitor_evidence.csv")
     assert rows[0]["child_block_hash"] == internal_hash
     assert rows[0]["child_block_time"] == "1637668048"
+
+
+def test_live_identity_must_agree_with_source_authenticated_child_bundle(
+    tmp_path: Path,
+) -> None:
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    parent_hex, parent_hash = _header(prev_hash="ee" * 32)
+    source_child = _child_fields()
+    _write_csv(
+        data_dir / "validated-stales" / "fractal_validated_stales.csv",
+        [
+            {
+                "btc_height": "850000",
+                "btc_header_hash": parent_hash,
+                "btc_header_hex": parent_hex,
+                "fb_height": "900",
+                **source_child,
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "child-identity" / "fractal_child_identity.csv",
+        [
+            {
+                "chain": "fractal",
+                "btc_header_hash": parent_hash,
+                "child_height": "900",
+                "child_block_hash": "ff" * 32,
+                "child_block_time": source_child["child_block_time"],
+                "verification": "auxpow_parent_match",
+                "note": "",
+            }
+        ],
+    )
+
+    with pytest.raises(ChildHeaderValidationError, match="source-authenticated bundle"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=tmp_path / "monitor",
+            relevance_inventory=None,
+        )

@@ -429,7 +429,7 @@ def test_coverage_report_counts_authenticated_and_missing_rows(tmp_path: Path):
         + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
     )
     artifact = tmp_path / "devcoin_monitor_evidence.csv"
-    fields = [*mod.CHILD_HEADER_FIELDS, "btc_time"]
+    fields = [*mod.CHILD_HEADER_FIELDS, "btc_header_hash", "btc_time"]
     with artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -439,6 +439,7 @@ def test_coverage_report_counts_authenticated_and_missing_rows(tmp_path: Path):
                 "child_header_hex": header.hex(),
                 "child_block_time": "1700000000",
                 "child_nbits": "1d00ffff",
+                "btc_header_hash": "aa" * 32,
                 "btc_time": "1699999990",
             }
         )
@@ -533,7 +534,7 @@ def test_coverage_report_accounts_for_accepted_descendant_observations(
 def test_coverage_report_surfaces_missing_descendant_observation(tmp_path: Path):
     mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
     artifact = tmp_path / "devcoin_evidence.csv"
-    artifact.write_text("child_block_hash,btc_header_hash\n")
+    artifact.write_text(",".join([*mod.CHILD_HEADER_FIELDS, "btc_header_hash"]) + "\n")
 
     row = mod.summarize_artifact("devcoin", artifact, frozenset({"33" * 32}))
 
@@ -543,6 +544,21 @@ def test_coverage_report_surfaces_missing_descendant_observation(tmp_path: Path)
     assert row["stale_descendant_unrecoverable_reasons"] == (
         '{"artifact_row_missing":1}'
     )
+
+
+def test_coverage_report_rejects_git_lfs_pointer(tmp_path: Path):
+    mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
+    artifact = tmp_path / "devcoin_monitor_evidence.csv"
+    artifact.write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:" + "00" * 32 + "\n"
+        "size 123\n"
+    )
+
+    with pytest.raises(
+        ValueError, match="Git LFS evidence payload is not materialized"
+    ):
+        mod.summarize_artifact("devcoin", artifact)
 
 
 def test_coverage_report_rejects_ambiguous_artifact_families(tmp_path: Path):
@@ -563,7 +579,7 @@ def test_coverage_report_marks_missing_parent_time_as_incomplete(tmp_path: Path)
         + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
     )
     artifact = tmp_path / "devcoin_monitor_evidence.csv"
-    fields = [*mod.CHILD_HEADER_FIELDS, "btc_time"]
+    fields = [*mod.CHILD_HEADER_FIELDS, "btc_header_hash", "btc_time"]
     with artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -573,6 +589,7 @@ def test_coverage_report_marks_missing_parent_time_as_incomplete(tmp_path: Path)
                 "child_header_hex": header.hex(),
                 "child_block_time": "1700000000",
                 "child_nbits": "1d00ffff",
+                "btc_header_hash": "aa" * 32,
                 "btc_time": "",
             }
         )
@@ -594,7 +611,7 @@ def test_coverage_report_rejects_malformed_parent_time(tmp_path: Path):
         + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
     )
     artifact = tmp_path / "devcoin_monitor_evidence.csv"
-    fields = [*mod.CHILD_HEADER_FIELDS, "btc_time"]
+    fields = [*mod.CHILD_HEADER_FIELDS, "btc_header_hash", "btc_time"]
     with artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -604,6 +621,7 @@ def test_coverage_report_rejects_malformed_parent_time(tmp_path: Path):
                 "child_header_hex": header.hex(),
                 "child_block_time": "1700000000",
                 "child_nbits": "1d00ffff",
+                "btc_header_hash": "aa" * 32,
                 "btc_time": "not-a-timestamp",
             }
         )
@@ -618,7 +636,7 @@ def test_coverage_report_keeps_previous_output_on_contradiction(
     mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
     monkeypatch.setattr(mod, "HISTORICAL_CHILD_HEADER_CHAINS", ("devcoin",))
     artifact = tmp_path / "devcoin_evidence.csv"
-    fields = [*mod.CHILD_HEADER_FIELDS, "btc_time"]
+    fields = [*mod.CHILD_HEADER_FIELDS, "btc_header_hash", "btc_time"]
     with artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -628,6 +646,7 @@ def test_coverage_report_keeps_previous_output_on_contradiction(
                 "child_header_hex": "00" * 80,
                 "child_block_time": "0",
                 "child_nbits": "00000000",
+                "btc_header_hash": "aa" * 32,
                 "btc_time": "0",
             }
         )

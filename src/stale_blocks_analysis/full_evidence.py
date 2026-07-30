@@ -1308,6 +1308,19 @@ def hydrate_child_identity(
             else:
                 stats.height_mismatch += 1
             continue
+        row_child_header = (row.get("child_header_hex") or "").strip()
+        if row_child_header:
+            row_child_hash = normalize_hash(row.get("child_block_hash"))
+            candidate_hash = normalize_hash(candidate.get("child_block_hash"))
+            row_child_time = (row.get("child_block_time") or "").strip()
+            candidate_time = (candidate.get("child_block_time") or "").strip()
+            if row_child_hash != candidate_hash or (
+                row_child_time and row_child_time != candidate_time
+            ):
+                raise ChildHeaderValidationError(
+                    f"{chain} child identity disagrees with the "
+                    f"source-authenticated bundle for BTC header {block_hash}"
+                )
         # The node-verified identity is authoritative for live chains: a
         # source-prepopulated hash (e.g. a raw Hathor inventory's
         # display-order tx_id) is replaced with the verified internal-order
