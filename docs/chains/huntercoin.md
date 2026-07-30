@@ -172,6 +172,10 @@ private archive.
 - `huntercoin-unknown-pool-attribution.csv` and its summary JSON - historical
   pool-attribution diagnostics.
 
+The classifier requires `huntercoin_auxpow_raw.csv` from the current extractor.
+The historical normalized inventory is an output, not a fallback acquisition
+source, because it cannot reproduce the authenticated child-header bundle.
+
 **External references.**
 
 - `domob1812/arblockstore` on Arweave - sole data source for the chain.
