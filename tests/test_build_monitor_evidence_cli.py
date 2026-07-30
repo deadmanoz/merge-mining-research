@@ -186,6 +186,7 @@ def test_late_supplemental_failure_preserves_existing_publication_set(
     assert list(tmp_path.glob(".monitor.monitor-build-*")) == []
 
 
+@pytest.mark.dataset
 def test_publication_build_rejects_merely_discoverable_partial_archive(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
