@@ -20,6 +20,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ARGENTUM_CSV = REPO_ROOT / "data" / "validated-stales" / "argentum_validated_stales.csv"
 
 
+def test_standard_auxpow_extraction_columns_are_uniform() -> None:
+    assert ap.standard_auxpow_extraction_columns("chain_height") == [
+        "chain_height",
+        *ap.CHILD_HEADER_FIELDS,
+        *ap.PARENT_EVIDENCE_FIELDS,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # nbits_to_target / difficulty
 # ---------------------------------------------------------------------------

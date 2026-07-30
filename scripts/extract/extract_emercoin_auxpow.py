@@ -35,30 +35,20 @@ from stale_blocks_analysis.auxpow_chainid import (
     hash_to_display_hex,
 )
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.extract_driver import validate_append_schema
 from stale_blocks_analysis.auxpow_parse import (
-    CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
     parse_child_header,
     parse_coinbase_height,
     serialize_block_header,
+    standard_auxpow_extraction_columns,
 )
 
 FIRST_AUXPOW_HEIGHT = 219_809  # MMHeight from src/chainparams.cpp:158
 PROGRESS_INTERVAL = 10_000
 FLUSH_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "emc_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("emc_height")
 
 
 def reconstruct_btc_header(parent: dict) -> bytes:
@@ -272,6 +262,8 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
     is_append = args.resume and output_path.exists() and output_path.stat().st_size > 0
     mode = "a" if is_append else "w"
+    if is_append:
+        validate_append_schema(output_path, CSV_COLUMNS)
 
     stats = {"written": 0, "skipped": 0, "errors": 0}
     t_start = time.time()

@@ -83,6 +83,19 @@ def resume_start(output_path: Path, height_column: str, default_start: int) -> i
     return default_start
 
 
+def validate_append_schema(output_path: Path, csv_columns: list[str]) -> None:
+    """Require an existing extraction CSV to use ``csv_columns`` exactly."""
+    if not output_path.is_file():
+        raise ValueError(f"cannot resume missing extraction CSV: {output_path}")
+    with output_path.open(newline="") as existing:
+        existing_header = next(csv.reader(existing), None)
+    if existing_header != csv_columns:
+        raise ValueError(
+            f"cannot resume {output_path}: existing CSV header does not match "
+            "the current extraction schema; rerun without --resume"
+        )
+
+
 def run_extraction(
     *,
     rpc,
@@ -134,15 +147,7 @@ def run_extraction(
     """
     mode = "a" if append else "w"
     if append:
-        if not output_path.is_file():
-            raise ValueError(f"cannot resume missing extraction CSV: {output_path}")
-        with output_path.open(newline="") as existing:
-            existing_header = next(csv.reader(existing), None)
-        if existing_header != csv_columns:
-            raise ValueError(
-                f"cannot resume {output_path}: existing CSV header does not match "
-                "the current extraction schema; rerun without --resume"
-            )
+        validate_append_schema(output_path, csv_columns)
 
     def extract_range(bs: int, be: int) -> None:
         hash_calls = [

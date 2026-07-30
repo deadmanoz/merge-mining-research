@@ -77,6 +77,14 @@ validation runs before the classifier's parent-header PoW filter, so a
 contradictory bundle stops the run even when that parent would later be
 filtered out.
 
+Ordinary Bitcoin-family RPC extractors obtain their column order from
+`standard_auxpow_extraction_columns()`: the native chain-height column, the four
+authenticated child-header fields, then the common Bitcoin parent and coinbase
+fields. Huntercoin, Xaya, and the generic `blk*.dat` scanner retain richer
+source-acquisition fields needed to authenticate or reconstruct their inputs;
+their classifier outputs normalize into the same evidence schema. These are
+acquisition differences, not per-chain publication formats.
+
 The coverage report is scoped to the 17 historical targets. The six
 live-lifecycle chains continue to use the independently verified child hash
 and time records under `data/child-identity/`; they are not presented as

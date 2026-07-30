@@ -19,15 +19,16 @@ from pathlib import Path
 
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import (
-    CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
     VERSION_AUXPOW,
     parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
+from stale_blocks_analysis.extract_driver import validate_append_schema
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
 load_local_rpc_env()
@@ -38,18 +39,7 @@ FIRST_AUXPOW_HEIGHT = 25_000
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "dvc_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("dvc_height")
 
 
 _rpc = None
@@ -187,6 +177,8 @@ def main():
         if args.resume and Path(args.output).exists() and start > args.start
         else "w"
     )
+    if mode == "a":
+        validate_append_schema(Path(args.output), CSV_COLUMNS)
 
     with open(args.output, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)

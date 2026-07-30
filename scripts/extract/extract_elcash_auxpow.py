@@ -33,11 +33,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from stale_blocks_analysis.child_rpc import RpcClient  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
-    CHILD_HEADER_FIELDS,
     parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
 
@@ -48,18 +48,7 @@ ELCASH_CHAIN_ID = 0x2137
 BATCH_SIZE = 200
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "elc_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("elc_height")
 
 
 def _rpc_auth() -> tuple[str, str]:

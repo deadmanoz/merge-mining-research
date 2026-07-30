@@ -37,14 +37,15 @@ from pathlib import Path
 # height, the nVersion AuxPoW flag gate, and the FAKE_AUXPOW_PREFORK_BLOCKS
 # skip-set) stays in this script.
 from stale_blocks_analysis.auxpow_parse import (
-    CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
     parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_addr
+from stale_blocks_analysis.extract_driver import validate_append_schema
 
 # --- Configuration ---
 BLOCKBOOK_BASE = "https://btcvexplorer.com"
@@ -54,18 +55,7 @@ CHAIN_TIP_HEIGHT = (
 )
 USER_AGENT = "merge-mining-research/bitcoin-vault-extractor"
 
-CSV_COLUMNS = [
-    "btcv_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",  # BIP34 height parsed from parent coinbase scriptSig
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("btcv_height")
 
 # Pre-fork blocks with auxpow version flag but no AuxPoW header
 # (per src/policy/auxpow.h FAKE_AUXPOW_PREFORK_BLOCKS).
@@ -310,6 +300,8 @@ def main():
 
     new_file = not out_path.exists() or out_path.stat().st_size == 0
     mode = "a" if (args.resume and not new_file) else "w"
+    if mode == "a":
+        validate_append_schema(out_path, CSV_COLUMNS)
 
     client = BlockbookClient(BLOCKBOOK_BASE, args.rate)
     stats = {"auxpow_blocks": 0, "skipped_no_auxpow": 0, "errors": 0}

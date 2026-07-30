@@ -48,9 +48,9 @@ from pathlib import Path
 from stale_blocks_analysis import extract_driver
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import (
-    CHILD_HEADER_FIELDS,
     parse_coinbase_height,
     parse_parent_header,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
 
@@ -64,18 +64,7 @@ VERSION_AUXPOW = 1 << 8
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "crown_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("crown_height")
 
 
 # ---------------------------------------------------------------------------

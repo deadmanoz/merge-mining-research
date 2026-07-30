@@ -259,6 +259,11 @@ Preserve these distinctions:
   LFS-backed CSVs remain byte-reproducible without Git text normalization.
 - Use binary parsers and existing helpers for Bitcoin wire data. Avoid ad hoc
   slicing unless the surrounding code already uses that exact convention.
+- Standard Bitcoin-family RPC extractors must obtain their column order from
+  `standard_auxpow_extraction_columns()` in `auxpow_parse.py`. Source-specific
+  acquisition formats such as Huntercoin, Xaya, and the generic `blk*.dat`
+  inventory may retain extra provenance fields, but their classifiers must
+  normalize into the shared evidence schema.
 - For coinbase marker additions, prefer adding data entries in
   `coinbase_markers.py` over changing parser logic. Add or update tests with
   pinned fixtures.

@@ -21,14 +21,15 @@ from pathlib import Path
 # Repo `src/` is on sys.path when installed via `pip install -e .`; these
 # shared modules are pure-stdlib and safe to import on the archival host.
 from stale_blocks_analysis.auxpow_parse import (
-    CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
     parse_child_header,
     parse_parent_header,
     serialize_block_header,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.coinbase_markers import parse_bip34_height
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.extract_driver import validate_append_schema
 
 RPC_URL = "http://127.0.0.1:13332"
 DEFAULT_CONF = Path.home() / "terracoin-docker" / "data" / "terracoin.conf"
@@ -37,18 +38,7 @@ FIRST_AUXPOW_HEIGHT = 833_000
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "trc_height",
-    *CHILD_HEADER_FIELDS,
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("trc_height")
 
 
 def load_rpc_auth(conf_path: Path) -> tuple[str, str]:
@@ -246,6 +236,8 @@ def main():
         if args.resume and Path(args.output).exists() and start > args.start
         else "w"
     )
+    if mode == "a":
+        validate_append_schema(Path(args.output), CSV_COLUMNS)
 
     with open(args.output, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)

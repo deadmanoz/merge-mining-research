@@ -47,6 +47,22 @@ CHILD_HEADER_FIELDS = [
     "child_nbits",
 ]
 
+PARENT_EVIDENCE_FIELDS = [
+    "btc_header_hash",
+    "btc_prev_hash",
+    "btc_time",
+    "btc_bits",
+    "btc_height",
+    "coinbase_scriptsig_hex",
+    "coinbase_outputs",
+    "btc_header_hex",
+]
+
+
+def standard_auxpow_extraction_columns(child_height_field: str) -> list[str]:
+    """Return the uniform Bitcoin-family AuxPoW extraction schema."""
+    return [child_height_field, *CHILD_HEADER_FIELDS, *PARENT_EVIDENCE_FIELDS]
+
 
 class ChildHeaderValidationError(ValueError):
     """Raised when child-header evidence contradicts its source identity."""
