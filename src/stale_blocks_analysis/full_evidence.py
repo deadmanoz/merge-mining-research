@@ -178,11 +178,12 @@ def safe_path(path: Path | None, *, chain: str = "") -> str:
     if path is None:
         return ""
     expanded = path.expanduser()
+    resolved_root = PROJECT_ROOT.resolve()
     resolved = (
-        expanded if expanded.is_absolute() else PROJECT_ROOT / expanded
+        expanded if expanded.is_absolute() else resolved_root / expanded
     ).resolve()
     try:
-        relative = resolved.relative_to(PROJECT_ROOT)
+        relative = resolved.relative_to(resolved_root)
     except ValueError:
         pass
     else:

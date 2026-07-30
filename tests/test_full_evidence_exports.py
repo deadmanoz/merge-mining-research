@@ -47,6 +47,24 @@ def test_safe_path_resolves_repo_relative_inputs() -> None:
     assert safe_path(Path("data/example.csv")) == "data/example.csv"
 
 
+def test_safe_path_preserves_repo_paths_through_symlinked_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from stale_blocks_analysis import full_evidence
+
+    real_root = tmp_path / "repository"
+    real_root.mkdir()
+    linked_root = tmp_path / "linked-repository"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+    monkeypatch.setattr(full_evidence, "PROJECT_ROOT", linked_root)
+
+    assert full_evidence.safe_path(Path("data/example.csv")) == "data/example.csv"
+    assert (
+        full_evidence.safe_path(linked_root / "data" / "example.csv")
+        == "data/example.csv"
+    )
+
+
 def test_safe_path_redacts_repo_local_archive_staging() -> None:
     assert (
         safe_path(
