@@ -41,6 +41,29 @@ BLOCKS_DIR = STALE_DIR / "blocks"
 # data and is safe to consume in CI without access to an operator's node.
 BITCOIN_EPOCH_REFERENCE_DIR = DATA_DIR / "bitcoin-epoch-reference"
 
+# Historical Namecoin-family pipelines whose refreshed rows must carry a
+# complete authenticated child-header bundle. The order is the recovery
+# priority used by the coverage report and source preflight.
+HISTORICAL_CHILD_HEADER_CHAINS = (
+    "devcoin",
+    "ixcoin",
+    "i0coin",
+    "groupcoin",
+    "coiledcoin",
+    "geistgeld",
+    "huntercoin",
+    "bitmark",
+    "terracoin",
+    "emercoin",
+    "myriadcoin",
+    "unobtanium",
+    "argentum",
+    "crown",
+    "elcash",
+    "xaya",
+    "bitcoin-vault",
+)
+
 # Compact repo-owned overlay for upstream or per-chain rows that later
 # available evidence proved consensus-invalid or misclassified as direct
 # stales. This is applied
@@ -450,7 +473,9 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 #   - key: the canonical chain key, matching CHAINS_BY_AUXPOW_ACTIVATION
 #     (hyphenated for "bitcoin-vault" / "fractal").
 #   - height_column: the chain's OWN height column in its raw/classified CSVs
-#     (e.g. "sys_height"), not the BTC parent height ("btc_height").
+#     (e.g. "sys_height"), not the BTC parent height ("btc_height"). Every
+#     schema retains this slot; sources without an authenticated value leave it
+#     blank.
 #   - chain_id: the AuxPoW chain ID embedded in the child block nVersion high
 #     16 bits. None where the value is not needed for our recovery and
 #     not confirmed from source (the JSON-dump chains Geistgeld and Groupcoin),
@@ -466,6 +491,8 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 #     scripts/classify/classify_<chain>_stales.py argument defaults under data/. The
 #     validated_csv reuses the existing module-level *_CSV constants so the
 #     two never drift.
+#   - child_nbits_from_header: false only when a chain stores its effective
+#     AuxPoW target outside the 80-byte child header (currently Xaya PowData).
 
 
 @dataclass(frozen=True)
@@ -474,13 +501,14 @@ class ChainSpec:
 
     key: str
     display_name: str
-    height_column: Optional[str]
+    height_column: str
     chain_id: Optional[int]
     activation_height: Optional[int]
     attribution_mode: Literal["coinbase", "miner_address", "rest"]
     input_csv: Path
     output_csv: Path
     validated_csv: Path
+    child_nbits_from_header: bool = True
 
 
 def _chain_input_csv(key: str) -> Path:
@@ -519,7 +547,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "i0coin": ChainSpec(
         key="i0coin",
         display_name="i0coin",
-        height_column="child_height",  # i0coin validated CSV uses "child_height", not "i0c_height"
+        height_column="child_height",  # blank when the snapshot cannot prove it
         chain_id=2,
         activation_height=160_000,
         attribution_mode="coinbase",
@@ -530,7 +558,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "coiledcoin": ChainSpec(
         key="coiledcoin",
         display_name="CoiledCoin",
-        height_column="clc_height",
+        height_column="clc_height",  # blank when the archive cannot prove it
         chain_id=16,  # collides with Syscoin chain 2; harmless at runtime
         activation_height=1,  # AuxPoW accepted from genesis (height 1)
         attribution_mode="coinbase",
@@ -695,13 +723,14 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "xaya": ChainSpec(
         key="xaya",
         display_name="Xaya",
-        height_column="child_height",  # synthetic disk-order counter (i0coin precedent), not a consensus height
+        height_column="child_height",  # exact BIP34 height from the child coinbase
         chain_id=1829,  # 0x0725; no fStrictChainId flag (AuxPoW parent carries no chain ID)
         activation_height=1,  # SHA256D-AuxPoW accepted from genesis (genesis block itself is NEOSCRYPT)
         attribution_mode="coinbase",
         input_csv=_chain_input_csv("xaya"),
         output_csv=_chain_output_csv("xaya"),
         validated_csv=XAYA_CSV,
+        child_nbits_from_header=False,
     ),
     "elastos": ChainSpec(
         key="elastos",

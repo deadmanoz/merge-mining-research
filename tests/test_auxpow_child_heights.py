@@ -16,7 +16,6 @@ from stale_blocks_analysis.auxpow_child_heights import (
 
 
 FIELDS = [
-    "child_sequence",
     "child_height",
     "child_block_hash",
     "child_block_hash_display",
@@ -52,9 +51,13 @@ def _child_hashes(version: int, *, nonce: int = 1) -> tuple[str, str]:
     return internal.hex(), internal[::-1].hex()
 
 
-def _write_candidates(path: Path, rows: list[dict[str, str]]) -> None:
+def _write_candidates(
+    path: Path,
+    rows: list[dict[str, str]],
+    fieldnames: list[str] = FIELDS,
+) -> None:
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -64,10 +67,9 @@ def _read_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def _candidate(version: int, *, sequence: int = 1, nonce: int = 1) -> dict[str, str]:
+def _candidate(version: int, *, nonce: int = 1) -> dict[str, str]:
     internal, display = _child_hashes(version, nonce=nonce)
     return {
-        "child_sequence": str(sequence),
         "child_height": "",
         "child_block_hash": internal,
         "child_block_hash_display": display,
@@ -124,7 +126,6 @@ def test_resolves_exact_height_and_preserves_internal_hash(
 
     row = _read_rows(output_path)[0]
     assert summary["rows_resolved"] == 1
-    assert row["child_sequence"] == "1"
     assert row["child_height"] == str(height)
     assert row["child_block_hash"] == candidate["child_block_hash"]
     assert row["child_block_hash_display"] == display
@@ -213,8 +214,8 @@ def test_midstream_failure_removes_partial_temp_and_preserves_output(
     tmp_path: Path,
 ) -> None:
     version = (1 << 16) | 0x100 | 2
-    first = _candidate(version, sequence=1, nonce=1)
-    second = _candidate(version, sequence=2, nonce=2)
+    first = _candidate(version, nonce=1)
+    second = _candidate(version, nonce=2)
     input_path = tmp_path / "raw.csv"
     output_path = tmp_path / "resolved.csv"
     _write_candidates(input_path, [first, second])
@@ -273,7 +274,7 @@ def test_rejects_internal_display_hash_mismatch_without_output(tmp_path: Path) -
     assert rpc.calls == [("getblockcount", ())]
 
 
-def test_rejects_prepopulated_child_height(tmp_path: Path) -> None:
+def test_rejects_populated_unresolved_child_height(tmp_path: Path) -> None:
     version = (1 << 16) | 0x100 | 2
     candidate = _candidate(version)
     candidate["child_height"] = "19200"
@@ -282,12 +283,32 @@ def test_rejects_prepopulated_child_height(tmp_path: Path) -> None:
     _write_candidates(input_path, [candidate])
     rpc = FakeRpc({("getblockcount", ()): 1_000_000})
 
-    with pytest.raises(ValueError, match="child_height must be empty"):
+    with pytest.raises(ValueError, match="unresolved input child_height must be blank"):
         normalize_auxpow_child_heights(
             chain="sixeleven",
             input_path=input_path,
             output_path=output_path,
             rpc=rpc,
+        )
+
+    assert not output_path.exists()
+
+
+def test_requires_uniform_child_height_column(tmp_path: Path) -> None:
+    version = (1 << 16) | 0x100 | 2
+    candidate = _candidate(version)
+    del candidate["child_height"]
+    fields = [field for field in FIELDS if field != "child_height"]
+    input_path = tmp_path / "raw.csv"
+    output_path = tmp_path / "resolved.csv"
+    _write_candidates(input_path, [candidate], fields)
+
+    with pytest.raises(ValueError, match="missing required columns: child_height"):
+        normalize_auxpow_child_heights(
+            chain="sixeleven",
+            input_path=input_path,
+            output_path=output_path,
+            rpc=FakeRpc({}),
         )
 
     assert not output_path.exists()
@@ -344,8 +365,8 @@ def test_rejects_noncanonical_or_incoherent_child_block(
 
 def test_rejects_duplicate_canonical_child_height_atomically(tmp_path: Path) -> None:
     version = (1 << 16) | 0x100 | 2
-    first = _candidate(version, sequence=1, nonce=1)
-    second = _candidate(version, sequence=2, nonce=2)
+    first = _candidate(version, nonce=1)
+    second = _candidate(version, nonce=2)
     input_path = tmp_path / "raw.csv"
     output_path = tmp_path / "resolved.csv"
     _write_candidates(input_path, [first, second])

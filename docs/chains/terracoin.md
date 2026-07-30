@@ -27,7 +27,12 @@ Terracoin is the **only Dash-Core-derived chain** in scope (RSK, Elastos, and Ha
 
 - **Pre-AuxPoW** (TRC 0 → 832,999): merged mining not yet active. The chain was launched Oct 2012, suffered a well-known ~1.2 TH/s 51% attack in July 2013, and was relaunched by the Terracoin Foundation in Feb 2016 on a Dash-Core-derived codebase. Hard fork 1 at TRC 833,000 (block time 2016-09-23) activated DGW difficulty and merged mining; hard fork 2 at TRC 1,087,500 (2017-10-02) enabled the Dash masternode/governance features, and the client line later moved to Dash Core 0.12.2.x. Pre-AuxPoW history is historical trivia, not data we recover.
 - **Activation-to-first-stale gap**: AuxPoW activated 2016-09-23 (BTC ~431,000), but the first validated stale is at BTC 467,186 (May 2017), roughly eight months and 162,500 TRC blocks later. Nothing in the opening stretch of the AuxPoW era yielded a validated stale parent.
-- **`validation_status` / `expected_nbits` gate columns**: the validated CSV now persists the nBits gate (regenerated 2026-05-29 via the documented classify + coinbase-outputs backfill, recovering addresses from the archived terracoind datadir). Coverage straddles BCH/BSV forks, so the gate matters in principle; in practice the validated set's `btc_bits` values all match BTC's mainchain difficulty schedule, and all 35 stales are `validation_status=VALID` (0 REJECTED).
+- **`validation_status` / `expected_nbits` gate columns**: the validated CSV
+  persists the nBits gate. The 2026-07-30 normal source rerun also recovered
+  parent-coinbase addresses directly from `getblock`. Coverage straddles
+  BCH/BSV forks, so the gate matters in principle; in practice the validated
+  set's `btc_bits` values all match BTC's mainchain difficulty schedule, and
+  all 35 stales are `validation_status=VALID` (0 REJECTED).
 - **Within Stifter window**: Terracoin's AuxPoW activated 2016-09-23 and the validated set begins May 2017, both before Stifter et al. 2018's 2018-07-06 data freeze, yet the paper does not sample Terracoin. The validated window continues past the freeze to Aug 2020.
 
 **Reference scripts.**
@@ -63,7 +68,14 @@ The 99.95% AuxPoW-density figure is exact at the extraction stage: 2,368,318 Aux
 **Chain-specific quirks.**
 
 - **Dash heritage**: the only Dash-Core-derived chain in scope (RSK, Elastos, and Hathor are non-Bitcoin-Core on other lineages). AuxPoW extraction is unaffected (`getblock` JSON works as for Syscoin), and with the wallet disabled at configure time the build needs neither Berkeley DB nor source patches.
-- **`coinbase_outputs` uses the legacy `scriptPubKey.addresses` plural array**: terracoind is Dash-Core-0.12.x-derived, predating Bitcoin Core 0.18.0 (Apr 2019), and exposes parent-coinbase addresses via the legacy plural `scriptPubKey.addresses` rather than the modern singular `.address` field. The extractor at `scripts/extract/extract_terracoin_auxpow.py:format_outputs()` now reads both shapes; `load_terracoin_stales()` parses the resulting `addr:value|...` column identically to the other AuxPoW loaders. The earlier "empty `_outputs_str` fallback" was the symptom of reading only the modern singular field, not a real chain limitation. It was fixed via `scripts/prep/backfill_terracoin_coinbase_outputs.py` (one-off; re-fetches the 35 validated-stale TRC blocks from the running terracoind). An earlier attribution pass recognised two additional `1Hash` rows from those output addresses; this is a historical result, not a current pipeline stage.
+- **`coinbase_outputs` uses the legacy `scriptPubKey.addresses` plural array**:
+  terracoind is Dash-Core-0.12.x-derived, predating Bitcoin Core 0.18.0 (Apr
+  2019), and exposes parent-coinbase addresses via the legacy plural
+  `scriptPubKey.addresses` rather than the modern singular `.address` field.
+  The normal extractor reads both shapes, so the regenerated classifier and
+  validated outputs carry actual `addr:value|...` evidence. An earlier
+  attribution pass recognised two additional `1Hash` rows from those output
+  addresses; this is a historical result, not a current pipeline stage.
 - **Strict chain ID enforcement**: `fStrictChainId=true`, `nAuxpowChainId=0x0032`. This prevents the parent header from using Terracoin's own chain ID; it does not establish Bitcoin parent identity or a Bitcoin-valid version.
 - **Historical attribution context**: a private 2026-04-25 scriptSig-marker pass identified 28 of the 35 accepted rows (BTC.TOP 12, 1THash 8, Huobi Pool 6, WAYI.CN 2; 7 unidentified), and the coinbase-outputs backfill later added the two `1Hash` rows noted above. Mining-Dutch / Zergpool / Pool4ever (header table) are the chain's *current* SHA-256 network pools, not recovered-stale attributions. The public recovery pipeline does not reproduce any of those labels. The public result is the accepted direct-stale set and its novelty accounting.
 
@@ -138,6 +150,8 @@ exports are committed here. Row-level analysis diagnostics live in the private
 archive.
 
 - `data/validated-stales/terracoin_validated_stales.csv` - 35 validated stales (committed; the loader's input).
+- `results/monitor-evidence/terracoin_monitor_evidence.csv` - 11,257
+  canonical and 35 accepted stale observations.
 - Private archive `terracoin_btc_valid.csv` - 534,607 PoW-passing rows (intermediate, before classification).
 - Private archive split inventories: `terracoin_canonical_blocks.csv` (11,257 canonical, backfilled by the 2026-06-24 refresh), `terracoin_stale_blocks.csv` (35 stale), and `terracoin_unknown_blocks.csv` (523,315 unknown).
 - `results/per-chain-novelty/terracoin.csv` - per-stale `(height, hash, in_upstream, first_seen_chain)` table.
@@ -163,3 +177,7 @@ None. The two follow-ups (`coinbase_outputs` address resolution; unknown-chain o
 - **2026-05-29** - nBits-gate schema regeneration: node restarted from the archived datadir, all 35 rows re-validated `VALID`, backfilled outputs byte-identical.
 - **2026-06-24** - canonical refresh: full re-extraction reproduced `terracoin_btc_valid.csv` byte-for-byte and backfilled the 11,257-row canonical split.
 - **2026-07** - public release: novelty recomputed at the bumped upstream pin (13 in upstream / 22 novel; 7 of the original 29 were absorbed when upstream merged this project's contribution). The 2026-07 fact-check corrected the AuxPoW activation date from Oct 2017 (hard fork 2's month) to 2016-09-23 (TRC 833,000's block time). At that point Terracoin moved from position 14 to 13, ahead of Emercoin. SixEleven's subsequent insertion earlier in the chronology moved Terracoin back to its current position 14; novelty counts were unaffected.
+- **2026-07-30** - the normal source extraction/classification path regenerated
+  the canonical and validated outputs with authenticated child headers and
+  source-native parent-coinbase addresses; all 11,257 canonical rows entered
+  the uniform Monitor publication.

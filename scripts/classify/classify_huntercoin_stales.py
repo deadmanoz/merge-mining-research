@@ -4,23 +4,17 @@
 Huntercoin's extractor emits all SHA-256d-branch AuxPoW parent headers. Most
 of those headers satisfy only Huntercoin's child-chain target, not Bitcoin's
 full target. Classification now uses the shared classifier helpers
-(``run_classifier``), with a thin per-chain ``main()`` that preserves the two
-Huntercoin-specific input concerns the shared driver does not know about:
+(``run_classifier``), with a thin per-chain ``main()`` that preserves the one
+Huntercoin-specific input concern the shared driver does not know about:
 
-  1. A legacy-schema normalizer (``standardize_row``) that maps the original
-     recovery columns (``btc_parent_hash`` / ``btc_timestamp``) onto the shared
-     unknown-inventory schema. Current raw extractor output already uses the
-     standard names, so this is a backward-compatibility shim for the legacy
-     ``huntercoin_stale_blocks.csv`` input path.
-  2. A chain-id pre-filter that keeps only ``chain_id == 6`` (the SHA-256d /
+  1. A chain-id pre-filter that keeps only ``chain_id == 6`` (the SHA-256d /
      BTC branch) and drops ``chain_id == 2`` (Scrypt / LTC). The extractor
-     already filters to chain_id 6, so this is redundant defense kept for the
-     legacy path, mirroring how the other multi-branch chains treat branch
-     selection as an extractor concern.
+     already filters to chain_id 6, so this is a defensive validation of the
+     refreshed raw input.
 
-``main()`` applies both to the chosen input, writes a normalized/filtered temp
-CSV, and hands that to ``run_classifier`` for the Phase 1 PoW filter, Phase 2
-Bitcoin Core classification, and the non-skippable Phase 3 nBits gate.
+``main()`` requires the refreshed raw extraction, writes a normalized/filtered
+temp CSV, and hands that to ``run_classifier`` for the Phase 1 PoW filter,
+Phase 2 Bitcoin Core classification, and the non-skippable Phase 3 nBits gate.
 
 The primary output is ``data/huntercoin_stale_blocks.csv`` in the shared
 unknown-inventory schema. The stale-only loader input
@@ -47,7 +41,6 @@ from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
 from stale_blocks_analysis.config import CHAIN_SPECS
 
 DEFAULT_INPUT = REPO_ROOT / "data" / "huntercoin_auxpow_raw.csv"
-DEFAULT_LEGACY_INPUT = REPO_ROOT / "data" / "huntercoin_stale_blocks.csv"
 DEFAULT_OUTPUT = REPO_ROOT / "data" / "huntercoin_stale_blocks.csv"
 DEFAULT_VALIDATED_OUTPUT = (
     REPO_ROOT / "data" / "validated-stales" / "huntercoin_validated_stales.csv"
@@ -72,6 +65,10 @@ NORMALIZED_COLUMNS = [
     "coinbase_outputs",
     "btc_header_hex",
     "huc_height",
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
     "classification",
 ]
 
@@ -79,17 +76,21 @@ NORMALIZED_COLUMNS = [
 
 
 def standardize_row(row: dict[str, str]) -> dict[str, str]:
-    """Map legacy extractor rows to the shared unknown-inventory schema."""
+    """Project refreshed extractor rows onto the shared classifier schema."""
     return {
         "btc_height": row.get("btc_height", ""),
-        "btc_header_hash": row.get("btc_header_hash") or row.get("btc_parent_hash", ""),
+        "btc_header_hash": row.get("btc_header_hash", ""),
         "btc_prev_hash": row.get("btc_prev_hash", ""),
-        "btc_time": row.get("btc_time") or row.get("btc_timestamp", ""),
+        "btc_time": row.get("btc_time", ""),
         "btc_bits": row.get("btc_bits", ""),
         "coinbase_scriptsig_hex": row.get("coinbase_scriptsig_hex", ""),
         "coinbase_outputs": row.get("coinbase_outputs", ""),
         "btc_header_hex": row.get("btc_header_hex", ""),
         "huc_height": row.get("huc_height", ""),
+        "child_block_hash": row.get("child_block_hash", ""),
+        "child_header_hex": row.get("child_header_hex", ""),
+        "child_block_time": row.get("child_block_time", ""),
+        "child_nbits": row.get("child_nbits", ""),
         "classification": row.get("classification", ""),
     }
 
@@ -99,9 +100,8 @@ def _write_normalized_input(input_path: Path, dest_path: Path) -> tuple[int, int
 
     Drops ``chain_id`` rows that are present but not the SHA-256d branch
     (``chain_id == 6``) and rewrites every surviving row through
-    ``standardize_row`` so the legacy column names (``btc_parent_hash`` /
-    ``btc_timestamp``) are mapped onto the shared schema before
-    ``run_classifier`` reads the file. Returns ``(total_rows, skipped_chain)``.
+    ``standardize_row`` before ``run_classifier`` reads the file. Returns
+    ``(total_rows, skipped_chain)``.
     """
     total = 0
     skipped_chain = 0
@@ -128,7 +128,7 @@ def main() -> int:
     parser.add_argument(
         "--input",
         type=Path,
-        default=DEFAULT_INPUT if DEFAULT_INPUT.exists() else DEFAULT_LEGACY_INPUT,
+        default=DEFAULT_INPUT,
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
@@ -143,10 +143,16 @@ def main() -> int:
     add_rpc_args(parser)
     args = parser.parse_args()
 
+    if not args.input.is_file():
+        raise SystemExit(
+            "missing refreshed Huntercoin extractor input: "
+            f"{args.input}; run scripts/extract/extract_huntercoin_auxpow.py"
+        )
+
     rpc = rpc_from_args(args)
 
-    # Pre-process the chosen input: chain-id filter + legacy-schema normalizer,
-    # then hand the normalized temp CSV to the shared classifier helpers. The
+    # Pre-process the refreshed input, then hand the normalized temp CSV to the
+    # shared classifier helpers. The
     # extractor's raw btc_bits is already lowercase 8-char hex (parent.bits_hex),
     # so the input artifact is hex, not decimal.
     print(f"Reading {args.input}…")

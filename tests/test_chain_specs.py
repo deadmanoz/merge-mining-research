@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import sys
 from pathlib import Path
 
@@ -9,10 +10,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from stale_blocks_analysis import config  # noqa: E402
+from stale_blocks_analysis.btc_classify import output_columns  # noqa: E402
 from stale_blocks_analysis.config import (  # noqa: E402
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
     DATA_DIR,
+    HISTORICAL_CHILD_HEADER_CHAINS,
     ChainSpec,
 )
 
@@ -56,10 +59,26 @@ def test_chain_specs_covers_integrated_chains() -> None:
     assert not missing, f"CHAIN_SPECS missing integrated chains: {sorted(missing)}"
 
 
+def test_historical_child_header_keys_match_chain_specs() -> None:
+    missing = set(HISTORICAL_CHILD_HEADER_CHAINS) - set(CHAIN_SPECS)
+    assert not missing, (
+        f"historical child-header keys missing from CHAIN_SPECS: {sorted(missing)}"
+    )
+
+
 def test_keys_match_key_field() -> None:
     for key, spec in CHAIN_SPECS.items():
         assert isinstance(spec, ChainSpec)
         assert spec.key == key, f"dict key {key!r} != spec.key {spec.key!r}"
+
+
+def test_xaya_uses_powdata_nbits_and_other_specs_use_header_nbits() -> None:
+    assert CHAIN_SPECS["xaya"].child_nbits_from_header is False
+    assert all(
+        spec.child_nbits_from_header
+        for key, spec in CHAIN_SPECS.items()
+        if key != "xaya"
+    )
 
 
 def test_all_specs_present_in_activation_order() -> None:
@@ -82,6 +101,16 @@ def test_height_column_nonempty_and_stripped_for_every_spec() -> None:
         col = CHAIN_SPECS[key].height_column
         assert col, f"{key}: expected a non-empty height_column"
         assert isinstance(col, str) and col.strip() == col
+
+
+def test_validated_csvs_share_registered_core_schema() -> None:
+    for key, spec in CHAIN_SPECS.items():
+        with spec.validated_csv.open(newline="") as handle:
+            header = next(csv.reader(handle))
+        expected = output_columns(spec.height_column)
+        assert header[: len(expected)] == expected, (
+            f"{key}: validated schema must begin with the shared core columns"
+        )
 
 
 def test_chain_id_is_int_where_known() -> None:

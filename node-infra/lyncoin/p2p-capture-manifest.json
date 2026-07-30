@@ -3706,7 +3706,6 @@
     "file": "lyncoin_auxpow_candidates.csv",
     "rows": 56653,
     "schema": [
-      "child_sequence",
       "child_height",
       "child_block_hash",
       "child_block_hash_display",

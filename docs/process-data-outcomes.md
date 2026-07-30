@@ -1,6 +1,6 @@
 # Stale recovery process, data volumes, and outcomes
 
-Snapshot date: 2026-07-22.
+Snapshot date: 2026-07-30.
 
 This document is the cross-chain accounting view for the stale-block recovery
 work. It is deliberately more operational than the per-chain writeups: it
@@ -13,7 +13,9 @@ The current snapshot reflects the integrated public loader inputs after the
 publication-gate-accepted `<chain>_validated_stales.csv` (RSK included), the
 catalogued-source evidence outputs (VCash, Lyncoin, SixEleven, Doichain) and
 Electric Cash are represented, Emercoin and Xaya carry the 2026-06-24
-canonical-refresh re-runs, and the upstream `bitcoin-data/stale-blocks` pin
+canonical-refresh re-runs, the 17 historical child-header pipelines have been
+regenerated from their original sources, and the upstream
+`bitcoin-data/stale-blocks` pin
 has been bumped to a revision that already includes this project's historical
 1,089-row Namecoin addition. A publication overlay now records 31
 consensus-invalid keys and one direct-stale-only correction. Twenty-eight of
@@ -39,11 +41,11 @@ The repository currently has 26 integrated registry entries with committed
 loader inputs. Twenty-two are non-empty; Geistgeld, Doichain, Lyncoin, and
 SixEleven have legitimate header-only inputs recording zero accepted
 direct-stale candidates. The repository also carries one derived
-stale-descendant sidecar and catalogued-source Monitor outputs under
-`results/monitor-evidence/`. Lyncoin and SixEleven contribute canonical
-evidence with zero accepted direct-stale candidates. VCash is a 68-row
-canonical-only subset whose stale and strict/weak totals are not established.
-Doichain has a completed zero-stale surveyed window; its aggregate
+stale-descendant sidecar and complete final-category Monitor outputs under
+`results/monitor-evidence/`. Normal publication includes every available
+canonical row without a per-chain allowlist. VCash remains a 68-row
+canonical-only source subset whose stale and strict/weak totals are not
+established. Doichain has a completed zero-stale surveyed window; its aggregate
 characterization records 300,625 canonical-tip commitments matching exact
 Bitcoin `nBits` and BIP34 height, but no row-level canonical export is
 committed.
@@ -54,6 +56,7 @@ committed.
 | Per-chain accepted direct-stale candidate observations at height >= 0 | 3,652 | Sum of all integrated direct-stale loader functions, including RSK's 298 rows, Emercoin's 96 and Xaya's 40 (2026-06-24 refresh), Electric Cash's 3, Fractal Bitcoin's 31, and Bitcoin Vault's 9 (the ninth integrated from the 2026-06-23 refresh). Cross-chain observations of the same header count once per chain here. |
 | Accepted stale-descendant candidate observations | 20 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. Xaya's full unknown inventory is not yet folded into reconciliation (see note below). |
 | Merge-mining/derived candidate observations before dedup | 3,672 | Per-chain direct-stale observations plus accepted stale-descendant observations. |
+| Authenticated historical child-header observations | 2,933,154 | All rows across the 17 regenerated historical sources. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations are hydrated. |
 | Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,420 | Dedup key is `(height, hash)`. At the epoch-aligned analysis floor of 147,168, the total is 3,419 because one effective upstream row is below the floor. |
 | Unique events in post-compact base window | 898 | At `MIN_HEIGHT=421344` with every integrated loader included. |
 | Upstream-novel direct rows across novelty CSVs | 562 | `results/per-chain-novelty/*.csv`, `in_upstream=no`; row-level across chains, so cross-chain duplicates count once per chain. 311 unique events are chronologically first-claimed. Excludes stale descendants. |
@@ -123,14 +126,22 @@ Key artifacts:
 | Stage | Input | Processing | Output |
 |---|---|---|---|
 | 1. Upstream baseline | `data/stale-blocks/stale-blocks.csv` and `data/stale-blocks/blocks/` | Clone/update the exact manifest pin via `scripts/fetch-data.sh`; use the CSV for known-stale membership and retain available block binaries as source evidence. | Primary known-stale list and optional full-block evidence. |
-| 2. Per-chain extraction | Child-chain nodes, snapshots, JSON dumps, REST APIs, or RSKj archive RPC | Extract BTC parent header and, where available, BTC parent coinbase evidence from AuxPoW or merge-mining proofs. | Raw extractor outputs, mostly private/gitignored. |
+| 2. Per-chain extraction | Child-chain nodes, snapshots, JSON dumps, REST APIs, or RSKj archive RPC | Extract BTC parent header and, for historical Namecoin-family sources, authenticate and preserve the child block hash, 80-byte header, timestamp, and `nBits` from the same source block. Preserve BTC parent coinbase evidence where available. | Raw extractor outputs, mostly private/gitignored. |
 | 3. Self-target PoW filter | Extracted parent headers | Require `sha256d(header) <= target(nBits)` at the header's encoded target. This does not establish Bitcoin's contemporaneous target. | Self-target-PoW-passing candidate parent headers. |
 | 4. BTC Core classification | Self-target-PoW-passing headers | `getblockheader(hash)` with positive confirmations -> canonical; otherwise, `getblockheader(prev_hash)` with positive confirmations -> stale-labelled candidate; otherwise -> unknown. A known side-chain header with non-positive confirmations is not treated as canonical. | Full classifier outputs, private archive convention (RSK included). |
 | 5. Validation gates | Classified stale/unknown rows | Chain-specific gates such as `validation_status`, active-parent linkage, expected `nBits`, median-time-past, historical minimum block versions, coinbase scriptSig length, BIP34 height, BCH/BSV filters, and stale-descendant ancestry validation. | Compact committed direct-stale loader inputs under `data/validated-stales/` plus `data/stale_descendants.csv`. |
-| 6. Full-evidence export | Full classifier inventories, stale-only publication files, stale-descendant sidecar | `scripts/reports/build_auxpow_full_evidence.py`; normalize monitor-facing evidence and record whether canonical rows were retained, absent from the discovered artifact, or not represented by a stale-only source. | Generated `results/full-evidence/*` artifacts and manifest. |
-| 7. Cross-source accounting | Upstream rows, per-chain direct stales, and valid stale descendants | Apply the documented loader filters, form the union by `(height, hash)`, and retain merge-mining coinbase evidence as a fallback on upstream duplicates. | Aggregate union counts reported above; no standalone merged artifact is committed. |
-| 8. Novelty accounting | Per-chain loaders, upstream rows, activation chronology | `scripts/compute_chain_novelty.py <chain>`. | `results/per-chain-novelty/<chain>.csv`. |
-| 9. Analysis diagnostics | Full unknown inventories | Unknown ancestry, H1/H2 origin tests, and stale-fork event construction. | Private archive families documented by `results/analysis/README.md`. |
+| 6. Full-evidence export | Full classifier inventories, stale-only publication files, stale-descendant sidecar | `scripts/reports/build_auxpow_full_evidence.py`; normalize all evidence states and record canonical retention and child-header coverage. | Dated external full-evidence artifacts and manifest. |
+| 7. Monitor publication | Full classifier families, validated stale overlays, relevance inventory, stale-descendant sidecar | `scripts/reports/build_monitor_evidence.py`; emit all available canonical rows plus accepted direct stales, descendants, and strict/weak unknown observations. | Committed `results/monitor-evidence/*` artifacts and manifest. |
+| 8. Cross-source accounting | Upstream rows, per-chain direct stales, and valid stale descendants | Apply the documented loader filters, form the union by `(height, hash)`, and retain merge-mining coinbase evidence as a fallback on upstream duplicates. | Aggregate union counts reported above; no standalone merged artifact is committed. |
+| 9. Novelty accounting | Per-chain loaders, upstream rows, activation chronology | `scripts/compute_chain_novelty.py <chain>`. | `results/per-chain-novelty/<chain>.csv`. |
+| 10. Analysis diagnostics | Full unknown inventories | Unknown ancestry, H1/H2 origin tests, and stale-fork event construction. | Private archive families documented by `results/analysis/README.md`. |
+
+The 17 historical source paths were rerun through extraction, classification,
+full-evidence, and monitor publication on 2026-07-30. The committed validated
+and monitor artifacts now carry the authenticated bundle, and
+`just child-header-coverage` reports complete coverage with no unrecoverable
+rows. Source details and the authentication contract are recorded in
+[`child-header-hydration.md`](child-header-hydration.md).
 
 Mining-pool attribution is a planned later phase. The current public pipeline
 retains coinbase evidence where available but does not fetch a pool registry or
@@ -169,12 +180,12 @@ upstream and not first claimed by any earlier-born integrated chain.
 | RSK | RSKj Vetiver 9.0.1 archive node; Ethereum-style JSON-RPC; canonical blocks plus uncles. | The historical private classifier has 37,335 rows: 304 stale-labelled candidates plus 37,031 legacy `orphan` rows read as unknown. Five candidates shared with Namecoin are excluded as invalid and one is moved to the stale-descendant sidecar, leaving 298 publication-gate-accepted direct-stale header candidates: 80 from canonical RSK blocks plus 218 from uncles/ommers. RSK cannot independently apply the coinbase scriptSig length or BIP34-prefix checks. | `data/validated-stales/rsk_validated_stales.csv` (298 rows; shared validated-stales layout plus RSK evidence columns), `results/per-chain-novelty/rsk.csv`. | 117 | Extraction starts at child height 139,999 even though earlier full-header proofs exist. No consolidated canonical export is available. Three strict observations inherit globally strongest verdicts from matching coinbase-bearing chains. |
 | Bitmark | Synced Bitmark node/private raw archive; multi-algo SHA-256d subset. | 1,926,463 blocks scanned; 255,538 SHA-256d AuxPoW blocks; 82,819 self-target-PoW-valid unique headers; 897 canonical, 1 accepted direct-stale candidate, 81,921 unknown. | `data/validated-stales/bitmark_validated_stales.csv` (1 row), `results/per-chain-novelty/bitmark.csv`. | 0 | Cross-confirmation only; the accepted row is already present in Unobtanium/Myriadcoin/RSK. The integrated loader includes Bitmark; unique-count impact is zero. |
 | Xaya | Offline `blocks.zip` snapshot (2024-11-15) from Xaya's open CDN; legacy P2P network dead, so no live node. Custom extractor parses the `PowData` block-header wrapper; CAuxPow tail is standard Namecoin. | 6,344,114 blocks scanned; 1,695,912 SHA256D merge-mined; 38,483 self-target-PoW-valid unique parents; 40 VALID direct-stale candidates after the 2026-06-24 canonical-refresh re-run (the original run recorded 34 stale-labelled candidates + 17,642 unknown + 20,807 canonical); canonical-at-height `nBits` validation filters stale candidates before commit (0 rejected). | `data/validated-stales/xaya_validated_stales.csv` (40 rows), `results/per-chain-novelty/xaya.csv`. | 0 | A historical private attribution pass was F2Pool-dominated; the public pipeline does not reproduce that result. 0 chronologically novel: every accepted row is first-claimed by upstream or an earlier chain. Full unknown inventory not yet folded into reconciliation; the snapshot tail to Xaya's ~7.3M deprecation height is a documented coverage gap. |
-| Elastos | Hybrid extraction: local ELA node plus public `api.elastos.io/ela` tail. | 2,018,508 extracted rows produced 184,235 unique self-target-valid headers. The 2026-07-18 refresh split these into 175,078 canonical, 154 direct-stale candidates, and 9,003 unknown. The shared publication gate accepted 153 direct stales and rejected one candidate whose `nBits` did not match Bitcoin at its decoded height. | `data/validated-stales/elastos_validated_stales.csv` (153 rows), `results/per-chain-novelty/elastos.csv`. | 25 | Go node, not Bitcoin Core. The accepted rows span 2019-04-19 through 2026-01-31 UTC; all 153 carry `validation_status=VALID`. The consolidated canonical export remains private. Unknown parent-chain origin remains unresolved. |
-| Syscoin | Local `syscoind` v5.0.5; decoded AuxPoW JSON. | Private full classifier: 116,994 rows = 98,634 canonical (backfilled by the 2026-07-18 refresh) + 79 stale + 18,281 unknown; canonical-at-height `nBits` validation filters stale candidates before commit (79 → 78). | `data/validated-stales/syscoin_validated_stales.csv` (78 rows), `results/per-chain-novelty/syscoin.csv`. | 1 | Clean modern JSON extraction. The separate relevance axis contains 1 strict and 0 weak unknown-row observation. |
-| Bitcoin Vault | Trezor Blockbook REST `/api/rawblock/<hash>`; no node. | Original private run: 169,939 AuxPoW commitments, 2,575 self-target-PoW-valid headers, 2,567 canonical, 8 stale-labelled candidates, 0 unknown. The June 2026 refresh added one already-upstream candidate to the committed accepted set. | `data/validated-stales/bitcoin-vault_validated_stales.csv` (9 rows), `results/per-chain-novelty/bitcoin-vault.csv`. | 6 | First no-node recovery path. Post-2021 Binance era is weak-share-only and yields no further accepted direct-stale candidates. |
+| Elastos | Hybrid extraction: local ELA node plus public `api.elastos.io/ela` tail. | 2,018,508 extracted rows produced 184,235 unique self-target-valid headers. The 2026-07-18 refresh split these into 175,078 canonical, 154 direct-stale candidates, and 9,003 unknown. The shared publication gate accepted 153 direct stales and rejected one candidate whose `nBits` did not match Bitcoin at its decoded height, so the Monitor counts report 184,234 post-gate source rows. | `data/validated-stales/elastos_validated_stales.csv` (153 rows), `results/per-chain-novelty/elastos.csv`. | 25 | Go node, not Bitcoin Core. The accepted rows span 2019-04-19 through 2026-01-31 UTC; all 153 carry `validation_status=VALID`. All 175,078 canonical rows are in the Monitor projection; the complete classifier inventory remains external. Unknown parent-chain origin remains unresolved. |
+| Syscoin | Local `syscoind` v5.0.5; decoded AuxPoW JSON. | Private full classifier: 116,994 rows = 98,634 canonical (backfilled by the 2026-07-18 refresh) + 79 stale + 18,281 unknown; canonical-at-height `nBits` validation filters stale candidates before commit (79 to 78), so the Monitor counts report 116,993 post-gate source rows. | `data/validated-stales/syscoin_validated_stales.csv` (78 rows), `results/per-chain-novelty/syscoin.csv`. | 1 | Clean modern JSON extraction. The separate relevance axis contains 1 strict and 0 weak unknown-row observation. |
+| Bitcoin Vault | Trezor Blockbook REST `/api/rawblock/<hash>`; no node. | The source-authenticated 2026-07-30 run acquired 169,939 ordered AuxPoW commitments and classified 2,575 self-target-PoW-valid headers as 2,566 canonical, 9 accepted direct stales, and 0 unknown. | `data/validated-stales/bitcoin-vault_validated_stales.csv` (9 rows), `results/per-chain-novelty/bitcoin-vault.csv`. | 6 | First no-node recovery path. Post-2021 Binance era is weak-share-only and yields no further accepted direct-stale candidates. |
 | Hathor | Public REST API; joining the mainnet P2P network requires allowlisting. | 147,216 self-target-valid reconstructed headers: 3,612 with canonical Bitcoin predecessor linkage and 143,604 unresolved. The linked set contains 3,606 canonical and 6 stale-labelled candidates. `nBits`, minimum-version, and BIP34 validation gate; all 6 candidates are `VALID`. | `data/validated-stales/hathor_validated_stales.csv` (6 rows), `results/per-chain-novelty/hathor.csv`. `load_hathor_stales()` wired. | 0 | Integrated. RFC-0006 split-header reconstruction required a three-part byte-order correction. The unresolved population is not identified as BCH and is not available for strict/weak assessment. 0 chronologically novel. |
-| Fractal Bitcoin | `fractald` v0.3.0 archival node; compact `getblockheader <hash> false true` extraction. | Historical 2026-05-29 run: 1,807,154 FB blocks scanned; 1,205,394 non-merge-mined blocks skipped; 601,760 AuxPoW rows; 0 parse errors. The 2026-07-18 reclassification materialized 59,504 self-target-PoW-valid unique parent headers: 58,980 canonical, 31 stale-labelled candidates, and 493 unknown, with 0 rejected stale rows. | `data/validated-stales/fractal_validated_stales.csv` (31 rows), `results/per-chain-novelty/fractal.csv`. | 1 | Integrated. The consolidated canonical export remains private. The extractor requires the AuxPoW flag plus chain ID `0x2024`; a generic `0x100` test would falsely select the `0x20260100` Indexer class. Adds one net-new upstream sidecar row at BTC height 928,455. |
-| Electric Cash | Self-synced `elcashd` node; standard Namecoin-style CAuxPow under a Bitcoin Core 0.20.2 codebase. | Fresh-genesis Dec 2020 chain; 2,429 classified unique parents: 2,426 canonical, 3 stale-labelled candidates, no unknown rows; all 3 VALID (Jun-Sep 2021, all first-claimed by Bitcoin Vault). | `data/validated-stales/elcash_validated_stales.csv` (3 rows), `results/per-chain-novelty/elcash.csv`. | 0 | Zombie chain still merge-mined at negligible hashrate (real-difficulty wins ceased Nov 2024); see `docs/chains/elcash.md`. |
+| Fractal Bitcoin | `fractald` v0.3.0 archival node; compact `getblockheader <hash> false true` extraction. | Historical 2026-05-29 run: 1,807,154 FB blocks scanned; 1,205,394 non-merge-mined blocks skipped; 601,760 AuxPoW rows; 0 parse errors. The 2026-07-18 reclassification materialized 59,504 self-target-PoW-valid unique parent headers: 58,980 canonical, 31 stale-labelled candidates, and 493 unknown, with 0 rejected stale rows. | `data/validated-stales/fractal_validated_stales.csv` (31 rows), `results/per-chain-novelty/fractal.csv`. | 1 | Integrated. All 58,980 canonical rows are in the Monitor projection; the complete classifier inventory remains external. The extractor requires the AuxPoW flag plus chain ID `0x2024`; a generic `0x100` test would falsely select the `0x20260100` Indexer class. Adds one net-new upstream sidecar row at BTC height 928,455. |
+| Electric Cash | Self-synced `elcashd` node; standard Namecoin-style CAuxPow under a Bitcoin Core 0.20.2 codebase. | Fresh-genesis Dec 2020 chain; 5,140 classified unique parents: 2,426 canonical, 3 stale-labelled candidates, and 2,711 unknown rows; all 3 stales are VALID (Jun-Sep 2021, all first-claimed by Bitcoin Vault), and no unknown receives a strict/weak verdict. | `data/validated-stales/elcash_validated_stales.csv` (3 rows), `results/per-chain-novelty/elcash.csv`. | 0 | Zombie chain still merge-mined at negligible hashrate (real-difficulty wins ceased Nov 2024); see `docs/chains/elcash.md`. |
 | Catalogued-source recoveries ([Lyncoin](chains/lyncoin.md), [SixEleven](chains/sixeleven.md), [Doichain](chains/doichain.md)) | Lyncoin: live-peer raw P2P extended-header capture. SixEleven: pinned official node synced from six peers, followed by a complete legacy `blkNNNN.dat` scan with RPC identity validation. Doichain: pinned-source node and `blkNNNN.dat` survey through the active-chain tip observed at height 430,684. | Lyncoin: 56,653 self-target-PoW candidates -> 11 canonical, 0 stale, 0 strict, 0 weak. SixEleven: 80,364 candidates -> 7 canonical, 0 stale, 0 strict, 0 weak. Doichain: 429,401 commitments, including 300,625 canonical-tip rows independently confirmed against exact Bitcoin `nBits` and BIP34 height -> 0 accepted direct stale, 0 strict, 0 weak. | `results/monitor-evidence/{lyncoin,sixeleven,doichain}_monitor_evidence.csv`, header-only `data/validated-stales/{lyncoin,sixeleven,doichain}_validated_stales.csv`, and `results/strict-weak-orphans/{lyncoin,sixeleven,doichain}_strict_weak_orphans.csv`. | 0 | Complete scoped negative stale result for all three recovered windows. Lyncoin and SixEleven publish canonical Monitor rows; Doichain has aggregate-only canonical characterization. |
 | VCash canonical subset | Private explorer archive containing 767 VCash-to-Bitcoin mappings; Bitcoin Core hydration recovered 68 canonical parents. | 68 canonical rows. No VCash blockchain was recovered and 699 mappings remain unresolved, so stale and strict/weak totals are not established. | `results/monitor-evidence/vcash_monitor_evidence.csv`. | Not applicable | Canonical-only partial Monitor evidence, not a complete VCash recovery or a zero-stale result. |
 
@@ -196,10 +207,13 @@ Canonical/public loader inputs:
   directory. Currently 21 unique strict/weak headers observed 34 times
   across 7 chains.
 - `results/monitor-evidence/<chain>_monitor_evidence.csv` plus its counts and
-  manifest: the committed, compact exports the merge-mining-monitor ingests
-  (canonical + publication-gate-accepted direct-stale candidates + accepted
-  descendants + strict/weak orphans). The manifest records that `VALID` is not
-  a full-block consensus-validity assertion.
+  manifest: the committed final-category exports the merge-mining-monitor
+  ingests (all available canonical rows + publication-gate-accepted
+  direct-stale candidates + accepted descendants + strict/weak orphans). The
+  manifest records that `VALID` is not a full-block consensus-validity
+  assertion.
+- `results/child-header-coverage.csv`: per-chain authentication and timestamp
+  coverage for the 17 historical source refreshes.
 
 Per-chain outputs:
 
@@ -214,7 +228,9 @@ origin, and candidate multi-block header-chain reconstruction.
 Generated monitor evidence:
 
 - `results/full-evidence/<chain>_evidence.csv` for normalized per-chain
-  candidate rows when source files are available.
+  candidate rows when source files are available. The complete 2026-07-30 run
+  is retained as a dated external refresh because its 30 artifacts are too
+  large for normal repository tracking.
 - `results/full-evidence/auxpow-full-evidence-counts.csv` and
   `results/full-evidence/auxpow-full-evidence-manifest.*` for per-source counts
   and canonical-retention status. These outputs are regenerated on demand and

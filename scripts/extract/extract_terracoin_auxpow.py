@@ -20,9 +20,16 @@ from pathlib import Path
 
 # Repo `src/` is on sys.path when installed via `pip install -e .`; these
 # shared modules are pure-stdlib and safe to import on the archival host.
-from stale_blocks_analysis.auxpow_parse import parse_parent_header
+from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
+    parse_parent_header,
+    serialize_block_header,
+    standard_auxpow_extraction_columns,
+)
 from stale_blocks_analysis.coinbase_markers import parse_bip34_height
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.extract_driver import validate_append_schema
 
 RPC_URL = "http://127.0.0.1:13332"
 DEFAULT_CONF = Path.home() / "terracoin-docker" / "data" / "terracoin.conf"
@@ -31,17 +38,7 @@ FIRST_AUXPOW_HEIGHT = 833_000
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "trc_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("trc_height")
 
 
 def load_rpc_auth(conf_path: Path) -> tuple[str, str]:
@@ -148,6 +145,20 @@ def extract_range(
             continue
 
         header = parse_header(parent_hex)
+        try:
+            child_raw = serialize_block_header(
+                version=block["version"],
+                previous_block_hash=block["previousblockhash"],
+                merkle_root=block["merkleroot"],
+                timestamp=block["time"],
+                bits=block["bits"],
+                nonce=block["nonce"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ChildHeaderValidationError(
+                f"Terracoin h={height}: malformed RPC child-header fields"
+            ) from exc
+        child_fields = parse_child_header(child_raw, expected_hash_display=hashes[i])
         tx = auxpow.get("tx", {})
         vin = tx.get("vin", [])
         vout = tx.get("vout", [])
@@ -164,6 +175,7 @@ def extract_range(
         writer.writerow(
             {
                 "trc_height": height,
+                **child_fields,
                 "btc_header_hash": header["hash"],
                 "btc_prev_hash": header["prev_hash"],
                 "btc_time": header["timestamp"],
@@ -224,6 +236,8 @@ def main():
         if args.resume and Path(args.output).exists() and start > args.start
         else "w"
     )
+    if mode == "a":
+        validate_append_schema(Path(args.output), CSV_COLUMNS)
 
     with open(args.output, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
@@ -237,12 +251,16 @@ def main():
             batch_end = min(batch_start + args.batch_size, args.end)
             try:
                 extract_range(batch_start, batch_end, writer, stats, rpc)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 print(f"\nError at heights {batch_start}-{batch_end}: {e}")
                 print("Retrying individually...")
                 for h in range(batch_start, batch_end):
                     try:
                         extract_range(h, h + 1, writer, stats, rpc)
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e2:
                         print(f"  Failed height {h}: {e2}")
                         stats["skipped_bad_header"] += 1

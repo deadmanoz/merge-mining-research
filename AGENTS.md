@@ -44,11 +44,18 @@ Before non-trivial edits, read the relevant local docs:
 Use Python 3.10 or newer.
 
 ```bash
+git lfs install --local
+git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ./scripts/fetch-data.sh
 ```
+
+The `dataset`-marked tests read the committed monitor-evidence baseline, so a
+full local test run must materialize the Git LFS payloads first. CI runs the
+remaining tests across the Python matrix without LFS and runs the publication
+dataset checks once with the payloads materialized.
 
 The development install includes pytest and Ruff. The core install
 (`pip install -e .`) covers the acquisition/recovery pipeline when development
@@ -68,8 +75,11 @@ Prefer the `justfile` recipes when they cover the task:
 
 ```bash
 just test
+just test-unit
+just test-dataset
 just test-markers
 just full-evidence
+just child-header-coverage
 just strict-weak-orphans
 just monitor-evidence
 just upstream-check
@@ -80,11 +90,13 @@ just check-leaks
 ```
 
 `just monitor-evidence` is a publication build and fails closed unless the
-private archive, relevance, and supplemental inputs are complete. Diagnostic
+private archive and relevance inputs are complete. Diagnostic
 builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
-never point a partial build at the committed monitor-evidence directory. Both
-modes stage the complete generated artifact set before replacing prior files;
-unrelated files already in the output directory are preserved.
+`--skip-canonical` is diagnostic-only, and normal publication includes every
+available canonical row for every chain. Never point a partial build at the
+committed monitor-evidence directory. Both modes stage the complete generated
+artifact set before replacing prior files; unrelated files already in the
+output directory are preserved.
 
 Useful direct commands:
 
@@ -140,6 +152,18 @@ Be strict about what belongs in git:
   outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
   marker SQLite/Parquet outputs, or node data directories unless a doc
   explicitly says that exact artifact is public.
+- VCash's partial explorer recovery follows the same canonical-companion
+  contract: `scripts/prep/hydrate_vcash_canonical.py` writes the gitignored
+  `data/vcash_canonical_blocks.csv` by default, and monitor publication
+  discovers that filename under `data/` or a supplied chain archive.
+- Commit the complete final-category projection under
+  `results/monitor-evidence/`: every available canonical row, accepted direct
+  stale and descendant, and strict/weak unknown-row observation. Do not
+  introduce per-chain publication allowlists. The per-chain
+  `*_monitor_evidence.csv` payloads are tracked uniformly through Git LFS;
+  `monitor-evidence-counts.csv` and `monitor-evidence-manifest.json` remain
+  ordinary Git files. Run `git lfs pull` before consuming or regenerating the
+  committed payloads.
 - The largest consolidated datasets (full per-chain evidence exports,
   unknown-origin inventories over ~100 MB) are intended for future external
   publication and are not tracked in git. Private or bulky per-chain artifacts
@@ -148,8 +172,8 @@ Be strict about what belongs in git:
   output sets as part of an unrelated code change.
 
 If a script writes ignored scratch data to `data/`, leave it ignored. If a new
-workflow needs a committed artifact, document why it is compact, canonical, and
-consumed by the public pipeline.
+workflow needs a committed artifact, document why it is canonical and consumed
+by the public pipeline.
 
 ## Research Semantics
 
@@ -163,6 +187,11 @@ Preserve these distinctions:
   `validation_status=VALID_STALE_DESCENDANT`.
 - Raw classifier rows labelled `unknown` remain unknown rows. Do not relabel
   them as direct stales just because a separate sidecar promotes a descendant.
+  The monitor projection admits an exact accepted descendant source observation
+  with `relevance_reason=valid_stale_descendant` while preserving that unknown
+  classification. Source rows corrected from direct stales are projected as
+  `stale_descendant` only when the accepted sidecar and exact-key correction
+  overlay agree.
 - The word "orphan" is reserved for the strict/weak relevance buckets
   (`strict_btc_orphan`/`weak_btc_orphan`), matching the merge-mining-monitor's
   vocabulary. The broad evidence state is `unknown`. Legacy artifacts (the
@@ -226,9 +255,15 @@ Preserve these distinctions:
   `height`, `hash`, `source`, and when available `_scriptsig_hex` and
   `_outputs_str`. The current recovery pipeline does not return pool labels.
 - Use `csv.DictReader` and `csv.DictWriter` for CSV work. Preserve stable column
-  names and deterministic row ordering.
+  names and deterministic row ordering. Evidence writers emit LF explicitly so
+  LFS-backed CSVs remain byte-reproducible without Git text normalization.
 - Use binary parsers and existing helpers for Bitcoin wire data. Avoid ad hoc
   slicing unless the surrounding code already uses that exact convention.
+- Standard Bitcoin-family RPC extractors must obtain their column order from
+  `standard_auxpow_extraction_columns()` in `auxpow_parse.py`. Source-specific
+  acquisition formats such as Huntercoin, Xaya, and the generic `blk*.dat`
+  inventory may retain extra provenance fields, but their classifiers must
+  normalize into the shared evidence schema.
 - For coinbase marker additions, prefer adding data entries in
   `coinbase_markers.py` over changing parser logic. Add or update tests with
   pinned fixtures.

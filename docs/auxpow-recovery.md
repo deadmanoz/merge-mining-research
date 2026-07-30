@@ -118,6 +118,17 @@ by that source. Passing `--chain-archive-dir` to
 `scripts/reports/build_auxpow_full_evidence.py` lets private full inventories be
 read in place without copying them into `data/`.
 
+Historical extraction paths also preserve the 80-byte child header from the
+same original block that supplied each AuxPoW proof. The derived
+`child_block_hash`, `child_header_hex`, `child_block_time`, and `child_nbits`
+travel together through classification and evidence export; any partial or
+self-contradictory bundle stops classification. Xaya is the sole outer-format
+exception: its block hash and timestamp come from `CPureBlockHeader`, while
+its effective `nBits` comes from the adjacent `PowData` field. Run
+`just child-header-coverage` against a staged evidence directory before
+publishing a dated refresh. Existing historical CSVs without the header
+bundle must be regenerated from their original sources, not post-processed.
+
 Rows follow the documented **merge-mining evidence chronology**, matching
 `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
 

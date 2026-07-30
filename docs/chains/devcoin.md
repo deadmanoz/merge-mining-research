@@ -65,14 +65,13 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 | `stale`-labelled candidate | 484 |
 | **Total** | **129,725** |
 
-The 54,100 canonical parents are dropped from the persisted output; the committed
-pipeline keeps only the 468 VALID stales, and the private split inventory
-`devcoin_stale_blocks.csv` holds the remaining 75,625 non-canonical rows (484
-stale + 75,141 unknown). The canonical rows were not persisted by the original
-2026-04 prototype split and were backfilled by the 2026-06-23 canonical refresh;
-the earlier "75,625 = 484 stale + 75,141 unknown" figure was that non-canonical
-subset, not the full classifier output. The full historical CSV is gitignored due
-to size. The committed validated file contains 468 rows after the
+The normal Monitor publication includes all 54,100 canonical parents, 468
+VALID stales, and the one unknown row with a final strict relevance verdict.
+The remaining unknown and rejected rows stay in the full external evidence.
+The canonical rows were not persisted by the original 2026-04 prototype split
+and were backfilled by the 2026-06-23 canonical refresh; the earlier "75,625 =
+484 stale + 75,141 unknown" figure was that non-canonical subset, not the full
+classifier output. The committed validated file contains 468 rows after the
 consensus-invalid overlay removes 16 candidates.
 
 **Chain-specific quirks.**

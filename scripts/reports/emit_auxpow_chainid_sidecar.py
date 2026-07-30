@@ -57,7 +57,6 @@ CAUXPOW_PARSE_ERRORS = (IndexError, struct.error, ValueError)
 
 FIELDNAMES = [
     "chain_slug",
-    "child_sequence",
     "child_hash_internal_hex",
     "child_hash_display_hex",
     "child_version",
@@ -197,7 +196,6 @@ def parent_coinbase_outputs_hex(auxpow: dict) -> str:
 def infer_row(
     *,
     chain_slug: str,
-    child_sequence: int,
     child_header_raw: bytes,
     child_version: int,
     auxpow: dict,
@@ -291,7 +289,6 @@ def infer_row(
 
     return {
         "chain_slug": chain_slug,
-        "child_sequence": child_sequence,
         "child_hash_internal_hex": child_hash_internal.hex(),
         "child_hash_display_hex": hash_to_display_hex(child_hash_internal),
         "child_version": child_version,
@@ -376,12 +373,10 @@ def emit_sidecar(args: argparse.Namespace) -> int:
         with output_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
             writer.writeheader()
-            child_sequence = 0
             for blk_path in blk_files:
                 for _offset, block_data in iter_blocks_from_file(
                     blk_path, chain_config["magic"], xor_key
                 ):
-                    child_sequence += 1
                     stats["blocks"] += 1
                     if len(block_data) < 80:
                         stats["parse_errors"] += 1
@@ -406,7 +401,6 @@ def emit_sidecar(args: argparse.Namespace) -> int:
                         continue
                     row = infer_row(
                         chain_slug=args.chain,
-                        child_sequence=child_sequence,
                         child_header_raw=child_header_raw,
                         child_version=child_version,
                         auxpow=auxpow,

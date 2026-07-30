@@ -55,7 +55,11 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 
 ## 2. Extraction → potential stales
 
-**Method.** Offline `blk*.dat` parse on `<archival-host>`. For each block, read the 80-byte `CPureBlockHeader`, then the `PowData` `algo` byte at offset 80. If `(algo & 0x80)` is clear the block is solo-mined (NEOSCRYPT) and is skipped. Otherwise the block is merge-mined (SHA256D) and the standard Namecoin `CAuxPow` begins at offset 85 (80 header + 1 algo + 4 nBits), parsed by `read_auxpow()`. The parent header is then validated against Bitcoin difficulty. Keying on the `0x80` merge-mined flag rather than the exact `PowAlgo` integers mirrors the source's own `isMergeMined()` test (`algo & FLAG_MERGE_MINED`, `FLAG_MERGE_MINED = 0x80`); the full enum (`SHA256D=1, NEOSCRYPT=2, FLAG_MERGE_MINED=0x80`) is defined in `src/interfaces/mining.h`. It is validated by the clean extraction (0 parse errors).
+**Method.** Offline `blk*.dat` parse on `<archival-host>`. For each block, read the 80-byte `CPureBlockHeader`, then the `PowData` `algo` byte at offset 80. If `(algo & 0x80)` is clear the block is solo-mined (NEOSCRYPT) and is skipped. Otherwise the block is merge-mined (SHA256D) and the standard Namecoin `CAuxPow` begins at offset 85 (80 header + 1 algo + 4 nBits), parsed by `read_auxpow()`. The extractor emits `child_header_hex`, `child_block_hash`, and `child_block_time` from `CPureBlockHeader`; `child_nbits` comes from the little-endian `PowData` uint32 at offsets 81 through 84, not the pure header's bytes 72 through 75. The parent header is then validated against Bitcoin difficulty. Keying on the `0x80` merge-mined flag rather than the exact `PowAlgo` integers mirrors the source's own `isMergeMined()` test (`algo & FLAG_MERGE_MINED`, `FLAG_MERGE_MINED = 0x80`); the full enum (`SHA256D=1, NEOSCRYPT=2, FLAG_MERGE_MINED=0x80`) is defined in `src/interfaces/mining.h`. It is validated by the clean extraction (0 parse errors).
+
+The extractor requires the pure header's own `nBits` field to be zero and the
+effective `PowData` target to be non-zero. A contradiction aborts extraction
+at the source block rather than emitting a row for later rejection.
 
 **Phases.**
 
@@ -80,7 +84,7 @@ The 26.7% merge-mined share (1,695,912 of 6,344,114) confirms a dense AuxPoW env
 
 - **`PowData` block-header wrapper.** Xaya is the only chain in the pipeline whose on-disk block prepends a `PowData` structure after the 80-byte header. The custom outer parse is the one piece of Xaya-specific logic; the embedded `CAuxPow` is byte-identical to the Namecoin family, so the shared modules port across unchanged.
 - **SHA256D <=> merge-mined.** Because the source enforces "SHA256D must be merge-mined", the merge-mined flag is a proxy for carrying an AuxPoW parent header. It does not by itself prove that the parent is Bitcoin.
-- **Synthetic `child_height`.** The `child_height` column is a disk-order scan counter, not a consensus height (blocks in `blk*.dat` are in arrival order). It is carried through as provenance only; the loader keys on the BTC parent height. This matches the i0coin offline-`blk*.dat` precedent.
+- **Exact offline `child_height`.** Xaya activates BIP34 at height 1, so every merge-mined block in scope carries its consensus height at the start of the child coinbase scriptSig. The extractor reads that height after the `PowData`/`CAuxPow` wrapper and emits no scan-order field, so the classifier and monitor use the same exact `(source, child_height, child_block_hash)` identity as the other chains. A nonzero child-height parse-error count fails the output transaction rather than silently dropping Bitcoin-parent evidence. The exact-height regeneration retained all 38,483 prior Bitcoin parent hashes and the same 20,801 canonical, 40 stale, and 17,642 unknown classifications.
 - **Chain ID 1829 (`0x0725`); no `fStrictChainId` flag.** Xaya's AuxPoW parent is a plain Bitcoin `CPureBlockHeader` that encodes no chain ID, so the Namecoin-style strict-chain-ID rule does not apply (the modern `xaya/xaya` tree has no such flag; the chain ID feeds only the AuxPoW merkle-index derivation). It does not establish Bitcoin parent identity; Bitcoin Core classification and the later validation gates do that work.
 
 ## 3. Filtering → accepted direct-stale candidates

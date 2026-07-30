@@ -48,6 +48,7 @@ from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import (
     parse_coinbase_height,
     parse_parent_header,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
 
@@ -63,17 +64,7 @@ ALGO_SHA256D = 1  # Bitmark's enum (Myriadcoin uses 0 -- these are NOT compatibl
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "btmk_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("btmk_height")
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +107,7 @@ def _gate(version: int, stats: dict) -> bool:
     return True
 
 
-def _parse_row(height: int, auxpow: dict) -> dict:
+def _parse_row(height: int, auxpow: dict, child_fields: dict) -> dict:
     """Build one CSV row from a parsed CAuxPow structure."""
     parent = parse_parent_header(auxpow["parent_header_raw"])
     tx = auxpow["coinbase_tx"]
@@ -124,6 +115,7 @@ def _parse_row(height: int, auxpow: dict) -> dict:
     btc_height = parse_coinbase_height(scriptsig)
     return {
         "btmk_height": height,
+        **child_fields,
         "btc_header_hash": parent["hash"],
         "btc_prev_hash": parent["prev_hash"],
         "btc_time": parent["time"],

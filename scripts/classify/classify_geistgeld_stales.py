@@ -23,13 +23,13 @@ other chains:
      ``getblockheader``: prev_hash on mainchain → ``stale``, otherwise
      ``unknown``. ``btc_height = prev.height + 1`` for stales.
 
-Outputs are written in the shared unknown-inventory schema (matches
+Outputs are written in the shared classifier schema (matches
 ``classify_huntercoin_stales.py``):
 
-  - ``data/geistgeld_stale_blocks.csv`` — full classifier output
-    (``stale | unknown`` rows; canonical rows are dropped per the 6q0
-    standard, since they aren't part of the unknown inventory).
-  - ``data/validated-stales/geistgeld_validated_stales.csv`` — stale-only subset, the
+  - ``data/geistgeld_canonical_blocks.csv``: canonical rows.
+  - ``data/geistgeld_stale_blocks.csv``: stale rows.
+  - ``data/geistgeld_unknown_blocks.csv``: unknown rows.
+  - ``data/validated-stales/geistgeld_validated_stales.csv``: stale-only subset, the
     loader's input.
 
 ``coinbase_outputs`` is always empty for Geistgeld: ``auxpow.coinbasetx``
@@ -54,6 +54,11 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty
+from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
+    serialize_block_header,
+)
 from stale_blocks_analysis.btc_classify import (
     classify_candidates,
     derive_split_paths,
@@ -182,10 +187,30 @@ def stream_candidates(input_path: Path) -> tuple[dict[str, dict], dict[str, int]
             if not parent_hash or parent_hash in candidates:
                 continue
 
+            try:
+                child_raw = serialize_block_header(
+                    version=rec["version"],
+                    previous_block_hash=rec["previousblockhash"],
+                    merkle_root=rec["merkleroot"],
+                    timestamp=rec["time"],
+                    bits=rec["bits"],
+                    nonce=rec["nonce"],
+                )
+                child_fields = parse_child_header(
+                    child_raw, expected_hash_display=rec["hash"]
+                )
+            except ChildHeaderValidationError:
+                raise
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"record {stats['total']}: invalid child header: {exc}"
+                ) from exc
+
             cb_vin = ap.get("coinbasetx", {}).get("vin", [{}])
             scriptsig_hex = cb_vin[0].get("coinbase", "") if cb_vin else ""
 
             candidates[parent_hash] = {
+                **child_fields,
                 "btc_header_hash": parent_hash,
                 "btc_prev_hash": pb.get("previousblockhash", ""),
                 "btc_time": str(pb.get("time", "")),
@@ -345,7 +370,6 @@ def main() -> int:
     )
     stales = [r for r in all_results if r["classification"] == "stale"]
     unknown_rows = [r for r in all_results if r["classification"] == "unknown"]
-    valid_stales = [s for s in stales if s.get("validation_status") == "VALID"]
 
     heights = [int(r["btc_height"]) for r in all_results if r.get("btc_height")]
 

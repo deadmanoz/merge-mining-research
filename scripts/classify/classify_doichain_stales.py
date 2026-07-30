@@ -41,6 +41,10 @@ NORMALIZED_COLUMNS = [
     "coinbase_outputs",
     "btc_header_hex",
     "doi_height",
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
     "classification",
 ]
 
@@ -59,6 +63,10 @@ def standardize_row(row: dict[str, str]) -> dict[str, str]:
         "coinbase_outputs": row.get("coinbase_outputs", ""),
         "btc_header_hex": row.get("btc_header_hex", ""),
         "doi_height": row.get("doi_height") or row.get("child_height", ""),
+        "child_block_hash": row.get("child_block_hash", ""),
+        "child_header_hex": row.get("child_header_hex", ""),
+        "child_block_time": row.get("child_block_time", ""),
+        "child_nbits": row.get("child_nbits", ""),
         "classification": row.get("classification", ""),
     }
 

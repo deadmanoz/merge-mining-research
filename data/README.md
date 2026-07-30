@@ -84,7 +84,9 @@ classifier or explorer archive from which they were derived. In particular,
 canonical mappings from a 767-row explorer archive, but no VCash blockchain
 was recovered and 699 mappings remain unresolved. It is canonical-only partial
 evidence, not a stale-only loader input or a basis for stale and strict/weak
-totals.
+totals. `scripts/prep/hydrate_vcash_canonical.py` writes the standard
+gitignored `data/vcash_canonical_blocks.csv` source by default; the publication
+builder discovers and normalizes it like every other canonical companion.
 
 For downstream consumers that need canonical, stale, unknown, near, rejected,
 or stale-descendant evidence rather than only stale census inputs, build the
@@ -102,10 +104,12 @@ Private runs can pass one or more `--chain-archive-dir` roots to
 place and are not copied into this repository.
 
 Each historically named `*_validated_stales.csv` carries the canonical
-12-column direct-stale-candidate layout: the
-eight shared header/coinbase columns (`btc_height`, `btc_header_hash`,
+16-column direct-stale-candidate layout: the chain height, four authenticated
+child-header columns (`child_block_hash`, `child_header_hex`,
+`child_block_time`, `child_nbits`), the eight shared header/coinbase columns
+(`btc_height`, `btc_header_hash`,
 `btc_prev_hash`, `btc_time`, `btc_bits`, `coinbase_scriptsig_hex`,
-`coinbase_outputs`, `btc_header_hex`), the chain's own height column,
+`coinbase_outputs`, `btc_header_hex`),
 `classification`, and the persisted publication-gate verdict (`validation_status`,
 `expected_nbits`). The committed file is publication-gate accepted only
 (`stale` rows with `validation_status=VALID`); the gate runs once at

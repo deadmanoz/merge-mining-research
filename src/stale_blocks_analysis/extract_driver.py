@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .auxpow_parse import read_auxpow
+from .auxpow_parse import ChildHeaderValidationError, parse_child_header, read_auxpow
 
 # gate(version, stats) -> True to keep parsing the block, False to skip it.
 # A gate that returns False is responsible for tallying its own skip reason
@@ -38,11 +38,13 @@ from .auxpow_parse import read_auxpow
 # per-chain vocabulary.
 BlockGate = Callable[[int, dict], bool]
 
-# parse_row(height, auxpow) -> the CSV row dict for a block that passed the
+# parse_row(height, auxpow, child_fields) -> the CSV row dict for a block that passed the
 # gate and parsed as a CAuxPow. ``auxpow`` is the dict returned by
 # ``auxpow_parse.read_auxpow`` (carries ``coinbase_tx`` and
-# ``parent_header_raw``).
-RowParser = Callable[[int, dict], dict]
+# ``parent_header_raw``). For a row that passes the gate and AuxPoW parse,
+# ``child_fields`` is authenticated against the independently fetched child
+# block hash before the callback runs.
+RowParser = Callable[[int, dict, dict], dict]
 
 
 def _default_block_fetch_params(block_hash: str) -> list:
@@ -81,6 +83,19 @@ def resume_start(output_path: Path, height_column: str, default_start: int) -> i
     return default_start
 
 
+def validate_append_schema(output_path: Path, csv_columns: list[str]) -> None:
+    """Require an existing extraction CSV to use ``csv_columns`` exactly."""
+    if not output_path.is_file():
+        raise ValueError(f"cannot resume missing extraction CSV: {output_path}")
+    with output_path.open(newline="") as existing:
+        existing_header = next(csv.reader(existing), None)
+    if existing_header != csv_columns:
+        raise ValueError(
+            f"cannot resume {output_path}: existing CSV header does not match "
+            "the current extraction schema; rerun without --resume"
+        )
+
+
 def run_extraction(
     *,
     rpc,
@@ -109,15 +124,18 @@ def run_extraction(
     call ``gate(version, stats)`` (a False return skips the block, having
     already tallied its own reason), deserialise the CAuxPow tail
     (``stats["skipped_parse_error"]`` on a malformed payload), and hand the
-    parsed ``auxpow`` dict to ``parse_row(height, auxpow)`` for the CSV row,
-    tallying ``stats["auxpow_blocks"]``.
+    parsed ``auxpow`` dict and authenticated child fields to
+    ``parse_row(height, auxpow, child_fields)`` for the CSV row, tallying
+    ``stats["auxpow_blocks"]``. Only blocks that pass the version gate and
+    AuxPoW parse reach child-header authentication and the callback.
 
     A batch that raises is retried one height at a time before giving up on
     it (unparseable individual heights fall into
     ``stats["skipped_parse_error"]``). Opens ``output_path`` in append mode
-    when ``append`` is True (the caller has already decided this from its
-    own ``--resume``/existing-file logic) and write mode otherwise, writing
-    the CSV header only in write mode. Prints periodic progress/ETA every
+    when ``append`` is True, after requiring its existing CSV header to match
+    ``csv_columns`` exactly; this prevents a resume against a pre-hydration
+    schema from corrupting the file. Write mode writes the current header.
+    Prints periodic progress/ETA every
     ``progress_interval`` processed heights (flushing the output file each
     time) and a final ``Done in Xm`` summary iterating ``stats`` in
     insertion order, plus the output path. ``progress_extra`` is an optional
@@ -128,6 +146,8 @@ def run_extraction(
     Returns ``stats`` (mutated in place; returned for convenience).
     """
     mode = "a" if append else "w"
+    if append:
+        validate_append_schema(output_path, csv_columns)
 
     def extract_range(bs: int, be: int) -> None:
         hash_calls = [
@@ -167,7 +187,8 @@ def run_extraction(
                 stats["skipped_parse_error"] += 1
                 continue
 
-            row = parse_row(height, auxpow)
+            child_fields = parse_child_header(raw[:80], expected_hash_display=hashes[i])
+            row = parse_row(height, auxpow, child_fields)
             stats["auxpow_blocks"] += 1
             writer.writerow(row)
 
@@ -182,11 +203,15 @@ def run_extraction(
             be = min(bs + batch_size, end)
             try:
                 extract_range(bs, be)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 print(f"\n  ! batch {bs}-{be} failed: {e}; retrying individually")
                 for h in range(bs, be):
                     try:
                         extract_range(h, h + 1)
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e2:
                         print(f"    skip h={h}: {e2}")
                         stats["skipped_parse_error"] += 1

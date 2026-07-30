@@ -41,6 +41,12 @@ CoiledCoin was announced 2012-01-05 by `makomk` and is famously associated with 
 
 **Method.** Offline `blk*.dat` binary parse with the generic Namecoin-family extractor. Pre-0.6 Bitcoin Core's RPC predates `AuxpowToJSON()` and doesn't return AuxPoW data via any `getblock` verbosity, so the binary path is the only practical option (also matches Devcoin's pattern, where the JSON RPC also lacked AuxPoW exposure).
 
+The archive exposes the serialized child header and hash but no authenticated
+consensus height. Because `blk*.dat` order is not chain order, the extractor
+leaves the uniform child-height slot blank and does not persist a scan counter.
+The full child header, authenticated child hash, timestamp, and `nBits` remain
+the available child identity evidence.
+
 **Phases.**
 
 1. **Parse**: walk all CLC blocks ≥ 1 in `blk*.dat`; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch.
@@ -58,7 +64,12 @@ CoiledCoin was announced 2012-01-05 by `makomk` and is famously associated with 
 | `unknown` | 13,308 |
 | **Total** | **13,943** |
 
-The 608 canonical parents are dropped from the persisted output; the committed pipeline keeps only the 27 VALID stales, and the private split inventory `coiledcoin_stale_blocks.csv` holds the remaining 13,335 non-canonical rows (27 stale + 13,308 unknown). The canonical rows were not persisted by the original 2026-05 prototype split and were backfilled by the 2026-06-23 canonical refresh; the earlier "13,335 = 27 stale + 13,308 unknown" figure was that non-canonical subset, not the full classifier output.
+The normal Monitor publication includes all 608 canonical parents and the 27
+VALID stales. The 13,308 unknown rows have no final strict/weak relevance
+verdict and remain in the full external evidence. The canonical rows were not
+persisted by the original 2026-05 prototype split and were backfilled by the
+2026-06-23 canonical refresh; the earlier "13,335 = 27 stale + 13,308 unknown"
+figure was that non-canonical subset, not the full classifier output.
 
 Of the 27 stales, **1 is in the Eligius attack window** (`eligius_attack_window=true`, BTC 161,761 / 2012-01-11). The other 26 span BTC 163,226 → 187,452 (Feb → Jul 2012), after the attack, in the dwindling tail of merge-mining activity before the chain went quiet.
 
@@ -110,6 +121,8 @@ Every CoiledCoin stale is first-claimed by an earlier chain. The one record in t
 **In-repo artifacts.**
 
 - `data/validated-stales/coiledcoin_validated_stales.csv` - 27 validated stales (committed; the loader's input). Preserves the `eligius_attack_window` flag column.
+- `results/monitor-evidence/coiledcoin_monitor_evidence.csv` - 608 canonical
+  and 27 accepted stale observations.
 - `node-infra/coiledcoin/{Dockerfile,docker-compose.yml,justfile,bdb-atomic.patch,config.guess,config.sub,README.md}` - build infrastructure.
 - `results/per-chain-novelty/coiledcoin.csv` - per-stale `(height, hash, in_upstream, first_seen_chain)` table.
 

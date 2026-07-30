@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth  # noqa: E402
+from stale_blocks_analysis.config import DATA_DIR  # noqa: E402
 from stale_blocks_analysis.vcash_canonical import (  # noqa: E402
     build_vcash_canonical_hydration,
 )
@@ -25,7 +26,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wayback-results", type=Path, required=True)
     parser.add_argument("--canonical-classification", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DATA_DIR / "vcash_canonical_blocks.csv",
+        help="Canonical source CSV consumed by the monitor evidence builder.",
+    )
     parser.add_argument("--rpc-url", default="http://127.0.0.1:8332")
     parser.add_argument("--rpc-user")
     parser.add_argument("--rpc-pass")

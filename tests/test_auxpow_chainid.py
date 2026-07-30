@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import csv
 import sqlite3
 import sys
 from pathlib import Path
@@ -172,17 +171,18 @@ def test_blkdat_child_hash_has_explicit_importer_compatible_byte_order():
         bytes.fromhex(BTC_800000_HEADER_HEX)[:4], "little", signed=True
     )
 
-    provisional = provisional_child_fields(parsed, child_sequence=17)
+    provisional = provisional_child_fields(parsed)
     assert provisional == {
-        "child_sequence": 17,
         "child_height": "",
         "child_block_hash": BTC_800000_INTERNAL_HASH_HEX,
         "child_block_hash_display": BTC_800000_DISPLAY_HASH,
+        "child_header_hex": BTC_800000_HEADER_HEX,
         "child_version": parsed["child_version"],
         "child_chain_id": child_chain_id(parsed["child_version"]),
         "child_block_time": int.from_bytes(
             bytes.fromhex(BTC_800000_HEADER_HEX)[68:72], "little"
         ),
+        "child_nbits": "17053894",
     }
 
 
@@ -391,7 +391,6 @@ def test_sidecar_chain_merkle_root_ok_is_empty_when_not_compared():
 
     row = infer_row(
         chain_slug="namecoin",
-        child_sequence=1,
         child_header_raw=b"\x01" * 80,
         child_version=0x10100,
         auxpow=auxpow,

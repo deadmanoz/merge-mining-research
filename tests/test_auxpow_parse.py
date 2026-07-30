@@ -20,6 +20,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ARGENTUM_CSV = REPO_ROOT / "data" / "validated-stales" / "argentum_validated_stales.csv"
 
 
+def test_standard_auxpow_extraction_columns_are_uniform() -> None:
+    assert ap.standard_auxpow_extraction_columns("chain_height") == [
+        "chain_height",
+        *ap.CHILD_HEADER_FIELDS,
+        *ap.PARENT_EVIDENCE_FIELDS,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # nbits_to_target / difficulty
 # ---------------------------------------------------------------------------
@@ -84,6 +92,160 @@ def _build_header(version, prev_internal, merkle_internal, ntime, bits, nonce):
         + struct.pack("<I", bits)
         + struct.pack("<I", nonce)
     )
+
+
+def test_parse_child_header_authenticates_and_uses_internal_hash_order():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)
+    display_hash = ap.parse_parent_header(raw)["hash"]
+
+    fields = ap.parse_child_header(raw, expected_hash_display=display_hash)
+
+    assert fields == {
+        "child_block_hash": hash_from_header_bytes(raw).hex(),
+        "child_header_hex": raw.hex(),
+        "child_block_time": 1_700_000_000,
+        "child_nbits": "1d00ffff",
+    }
+    assert ap.validate_child_header_fields(fields) == fields
+
+
+def test_parse_child_header_rejects_source_hash_mismatch():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)
+
+    with pytest.raises(ap.ChildHeaderValidationError, match="hash mismatch"):
+        ap.parse_child_header(raw, expected_hash_display="00" * 32)
+
+
+def test_child_header_validator_accepts_xaya_powdata_nbits_override():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0, 7)
+    fields = ap.parse_child_header(raw, nbits=0x1B123456)
+
+    assert fields["child_nbits"] == "1b123456"
+    assert ap.validate_child_header_fields(fields, nbits_from_header=False) == fields
+    with pytest.raises(ap.ChildHeaderValidationError, match="child_nbits"):
+        ap.validate_child_header_fields(fields)
+
+
+def test_child_header_validator_rejects_nonzero_xaya_header_nbits():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)
+    fields = ap.parse_child_header(raw, nbits=0x1B123456)
+
+    with pytest.raises(
+        ap.ChildHeaderValidationError,
+        match="child header nBits must be zero when effective nBits is external",
+    ):
+        ap.validate_child_header_fields(fields, nbits_from_header=False)
+
+
+def test_child_header_validator_rejects_zero_xaya_powdata_nbits():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0, 7)
+    fields = ap.parse_child_header(raw, nbits=0)
+
+    with pytest.raises(
+        ap.ChildHeaderValidationError, match="external child nBits must be non-zero"
+    ):
+        ap.validate_child_header_fields(fields, nbits_from_header=False)
+
+
+def test_partial_child_header_validator_uses_xaya_external_nbits_contract():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0, 7)
+    fields = ap.parse_child_header(raw, nbits=0x1B123456)
+    fields["child_nbits"] = ""
+
+    assert ap.validate_available_child_header_fields(
+        fields, nbits_from_header=False
+    ) == {
+        "child_block_hash": fields["child_block_hash"],
+        "child_header_hex": fields["child_header_hex"],
+        "child_block_time": str(fields["child_block_time"]),
+    }
+
+    fields["child_block_hash"] = "00" * 32
+    with pytest.raises(
+        ap.ChildHeaderValidationError,
+        match="child_header_hex does not match child_block_hash",
+    ):
+        ap.validate_available_child_header_fields(fields, nbits_from_header=False)
+
+
+@pytest.mark.parametrize("malformed_time", ["1_700_000_000", "+1700000000"])
+def test_child_header_validator_rejects_non_decimal_time(malformed_time):
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)
+    fields = ap.parse_child_header(raw)
+    fields["child_block_time"] = malformed_time
+
+    with pytest.raises(
+        ap.ChildHeaderValidationError,
+        match="child_block_time must be an unsigned decimal uint32",
+    ):
+        ap.validate_child_header_fields(fields)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("child_block_hash", "AB" * 32, "child_block_hash.*lowercase"),
+        ("child_header_hex", "AB" * 80, "child_header_hex must be lowercase"),
+        ("child_nbits", "1D00FFFF", "child_nbits must be lowercase"),
+    ],
+)
+def test_child_header_validator_rejects_uppercase_publication_fields(
+    field, value, message
+):
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)
+    fields = ap.parse_child_header(raw)
+    fields[field] = value
+
+    with pytest.raises(ap.ChildHeaderValidationError, match=message):
+        ap.validate_child_header_fields(fields)
+
+
+def test_child_header_validator_rejects_padded_decimal_time():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 7, 0x1D00FFFF, 7)
+    fields = ap.parse_child_header(raw)
+    fields["child_block_time"] = "0000000007"
+
+    with pytest.raises(
+        ap.ChildHeaderValidationError,
+        match="exact unpadded decimal representation",
+    ):
+        ap.validate_child_header_fields(fields)
+
+
+def test_serialize_block_header_roundtrips_decoded_fields():
+    previous_block_hash = bytes(range(32)).hex()
+    merkle_root = bytes(range(32, 64)).hex()
+    raw = ap.serialize_block_header(
+        version=0x20000100,
+        previous_block_hash=previous_block_hash,
+        merkle_root=merkle_root,
+        timestamp=1_700_000_000,
+        bits="1d00ffff",
+        nonce=7,
+    )
+
+    parsed = ap.parse_parent_header(raw)
+    assert parsed["version"] == 0x20000100
+    assert parsed["prev_hash"] == previous_block_hash
+    assert parsed["merkle_root"] == merkle_root
+    assert parsed["time"] == 1_700_000_000
+    assert parsed["bits_hex"] == "1d00ffff"
+    assert parsed["nonce"] == 7
+
+
+@pytest.mark.parametrize("bits", ["0x1d00ffff", "1D00FFFF"])
+def test_serialize_block_header_rejects_noncanonical_bits_text(bits):
+    with pytest.raises(
+        ValueError, match="bits must be exactly eight lowercase hex characters"
+    ):
+        ap.serialize_block_header(
+            version=1,
+            previous_block_hash="11" * 32,
+            merkle_root="22" * 32,
+            timestamp=1_700_000_000,
+            bits=bits,
+            nonce=7,
+        )
 
 
 def test_parse_parent_header_synthetic_fields():

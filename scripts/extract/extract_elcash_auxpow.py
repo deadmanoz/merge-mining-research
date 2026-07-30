@@ -33,9 +33,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from stale_blocks_analysis.child_rpc import RpcClient  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
 
@@ -46,17 +48,7 @@ ELCASH_CHAIN_ID = 0x2137
 BATCH_SIZE = 200
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "elc_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("elc_height")
 
 
 def _rpc_auth() -> tuple[str, str]:
@@ -146,6 +138,8 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict) -> 
             stats["skipped_parse_error"] += 1
             continue
 
+        child_fields = parse_child_header(raw[:80], expected_hash_display=hashes[i])
+
         parent = parse_parent_header(auxpow["parent_header_raw"])
         tx = auxpow["coinbase_tx"]
         scriptsig = tx["vin"][0]["scriptsig"] if tx["vin"] else b""
@@ -155,6 +149,7 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict) -> 
         writer.writerow(
             {
                 "elc_height": height,
+                **child_fields,
                 "btc_header_hash": parent["hash"],
                 "btc_prev_hash": parent["prev_hash"],
                 "btc_time": parent["time"],

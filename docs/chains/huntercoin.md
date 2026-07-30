@@ -38,16 +38,35 @@ Huntercoin (HUC) was a dual-PoW chain (SHA-256d merge-mined with Bitcoin and Scr
 - `scripts/extract/extract_huntercoin_auxpow.py:1` - AuxPoW extractor; parses both SHA-256d and Scrypt branches but only the SHA-256d branch (chain ID 6) feeds our pipeline.
 - `scripts/classify/classify_huntercoin_stales.py:1` - chain-specific classifier; applies the self-target PoW filter and emits the shared stale/unknown inventory schema.
 
+The extractor requires the source index produced by the fetcher so every block
+binary is authenticated against its recorded display hash:
+
+```bash
+python scripts/extract/extract_huntercoin_auxpow.py \
+  --blocks-dir <arweave-blocks-dir> \
+  --index <arweave-index.csv> \
+  --failures <arweave-failures.csv> \
+  --output <staged-raw-output.csv>
+```
+
 ## 2. Extraction → potential stales
 
 **Method.** Arweave-archive fetch → AuxPoW parse (SHA-256d branch only, chain_id == 6) → BTC RPC classification on `<archival-host>`. AuxPoW format is Vince Durham / Daniel Kraft serialisation, byte-identical to Namecoin's - the existing binary parser is reused.
 
 **Phases.**
 
-1. **Fetch**: pull the `domob1812/arblockstore` archive from Arweave. One-off.
-2. **Parse**: walk every HUC block in the archive; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch from the SHA-256d branch (chain ID 6). Drop the Scrypt branch (chain ID 2).
+1. **Fetch**: pull the `domob1812/arblockstore` archive from Arweave. The
+   source index authenticates 99,012 historical heights; 98,978 payloads are
+   available and 34 repeatedly unavailable transactions are recorded in the
+   acquisition-failure manifest. The extractor requires that manifest to
+   account exactly for every indexed height without a block binary.
+2. **Parse**: walk every HUC block in the archive; require the accompanying source index to authenticate each filename height against the computed child-header hash, then extract the parent header + coinbase tx + Merkle branch from the SHA-256d branch (chain ID 6). Drop the Scrypt branch (chain ID 2).
 3. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in the parent header. This filter is separate from the raw extractor's `pow_valid` flag, which refers to Huntercoin's child-chain target.
 4. **BTC RPC classify** (against the existing Bitcoin Core node on `<archival-host>`): `getblockheader <hash>`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither canonical → `unknown`.
+
+A missing source-index entry or hash contradiction terminates extraction. It is
+not counted as a recoverable mismatch in the final statistics because no
+partial output is publishable after the authentication contract fails.
 
 **Counts.** The raw extractor holds **43,288** SHA-256d-branch AuxPoW rows - every row is `chain_id == 6` and Huntercoin-PoW-valid, and all 43,288 parent-header hashes are distinct. The self-target PoW filter (phase 3) is the dominant cut: **899 rows meet the Bitcoin target encoded in their parent header** (`SHA256d(header) ≤ target(nBits)`, recomputed directly from `btc_header_hex`). Bitcoin RPC then classifies those 899:
 
@@ -152,6 +171,10 @@ private archive.
 - Split inventories: `huntercoin_stale_blocks.csv` (13 stale) and `huntercoin_unknown_blocks.csv` (29 unknown).
 - `huntercoin-unknown-pool-attribution.csv` and its summary JSON - historical
   pool-attribution diagnostics.
+
+The classifier requires `huntercoin_auxpow_raw.csv` from the current extractor.
+The historical normalized inventory is an output, not a fallback acquisition
+source, because it cannot reproduce the authenticated child-header bundle.
 
 **External references.**
 

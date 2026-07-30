@@ -5,7 +5,7 @@ Xaya is a multi-algo chain (NEOSCRYPT solo-mined or SHA256D merge-mined). The
 source enforces "SHA256D must be merge-mined", so every SHA256D Xaya block
 carries a Bitcoin-parent CAuxPow; extract_xaya_auxpow.py has already filtered to
 those merge-mined blocks and emitted the canonical classifier input schema
-(``btc_header_hash`` / ``btc_bits`` plus the ``child_height`` provenance column).
+(``btc_header_hash`` / ``btc_bits`` plus the exact BIP34 ``child_height``).
 AuxPoW chain ID 1829 (0x0725); Xaya does not expose the Namecoin-family
 ``fStrictChainId`` flag because its AuxPoW parent carries no chain ID. This
 wrapper runs the shared classifier helpers:

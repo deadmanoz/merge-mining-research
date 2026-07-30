@@ -25,7 +25,7 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
 
 **Provenance.** Snapshot downloaded to `<archival-host>` in early 2026, extracted into `~/.i0coin/`, parsed offline against the project's generic Namecoin-family AuxPoW extractor. No live RPC node ran for this chain. Bitcoin Core on `<archival-host>` provided the RPC for the subsequent classification step.
 
-**Coverage.** Validated stales span BTC heights **160,948 → 504,952** (parent timestamps **2012-01-06 → 2018-01-19**, i.e. Jan 2012 → Jan 2018), bounded above by the January 2018 snapshot date. I0C heights in the validated CSV: see the `child_height` column (179,844 → 2,356,895).
+**Coverage.** Validated stales span BTC heights **160,948 → 504,952** (parent timestamps **2012-01-06 → 2018-01-19**, i.e. Jan 2012 → Jan 2018), bounded above by the January 2018 snapshot date. The snapshot does not provide authenticated I0C consensus heights.
 
 **Holes.**
 
@@ -43,6 +43,12 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
 
 **Method.** Offline binary parse of every block in the snapshot's `blk*.dat`. Same extractor used for Namecoin. For each I0C block ≥ 160,000 carrying a `CAuxPow` payload, extract the embedded Bitcoin parent header, coinbase tx, and Merkle branch.
 
+The snapshot exposes the serialized child header and hash but no authenticated
+consensus height. Because `blk*.dat` order is not chain order, the extractor
+leaves the uniform `child_height` slot blank and does not persist a scan
+counter. The full child header, authenticated child hash, timestamp, and
+`nBits` remain the available child identity evidence.
+
 **Phases.**
 
 1. **Parse**: walk all I0C blocks in `blk*.dat`; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch.
@@ -54,6 +60,13 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
    rule. Rows are tagged `VALID`, `VALID (post-BCH, difficulty matches BTC)`,
    `REJECTED`, or `UNKNOWN`.
 
+The classifier's primary accepted, rejected, canonical, stale, and unknown
+publication files use the normalized parent columns `btc_height`,
+`btc_header_hash`, and `btc_bits`. Source-specific fields such as
+`btc_stale_height`, `btc_hash`, `btc_bits_hex`, `nbits_match`, and
+`post_bch_fork` remain in the private full classifier inventory, where they
+serve as diagnostics rather than loader fields.
+
 **Counts in the private full classifier output** (103,383 rows total):
 
 | `classification` | Count |
@@ -63,7 +76,17 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
 | `stale`-labelled candidate | 176 |
 | **Total** | **103,383** |
 
-The 103,383 total is the deduped, self-target-PoW-passing unique parent-header set; the full historical CSV is gitignored due to size. The 16,958 canonical parents and 86,249 unknowns are not committed; the public pipeline keeps only the validated stales. Of the 176 stale-labelled candidates, 9 fail the `nBits` gate (parent difficulty inconsistent with Bitcoin at that height) and are rejected, leaving 167 `VALID`; the exact-key exclusion overlay then removes one shared post-BIP66 version 2 candidate (BTC 367,047), leaving **166** committed rows.
+The 103,383 total is the deduped, self-target-PoW-passing unique parent-header
+set; the full historical CSV remains external because of its size. The
+normalized full-evidence export contains 103,382 rows because it applies the
+same exact-key exclusion that removes the invalid BTC-height-367,047 candidate.
+The normal Monitor publication includes all 16,958 canonical parents, the 166
+accepted stales, and the 2 unknown rows with final strict relevance verdicts.
+The other unknown and rejected rows remain in the full external evidence. Of
+the 176 stale-labelled candidates, 9 fail the `nBits` gate (parent difficulty
+inconsistent with Bitcoin at that height) and are rejected, leaving 167
+`VALID`; the exact-key exclusion overlay then removes one shared post-BIP66
+version 2 candidate (BTC 367,047), leaving **166** committed loader rows.
 
 **Counts in the committed validated CSV** (`data/validated-stales/i0coin_validated_stales.csv`, 166 rows, all `classification == "stale"`):
 
@@ -125,6 +148,8 @@ The current-snapshot 37 i0coin-novel hashes are stales that Namecoin's extractio
 **In-repo artifacts.**
 
 - `data/validated-stales/i0coin_validated_stales.csv` - 166 validated stales (committed; the loader's input).
+- `results/monitor-evidence/i0coin_monitor_evidence.csv` - 16,958 canonical,
+  166 accepted stale, and 2 strict unknown-row observations.
 - `results/per-chain-novelty/i0coin.csv` - per-stale `(height, hash, in_upstream, first_seen_chain)` table.
 
 **External references.**

@@ -15,19 +15,22 @@ from the pre-downloaded block binaries at
     data/prototype/huntercoin/arweave-blocks/block-<height>.bin
 rather than a running node.
 
-Output CSV columns: huc_height, huc_block_hash, btc_header_hash,
-btc_prev_hash, btc_merkle_root, btc_time, btc_bits, btc_nonce,
-btc_version, btc_header_hex, coinbase_scriptsig_hex, coinbase_outputs,
-chain_id, pow_valid.
+Output CSV columns: huc_height, child_block_hash, child_header_hex,
+child_block_time, child_nbits, huc_block_hash, chain_id, btc_header_hash,
+btc_prev_hash, btc_merkle_root, btc_time, btc_bits, btc_nonce, btc_version,
+pow_valid, coinbase_scriptsig_hex, coinbase_outputs, btc_header_hex.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
 import struct
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from stale_blocks_analysis.auxpow_chainid import (
@@ -35,7 +38,10 @@ from stale_blocks_analysis.auxpow_chainid import (
     hash_to_display_hex,
 )
 from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
     hash_meets_btc_difficulty,
+    parse_child_header,
     parse_parent_header,
     read_auxpow,
 )
@@ -43,9 +49,6 @@ from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_BLOCKS_DIR = REPO_ROOT / "data" / "prototype" / "huntercoin" / "arweave-blocks"
-DEFAULT_INDEX_CSV = (
-    REPO_ROOT / "data" / "prototype" / "huntercoin" / "arweave-index.csv"
-)
 DEFAULT_OUTPUT = REPO_ROOT / "data" / "huntercoin_auxpow_raw.csv"
 
 # Huntercoin version-field layout (same idea as Namecoin's upper-16-chain-id
@@ -58,6 +61,7 @@ HUC_CHAIN_ID_SCRYPT = 2  # LTC-merge-mined branch (skipped)
 
 CSV_COLUMNS = [
     "huc_height",
+    *CHILD_HEADER_FIELDS,
     "huc_block_hash",
     "chain_id",
     "btc_header_hash",
@@ -72,6 +76,39 @@ CSV_COLUMNS = [
     "coinbase_outputs",
     "btc_header_hex",
 ]
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist a completed same-directory rename."""
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+@contextmanager
+def _atomic_csv_output(destination: Path):
+    """Yield a staged CSV handle and publish it only after a clean close."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    staged = Path(staged_name)
+    try:
+        with os.fdopen(fd, "w", newline="") as handle:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(staged, destination)
+        _fsync_directory(destination.parent)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        staged.unlink(missing_ok=True)
+        raise
 
 
 # ── PoW validation (HUC child-chain target) ───────────────────────────────
@@ -101,7 +138,12 @@ def parent_hash_meets_huc_target(parent_header_raw: bytes, huc_bits: int) -> boo
 # ── block-level parsing ──────────────────────────────────────────────────
 
 
-def parse_huc_block(huc_height: int, data: bytes) -> dict | None:
+def parse_huc_block(
+    huc_height: int,
+    data: bytes,
+    expected_child_hash: str | None = None,
+    verified_child_fields: dict[str, str] | None = None,
+) -> dict | None:
     """Parse a single HUC block binary. Returns a CSV row dict, or None if
     the block does not carry a BTC-chain (chain_id=6) AuxPoW header.
     """
@@ -109,12 +151,16 @@ def parse_huc_block(huc_height: int, data: bytes) -> dict | None:
         return None
     child_version = struct.unpack_from("<i", data, 0)[0]
     huc_bits = struct.unpack_from("<I", data, 72)[0]
-    child_hash = hash_to_display_hex(hash_from_header_bytes(data[:80]))
     chain_id = (child_version >> 16) & 0xFFFF
     has_auxpow = bool(child_version & VERSION_AUXPOW)
 
     if not has_auxpow or chain_id != HUC_CHAIN_ID_SHA256:
         return None
+
+    child_fields = verified_child_fields or parse_child_header(
+        data[:80], expected_hash_display=expected_child_hash
+    )
+    child_hash = hash_to_display_hex(bytes.fromhex(child_fields["child_block_hash"]))
 
     try:
         auxpow, _ = read_auxpow(data, 80)
@@ -127,6 +173,7 @@ def parse_huc_block(huc_height: int, data: bytes) -> dict | None:
     scriptsig = tx["vin"][0]["scriptsig"] if tx["vin"] else b""
     return {
         "huc_height": huc_height,
+        **child_fields,
         "huc_block_hash": child_hash,
         "chain_id": chain_id,
         "btc_header_hash": parent["hash"],
@@ -143,6 +190,258 @@ def parse_huc_block(huc_height: int, data: bytes) -> dict | None:
     }
 
 
+def load_source_index(path: Path) -> tuple[dict[int, str], dict[int, str]]:
+    """Load and authenticate the Arweave height, block-hash, and txid index."""
+    index_by_height: dict[int, str] = {}
+    txid_by_height: dict[int, str] = {}
+    with path.open() as handle:
+        reader = csv.DictReader(handle)
+        missing_fields = {"height", "block_hash"} - set(reader.fieldnames or [])
+        if missing_fields:
+            raise ChildHeaderValidationError(
+                "Huntercoin source index is missing required columns: "
+                + ", ".join(sorted(missing_fields))
+            )
+        for row_number, row in enumerate(reader, start=2):
+            height_text = (row.get("height") or "").strip()
+            block_hash = (row.get("block_hash") or "").strip().lower()
+            try:
+                height = int(height_text)
+            except ValueError as exc:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} has invalid height"
+                ) from exc
+            if height < 0:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} has invalid height"
+                )
+            try:
+                block_hash_bytes = bytes.fromhex(block_hash)
+            except ValueError as exc:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} has invalid block_hash"
+                ) from exc
+            if len(block_hash_bytes) != 32:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} has invalid block_hash"
+                )
+            existing = index_by_height.get(height)
+            if existing is not None and existing != block_hash:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} contradicts "
+                    f"the earlier hash for height {height}"
+                )
+            index_by_height[height] = block_hash
+
+            txid = (row.get("txid") or "").strip()
+            if not txid:
+                continue
+            existing_txid = txid_by_height.get(height)
+            if existing_txid is not None and existing_txid != txid:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin source index row {row_number} contradicts "
+                    f"the earlier transaction ID for height {height}"
+                )
+            txid_by_height[height] = txid
+    return index_by_height, txid_by_height
+
+
+def load_failure_manifest(path: Path) -> dict[int, str]:
+    """Load the authenticated Arweave acquisition failures by height."""
+    failures: dict[int, str] = {}
+    with path.open() as handle:
+        reader = csv.DictReader(handle)
+        missing_fields = {"height", "txid"} - set(reader.fieldnames or [])
+        if missing_fields:
+            raise ChildHeaderValidationError(
+                "Huntercoin failure manifest is missing required columns: "
+                + ", ".join(sorted(missing_fields))
+            )
+        for row_number, row in enumerate(reader, start=2):
+            height_text = (row.get("height") or "").strip()
+            txid = (row.get("txid") or "").strip()
+            try:
+                height = int(height_text)
+            except ValueError as exc:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin failure manifest row {row_number} has invalid height"
+                ) from exc
+            if height < 0 or not txid:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin failure manifest row {row_number} is incomplete"
+                )
+            existing_txid = failures.get(height)
+            if existing_txid is not None and existing_txid != txid:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin failure manifest row {row_number} contradicts "
+                    f"the earlier transaction ID for height {height}"
+                )
+            failures[height] = txid
+    return failures
+
+
+def validate_acquisition_coverage(
+    index_by_height: dict[int, str],
+    index_txid_by_height: dict[int, str],
+    block_paths: list[Path],
+    documented_failures: dict[int, str] | None,
+) -> list[int]:
+    """Require every indexed height to have a block or authenticated failure."""
+    bin_heights: set[int] = set()
+    for path in block_paths:
+        try:
+            bin_heights.add(int(path.stem.split("-")[1]))
+        except (IndexError, ValueError):
+            continue
+    missing_binaries = sorted(set(index_by_height) - bin_heights)
+    if missing_binaries and documented_failures is None:
+        preview = ", ".join(map(str, missing_binaries[:5]))
+        raise ChildHeaderValidationError(
+            "Huntercoin source index contains "
+            f"{len(missing_binaries)} heights without block binaries"
+            + (f" (first: {preview})" if preview else "")
+            + "; pass --failures with the authenticated acquisition manifest"
+        )
+
+    failures = documented_failures or {}
+    if set(missing_binaries) != set(failures):
+        preview = ", ".join(map(str, missing_binaries[:5]))
+        unexpected = sorted(set(failures) - set(missing_binaries))
+        unexpected_preview = ", ".join(map(str, unexpected[:5]))
+        raise ChildHeaderValidationError(
+            "Huntercoin source index and failure manifest disagree: "
+            f"{len(missing_binaries)} missing block binaries"
+            + (f" (first: {preview})" if preview else "")
+            + f", {len(unexpected)} documented failures have binaries"
+            + (f" (first: {unexpected_preview})" if unexpected_preview else "")
+        )
+    for height in missing_binaries:
+        index_txid = index_txid_by_height.get(height)
+        if index_txid is None:
+            raise ChildHeaderValidationError(
+                "Huntercoin source index must include txid when --failures is used"
+            )
+        if failures[height] != index_txid:
+            raise ChildHeaderValidationError(
+                "Huntercoin failure manifest transaction ID contradicts the source "
+                f"index at height {height}"
+            )
+    return missing_binaries
+
+
+def extract_blocks(
+    block_paths: list[Path],
+    index_by_height: dict[int, str],
+    output: Path,
+    progress_interval: int,
+) -> tuple[dict[str, int], float]:
+    """Extract authenticated BTC AuxPoW rows and return scan statistics."""
+    stats = {
+        "files_scanned": 0,
+        "parse_errors": 0,
+        "non_auxpow": 0,
+        "scrypt_auxpow": 0,
+        "sha256_auxpow": 0,
+        "pow_fail": 0,
+    }
+    total_files = len(block_paths)
+    started = time.time()
+    with _atomic_csv_output(output) as out_fh:
+        writer = csv.DictWriter(out_fh, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+
+        for path in block_paths:
+            try:
+                huc_height = int(path.stem.split("-")[1])
+            except (IndexError, ValueError):
+                stats["parse_errors"] += 1
+                continue
+
+            stats["files_scanned"] += 1
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                print(f"  WARN: cannot read {path.name}: {exc}", file=sys.stderr)
+                stats["parse_errors"] += 1
+                continue
+
+            expected = index_by_height.get(huc_height)
+            if expected is None:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin h={huc_height} ({path.name}): "
+                    "source index has no block hash for this height"
+                )
+            if len(data) < 80:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin h={huc_height} ({path.name}): "
+                    "source block is shorter than its 80-byte header"
+                )
+            try:
+                child_fields = parse_child_header(
+                    data[:80], expected_hash_display=expected
+                )
+            except ChildHeaderValidationError as exc:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin h={huc_height} ({path.name}): {exc}"
+                ) from exc
+
+            child_version = struct.unpack_from("<i", data, 0)[0]
+            chain_id = (child_version >> 16) & 0xFFFF
+            has_auxpow = bool(child_version & VERSION_AUXPOW)
+            if not has_auxpow:
+                stats["non_auxpow"] += 1
+                continue
+            if chain_id == HUC_CHAIN_ID_SCRYPT:
+                stats["scrypt_auxpow"] += 1
+                continue
+            if chain_id != HUC_CHAIN_ID_SHA256:
+                stats["non_auxpow"] += 1
+                continue
+
+            try:
+                row = parse_huc_block(
+                    huc_height,
+                    data,
+                    expected,
+                    verified_child_fields=child_fields,
+                )
+            except ChildHeaderValidationError as exc:
+                raise ChildHeaderValidationError(
+                    f"Huntercoin h={huc_height} ({path.name}): {exc}"
+                ) from exc
+            if row is None:
+                stats["parse_errors"] += 1
+                continue
+
+            stats["sha256_auxpow"] += 1
+            if row["pow_valid"] == "0":
+                stats["pow_fail"] += 1
+                if stats["pow_fail"] <= 10:
+                    print(
+                        f"  WARN h={huc_height}: sha256d(parent) does not meet "
+                        f"HUC target (parent={row['btc_header_hash'][:20]}...), "
+                        "possible archive corruption",
+                        file=sys.stderr,
+                    )
+
+            writer.writerow(row)
+            if stats["files_scanned"] % progress_interval == 0:
+                elapsed = time.time() - started
+                rate = stats["files_scanned"] / elapsed if elapsed > 0 else 0
+                eta = (total_files - stats["files_scanned"]) / rate if rate > 0 else 0
+                print(
+                    f"  {stats['files_scanned']:>7,}/{total_files:,} "
+                    f"({100 * stats['files_scanned'] / total_files:5.1f}%) | "
+                    f"{rate:,.0f} files/s | "
+                    f"sha256-auxpow: {stats['sha256_auxpow']:,} | "
+                    f"scrypt-auxpow: {stats['scrypt_auxpow']:,} | "
+                    f"ETA: {eta / 60:.1f}m",
+                    flush=True,
+                )
+
+    return stats, time.time() - started
+
+
 # ── main ─────────────────────────────────────────────────────────────────
 
 
@@ -152,8 +451,8 @@ def main() -> int:
 
     Reads ``--blocks-dir`` for ``block-<height>.bin`` files in filename
     order, buckets each by AuxPoW presence and chain ID before attempting
-    a full parse, cross-checks the computed block hash against
-    ``--index`` when available (mismatches are logged, not fatal), and
+    a full parse, requires ``--index`` to cross-check the computed block hash
+    for every source height (a missing entry or mismatch aborts extraction), and
     warns (first 10 occurrences only) when a parsed parent header fails
     the HUC-target PoW check, which would indicate archive corruption.
     Prints periodic progress/ETA plus a final per-``stats``-key summary.
@@ -171,8 +470,17 @@ def main() -> int:
     parser.add_argument(
         "--index",
         type=Path,
-        default=DEFAULT_INDEX_CSV,
-        help="arweave-index.csv for hash cross-check (default: arweave-index.csv)",
+        required=True,
+        help="Required arweave-index.csv for height-to-hash authentication",
+    )
+    parser.add_argument(
+        "--failures",
+        type=Path,
+        help=(
+            "Optional arweave-failures.csv. When the source index includes "
+            "payloads that could not be acquired, this manifest must account "
+            "for exactly every missing block binary with the same transaction ID"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -191,122 +499,43 @@ def main() -> int:
     if not args.blocks_dir.is_dir():
         print(f"ERROR: {args.blocks_dir} is not a directory", file=sys.stderr)
         return 1
+    if not args.index.is_file():
+        print(f"ERROR: Huntercoin index is not a file: {args.index}", file=sys.stderr)
+        return 1
 
-    # Load the index to cross-check recorded HUC block hashes against what we
-    # compute from the binary. Mismatches are a red flag but don't prevent
-    # extraction — we still emit the row with a warning.
-    index_by_height: dict[int, str] = {}
-    if args.index.exists():
-        with args.index.open() as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
-                try:
-                    index_by_height[int(row["height"])] = row["block_hash"]
-                except (KeyError, ValueError):
-                    continue
-
+    index_by_height, index_txid_by_height = load_source_index(args.index)
     bins = sorted(args.blocks_dir.glob("block-*.bin"))
+    documented_failures = None
+    if args.failures is not None:
+        if not args.failures.is_file():
+            print(
+                f"ERROR: Huntercoin failure manifest is not a file: {args.failures}",
+                file=sys.stderr,
+            )
+            return 1
+        documented_failures = load_failure_manifest(args.failures)
+    missing_binaries = validate_acquisition_coverage(
+        index_by_height,
+        index_txid_by_height,
+        bins,
+        documented_failures,
+    )
+    if missing_binaries:
+        print(
+            f"Authenticated {len(missing_binaries):,} documented Arweave "
+            "acquisition gaps against the source index"
+        )
     total_files = len(bins)
     print(f"Scanning {total_files:,} HUC block binaries from {args.blocks_dir}")
-
-    stats = {
-        "files_scanned": 0,
-        "short_files": 0,
-        "parse_errors": 0,
-        "non_auxpow": 0,
-        "scrypt_auxpow": 0,  # chain_id=6 (Litecoin merge-mine)
-        "sha256_auxpow": 0,  # chain_id=2 (BTC merge-mine)
-        "pow_fail": 0,
-        "hash_mismatch": 0,
-    }
-
-    t0 = time.time()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", newline="") as out_fh:
-        writer = csv.DictWriter(out_fh, fieldnames=CSV_COLUMNS)
-        writer.writeheader()
-
-        for path in bins:
-            try:
-                huc_height = int(path.stem.split("-")[1])
-            except (IndexError, ValueError):
-                stats["parse_errors"] += 1
-                continue
-
-            stats["files_scanned"] += 1
-            try:
-                data = path.read_bytes()
-            except OSError as exc:
-                print(f"  WARN: cannot read {path.name}: {exc}", file=sys.stderr)
-                stats["parse_errors"] += 1
-                continue
-
-            if len(data) < 80:
-                stats["short_files"] += 1
-                continue
-
-            # Quick peek at version + chain to bucket stats before full parse.
-            child_version = struct.unpack_from("<i", data, 0)[0]
-            chain_id = (child_version >> 16) & 0xFFFF
-            has_auxpow = bool(child_version & VERSION_AUXPOW)
-            if not has_auxpow:
-                stats["non_auxpow"] += 1
-                continue
-            if chain_id == HUC_CHAIN_ID_SCRYPT:
-                stats["scrypt_auxpow"] += 1
-                continue
-            if chain_id != HUC_CHAIN_ID_SHA256:
-                # Unexpected chain id — skip but note.
-                stats["non_auxpow"] += 1
-                continue
-
-            row = parse_huc_block(huc_height, data)
-            if row is None:
-                stats["parse_errors"] += 1
-                continue
-
-            stats["sha256_auxpow"] += 1
-
-            if row["pow_valid"] == "0":
-                stats["pow_fail"] += 1
-                if stats["pow_fail"] <= 10:
-                    print(
-                        f"  WARN h={huc_height}: sha256d(parent) does not meet "
-                        f"HUC target (parent={row['btc_header_hash'][:20]}...) "
-                        f"— archive corruption?",
-                        file=sys.stderr,
-                    )
-
-            expected = index_by_height.get(huc_height)
-            if expected and expected != row["huc_block_hash"]:
-                stats["hash_mismatch"] += 1
-                if stats["hash_mismatch"] <= 10:
-                    print(
-                        f"  WARN h={huc_height}: HUC hash mismatch "
-                        f"(index={expected[:20]}, computed={row['huc_block_hash'][:20]})",
-                        file=sys.stderr,
-                    )
-
-            writer.writerow(row)
-
-            if stats["files_scanned"] % args.progress_interval == 0:
-                elapsed = time.time() - t0
-                rate = stats["files_scanned"] / elapsed if elapsed > 0 else 0
-                eta = (total_files - stats["files_scanned"]) / rate if rate > 0 else 0
-                print(
-                    f"  {stats['files_scanned']:>7,}/{total_files:,} "
-                    f"({100 * stats['files_scanned'] / total_files:5.1f}%) | "
-                    f"{rate:,.0f} files/s | "
-                    f"sha256-auxpow: {stats['sha256_auxpow']:,} | "
-                    f"scrypt-auxpow: {stats['scrypt_auxpow']:,} | "
-                    f"ETA: {eta / 60:.1f}m",
-                    flush=True,
-                )
-
-    elapsed = time.time() - t0
+    stats, elapsed = extract_blocks(
+        bins,
+        index_by_height,
+        args.output,
+        args.progress_interval,
+    )
     print(f"\nDone in {elapsed:.1f}s")
     print(f"  Files scanned:        {stats['files_scanned']:>10,}")
-    print(f"  Short files (<80B):   {stats['short_files']:>10,}")
+    print(f"  Acquisition gaps:     {len(missing_binaries):>10,}")
     print(f"  Non-AuxPoW blocks:    {stats['non_auxpow']:>10,}")
     print(f"  Scrypt AuxPoW (id=2):  {stats['scrypt_auxpow']:>10,}")
     print(f"  SHA-256 AuxPoW (id=6): {stats['sha256_auxpow']:>10,}")
@@ -314,7 +543,6 @@ def main() -> int:
         f"  PoW validation fails:  {stats['pow_fail']:>10,}  "
         f"(sha256d(parent) vs HUC target; non-zero = archive corruption)"
     )
-    print(f"  HUC hash mismatches:  {stats['hash_mismatch']:>10,}")
     print(f"  Parse errors:         {stats['parse_errors']:>10,}")
     print(f"  Output: {args.output}")
     return 0

@@ -58,9 +58,9 @@ a numbered block file and is deliberately excluded:
 just extract sixeleven_auxpow_candidates.raw.csv
 ```
 
-The raw extractor writes disk order as `child_sequence` and leaves
-`child_height` empty. Resolve exact child heights through the synced legacy
-SixEleven RPC before Bitcoin classification:
+The raw extractor leaves child height blank because disk order is not consensus
+order. Resolve exact child heights through the synced legacy SixEleven RPC
+before Bitcoin classification:
 
 ```bash
 source ../../.venv/bin/activate

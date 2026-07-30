@@ -85,7 +85,11 @@ Zero unknowns is unusual. Most pipeline chains have orders-of-magnitude more unk
 classification == "stale" and validation_status.startswith("VALID")
 ```
 
-The June 2026 refresh re-emitted this CSV on the shared 12-column layout with a persisted `validation_status`; all 9 entries are `VALID`. (The original 10-column file without the verdict columns is preserved in the archive backup.)
+The July 2026 refresh re-emitted this CSV on the shared 16-column layout with
+the four authenticated child-header fields and a persisted
+`validation_status`; all 9 entries are `VALID`. (The original 10-column file
+without the child-header or verdict columns is preserved in the archive
+backup.)
 
 **Post-filter count: 9 accepted direct-stale header candidates.**
 

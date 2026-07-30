@@ -42,10 +42,16 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .auxpow_chainid import hash_from_header_bytes
-from .auxpow_parse import hash_meets_btc_difficulty, parse_parent_header
+from .auxpow_parse import (
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
+    hash_meets_btc_difficulty,
+    parse_parent_header,
+    validate_child_header_fields,
+)
 from .btc_rpc import BtcRpc, get_btc_auth
 from .btc_stale_validation import validate_stale_header_context
-from .config import ChainSpec
+from .config import HISTORICAL_CHILD_HEADER_CHAINS, ChainSpec
 
 # Default RPC batch size, matching the inline copies.
 BATCH_SIZE = 200
@@ -139,19 +145,32 @@ _TRAILING_OUTPUT_COLUMNS = [
     "validation_status",
     "expected_nbits",
 ]
+_CHILD_OUTPUT_COLUMNS = [
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
+]
 
 
-def output_columns(height_col: Optional[str]) -> list[str]:
+def output_columns(height_col: str) -> list[str]:
     """Build the OUTPUT_COLUMNS list for a chain.
 
     ``height_col`` is the per-chain child-height column (e.g. ``ixc_height``).
-    When ``None`` no child-height column is emitted. The nBits-gate annotation
-    columns (``validation_status`` / ``expected_nbits``) trail the row so the
-    Phase 3 gate output is always carried.
+    It is always present even when a source cannot authenticate a value for
+    every row. The nBits-gate annotation columns (``validation_status`` /
+    ``expected_nbits``) trail the row so the Phase 3 gate output is always
+    carried.
     """
+    if (
+        not isinstance(height_col, str)
+        or not height_col
+        or height_col.strip() != height_col
+    ):
+        raise ValueError("height_col must be a non-empty stripped string")
     cols = list(_BASE_OUTPUT_COLUMNS)
-    if height_col:
-        cols.append(height_col)
+    cols.append(height_col)
+    cols.extend(_CHILD_OUTPUT_COLUMNS)
     cols.extend(_TRAILING_OUTPUT_COLUMNS)
     return cols
 
@@ -163,9 +182,9 @@ def normalize_bits_hex(value: object, *, source_is_decimal: bool = False) -> str
     Core's hex ``bits``, so every row must carry lowercase 8-char hex. The base
     is NEVER inferred from the value's digits: an 8-char all-digit string such as
     ``19548732`` is valid hex, while a 9-digit string such as ``386924253``
-    (legacy bitcoin-vault) is decimal. The caller states which by passing
-    ``source_is_decimal`` based on the INPUT ARTIFACT it is reading (only the
-    legacy bitcoin-vault committed CSV is decimal), not the chain identity.
+    from the Bitcoin Vault source export is decimal. The caller states which
+    by passing ``source_is_decimal`` based on the input artifact format, not
+    the chain identity.
 
     With ``source_is_decimal`` true, ``value`` is parsed as a decimal int and
     re-emitted as hex. Otherwise the value must already be 8 hex chars and is
@@ -493,7 +512,7 @@ def run_classifier(
 
     ``bits_source_is_decimal`` is a property of the INPUT ARTIFACT, not the
     chain: leave it False for normal hex raw inputs; set it True only when
-    reading the legacy decimal bitcoin-vault artifact. Either way ``btc_bits`` is
+    reading a decimal Bitcoin Vault source artifact. Either way ``btc_bits`` is
     normalized to canonical lowercase 8-char hex via ``normalize_bits_hex``
     before the gate and before writing, so the gate never falsely rejects a
     decimal value.
@@ -573,6 +592,25 @@ def run_classifier(
                 row_number=row_number,
                 bits_source_is_decimal=bits_source_is_decimal,
             )
+            populated_child_fields = [
+                field for field in CHILD_HEADER_FIELDS if (row.get(field) or "").strip()
+            ]
+            # Target historical chains require a complete authenticated
+            # bundle. Non-target live-chain evidence may expose only a source-
+            # native subset; complete bundles are always authenticated.
+            if spec.key in HISTORICAL_CHILD_HEADER_CHAINS or len(
+                populated_child_fields
+            ) == len(CHILD_HEADER_FIELDS):
+                try:
+                    validate_child_header_fields(
+                        row,
+                        nbits_from_header=spec.child_nbits_from_header,
+                    )
+                except ChildHeaderValidationError as exc:
+                    raise ChildHeaderValidationError(
+                        f"{spec.key} classifier input row {row_number} "
+                        f"(btc_header_hash={parsed_header['hash']}): {exc}"
+                    ) from exc
             if hash_meets_btc_difficulty(
                 hash_from_header_bytes(bytes.fromhex(parsed_header["header_hex"])),
                 parsed_header["bits"],
@@ -616,14 +654,13 @@ def run_classifier(
     if len(set(result_hashes)) != len(result_hashes):
         raise RuntimeError("classification produced duplicate header results")
 
-    # Normalize btc_bits to canonical lowercase 8-char hex before the gate and
-    # before writing, so a decimal-sourced value (legacy bitcoin-vault) is never
-    # falsely REJECTED by the direct string comparison in validate_stale_nbits.
+    # Phase 1 already normalized each source value in
+    # ``_validate_candidate_header`` and mutated the retained row to canonical
+    # lowercase hex. Revalidate that canonical representation here without
+    # applying the source-specific decimal conversion a second time.
     for row in all_results:
         if row.get("btc_bits"):
-            row["btc_bits"] = normalize_bits_hex(
-                row["btc_bits"], source_is_decimal=bits_source_is_decimal
-            )
+            row["btc_bits"] = normalize_bits_hex(row["btc_bits"])
 
     stales = [r for r in all_results if r["classification"] == "stale"]
 

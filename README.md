@@ -244,8 +244,9 @@ is not an input to stale-block recovery or the committed loader datasets.
 ├── data/                       # committed stale loader inputs
 │   └── bitcoin-epoch-reference/# public nBits/time reference for relevance gates
 ├── results/                    # committed reference CSVs and final exports
-│   ├── monitor-evidence/       #   compact monitor-facing evidence
-│   └── analysis/               #   regenerable diagnostics grouped by question
+│   ├── monitor-evidence/       #   Git LFS-backed per-chain payloads + metadata
+│   ├── analysis/               #   regenerable diagnostics grouped by question
+│   └── child-header-coverage.csv # authenticated historical refresh coverage
 ├── docs/                       # methodology, research directions, per-chain
 │                               #   provenance, investigations, visual artefacts
 ├── node-infra/                 # Dockerized per-chain node build/run workspaces
@@ -260,9 +261,12 @@ is not an input to stale-block recovery or the committed loader datasets.
 ## Setup
 
 Requires Python 3.10 or newer. The documented task recipes also require the
-[`just`](https://github.com/casey/just) command runner.
+[`just`](https://github.com/casey/just) command runner and Git LFS for the
+published monitor-evidence payloads.
 
 ```bash
+git lfs install --local
+git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -272,6 +276,14 @@ pip install -e ".[dev]"
 `pip install -e ".[dev]"` installs the runtime dependencies plus pytest and
 Ruff for the documented checks. Use `pip install -e .` when only the runtime
 pipeline is needed.
+
+The per-chain `results/monitor-evidence/*_monitor_evidence.csv` payloads are
+stored in Git LFS. The counts CSV and JSON manifest remain ordinary Git files
+so publication changes retain a compact, directly reviewable summary. Without
+Git LFS, a checkout contains pointer files instead of the evidence payloads.
+`just test-unit` excludes the `dataset`-marked publication invariants and can
+run from that pointer-only checkout. `just test-dataset`, and therefore
+`just test`, requires the payloads to be materialized first.
 
 `fetch-data.sh` checks out `bitcoin-data/stale-blocks` at the exact commit
 pinned in [`data-sources.tsv`](data-sources.tsv), so stale-block membership and
@@ -287,26 +299,42 @@ clone that is on a branch or has local edits. Override its location with
 just format-check
 just lint
 just test
+just test-unit
+just test-dataset
 just upstream-check
 just refresh-bitcoin-epoch-reference
 just full-evidence
 just strict-weak-orphans
 just monitor-evidence
+just child-header-coverage --input-dir <staged-evidence-dir> \
+  --output <staged-results-dir>/child-header-coverage.csv
 just check-leaks
 ```
 
 `just monitor-evidence` is a release rebuild, not a clean-clone regeneration
 recipe. A complete rebuild requires the private canonical/classifier archives
-plus the relevance and supplemental evidence described by the command's help.
-It fails closed when those inputs are incomplete. Use `--allow-partial` only
-with an explicit, disposable `--output-dir`; partial builds must not replace
-the committed release artifacts. The command stages the complete generated set
-before replacing prior monitor files, and preserves unrelated files in the
-output directory if the build succeeds or fails.
+plus the relevance evidence described by the command's help. VCash uses the
+same canonical-source convention as other chains: stage its hydrated source as
+`vcash_canonical_blocks.csv` under `data/` or a supplied archive root.
+It includes every available canonical row for every chain and fails closed
+when required inputs are incomplete. `--skip-canonical` is a diagnostic option
+and is accepted only with `--allow-partial` and an explicit, disposable
+`--output-dir`; partial builds must not replace the committed release
+artifacts. The command stages the complete generated set before replacing
+prior monitor files, and preserves unrelated files in the output directory if
+the build succeeds or fails.
 
 Per-chain extraction and classification entry points are documented in the
 corresponding notes under [`docs/chains/`](docs/chains/). Run an individual
 script with `--help` before using it against a node, archive, or API source.
+Historical Namecoin-family extractors emit an authenticated child-header
+bundle (`child_block_hash`, `child_header_hex`, `child_block_time`, and
+`child_nbits`) from the original block source. Classifiers preserve that
+bundle in every split output, and the evidence exporters recheck its internal
+consistency. Existing raw or classified CSVs that predate these columns are
+not valid hydration inputs. Re-run the normal extraction and classification
+path instead. The source status and safe refresh contract are documented in
+[`docs/child-header-hydration.md`](docs/child-header-hydration.md).
 
 `just refresh-bitcoin-epoch-reference` incrementally refreshes the compact
 Bitcoin retarget-boundary and confirmed-horizon dataset from mempool.space's
@@ -321,12 +349,13 @@ transient local lookups.
 
 ## Data
 
-The committed `data/validated-stales/*_validated_stales.csv` files are the canonical, compact
-stale loader inputs. Compact canonical-parent rows are published alongside the
-other final monitor-facing rows under `results/monitor-evidence/`; broad
-classifier inventories remain private. Other reference outputs live under
-`results/`, and regenerable diagnostics are grouped by research question under
-`results/analysis/`. Schemas for committed datasets are documented in the
+The committed `data/validated-stales/*_validated_stales.csv` files are the
+canonical stale loader inputs. Every available canonical-parent row is
+published alongside the other final monitor-facing rows under
+`results/monitor-evidence/`; full classifier inventories remain outside the
+repository. Other reference outputs live under `results/`, and regenerable
+diagnostics are grouped by research question under `results/analysis/`.
+Schemas for committed datasets are documented in the
 [dataset reference](docs/data-reference.md).
 
 Bulky fetched data (the upstream `bitcoin-data/stale-blocks` clone) and large
@@ -337,7 +366,7 @@ separate publication rather than tracked in git; this release does not claim an
 unlinked external dataset publication. See `docs/` for the
 committed-versus-external boundary.
 
-A compact monitor-facing slice of the evidence is committed under
+A final monitor-facing projection of the evidence is committed under
 `results/monitor-evidence/` (built by `just monitor-evidence`): per-chain CSVs
 holding only the final categories the merge-mining-monitor ingests - canonical
 rows, publication-gate-accepted direct stales and stale descendants, and

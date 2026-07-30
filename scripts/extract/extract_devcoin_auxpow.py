@@ -19,12 +19,16 @@ from pathlib import Path
 
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
     VERSION_AUXPOW,
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
+from stale_blocks_analysis.extract_driver import validate_append_schema
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
 load_local_rpc_env()
@@ -35,17 +39,7 @@ FIRST_AUXPOW_HEIGHT = 25_000
 BATCH_SIZE = 100
 PROGRESS_INTERVAL = 10_000
 
-CSV_COLUMNS = [
-    "dvc_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("dvc_height")
 
 
 _rpc = None
@@ -66,11 +60,18 @@ def get_chain_tip() -> int:
     return rpc().batch(call)[0]["result"]
 
 
-def extract_from_block_hex(dvc_height: int, block_hex: str) -> dict | None:
+def extract_from_block_hex(
+    dvc_height: int,
+    block_hex: str,
+    expected_child_hash: str | None = None,
+) -> dict | None:
     """Parse a Devcoin block's raw hex. Returns AuxPoW parent info or None."""
     raw = bytes.fromhex(block_hex)
     if len(raw) < 80:
         return None
+    child_fields = parse_child_header(
+        raw[:80], expected_hash_display=expected_child_hash
+    )
     child_version = struct.unpack_from("<i", raw, 0)[0]
     if not (child_version & VERSION_AUXPOW):
         return None
@@ -84,6 +85,7 @@ def extract_from_block_hex(dvc_height: int, block_hex: str) -> dict | None:
     btc_height = parse_coinbase_height(scriptsig)
     return {
         "dvc_height": dvc_height,
+        **child_fields,
         "btc_header_hash": parent["hash"],
         "btc_prev_hash": parent["prev_hash"],
         "btc_time": parent["time"],
@@ -126,7 +128,7 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict):
         if not block_hex:
             stats["skipped_no_block"] += 1
             continue
-        row = extract_from_block_hex(height, block_hex)
+        row = extract_from_block_hex(height, block_hex, hashes[i])
         if row is None:
             stats["skipped_no_auxpow"] += 1
             continue
@@ -175,6 +177,8 @@ def main():
         if args.resume and Path(args.output).exists() and start > args.start
         else "w"
     )
+    if mode == "a":
+        validate_append_schema(Path(args.output), CSV_COLUMNS)
 
     with open(args.output, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
@@ -189,12 +193,16 @@ def main():
 
             try:
                 extract_range(batch_start, batch_end, writer, stats)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 print(f"\nError at heights {batch_start}-{batch_end}: {e}")
                 print("Retrying individually...")
                 for h in range(batch_start, batch_end):
                     try:
                         extract_range(h, h + 1, writer, stats)
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e2:
                         print(f"  Failed height {h}: {e2}")
                         stats["skipped_no_block"] += 1

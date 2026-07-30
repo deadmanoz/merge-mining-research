@@ -37,10 +37,12 @@ One row per recovered direct-stale BTC header candidate for a merge-mined
 chain. Every committed row is `classification = stale` and
 `validation_status = VALID` with a `VALID`-prefixed variant allowed. These
 files are the publication-gate-accepted output; namecoin and i0coin carry
-`VALID (post-BCH ...)` annotations under the documented prefix contract. All
-files share the canonical column layout -
-legacy per-extractor variants (`btc_stale_height`, `btc_hash`,
-`btc_bits_hex`) were normalized in the data pass:
+`VALID (post-BCH ...)` annotations under the documented prefix contract. Every
+file begins with the same 16-column core layout: normalized Bitcoin-parent
+fields, the registered child-height slot, the four child-header fields, and the
+verdict fields. Legacy per-extractor variants (`btc_stale_height`, `btc_hash`,
+`btc_bits_hex`) were normalized in the data pass. Chain-specific research
+columns trail that shared core:
 
 | Column | Notes |
 | --- | --- |
@@ -50,16 +52,20 @@ legacy per-extractor variants (`btc_stale_height`, `btc_hash`,
 | `btc_time` | Header nTime (unix seconds). |
 | `btc_bits` | Header nBits, lowercase 8-char hex. |
 | `coinbase_scriptsig_hex` | Preserved coinbase evidence for later pool-attribution research. |
-| `coinbase_outputs` | Semicolon-separated `value:scriptPubKeyHex` (or address) list; empty where the extraction preserved none (elcash, RSK). |
+| `coinbase_outputs` | Semicolon-separated `value:scriptPubKeyHex` (or address) list; empty where the extraction preserved none (RSK). |
 | `btc_header_hex` | Full 80-byte header, hex (160 chars). |
-| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. Namecoin's `nmc_height` is a recorded legacy acquisition field that cannot be reverified from the compact public artifacts; see `docs/chains/namecoin.md`. |
+| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. The column occupies the same position in every validated schema and remains blank when unavailable. Namecoin's `nmc_height` is a recorded legacy acquisition field that cannot be reverified from the compact public artifacts; see `docs/chains/namecoin.md`. |
+| `child_block_hash` | Authenticated child block hash for the 17 refreshed historical source families. |
+| `child_header_hex` | Authenticated serialized 80-byte child header for the 17 refreshed historical source families. |
+| `child_block_time` | Unsigned decimal timestamp decoded from `child_header_hex`. |
+| `child_nbits` | Lowercase 8-character child target field, decoded from the same header except for Xaya's authenticated external `PowData` target. |
 | `classification` | `stale` for these files. |
 | `validation_status` | `VALID` (or `VALID (...)` prefix form): passed the declared publication gate, not a full-block validity assertion. |
 | `expected_nbits` | Canonical nBits at that BTC height (the gate's reference). |
 
-Chain-specific research columns trail the shared layout: `nbits_match` /
-`post_bch_fork` gate detail and `btc_bip34_height` (namecoin, i0coin),
-i0coin's `btc_nonce`, namecoin's `btc_parent_height` (its `btc_header_hex`
+Chain-specific research columns trail the shared layout where retained:
+namecoin's `nbits_match` / `post_bch_fork` gate detail,
+`btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
 is populated for 1,397 of 1,625 rows and empty where the loader snapshot did
 not preserve the header; the monitor export supplies verified hydration), and
 coiledcoin's `eligius_attack_window`.
@@ -151,6 +157,13 @@ The full-evidence export is generated on demand by
 not a stale census input and is gitignored because private archive runs can
 write bulky row-level inventories. The export is for downstream consumers that
 need candidate evidence before rechecking it against Bitcoin Core.
+When an external publication is assembled through a staging directory,
+`--reported-output-dir` records the logical final location in its manifests
+without changing where the files are written.
+
+The 2026-07-30 complete refresh retained 30 external artifacts. Its historical
+coverage report authenticated 2,933,154 of 2,933,154 rows and all 6 accepted
+stale-descendant source observations, with zero unrecoverable rows.
 
 Each `<chain>_evidence.csv` uses this normalized schema:
 
@@ -158,7 +171,7 @@ Each `<chain>_evidence.csv` uses this normalized schema:
 | --- | --- |
 | `chain`, `source_kind`, `source_path`, `source_row_number` | Source identity and row provenance. External archive roots are redacted as `<chain-archive>/...`. |
 | `artifact_scope` | `full_classifier_inventory`, `stale_only_publication`, or `stale_descendant_sidecar`. |
-| `child_height`, `child_block_hash`, `child_block_time` | Child-chain location and block timestamp when available. For the six live-lifecycle chains the hash and timestamp are hydrated from `data/child-identity/` (see below). |
+| `child_height`, `child_block_hash`, `child_header_hex`, `child_block_time`, `child_nbits` | Child-chain location and authenticated header evidence when available. `child_block_hash` is the internal/wire-order double-SHA256 digest, `child_header_hex` is the 80-byte canonical header serialization, `child_block_time` is the header timestamp, and `child_nbits` is eight lowercase hexadecimal characters. For Xaya, the header and timestamp come from `CPureBlockHeader`, while effective `child_nbits` comes from the adjacent `PowData` wrapper. For the six live-lifecycle chains the existing hash and timestamp remain hydrated from `data/child-identity/` (see below); their historical data is not re-derived by this work. |
 | `btc_height`, `btc_header_hash`, `btc_prev_hash`, `btc_time`, `btc_bits`, `btc_nonce`, `btc_header_hex` | Normalized Bitcoin parent header fields. |
 | `coinbase_scriptsig_hex`, `coinbase_outputs`, `full_coinbase_hex` | Coinbase evidence. Hathor-style full rows with only `full_coinbase_hex` are parsed during export. |
 | `classification` | Preserved source classification: `canonical`, `stale`, `unknown` (normalized from the legacy `orphan` spelling on read), `stale_descendant`, `near`, or source-specific values. |
@@ -187,13 +200,13 @@ scratch paths under `data/` are gitignored (`_stale_blocks`, `_canonical_blocks`
 `_unknown_blocks`). Canonical and unknown storage normally remains in the
 private archive's `classified/` family.
 
-The compact canonical rows selected for publication live directly in the
-corresponding `results/monitor-evidence/<chain>_monitor_evidence.csv` output.
-The committed family currently includes Lyncoin (11 rows), SixEleven (7 rows),
-and VCash (68 rows), with provenance pointing to the retained private source
-artifact. VCash is a partial canonical subset, not a complete chain recovery;
-its rows retain `artifact_scope=partial_canonical_subset`, and no stale,
-strict, or weak total may be inferred from them.
+Every available canonical row is part of the normal publication and lives in
+the corresponding
+`results/monitor-evidence/<chain>_monitor_evidence.csv` output. There is no
+per-chain canonical allowlist. A source's own coverage limit remains visible
+in its provenance: VCash, for example, is a 68-row partial canonical subset
+rather than a complete chain recovery, so no stale, strict, or weak total may
+be inferred from it.
 
 Parallel-schema chains that do not split, such as RSK (miner-address schema)
 and Hathor (canonical in-file), keep their single commingled private inventory.
@@ -216,14 +229,16 @@ the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
 rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
 identity for Hathor, whose merge-mined block hash IS its BTC parent header
-hash. All 2,219 chain/header observations across the six chains verified
-against today's canonical child chains (1,870 distinct Bitcoin parent
-headers; 214 parents were observed by more than one chain, a single miner
+hash. All 2,241 chain/header observations across the six chains verified
+against today's canonical child chains (1,889 distinct Bitcoin parent
+headers; 216 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 `child_height`, `child_block_hash`, `child_block_time`, `verification`, and
-`note`. `btc_header_hash` stays in display (RPC) order like every other
+`note`. A verified row is usable only when `child_height` is a nonnegative
+integer and the child hash and time are valid. `btc_header_hash` stays in
+display (RPC) order like every other
 pipeline artifact; `child_block_hash` follows the pipeline's established
 column contract of internal (wire) byte order for the Bitcoin-family chains
 and Hathor, and forward order for RSK, whose keccak block hashes have no
@@ -258,37 +273,68 @@ request once CI passes.
 
 ## Monitor-facing evidence exports: `results/monitor-evidence/`
 
-A compact companion to the full-evidence export, generated by
+A final-category projection of the full-evidence export, generated by
 `scripts/reports/build_monitor_evidence.py` or `just monitor-evidence`. It
-keeps only the categories the merge-mining-monitor ingests as final: curated
-canonical evidence, publication-gate-accepted direct-stale candidates,
-accepted stale descendants, and
-strict/weak BTC orphans. Unknown rows survive
+keeps only the categories the merge-mining-monitor ingests as final: every
+available canonical row, publication-gate-accepted direct-stale candidates,
+accepted stale descendants, and strict/weak BTC orphans. Unknown rows survive
 only when the relevance inventory (see the vocabularies below) supplies a
 `strict_btc_orphan` / `weak_btc_orphan` verdict for their header hash;
-excluded and `pending` rows are omitted. The committed direct-stale/relevance
-configuration runs with `--skip-canonical`, which excludes broad canonical
-inventories. The selected canonical rows already committed in this output
-family are separate publication artifacts; rebuilding them requires the
-private source artifacts recorded in their provenance columns.
+excluded and `pending` rows are omitted. Normal publication includes canonical
+evidence uniformly for every chain. `--skip-canonical` is permitted only in an
+explicit `--allow-partial` diagnostic build with a disposable output
+directory.
+
+The per-chain `*_monitor_evidence.csv` payloads are stored in Git LFS. Run
+`git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"`
+before reading or rebuilding them. `monitor-evidence-counts.csv` and
+`monitor-evidence-manifest.json` remain ordinary Git files so counts,
+provenance, and validation-contract changes are directly reviewable. The
+shared evidence writer emits LF explicitly because LFS objects do not pass
+through Git's text-normalization filter.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
-columns the monitor's importer parses verbatim. The six live-lifecycle
+columns the monitor's importer parses verbatim. The current schema includes
+`child_header_hex`, `child_block_time`, and `child_nbits`; rows from the 17
+historical child-header refresh pipelines carry a complete authenticated
+bundle. The six live-lifecycle
 chains additionally publish `child_block_hash` / `child_block_time` hydrated
 from `data/child-identity/` (coverage recorded in the counts `notes` as
 `child_identity_hydration=hydrated:N`; a publication build fails closed when
-a live-chain row lacks a verified identity), and the RSK export appends the
-seven `rsk_merge_mining_evidence` sidecar columns listed in the
-child-identity section. The three canonical-scope artifacts (VCash,
-Lyncoin, SixEleven) still predate the `child_block_time` column -- their
-regeneration needs the private source artifacts recorded in their
-provenance columns -- and the supplemental-lag contract fills it as empty
-when they are next rebuilt. The stale-descendants export is deliberately
-outside the exact-child-identity contract: its rows aggregate observations
-from several chains into chain-less rows and merge-mining-monitor's import
-surface has no stale-descendants entry, so its child identity columns stay
-empty (`child_identity=deferred_per_observation_recovery` in the counts
-notes) until a per-observation descendant-identity recovery lands:
+a non-canonical final row lacks a verified identity). Canonical rows remain
+publishable when their historical source never recorded exact child identity;
+the counts `notes` disclose that limit as `canonical_unhydrated=N`. The RSK
+export appends the seven `rsk_merge_mining_evidence` sidecar columns listed in
+the child-identity section. Sources outside the 17 historical-header pipelines
+emit the child evidence their native source proves; absent fields stay empty
+rather than being inferred. The standalone stale-descendants export remains outside the
+exact-child-identity contract because each row aggregates observations from
+several chains. Its child identity columns therefore stay empty and its counts
+note is `child_identity=represented_by_source_chain_observations`. The
+corresponding source-chain rows are admitted to the monitor payloads through
+`relevance_reason=valid_stale_descendant`. The 26 observations sourced from
+unknown rows preserve that classification. The Namecoin and RSK observations
+corrected from direct stales are projected as `stale_descendant` with
+`validation_status=VALID_STALE_DESCENDANT`, matching the exact-key correction
+overlay. The six historical observations carry complete authenticated child
+headers; live-chain observations use the independently verified identities in
+`data/child-identity/`. A publication build fails closed if any accepted
+`(chain, btc_header_hash)` observation is absent; a partial diagnostic reports
+the identity as deferred instead of claiming representation.
+
+i0coin and CoiledCoin publish their authenticated child hash, header, time, and
+`nBits`, but the normalized `child_height` value remains empty because their
+offline archives provide no authenticated consensus height. Doichain's retained
+historical inventories likewise leave their former file-order values blank; a
+future run can fill exact heights through its documented RPC normalization
+pass. The old block-file scan counters have been removed rather than presented
+as heights. Height columns remain present uniformly. Any non-empty export with
+no exact child height records `child_height=unavailable`; downstream importers
+that require a height must skip those rows until an exact height source becomes
+available.
+The child-header coverage report
+cross-references those accepted observations by source chain and Bitcoin
+header hash so their coverage is explicit:
 
 | Column | Meaning |
 | --- | --- |
@@ -307,19 +353,30 @@ malformed, or mismatching candidate is never written. Hydration touches only
 Namecoin's `btc_header_hex` column.
 
 `monitor-evidence-counts.csv` and `monitor-evidence-manifest.json` record
-per-chain category counts, aggregate rows scanned across the main source and
-any replacement or companion sources, whether
+per-chain category counts, publication-projected source rows across the main
+source and any replacement or companion sources, whether
 unknown rows were present without a relevance inventory to judge them, and --
 for namecoin -- the header-hydration coverage in the `notes` field
 (`namecoin_header_hydration=hydrated:N/still_missing:M/hash_mismatch_rejected:K`,
 with `no_namecoin_header_hydration_sources_found` appended when no extract file
-was available). The JSON manifest also carries a machine-readable
+was available). A non-empty chain export also records
+`child_height=unavailable` when one or more rows lack an exact height. The JSON
+manifest also carries a machine-readable
 `validation_contract` object. Its
 `valid_token_scope=publication_gate_accepted_not_full_block_validity` value is
 the normative interpretation of `validation_status=VALID` for downstream
 consumers. In particular, it is not permission for an importer to relabel the
 candidate as a fully validated Bitcoin block without independently validating
 the complete block and historical chain state.
+
+For full-inventory sources, `source_rows` removes every raw stale-classified
+row and inserts the committed gate-accepted validated overlay. It can therefore
+be smaller than the full-evidence or child-header coverage total when a stale
+candidate was rejected. A canonical row present in both the main inventory and
+its canonical companion is likewise counted once, matching the deduplicated
+publication projection. The current validation differences are 9 i0coin rows, 1
+Groupcoin row, and 1 Emercoin row; this is validation accounting, not
+missing source acquisition.
 
 ## Strict/weak BTC orphans: `results/strict-weak-orphans/<chain>_strict_weak_orphans.csv`
 

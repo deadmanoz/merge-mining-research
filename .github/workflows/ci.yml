@@ -6,7 +6,29 @@ on:
   pull_request:
 
 jobs:
-  test:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+  unit:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -29,19 +51,40 @@ jobs:
       - name: Fetch pinned stale-blocks dataset
         run: bash scripts/fetch-data.sh
 
-      - name: Lint
-        # Focused gate: syntax errors plus the likely-bug pyflakes rules,
-        # including F821 undefined-name (the path/import bug class). Ruleset is
-        # configured in pyproject.toml [tool.ruff.lint].
-        run: ruff check .
+      - name: Test without LFS publication payloads
+        run: python -m pytest tests/ -m "not dataset"
 
-      - name: Format check
-        run: ruff format --check .
+  dataset:
+    runs-on: ubuntu-latest
 
-      - name: Leak check
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Verify Git LFS payload checkout
+        run: |
+          test -n "$(git lfs ls-files --name-only)"
+          git lfs fsck
+          if git lfs ls-files | grep -q ' - '; then
+            echo "Git LFS payload checkout is incomplete"
+            exit 1
+          fi
+
+      - name: Leak check materialized payloads
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq just
           just check-leaks
 
-      - name: Test
-        run: python -m pytest tests/
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test committed publication datasets
+        run: python -m pytest tests/ -m dataset

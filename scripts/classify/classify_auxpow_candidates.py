@@ -41,14 +41,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.btc_rpc import BtcRpc  # noqa: E402
+from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     stale_header_context_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args  # noqa: E402
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
     hash_meets_btc_difficulty,
     parse_parent_header,
+    validate_child_header_fields,
 )
 
 
@@ -277,6 +281,25 @@ class RpcClient:
 BCH_FORK_HEIGHT = 478_559
 
 OUTPUT_FIELDS = [
+    "btc_height",
+    "btc_header_hash",
+    "btc_prev_hash",
+    "btc_time",
+    "btc_bits",
+    "coinbase_scriptsig_hex",
+    "coinbase_outputs",
+    "btc_header_hex",
+    "child_height",
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
+    "classification",
+    "validation_status",
+    "expected_nbits",
+]
+
+EVIDENCE_FIELDS = [
     "btc_stale_height",
     "btc_hash",
     "btc_prev_hash",
@@ -289,7 +312,9 @@ OUTPUT_FIELDS = [
     "btc_header_hex",
     "child_height",
     "child_block_hash",
+    "child_header_hex",
     "child_block_time",
+    "child_nbits",
     "classification",
     "expected_nbits",
     "nbits_match",
@@ -367,44 +392,42 @@ def _validate_block_hash_result(block_hash):
         ) from exc
 
 
-def _require_exact_child_identity(row):
-    """Reject evidence rows whose child identity is absent or malformed."""
+def _require_authenticated_child_header(row):
+    """Reject evidence rows whose authenticated child header is malformed."""
+    for field in CHILD_HEADER_FIELDS:
+        value = row.get(field)
+        if not isinstance(value, str) or value != value.strip():
+            raise ValueError(f"evidence output requires exact string {field}")
+    try:
+        validate_child_header_fields(row)
+    except ChildHeaderValidationError as exc:
+        raise ValueError(f"evidence output requires {exc}") from exc
+
+
+def _validate_child_height(row):
+    """Validate a populated consensus height; an unavailable value stays blank."""
     child_height = row.get("child_height")
+    if child_height == "":
+        return
     if (
         not isinstance(child_height, str)
-        or not child_height
         or child_height != child_height.strip()
         or not child_height.isascii()
         or not child_height.isdigit()
     ):
-        raise ValueError("evidence output requires an exact non-negative child_height")
+        raise ValueError("child_height must be blank or an exact non-negative integer")
 
-    child_block_hash = row.get("child_block_hash")
-    if (
-        not isinstance(child_block_hash, str)
-        or len(child_block_hash) != 64
-        or child_block_hash != child_block_hash.strip()
-    ):
-        raise ValueError(
-            "evidence output requires an exact 64-character child_block_hash"
-        )
+
+def _require_authenticated_child_header_with_context(row, *, row_number):
+    """Add a stable row and Bitcoin-parent identifier to validation errors."""
     try:
-        bytes.fromhex(child_block_hash)
+        _validate_child_height(row)
+        _require_authenticated_child_header(row)
     except ValueError as exc:
+        parent_hash = row.get("btc_header_hash") or row.get("btc_hash") or "<missing>"
         raise ValueError(
-            "evidence output requires a hexadecimal child_block_hash"
+            f"evidence row {row_number} (btc_header_hash={parent_hash}): {exc}"
         ) from exc
-
-    child_block_time = row.get("child_block_time")
-    if (
-        not isinstance(child_block_time, str)
-        or not child_block_time
-        or child_block_time != child_block_time.strip()
-        or not child_block_time.isascii()
-        or not child_block_time.isdigit()
-        or int(child_block_time) > 0xFFFFFFFF
-    ):
-        raise ValueError("evidence output requires an exact uint32 child_block_time")
 
 
 def _require_hex(value, *, field, length):
@@ -485,6 +508,7 @@ def _validate_distinct_paths(
     rejected_csv,
     evidence_csv,
     classified_csv,
+    publication_csv,
 ):
     """Refuse to run when any two input/output paths resolve to the same file."""
     labelled = {
@@ -496,12 +520,32 @@ def _validate_distinct_paths(
         labelled["evidence output"] = Path(evidence_csv).resolve()
     if classified_csv is not None:
         labelled["classified output"] = Path(classified_csv).resolve()
+    if publication_csv is not None:
+        canonical_csv, unknown_csv = _derive_publication_split_paths(publication_csv)
+        labelled["publication stale output"] = Path(publication_csv).resolve()
+        labelled["publication canonical output"] = canonical_csv.resolve()
+        labelled["publication unknown output"] = unknown_csv.resolve()
     seen = {}
     for label, path in labelled.items():
         previous = seen.get(path)
         if previous is not None:
             raise ValueError(f"{label} aliases {previous}: {path}")
         seen[path] = label
+
+
+def _fsync_directory(path):
+    """Persist completed same-directory renames and unlinks."""
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _fsync_directories(paths):
+    """Persist each distinct output directory in deterministic order."""
+    for path in sorted(set(paths), key=str):
+        _fsync_directory(path)
 
 
 def _write_dict_rows_atomic(path, rows, fieldnames):
@@ -523,6 +567,7 @@ def _write_dict_rows_atomic(path, rows, fieldnames):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, destination)
+        _fsync_directory(destination.parent)
     except BaseException:
         try:
             os.close(fd)
@@ -532,9 +577,159 @@ def _write_dict_rows_atomic(path, rows, fieldnames):
         raise
 
 
-def _write_rows_atomic(path, rows):
-    """Write standard classifier rows atomically."""
-    _write_dict_rows_atomic(path, rows, OUTPUT_FIELDS)
+def _write_publication_rows_atomic(path, rows):
+    """Write normalized publication-schema rows, not diagnostic-schema rows."""
+    _write_dict_rows_atomic(
+        path,
+        (_publication_row(row) for row in rows),
+        OUTPUT_FIELDS,
+    )
+
+
+def _publication_row(row):
+    """Map the i0coin classifier row contract to the compact CSV schema.
+
+    Stale validation diagnostics belong only to stale rows. Canonical and
+    unknown publication rows use the same empty diagnostic fields emitted by
+    the shared classifiers; the full classified and evidence outputs retain
+    their richer annotations.
+    """
+    classification = row.get("classification", "")
+    is_stale = classification == "stale"
+    return {
+        "btc_height": row.get("btc_stale_height", ""),
+        "btc_header_hash": row.get("btc_hash", ""),
+        "btc_prev_hash": row.get("btc_prev_hash", ""),
+        "btc_time": row.get("btc_time", ""),
+        "btc_bits": row.get("btc_bits_hex", ""),
+        "coinbase_scriptsig_hex": row.get("coinbase_scriptsig_hex", ""),
+        "coinbase_outputs": row.get("coinbase_outputs", ""),
+        "btc_header_hex": row.get("btc_header_hex", ""),
+        "child_height": row.get("child_height", ""),
+        "child_block_hash": row.get("child_block_hash", ""),
+        "child_header_hex": row.get("child_header_hex", ""),
+        "child_block_time": row.get("child_block_time", ""),
+        "child_nbits": row.get("child_nbits", ""),
+        "classification": classification,
+        "validation_status": row.get("validation_status", "") if is_stale else "",
+        "expected_nbits": row.get("expected_nbits", "") if is_stale else "",
+    }
+
+
+def _derive_publication_split_paths(stale_csv):
+    """Return the canonical and unknown peers intentionally owned by a refresh.
+
+    Publication output is a three-bucket artifact family, matching the shared
+    classifiers. Re-running a refresh transactionally replaces the family.
+    """
+    canonical, unknown = derive_split_paths(str(stale_csv))
+    return Path(canonical), Path(unknown)
+
+
+def _publish_artifact_family(staged_destinations):
+    """Install a staged family, retaining sibling backups if rollback fails."""
+    staged_destinations = list(staged_destinations)
+    destination_directories = {
+        destination.parent for _staged, destination in staged_destinations
+    }
+    moved_previous = []
+    installed = []
+    try:
+        for _staged, destination in staged_destinations:
+            if destination.exists() or destination.is_symlink():
+                backup_fd, backup_name = tempfile.mkstemp(
+                    prefix=f".{destination.name}.previous-", dir=destination.parent
+                )
+                os.close(backup_fd)
+                backup = Path(backup_name)
+                # Reserve a unique sibling name, then move the live artifact
+                # onto it.
+                backup.unlink()
+                os.replace(destination, backup)
+                moved_previous.append((backup, destination))
+        if moved_previous:
+            _fsync_directories(destination_directories)
+        for staged, destination in staged_destinations:
+            os.replace(staged, destination)
+            installed.append((destination, staged))
+        _fsync_directories(destination_directories)
+    except BaseException as original_error:
+        rollback_errors = []
+        for destination, staged in reversed(installed):
+            if destination.exists() or destination.is_symlink():
+                try:
+                    os.replace(destination, staged)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+        for backup, destination in reversed(moved_previous):
+            if backup.exists() or backup.is_symlink():
+                try:
+                    os.replace(backup, destination)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+        try:
+            _fsync_directories(destination_directories)
+        except OSError as exc:
+            rollback_errors.append(exc)
+        if rollback_errors:
+            raise RuntimeError(
+                "publication-family install failed and rollback was incomplete; "
+                "previous artifacts remain in sibling .previous-* backup files"
+            ) from original_error
+        raise
+    removed_backup = False
+    for backup, _destination in moved_previous:
+        try:
+            backup.unlink(missing_ok=True)
+            removed_backup = True
+        except OSError as exc:
+            print(
+                f"WARNING: could not remove publication backup {backup}: {exc}",
+                file=sys.stderr,
+            )
+    if removed_backup:
+        try:
+            _fsync_directories(destination_directories)
+        except OSError as exc:
+            print(
+                f"WARNING: could not persist publication backup cleanup: {exc}",
+                file=sys.stderr,
+            )
+
+
+def _write_publication_inventory(stale_csv, rows):
+    """Authenticate, normalize, and transactionally publish three buckets."""
+    buckets = {"canonical": [], "stale": [], "unknown": []}
+    for row_number, row in enumerate(rows, start=2):
+        _require_authenticated_child_header_with_context(row, row_number=row_number)
+        publication_row = _publication_row(row)
+        bucket = buckets.get(publication_row["classification"])
+        if bucket is None:
+            raise RuntimeError(
+                "internal error: unsupported publication classification "
+                f"{publication_row['classification']!r}"
+            )
+        bucket.append(publication_row)
+
+    for bucket in buckets.values():
+        bucket.sort(key=lambda row: int(row.get("btc_height") or 0))
+
+    canonical_csv, unknown_csv = _derive_publication_split_paths(stale_csv)
+    stale_csv = Path(stale_csv)
+    stale_csv.parent.mkdir(parents=True, exist_ok=True)
+    destinations = [canonical_csv, stale_csv, unknown_csv]
+    bucket_names = ["canonical", "stale", "unknown"]
+    with tempfile.TemporaryDirectory(
+        prefix=".publication-build-", dir=stale_csv.parent
+    ) as transaction_dir:
+        transaction_root = Path(transaction_dir)
+        staged_destinations = []
+        for bucket_name, destination in zip(bucket_names, destinations, strict=True):
+            staged = transaction_root / destination.name
+            _write_dict_rows_atomic(staged, buckets[bucket_name], OUTPUT_FIELDS)
+            staged_destinations.append((staged, destination))
+        _publish_artifact_family(staged_destinations)
+    return canonical_csv, unknown_csv
 
 
 def _canonical_evidence_row(row, canonical_header):
@@ -569,7 +764,9 @@ def _canonical_evidence_row(row, canonical_header):
         "btc_header_hex": row.get("btc_header_hex", ""),
         "child_height": row.get("child_height", ""),
         "child_block_hash": row.get("child_block_hash", ""),
+        "child_header_hex": row.get("child_header_hex", ""),
         "child_block_time": row.get("child_block_time", ""),
+        "child_nbits": row.get("child_nbits", ""),
         "classification": "canonical",
         "expected_nbits": expected_nbits,
         "nbits_match": "true",
@@ -585,6 +782,7 @@ def classify_and_validate(
     btc,
     evidence_csv=None,
     classified_csv=None,
+    publication_csv=None,
 ):
     """Read extracted headers, classify against Bitcoin Core, write results."""
 
@@ -594,6 +792,7 @@ def classify_and_validate(
         rejected_csv,
         evidence_csv,
         classified_csv,
+        publication_csv,
     )
 
     # Read all candidate rows
@@ -601,9 +800,15 @@ def classify_and_validate(
         reader = csv.DictReader(f)
         input_fields = reader.fieldnames or []
         rows = list(reader)
+    if "child_height" not in input_fields:
+        raise ValueError("input schema must include child_height")
 
     for row_number, row in enumerate(rows, start=2):
         _validate_candidate_parent_header(row, row_number=row_number)
+        if evidence_csv is not None or publication_csv is not None:
+            _require_authenticated_child_header_with_context(row, row_number=row_number)
+        else:
+            _validate_child_height(row)
 
     print(f"Loaded {len(rows):,} self-target-PoW-valid headers to classify")
 
@@ -620,7 +825,11 @@ def classify_and_validate(
     validated = []
     rejected = []
     evidence = []
-    classified = [None] * len(rows) if classified_csv is not None else None
+    classified = (
+        [None] * len(rows)
+        if classified_csv is not None or publication_csv is not None
+        else None
+    )
     t0 = time.time()
 
     # Step 1: classify every candidate hash in bounded getblockheader batches.
@@ -802,7 +1011,9 @@ def classify_and_validate(
             "btc_header_hex": row.get("btc_header_hex", ""),
             "child_height": row.get("child_height", ""),
             "child_block_hash": row.get("child_block_hash", ""),
+            "child_header_hex": row.get("child_header_hex", ""),
             "child_block_time": row.get("child_block_time", ""),
+            "child_nbits": row.get("child_nbits", ""),
             "classification": "stale",
             "expected_nbits": expected_nbits or "",
             "nbits_match": nbits_match,
@@ -824,19 +1035,27 @@ def classify_and_validate(
 
     if evidence_csv is not None:
         evidence.sort(key=lambda item: item[0])
-        for _, evidence_row in evidence:
-            _require_exact_child_identity(evidence_row)
+        for input_index, evidence_row in evidence:
+            _require_authenticated_child_header_with_context(
+                evidence_row, row_number=input_index + 2
+            )
 
-    # Write outputs
-    _write_rows_atomic(output_csv, validated)
-    _write_rows_atomic(rejected_csv, rejected)
+    if classified is not None and any(row is None for row in classified):
+        raise RuntimeError("internal error: classified inventory is incomplete")
+
+    # Write normalized publication outputs. The full classifier inventory below
+    # retains the source-specific diagnostic columns.
+    _write_publication_rows_atomic(output_csv, validated)
+    _write_publication_rows_atomic(rejected_csv, rejected)
 
     if evidence_csv is not None:
-        _write_rows_atomic(evidence_csv, (row for _, row in evidence))
+        _write_dict_rows_atomic(
+            evidence_csv,
+            (row for _, row in evidence),
+            EVIDENCE_FIELDS,
+        )
 
     if classified_csv is not None:
-        if any(row is None for row in classified):
-            raise RuntimeError("internal error: classified inventory is incomplete")
         classified_fields = list(input_fields)
         classified_fields.extend(
             field
@@ -844,6 +1063,11 @@ def classify_and_validate(
             if field not in classified_fields
         )
         _write_dict_rows_atomic(classified_csv, classified, classified_fields)
+
+    if publication_csv is not None:
+        canonical_csv, unknown_csv = _write_publication_inventory(
+            publication_csv, classified
+        )
 
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
@@ -865,6 +1089,10 @@ def classify_and_validate(
         print(f"  Import evidence:   {evidence_csv}")
     if classified_csv is not None:
         print(f"  Full inventory:    {classified_csv}")
+    if publication_csv is not None:
+        print(f"  Publication stale: {publication_csv}")
+        print(f"  Publication canonical: {canonical_csv}")
+        print(f"  Publication unknown: {unknown_csv}")
 
 
 def main():
@@ -874,18 +1102,45 @@ def main():
     )
     parser.add_argument("--input", required=True, help="Input CSV from extraction")
     parser.add_argument(
-        "--output", required=True, help="Output CSV of gate-accepted stale candidates"
+        "--output",
+        required=True,
+        help="Normalized publication CSV of gate-accepted stale candidates",
     )
-    parser.add_argument("--rejected", default="", help="Output CSV of rejected stales")
+    parser.add_argument(
+        "--rejected",
+        default="",
+        help=(
+            "Normalized publication CSV of rejected stales; use "
+            "--classified-output to retain source-specific diagnostic columns"
+        ),
+    )
     parser.add_argument(
         "--evidence-output",
-        help="Optional import-ready CSV of canonical and validated stale evidence",
+        help=(
+            "Optional import-ready CSV of canonical and validated stale evidence. "
+            "Every input row must carry a complete authenticated child-header "
+            "bundle and the uniform child_height column. Heights that cannot be "
+            "authenticated remain blank; populated values must be exact and "
+            "non-negative"
+        ),
     )
     parser.add_argument(
         "--classified-output",
         help=(
             "Optional all-candidate inventory preserving input columns and adding "
             "canonical/stale/unknown plus validation annotations"
+        ),
+    )
+    parser.add_argument(
+        "--publication-output",
+        help=(
+            "Optional normalized three-bucket publication family. This path is "
+            "the stale CSV; canonical and unknown peer paths are derived from "
+            "its filename, and a refresh transactionally replaces the complete "
+            "three-file family. Every input row must carry a complete authenticated "
+            "child-header bundle and the uniform child_height column. Unavailable "
+            "heights remain blank; populated values must be exact and non-negative. "
+            "This is checked before any Bitcoin RPC classification"
         ),
     )
     add_rpc_args(parser)
@@ -916,6 +1171,7 @@ def main():
         btc,
         evidence_csv=args.evidence_output,
         classified_csv=args.classified_output,
+        publication_csv=args.publication_output,
     )
 
 

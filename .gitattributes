@@ -8,3 +8,7 @@
 *.gz binary
 *.db binary
 *.parquet binary
+
+# Large per-chain publication payloads live in Git LFS. The evidence writer
+# emits LF directly because LFS objects bypass Git text normalization.
+results/monitor-evidence/*_monitor_evidence.csv filter=lfs diff=lfs merge=lfs -text

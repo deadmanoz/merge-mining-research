@@ -17,7 +17,9 @@ import struct
 import sys
 from pathlib import Path
 
-from stale_blocks_analysis.auxpow_parse import parse_parent_header
+import pytest
+
+from stale_blocks_analysis.auxpow_parse import parse_child_header, parse_parent_header
 from stale_blocks_analysis.btc_classify import output_columns, run_classifier
 from stale_blocks_analysis.config import CHAIN_SPECS
 
@@ -164,7 +166,7 @@ def test_elcash_wrapper_forwards_standard_and_reproduces_committed_schema(monkey
     assert call["all_valid_path"] == "data/elcash_btc_valid.csv"
     assert call.get("bits_source_is_decimal", False) is False
     # The wrapper's output schema is exactly the committed loader CSV's header,
-    # so a re-run reproduces the off-tree-produced file's column set/order.
+    # so the normal source rerun reproduces its column set and order.
     committed_header = (
         (REPO / "data" / "validated-stales" / "elcash_validated_stales.csv")
         .read_text()
@@ -227,6 +229,56 @@ def test_emercoin_normalizer_maps_legacy_schema_without_chain_id_filter(tmp_path
     assert "chain_id" not in first
 
 
+def test_coiledcoin_remap_does_not_promote_bip34_commitment_to_btc_height():
+    mod = _load("classify_coiledcoin_stales")
+    child_header = (
+        struct.pack("<I", 1)
+        + b"\x11" * 32
+        + b"\x22" * 32
+        + struct.pack("<III", 1_700_000_001, 0x1D00FFFF, 8)
+    )
+    candidate = mod.remap_candidate(
+        {
+            "btc_hash": "aa" * 32,
+            "btc_prev_hash": "bb" * 32,
+            "btc_time": "1700000000",
+            "btc_bits_hex": "1d00ffff",
+            "btc_bip34_height": "700000",
+            "coinbase_scriptsig_hex": "03abcdef",
+            "coinbase_outputs": "",
+            "btc_header_hex": "00" * 80,
+            "child_height": "",
+            **parse_child_header(child_header),
+        }
+    )
+
+    assert candidate["btc_height"] == ""
+    assert candidate["btc_bip34_height"] == "700000"
+    assert candidate["clc_height"] == ""
+
+
+def test_coiledcoin_remap_rejects_partial_child_header_bundle():
+    mod = _load("classify_coiledcoin_stales")
+
+    with pytest.raises(
+        mod.ChildHeaderValidationError,
+        match="incomplete child header evidence",
+    ):
+        mod.remap_candidate(
+            {
+                "btc_hash": "aa" * 32,
+                "btc_prev_hash": "bb" * 32,
+                "btc_time": "1700000000",
+                "btc_bits_hex": "1d00ffff",
+                "coinbase_scriptsig_hex": "03abcdef",
+                "coinbase_outputs": "",
+                "btc_header_hex": "00" * 80,
+                "child_height": "",
+                "child_block_hash": "11" * 32,
+            }
+        )
+
+
 class _PreflightRpc:
     """Fake BtcRpc: answers the getblockcount preflight; anything else -> None."""
 
@@ -256,6 +308,12 @@ def _near_input_row(dvc_height: str) -> dict:
         + struct.pack("<I", 0)
     )
     parsed = parse_parent_header(header)
+    child_header = (
+        struct.pack("<I", 1)
+        + b"\x33" * 32
+        + b"\x44" * 32
+        + struct.pack("<III", 1_600_000_555, 0x1D00FFFF, 555)
+    )
     return {
         "btc_height": "",
         "btc_header_hash": parsed["hash"],
@@ -266,6 +324,7 @@ def _near_input_row(dvc_height: str) -> dict:
         "coinbase_outputs": "",
         "btc_header_hex": header.hex(),
         "dvc_height": dvc_height,
+        **parse_child_header(child_header),
     }
 
 
@@ -370,15 +429,15 @@ def test_huntercoin_normalizer_and_chain_id_filter(tmp_path):
     mod = _load("classify_huntercoin_stales")
     src = tmp_path / "raw.csv"
     dst = tmp_path / "norm.csv"
-    # Two rows: a legacy-schema SHA-256d (chain_id 6) row using btc_parent_hash /
-    # btc_timestamp, and a Scrypt (chain_id 2) row that must be dropped.
+    # Two refreshed extractor rows: a SHA-256d (chain_id 6) row and a Scrypt
+    # (chain_id 2) row that must be dropped.
     with src.open("w", newline="") as f:
         w = csv.DictWriter(
             f,
             fieldnames=[
-                "btc_parent_hash",
+                "btc_header_hash",
                 "btc_prev_hash",
-                "btc_timestamp",
+                "btc_time",
                 "btc_bits",
                 "huc_height",
                 "classification",
@@ -388,16 +447,16 @@ def test_huntercoin_normalizer_and_chain_id_filter(tmp_path):
         w.writeheader()
         w.writerow(
             {
-                "btc_parent_hash": "aa" * 32,
+                "btc_header_hash": "aa" * 32,
                 "btc_prev_hash": "bb" * 32,
-                "btc_timestamp": "1700000000",
+                "btc_time": "1700000000",
                 "btc_bits": "1a0d69d7",
                 "huc_height": "100",
                 "classification": "stale",
                 "chain_id": "6",
             }
         )
-        w.writerow({"btc_parent_hash": "cc" * 32, "chain_id": "2"})
+        w.writerow({"btc_header_hash": "cc" * 32, "chain_id": "2"})
 
     total, skipped = mod._write_normalized_input(src, dst)
     assert total == 2
@@ -407,9 +466,20 @@ def test_huntercoin_normalizer_and_chain_id_filter(tmp_path):
         rows = list(csv.DictReader(f))
     assert len(rows) == 1
     row = rows[0]
-    # Legacy fields remapped onto the shared schema.
-    assert row["btc_header_hash"] == "aa" * 32  # from btc_parent_hash
-    assert row["btc_time"] == "1700000000"  # from btc_timestamp
+    assert row["btc_header_hash"] == "aa" * 32
+    assert row["btc_time"] == "1700000000"
+
+
+def test_huntercoin_classifier_requires_refreshed_input(monkeypatch, tmp_path):
+    mod = _load("classify_huntercoin_stales")
+    missing = tmp_path / "huntercoin_auxpow_raw.csv"
+    monkeypatch.setattr(mod, "DEFAULT_INPUT", missing)
+    monkeypatch.setattr(sys, "argv", ["x"])
+
+    with pytest.raises(
+        SystemExit, match="missing refreshed Huntercoin extractor input"
+    ):
+        mod.main()
 
 
 def test_classifier_cli_rpc_args_env_default_and_auth_fallback(monkeypatch, tmp_path):

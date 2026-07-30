@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build compact monitor-facing evidence exports.
+"""Build final-category monitor-facing evidence exports.
 
 Filters the normalized evidence to the categories the merge-mining-monitor
 ingests as final — canonical rows, VALID direct stales, valid stale
@@ -27,9 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
-    EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
-    SUPPLEMENTAL_LAG_COLUMNS,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -74,24 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--supplemental-evidence",
-        dest="supplemental_evidence_paths",
-        action="append",
-        type=Path,
-        default=[],
-        help=(
-            "Already-normalized monitor evidence for an intentional scope "
-            "outside CHAIN_SPECS, such as the VCash canonical hydration. "
-            "May be repeated."
-        ),
-    )
-    parser.add_argument(
         "--skip-canonical",
         action="store_true",
         help=(
-            "Exclude canonical-parent companions so the exports stay "
-            "compact (stales, valid descendants, strict/weak orphans "
-            "only). Publication builds reject this option; use it only with "
+            "Exclude canonical-parent evidence from a diagnostic export. "
+            "Publication builds reject this option; use it only with "
             "--allow-partial and a disposable output directory."
         ),
     )
@@ -121,6 +106,37 @@ def _classification_counts(path: Path) -> Counter[str]:
             (row.get("classification") or "").strip().lower() or "unknown"
             for row in csv.DictReader(handle)
         )
+
+
+def _classification_hashes(path: Path, classification: str) -> set[str] | None:
+    """Return exact header identities, or None for a count-only fixture."""
+    hashes: set[str] = set()
+    with path.open(newline="") as handle:
+        for row_number, row in enumerate(csv.DictReader(handle), start=2):
+            row_classification = (
+                row.get("classification") or ""
+            ).strip().lower() or "unknown"
+            if row_classification != classification:
+                continue
+            block_hash = (
+                (row.get("btc_header_hash") or row.get("btc_hash") or "")
+                .strip()
+                .lower()
+            )
+            if not block_hash:
+                return None
+            if len(block_hash) != 64:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed {classification} header hash"
+                )
+            try:
+                int(block_hash, 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed {classification} header hash"
+                ) from exc
+            hashes.add(block_hash)
+    return hashes
 
 
 def _load_publication_baseline(
@@ -225,6 +241,8 @@ def _missing_unknown_observations(
 ) -> Counter[str]:
     """Return baseline unknown-hash observations absent from source inventories."""
     remaining = required.copy()
+    if not remaining:
+        return remaining
     for source in sources:
         if source.path is None or not source.path.is_file():
             continue
@@ -266,69 +284,6 @@ def _accepted_descendant_count(path: Path) -> int:
             if (row.get("classification") or "").strip() == "stale_descendant"
             and (row.get("validation_status") or "").strip() == "VALID_STALE_DESCENDANT"
         )
-
-
-def _supplemental_coverage(
-    paths: list[Path], *, output_dir: Path
-) -> dict[str, Counter[str]]:
-    """Summarize prebuilt out-of-registry evidence for baseline comparison."""
-    coverage: dict[str, Counter[str]] = {}
-    for path in paths:
-        if not path.is_file():
-            raise ValueError(f"supplemental evidence does not exist: {path}")
-        if path.resolve().is_relative_to(output_dir.resolve()):
-            raise ValueError(
-                f"supplemental evidence must be independent of the output directory: {path}"
-            )
-        with path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            missing_fields = (
-                set(EVIDENCE_FIELDS)
-                - SUPPLEMENTAL_LAG_COLUMNS
-                - set(reader.fieldnames or [])
-            )
-            if missing_fields:
-                raise ValueError(
-                    f"supplemental evidence lacks required fields: {path}: "
-                    + ", ".join(sorted(missing_fields))
-                )
-            rows = list(reader)
-        if not rows:
-            raise ValueError(f"supplemental evidence is empty: {path}")
-        chains = {(row.get("chain") or "").strip() for row in rows}
-        if len(chains) != 1 or "" in chains:
-            raise ValueError(f"supplemental evidence must contain one chain: {path}")
-        chain = chains.pop()
-        if chain in coverage:
-            raise ValueError(f"duplicate supplemental evidence chain: {chain}")
-        if chain in CHAIN_SPECS or chain == "stale-descendants":
-            raise ValueError(
-                f"supplemental evidence duplicates integrated chain: {chain}"
-            )
-        for field in ("source_kind", "artifact_scope", "provenance"):
-            values = {(row.get(field) or "").strip() for row in rows}
-            if len(values) != 1 or "" in values:
-                raise ValueError(
-                    f"supplemental evidence has non-uniform {field}: {path}"
-                )
-        counts: Counter[str] = Counter(source_rows=len(rows))
-        for row in rows:
-            classification = (row.get("classification") or "").strip()
-            status = (row.get("validation_status") or "").strip()
-            relevance = (row.get("btc_stale_relevance") or "").strip()
-            if classification == "canonical":
-                counts["canonical"] += 1
-            elif classification == "stale" and status.startswith("VALID"):
-                counts["stale"] += 1
-            elif (
-                classification == "stale_descendant"
-                and status == "VALID_STALE_DESCENDANT"
-            ):
-                counts["stale_descendant"] += 1
-            if relevance in ("strict_btc_orphan", "weak_btc_orphan"):
-                counts[relevance] += 1
-        coverage[chain] = counts
-    return coverage
 
 
 def validate_publication_inputs(
@@ -399,14 +354,6 @@ def validate_publication_inputs(
     if args.skip_canonical:
         problems.append("--skip-canonical is a partial-build option")
 
-    try:
-        supplemental = _supplemental_coverage(
-            args.supplemental_evidence_paths, output_dir=args.output_dir
-        )
-    except (OSError, ValueError) as exc:
-        supplemental = {}
-        problems.append(str(exc))
-
     if sources:
         for chain, baseline_row in baseline.items():
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
@@ -439,22 +386,19 @@ def validate_publication_inputs(
                             "publication baseline"
                         )
                     continue
-                supplied = supplemental.get(chain)
-                if supplied is None:
-                    problems.append(
-                        f"baseline chain {chain} requires --supplemental-evidence"
-                    )
+                canonical_source = canonical.get(chain)
+                if canonical_source is None or canonical_source.path is None:
+                    problems.append(f"{chain} canonical source is missing")
                     continue
-                for category, expected in expected_categories.items():
-                    if supplied[category] < expected:
-                        problems.append(
-                            f"supplemental {chain} {category} coverage is below the "
-                            f"publication baseline ({supplied[category]} < {expected})"
-                        )
-                if supplied["source_rows"] < expected_source_rows:
+                source_counts = _classification_counts(canonical_source.path)
+                if source_counts["canonical"] < expected_categories["canonical"]:
                     problems.append(
-                        f"supplemental {chain} source coverage is below the "
+                        f"{chain} canonical-classified evidence is below the "
                         "publication baseline"
+                    )
+                if _csv_row_count(canonical_source.path) < expected_source_rows:
+                    problems.append(
+                        f"{chain} canonical source is below the publication baseline"
                     )
                 continue
 
@@ -486,6 +430,31 @@ def validate_publication_inputs(
                 # inventory (which could let duplicate stales hide truncation).
                 source_counts = _classification_counts(source.path)
                 coverage = sum(source_counts.values()) - source_counts["stale"]
+                canonical_source = canonical.get(chain)
+                canonical_coverage = source_counts["canonical"]
+                if canonical_source is not None and canonical_source.path is not None:
+                    companion_canonical = _classification_counts(canonical_source.path)[
+                        "canonical"
+                    ]
+                    source_hashes = _classification_hashes(source.path, "canonical")
+                    companion_hashes = _classification_hashes(
+                        canonical_source.path, "canonical"
+                    )
+                    if source_hashes is not None and companion_hashes is not None:
+                        canonical_coverage = len(source_hashes | companion_hashes)
+                        coverage += len(companion_hashes - source_hashes)
+                    elif source_counts["canonical"] == 0:
+                        canonical_coverage = companion_canonical
+                        coverage += companion_canonical
+                    else:
+                        canonical_coverage = max(
+                            canonical_coverage, companion_canonical
+                        )
+                if canonical_coverage < expected_categories["canonical"]:
+                    problems.append(
+                        f"{chain} canonical-classified evidence is below the "
+                        "publication baseline"
+                    )
                 unknown_source = unknown.get(chain)
                 if unknown_source is not None and unknown_source.path is not None:
                     coverage += _csv_row_count(unknown_source.path)
@@ -512,6 +481,16 @@ def validate_publication_inputs(
                     )
             elif baseline_source_kind == "canonical_blocks":
                 canonical_source = canonical.get(chain)
+                # A full archival classifier inventory is authoritative for
+                # its canonical rows even when no separate canonical companion
+                # exists. Accept that strictly richer representation here.
+                if (
+                    canonical_source is None
+                    and source.source_kind == "full_inventory"
+                    and source.provenance == "archive"
+                    and source.path is not None
+                ):
+                    canonical_source = source
                 if (
                     canonical_source is None
                     or canonical_source.provenance != "archive"
@@ -657,7 +636,6 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             reported_output_dir=output_dir,
             chain_archive_dirs=args.chain_archive_dirs,
             relevance_inventory=args.relevance_inventory,
-            supplemental_evidence_paths=args.supplemental_evidence_paths,
             include_canonical=not args.skip_canonical,
             # A publication build fails closed on an unhydrated live-chain
             # row (the importer would silently drop it); a partial diagnostic

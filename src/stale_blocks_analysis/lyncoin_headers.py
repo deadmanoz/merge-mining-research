@@ -102,7 +102,6 @@ MAX_WITNESS_ITEMS = 100_000
 MAX_MERKLE_BRANCH = 64
 
 CANDIDATE_FIELDS = [
-    "child_sequence",
     "child_height",
     "child_block_hash",
     "child_block_hash_display",
@@ -876,7 +875,6 @@ def candidate_row(
     bip34_height = parse_coinbase_height(script_sig)
     outputs = ";".join(output.script_pubkey.hex() for output in auxpow.coinbase.outputs)
     return {
-        "child_sequence": summary.height + 1,
         "child_height": summary.height,
         "child_block_hash": summary.hash_internal.hex(),
         "child_block_hash_display": summary.hash_display,

@@ -37,11 +37,15 @@ from pathlib import Path
 # height, the nVersion AuxPoW flag gate, and the FAKE_AUXPOW_PREFORK_BLOCKS
 # skip-set) stays in this script.
 from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    standard_auxpow_extraction_columns,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_addr
+from stale_blocks_analysis.extract_driver import validate_append_schema
 
 # --- Configuration ---
 BLOCKBOOK_BASE = "https://btcvexplorer.com"
@@ -51,17 +55,7 @@ CHAIN_TIP_HEIGHT = (
 )
 USER_AGENT = "merge-mining-research/bitcoin-vault-extractor"
 
-CSV_COLUMNS = [
-    "btcv_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "btc_height",  # BIP34 height parsed from parent coinbase scriptSig
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-]
+CSV_COLUMNS = standard_auxpow_extraction_columns("btcv_height")
 
 # Pre-fork blocks with auxpow version flag but no AuxPoW header
 # (per src/policy/auxpow.h FAKE_AUXPOW_PREFORK_BLOCKS).
@@ -85,7 +79,7 @@ FAKE_AUXPOW_PREFORK_BLOCKS = {
 # ============================================================================
 
 
-def parse_btcv_block(hex_str: str) -> dict:
+def parse_btcv_block(hex_str: str, expected_child_hash: str | None = None) -> dict:
     """Returns the BTCV header + AuxPoW parent header + parent coinbase tx.
 
     The BTCV block is an 80-byte CPureBlockHeader followed, when the nVersion
@@ -94,7 +88,12 @@ def parse_btcv_block(hex_str: str) -> dict:
     """
     data = bytes.fromhex(hex_str)
     header = parse_parent_header(data[:80])
-    out = {"btcv_header": header}
+    out = {
+        "btcv_header": header,
+        "child_fields": parse_child_header(
+            data[:80], expected_hash_display=expected_child_hash
+        ),
+    }
     auxpow_flag = bool(header["version"] & 0x100)
     if auxpow_flag and header["hash"] not in FAKE_AUXPOW_PREFORK_BLOCKS:
         auxpow, _ = read_auxpow(data, 80)
@@ -188,7 +187,7 @@ def extract_one(
     """
     h = client.get_hash_for_height(height)
     hexblob = client.get_raw_block(h)
-    parsed = parse_btcv_block(hexblob)
+    parsed = parse_btcv_block(hexblob, h)
 
     if "auxpow" not in parsed:
         # Block lacks AuxPoW tail (only happens for pre-h=58420 or fake-prefork).
@@ -204,6 +203,7 @@ def extract_one(
     writer.writerow(
         {
             "btcv_height": height,
+            **parsed["child_fields"],
             "btc_header_hash": parent_hdr["hash"],
             "btc_prev_hash": parent_hdr["prev_hash"],
             "btc_time": parent_hdr["time"],
@@ -300,6 +300,8 @@ def main():
 
     new_file = not out_path.exists() or out_path.stat().st_size == 0
     mode = "a" if (args.resume and not new_file) else "w"
+    if mode == "a":
+        validate_append_schema(out_path, CSV_COLUMNS)
 
     client = BlockbookClient(BLOCKBOOK_BASE, args.rate)
     stats = {"auxpow_blocks": 0, "skipped_no_auxpow": 0, "errors": 0}
@@ -320,6 +322,8 @@ def main():
         for i, h in enumerate(range(effective_start, args.end + 1)):
             try:
                 extract_one(client, h, w, stats)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 stats["errors"] += 1
                 print(f"  [error] height {h}: {e}", flush=True)
