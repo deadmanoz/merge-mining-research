@@ -36,9 +36,12 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import os
 import struct
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
@@ -64,6 +67,36 @@ XAYA_MAGIC = bytes.fromhex("cc be b4 fe".replace(" ", ""))
 FLAG_MERGE_MINED = 0x80
 POW_OFFSET = 80  # PowData starts right after the 80-byte pure header
 AUXPOW_OFFSET = 85  # 80 (header) + 1 (algo) + 4 (nBits)
+
+
+@contextmanager
+def _atomic_csv_writer(output_path: Path, fieldnames: list[str]):
+    """Yield a CSV writer and replace ``output_path`` only after a clean scan."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(output_fd, "w", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            yield writer
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_path, output_path)
+        try:
+            directory_fd = os.open(output_path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _deobfuscate(data: bytes, key: bytes) -> bytes:
@@ -204,67 +237,70 @@ def main() -> None:
         "coinbase_outputs",
         "btc_header_hex",
     ]
-    out = open(args.output, "w", newline="")
-    writer = csv.DictWriter(out, fieldnames=fields)
-    writer.writeheader()
-
     st = {"scanned": 0, "merge_mined": 0, "auxpow_ok": 0, "btc_valid": 0, "errors": 0}
     t0 = time.time()
-    for blk_file in blk_files:
-        p = Path(blk_file)
-        for block_data in iter_blocks_from_file(p, XAYA_MAGIC, xor_key):
-            st["scanned"] += 1
-            parsed = parse_xaya_block(block_data)
-            if parsed is None:
-                st["errors"] += 1
-                continue
-            if not parsed["merge_mined"]:
-                continue
-            st["merge_mined"] += 1
-            auxpow = parsed["auxpow"]
-            if auxpow is None:
-                st["errors"] += 1
-                continue
-            st["auxpow_ok"] += 1
-            raw80 = auxpow["parent_header_raw"]
-            if len(raw80) != 80:
-                continue
-            parent = parse_parent_header(raw80)
-            if parent["bits"] in (0, 0x7FFFFFFF):
-                continue
-            if btc_difficulty_only and not hash_meets_btc_difficulty(
-                hash_from_header_bytes(raw80), parent["bits"]
-            ):
-                continue
-            st["btc_valid"] += 1
-            cb = auxpow["coinbase_tx"]
-            scriptsig = cb["vin"][0]["scriptsig"] if cb["vin"] else b""
-            bip34 = parse_coinbase_height(scriptsig)
-            writer.writerow(
-                {
-                    "child_height": parsed["child_height"],
-                    **parsed["child_fields"],
-                    "btc_header_hash": parent["hash"],
-                    "btc_prev_hash": parent["prev_hash"],
-                    "btc_time": parent["time"],
-                    "btc_bits": parent["bits_hex"],
-                    "btc_bip34_height": bip34 if bip34 is not None else "",
-                    "btc_nonce": parent["nonce"],
-                    "coinbase_scriptsig_hex": scriptsig.hex(),
-                    "coinbase_outputs": format_outputs_pkhex(cb["vout"]),
-                    "btc_header_hex": parent["header_hex"],
-                }
-            )
-            if st["btc_valid"] % 1000 == 0:
-                print(
-                    f"  {st['scanned']:>10,} scanned | {st['merge_mined']:>9,} merge-mined | "
-                    f"{st['btc_valid']:>7,} self-target-valid | {p.name}"
+    with _atomic_csv_writer(args.output, fields) as writer:
+        for blk_file in blk_files:
+            p = Path(blk_file)
+            for block_data in iter_blocks_from_file(p, XAYA_MAGIC, xor_key):
+                st["scanned"] += 1
+                try:
+                    parsed = parse_xaya_block(block_data)
+                except ChildHeaderValidationError:
+                    st["merge_mined"] += 1
+                    st["errors"] += 1
+                    continue
+                if parsed is None:
+                    st["errors"] += 1
+                    continue
+                if not parsed["merge_mined"]:
+                    continue
+                st["merge_mined"] += 1
+                auxpow = parsed["auxpow"]
+                if auxpow is None:
+                    st["errors"] += 1
+                    continue
+                st["auxpow_ok"] += 1
+                raw80 = auxpow["parent_header_raw"]
+                if len(raw80) != 80:
+                    continue
+                parent = parse_parent_header(raw80)
+                if parent["bits"] in (0, 0x7FFFFFFF):
+                    continue
+                if btc_difficulty_only and not hash_meets_btc_difficulty(
+                    hash_from_header_bytes(raw80), parent["bits"]
+                ):
+                    continue
+                st["btc_valid"] += 1
+                cb = auxpow["coinbase_tx"]
+                scriptsig = cb["vin"][0]["scriptsig"] if cb["vin"] else b""
+                bip34 = parse_coinbase_height(scriptsig)
+                writer.writerow(
+                    {
+                        "child_height": parsed["child_height"],
+                        **parsed["child_fields"],
+                        "btc_header_hash": parent["hash"],
+                        "btc_prev_hash": parent["prev_hash"],
+                        "btc_time": parent["time"],
+                        "btc_bits": parent["bits_hex"],
+                        "btc_bip34_height": bip34 if bip34 is not None else "",
+                        "btc_nonce": parent["nonce"],
+                        "coinbase_scriptsig_hex": scriptsig.hex(),
+                        "coinbase_outputs": format_outputs_pkhex(cb["vout"]),
+                        "btc_header_hex": parent["header_hex"],
+                    }
                 )
-        print(
-            f"  done {p.name}: scanned={st['scanned']:,} merge-mined={st['merge_mined']:,} "
-            f"self-target-valid={st['btc_valid']:,}"
-        )
-    out.close()
+                if st["btc_valid"] % 1000 == 0:
+                    print(
+                        f"  {st['scanned']:>10,} scanned | "
+                        f"{st['merge_mined']:>9,} merge-mined | "
+                        f"{st['btc_valid']:>7,} self-target-valid | {p.name}"
+                    )
+            print(
+                f"  done {p.name}: scanned={st['scanned']:,} "
+                f"merge-mined={st['merge_mined']:,} "
+                f"self-target-valid={st['btc_valid']:,}"
+            )
     dt = time.time() - t0
     print("\n=== Xaya AuxPoW extraction summary ===")
     print(f"  blocks scanned:        {st['scanned']:,}")

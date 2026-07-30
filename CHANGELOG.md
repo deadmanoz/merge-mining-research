@@ -13,10 +13,11 @@ non-empty exports without an exact child height disclose
 `child_height=unavailable`.
 
 Derive Xaya's exact consensus child height from its BIP34 child coinbase after
-the `PowData`/`CAuxPow` wrapper. Validate every populated field in incomplete
-coverage bundles, require the stale-descendant coverage input, and align
-canonical-companion `source_rows` accounting with the deduplicated publication
-projection.
+the `PowData`/`CAuxPow` wrapper, skip malformed child coinbases without ending
+the scan, and replace extraction output transactionally. Validate every
+populated field in incomplete coverage bundles, require the stale-descendant
+coverage input, and align canonical-companion `source_rows` accounting with the
+deduplicated publication projection.
 
 Integrate VCash's partial canonical recovery through the standard discovered
 `vcash_canonical_blocks.csv` source and normal evidence validation path. Remove

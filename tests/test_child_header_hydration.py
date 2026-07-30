@@ -226,6 +226,78 @@ def test_xaya_rejects_child_transaction_without_bip34_height():
         )
 
 
+def _write_xaya_blkdat(path: Path, mod, *blocks: bytes) -> None:
+    path.write_bytes(
+        b"".join(
+            mod.XAYA_MAGIC + struct.pack("<I", len(block)) + block for block in blocks
+        )
+    )
+
+
+def _set_xaya_main_argv(
+    monkeypatch: pytest.MonkeyPatch, blocks_dir: Path, output_path: Path
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "extract_xaya_auxpow.py",
+            "--blocks-dir",
+            str(blocks_dir),
+            "--output",
+            str(output_path),
+            "--all-headers",
+        ],
+    )
+
+
+def test_xaya_main_skips_malformed_height_and_keeps_scanning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    mod = _load_script("extract_xaya_auxpow")
+    blocks_dir = tmp_path / "blocks"
+    blocks_dir.mkdir()
+    malformed_coinbase = bytearray(_minimal_coinbase(1))
+    malformed_coinbase[42] = 0
+    valid_height = 2_840_038
+    _write_xaya_blkdat(
+        blocks_dir / "blk00000.dat",
+        mod,
+        _xaya_block_with_child_coinbase(mod, malformed_coinbase),
+        _xaya_block_with_child_coinbase(mod, _minimal_coinbase(valid_height)),
+    )
+    output_path = tmp_path / "xaya.csv"
+    _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
+
+    mod.main()
+
+    with output_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["child_height"] for row in rows] == [str(valid_height)]
+
+
+def test_xaya_main_preserves_output_on_unhandled_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    mod = _load_script("extract_xaya_auxpow")
+    blocks_dir = tmp_path / "blocks"
+    blocks_dir.mkdir()
+    _write_xaya_blkdat(blocks_dir / "blk00000.dat", mod, b"candidate")
+    output_path = tmp_path / "xaya.csv"
+    output_path.write_text("last good output\n")
+    _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
+
+    def fail(_block_data: bytes):
+        raise RuntimeError("unexpected extractor failure")
+
+    monkeypatch.setattr(mod, "parse_xaya_block", fail)
+    with pytest.raises(RuntimeError, match="unexpected extractor failure"):
+        mod.main()
+
+    assert output_path.read_text() == "last good output\n"
+    assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
+
+
 def _set_huntercoin_main_argv(
     monkeypatch: pytest.MonkeyPatch,
     *,
