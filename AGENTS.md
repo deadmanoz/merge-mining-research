@@ -90,7 +90,7 @@ just check-leaks
 ```
 
 `just monitor-evidence` is a publication build and fails closed unless the
-private archive, relevance, and supplemental inputs are complete. Diagnostic
+private archive and relevance inputs are complete. Diagnostic
 builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
 `--skip-canonical` is diagnostic-only, and normal publication includes every
 available canonical row for every chain. Never point a partial build at the

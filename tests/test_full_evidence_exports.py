@@ -1606,6 +1606,35 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
     assert devcoin["stale"] == "1"
 
 
+@pytest.mark.parametrize("builder", ["full", "monitor"])
+def test_evidence_exports_reject_mixed_unknown_storage(
+    tmp_path: Path, builder: str
+) -> None:
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    header_hex, header_hash = _header()
+    unknown_row = {
+        "btc_height": "800000",
+        "btc_header_hash": header_hash,
+        "btc_header_hex": header_hex,
+        "classification": "unknown",
+    }
+    unknown_row.update(_child_fields())
+    _write_csv(data_dir / "devcoin_stale_blocks.csv", [unknown_row])
+    _write_csv(data_dir / "devcoin_unknown_blocks.csv", [unknown_row])
+
+    with pytest.raises(ValueError, match="uniform split outputs"):
+        if builder == "full":
+            build_full_evidence_exports(data_dir=data_dir, output_dir=tmp_path / "full")
+        else:
+            build_monitor_evidence_exports(
+                data_dir=data_dir,
+                output_dir=tmp_path / "monitor",
+                relevance_inventory=None,
+            )
+
+
 def test_monitor_export_discovers_and_normalizes_vcash_canonical_source(
     tmp_path: Path,
 ) -> None:

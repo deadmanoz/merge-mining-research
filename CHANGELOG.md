@@ -121,7 +121,7 @@ imported rows exactly like live capture and deduplicate against it.
   rows keep reproducible in-repo source paths. Doichain's authoritative
   50,621-row inventory remains an explicit archive-layout declaration rather
   than a smaller substitute.
-- Harden the final provenance and validation contract: redact supplemental
+- Harden the final provenance and validation contract: redact private archive
   staging roots, union disjoint canonical companions by exact header identity,
   preserve original input row numbers in evidence diagnostics, and fail closed
   on malformed Terracoin RPC child-header fields.

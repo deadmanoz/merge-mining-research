@@ -714,6 +714,20 @@ def merge_stats(a: SourceStats, b: SourceStats) -> SourceStats:
     return merged
 
 
+def enforce_unknown_split_contract(
+    source: EvidenceSource,
+    stats: SourceStats,
+    unknown_companion: EvidenceSource | None,
+) -> None:
+    """Reject inventories that mix in-file and split unknown storage."""
+    if unknown_companion is not None and stats.classifications["unknown"]:
+        raise ValueError(
+            f"{source.path}: contains unknown rows while "
+            f"{unknown_companion.path} also exists; regenerate the classifier "
+            "inventory into uniform split outputs"
+        )
+
+
 def dedupe_canonical_companion_rows(
     primary_rows: list[dict[str, str]],
     companion_rows: list[dict[str, str]],
@@ -1357,6 +1371,7 @@ def build_full_evidence_exports(
             )
         unknown_companion = unknown_sources.get(chain)
         if unknown_companion is not None:
+            enforce_unknown_split_contract(source, stats, unknown_companion)
             unknown_rows, unknown_stats = collect_source_rows(unknown_companion)
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
@@ -1703,6 +1718,7 @@ def build_monitor_evidence_exports(
                 stale_descendant_observations=descendant_observations,
             )
         if unknown_companion is not None:
+            enforce_unknown_split_contract(source, stats, unknown_companion)
             unknown_rows, unknown_stats = collect_source_rows(unknown_companion)
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
