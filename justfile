@@ -45,16 +45,20 @@ full-evidence:
 strict-weak-orphans *ARGS:
     {{python}} scripts/reports/build_strict_weak_orphans.py {{ARGS}}
 
-# Build the publication monitor-evidence exports (curated canonical rows,
+# Build the publication monitor-evidence exports (all available canonical rows,
 # gate-accepted stales, valid descendants, and strict/weak BTC orphans).
 # This fails closed unless a private archive and relevance inventory are
 # available. A disposable diagnostic build must opt in explicitly with
 # `--allow-partial` (and may add `--skip-canonical`).
 #   just monitor-evidence --chain-archive-dir <private-chain-archive>/chains \
 #     --relevance-inventory <private-relevance-inventory.csv> \
-#     --supplemental-evidence <private-vcash-canonical-hydration.csv>
+#     --supplemental-evidence <out-of-registry-evidence.csv>
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
+
+# Validate and report child-header coverage across the 17 historical chains.
+child-header-coverage *ARGS:
+    {{python}} scripts/reports/report_child_header_coverage.py {{ARGS}}
 
 # ── Tests ───────────────────────────────────────────────────────────────
 

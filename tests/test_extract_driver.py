@@ -14,10 +14,21 @@ import importlib.util
 import struct
 from pathlib import Path
 
-from stale_blocks_analysis import extract_driver
-from stale_blocks_analysis.auxpow_parse import parse_parent_header
+import pytest
 
-CSV_COLUMNS = ["height", "btc_header_hash", "coinbase_scriptsig_hex"]
+from stale_blocks_analysis import extract_driver
+from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
+    parse_parent_header,
+)
+
+CSV_COLUMNS = [
+    "height",
+    *CHILD_HEADER_FIELDS,
+    "btc_header_hash",
+    "coinbase_scriptsig_hex",
+]
 
 # Sentinel nVersion the synthetic chain's gate treats as "AuxPoW present".
 GATE_VERSION = 0x00000101
@@ -65,7 +76,7 @@ def _auxpow_block_hex(version: int, scriptsig: bytes, nonce: int) -> str:
     exactly: coinbase tx, hashBlock, empty merkle branch, nIndex, empty
     chain merkle branch, nChainIndex, then the 80-byte parent header.
     """
-    child_header = struct.pack("<i", version) + b"\x00" * 76
+    child_header = struct.pack("<i", version) + b"\x00" * 72 + struct.pack("<I", nonce)
     tail = (
         _coinbase_tx_bytes(scriptsig)
         + b"\x00" * 32  # hashBlock
@@ -85,11 +96,12 @@ def _gate(version: int, stats: dict) -> bool:
     return True
 
 
-def _parse_row(height: int, auxpow: dict) -> dict:
+def _parse_row(height: int, auxpow: dict, child_fields: dict) -> dict:
     parent = parse_parent_header(auxpow["parent_header_raw"])
     scriptsig = auxpow["coinbase_tx"]["vin"][0]["scriptsig"]
     return {
         "height": height,
+        **child_fields,
         "btc_header_hash": parent["hash"],
         "coinbase_scriptsig_hex": scriptsig.hex(),
     }
@@ -115,14 +127,72 @@ class _FakeRpc:
             heights = [c["params"][0] for c in calls]
             if len(calls) > 1 and self.fail_hash_batch_heights & set(heights):
                 raise RuntimeError("simulated getblockhash batch failure")
-            return [{"id": c["id"], "result": f"h{c['params'][0]}"} for c in calls]
+            results = []
+            for c in calls:
+                block_hex = self.blocks.get(c["params"][0], "")
+                raw = bytes.fromhex(block_hex)
+                block_hash = (
+                    parse_parent_header(raw[:80])["hash"]
+                    if len(raw) >= 80
+                    else f"{c['params'][0]:064x}"
+                )
+                results.append({"id": c["id"], "result": block_hash})
+            return results
         if method == "getblock":
             results = []
             for c in calls:
-                height = int(c["params"][0][1:])  # strip the "h" prefix
+                expected_hash = c["params"][0]
+                height = next(
+                    h
+                    for h, block_hex in self.blocks.items()
+                    if (
+                        parse_parent_header(bytes.fromhex(block_hex)[:80])["hash"]
+                        if len(bytes.fromhex(block_hex)) >= 80
+                        else f"{h:064x}"
+                    )
+                    == expected_hash
+                )
                 results.append({"id": c["id"], "result": self.blocks.get(height, "")})
             return results
         raise AssertionError(f"unexpected RPC method in test: {method}")
+
+
+class _MismatchingHashRpc:
+    def __init__(self, block_hex: str):
+        self.block_hex = block_hex
+
+    def batch(self, calls: list) -> list:
+        if calls[0]["method"] == "getblockhash":
+            return [{"id": call["id"], "result": "ff" * 32} for call in calls]
+        if calls[0]["method"] == "getblock":
+            return [{"id": call["id"], "result": self.block_hex} for call in calls]
+        raise AssertionError("unexpected RPC method")
+
+
+def test_run_extraction_fails_hard_on_child_hash_mismatch(tmp_path: Path) -> None:
+    stats = {
+        "auxpow_blocks": 0,
+        "skipped_empty": 0,
+        "skipped_short": 0,
+        "skipped_gate": 0,
+        "skipped_parse_error": 0,
+    }
+
+    with pytest.raises(ChildHeaderValidationError, match="hash mismatch"):
+        extract_driver.run_extraction(
+            rpc=_MismatchingHashRpc(
+                _auxpow_block_hex(GATE_VERSION, b"\x01", nonce=100)
+            ),
+            start=100,
+            end=101,
+            batch_size=1,
+            output_path=tmp_path / "out.csv",
+            csv_columns=CSV_COLUMNS,
+            gate=_gate,
+            parse_row=_parse_row,
+            stats=stats,
+            append=False,
+        )
 
 
 def test_run_extraction_gate_parse_batching_retry_and_resume(tmp_path: Path) -> None:
@@ -174,6 +244,9 @@ def test_run_extraction_gate_parse_batching_retry_and_resume(tmp_path: Path) -> 
     assert rows[0]["coinbase_scriptsig_hex"] == "01"
     assert rows[1]["coinbase_scriptsig_hex"] == "04"
     assert rows[2]["coinbase_scriptsig_hex"] == "05"
+    assert rows[0]["child_header_hex"] == blocks[100][:160]
+    assert rows[0]["child_block_time"] == "0"
+    assert rows[0]["child_nbits"] == "00000000"
     # The written hash must match what parse_parent_header derives directly
     # from the same synthetic parent header bytes (adversarial cross-check,
     # not a re-assertion of the row-building code under test).
@@ -205,7 +278,7 @@ def test_run_extraction_gate_parse_batching_retry_and_resume(tmp_path: Path) -> 
     )
 
     text = out_path.read_text()
-    assert text.count("height,btc_header_hash,coinbase_scriptsig_hex") == 1
+    assert text.count(",".join(CSV_COLUMNS)) == 1
     with out_path.open(newline="") as f:
         rows = list(csv.DictReader(f))
     assert [r["height"] for r in rows] == ["100", "104", "105", "106"]

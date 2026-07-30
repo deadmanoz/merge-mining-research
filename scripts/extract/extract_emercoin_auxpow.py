@@ -35,7 +35,13 @@ from stale_blocks_analysis.auxpow_chainid import (
     hash_to_display_hex,
 )
 from stale_blocks_analysis.child_rpc import RpcClient
-from stale_blocks_analysis.auxpow_parse import parse_coinbase_height
+from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
+    parse_child_header,
+    parse_coinbase_height,
+    serialize_block_header,
+)
 
 FIRST_AUXPOW_HEIGHT = 219_809  # MMHeight from src/chainparams.cpp:158
 PROGRESS_INTERVAL = 10_000
@@ -43,6 +49,7 @@ FLUSH_INTERVAL = 10_000
 
 CSV_COLUMNS = [
     "emc_height",
+    *CHILD_HEADER_FIELDS,
     "btc_header_hash",
     "btc_prev_hash",
     "btc_time",
@@ -97,6 +104,15 @@ def extract_one(rpc: RpcClient, height: int) -> tuple[int, dict | None, str | No
         return height, None, None  # PoW block without AuxPoW commitment
 
     try:
+        child_raw = serialize_block_header(
+            version=block["version"],
+            previous_block_hash=block["previousblockhash"],
+            merkle_root=block["merkleroot"],
+            timestamp=block["time"],
+            bits=block["bits"],
+            nonce=block["nonce"],
+        )
+        child_fields = parse_child_header(child_raw, expected_hash_display=block_hash)
         parent = ap["parent_block"]
         coinbase_tx = ap["coinbasetx"]
         vin = coinbase_tx.get("vin", [])
@@ -126,6 +142,7 @@ def extract_one(rpc: RpcClient, height: int) -> tuple[int, dict | None, str | No
 
         row = {
             "emc_height": height,
+            **child_fields,
             "btc_header_hash": parent["hash"],
             "btc_prev_hash": parent["previousblockhash"],
             "btc_time": parent["time"],
@@ -136,6 +153,8 @@ def extract_one(rpc: RpcClient, height: int) -> tuple[int, dict | None, str | No
             "btc_header_hex": header_raw.hex(),
         }
         return height, row, None
+    except ChildHeaderValidationError:
+        raise
     except Exception as e:
         return height, None, f"parse: {e}"
 
@@ -274,6 +293,8 @@ def main():
                     h = futures[fut]
                     try:
                         height, row, err = fut.result()
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e:
                         print(f"  height {h} worker exception: {e}", flush=True)
                         stats["errors"] += 1

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -261,6 +262,57 @@ def test_canonical_baseline_requires_canonical_classified_rows(
     assert "canonical-classified evidence is below" in capsys.readouterr().err
 
 
+def test_canonical_baseline_accepts_canonical_rows_in_full_inventory(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "sixeleven_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir
+        / "chains"
+        / "sixeleven"
+        / "classified"
+        / "sixeleven_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("classification\ncanonical\ncanonical\nunknown\n")
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="sixeleven",
+        source_kind="canonical_blocks",
+        canonical=2,
+        source_rows=2,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_missing_unknown_observations_skips_sources_when_none_are_required(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    source_path = tmp_path / "incomplete.csv"
+    source_path.write_text("classification\ncanonical\n")
+    source = module.EvidenceSource(
+        chain="geistgeld",
+        display_name="Geistgeld",
+        path=source_path,
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="archive",
+    )
+
+    assert module._missing_unknown_observations(Counter(), [source]) == Counter()
+
+
 def test_full_inventory_coverage_applies_validated_stale_replacement(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -292,6 +344,111 @@ def test_full_inventory_coverage_applies_validated_stale_replacement(
 
     error = capsys.readouterr().err
     assert "private inventory is below the publication baseline (2 < 3)" in error
+
+
+def test_full_inventory_coverage_counts_split_canonical_companion(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\nstale,VALID\n")
+    archive_dir = tmp_path / "archive"
+    classified_dir = archive_dir / "chains" / "namecoin" / "classified"
+    classified_dir.mkdir(parents=True)
+    (classified_dir / "namecoin_stale_blocks.csv").write_text(
+        "classification\nstale\nstale\n"
+    )
+    (classified_dir / "namecoin_unknown_blocks.csv").write_text(
+        "classification\nunknown\n"
+    )
+    (classified_dir / "namecoin_canonical_blocks.csv").write_text(
+        "classification\ncanonical\ncanonical\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=2,
+        stale=1,
+        source_rows=4,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_full_inventory_coverage_unions_disjoint_canonical_companion(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    classified_dir = archive_dir / "chains" / "namecoin" / "classified"
+    classified_dir.mkdir(parents=True)
+    (classified_dir / "namecoin_stale_blocks.csv").write_text(
+        f"classification,btc_header_hash\ncanonical,{'11' * 32}\nunknown,{'44' * 32}\n"
+    )
+    (classified_dir / "namecoin_canonical_blocks.csv").write_text(
+        "classification,btc_header_hash\n"
+        f"canonical,{'22' * 32}\n"
+        f"canonical,{'33' * 32}\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=3,
+        source_rows=4,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_full_inventory_cannot_hide_canonical_loss_with_more_unknown_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    classified_dir = archive_dir / "chains" / "namecoin" / "classified"
+    classified_dir.mkdir(parents=True)
+    (classified_dir / "namecoin_stale_blocks.csv").write_text(
+        "classification\nunknown\nunknown\nunknown\n"
+    )
+    (classified_dir / "namecoin_canonical_blocks.csv").write_text(
+        "classification\ncanonical\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=2,
+        source_rows=3,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert "canonical-classified evidence is below" in capsys.readouterr().err
 
 
 def test_full_inventory_must_retain_per_chain_baseline_relevance_rows(

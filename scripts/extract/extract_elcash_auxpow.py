@@ -33,6 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from stale_blocks_analysis.child_rpc import RpcClient  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    CHILD_HEADER_FIELDS,
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
@@ -48,6 +50,7 @@ PROGRESS_INTERVAL = 10_000
 
 CSV_COLUMNS = [
     "elc_height",
+    *CHILD_HEADER_FIELDS,
     "btc_header_hash",
     "btc_prev_hash",
     "btc_time",
@@ -146,6 +149,8 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict) -> 
             stats["skipped_parse_error"] += 1
             continue
 
+        child_fields = parse_child_header(raw[:80], expected_hash_display=hashes[i])
+
         parent = parse_parent_header(auxpow["parent_header_raw"])
         tx = auxpow["coinbase_tx"]
         scriptsig = tx["vin"][0]["scriptsig"] if tx["vin"] else b""
@@ -155,6 +160,7 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict) -> 
         writer.writerow(
             {
                 "elc_height": height,
+                **child_fields,
                 "btc_header_hash": parent["hash"],
                 "btc_prev_hash": parent["prev_hash"],
                 "btc_time": parent["time"],

@@ -5,7 +5,10 @@ Classify CoiledCoin AuxPoW candidates as canonical, stale, or unknown.
 Input: output of extract_auxpow_from_blkdat.py --chain coiledcoin
        (fields: child_height, btc_hash, btc_prev_hash, btc_time, btc_bits_hex,
                 btc_bip34_height, btc_nonce, coinbase_scriptsig_hex,
-                coinbase_outputs, btc_header_hex)
+                coinbase_outputs, btc_header_hex, child_block_hash,
+                child_header_hex, child_block_time, child_nbits). The BIP34
+                commitment is retained as evidence; it is not promoted to the
+                authoritative btc_height field.
 
 Phases:
   1. Deduplicate by btc_hash (multiple CLC blocks can embed the same BTC header)
@@ -33,6 +36,10 @@ from stale_blocks_analysis.btc_classify import (
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
+from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    validate_child_header_fields,
+)
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
 from stale_blocks_analysis.config import CHAIN_SPECS
 
@@ -52,7 +59,7 @@ OUTPUT_COLUMNS = output_columns(_SPEC.height_column) + ["eligius_attack_window"]
 
 def remap_candidate(row):
     """Rename extractor's fields to classifier's expected names (in place)."""
-    return {
+    candidate = {
         "btc_header_hash": row["btc_hash"],
         "btc_prev_hash": row["btc_prev_hash"],
         "btc_time": row["btc_time"],
@@ -61,8 +68,21 @@ def remap_candidate(row):
         "coinbase_outputs": row["coinbase_outputs"],
         "btc_header_hex": row["btc_header_hex"],
         "clc_height": row["child_height"],
-        "btc_height": row.get("btc_bip34_height") or "",
+        "child_block_hash": row.get("child_block_hash", ""),
+        "child_header_hex": row.get("child_header_hex", ""),
+        "child_block_time": row.get("child_block_time", ""),
+        "child_nbits": row.get("child_nbits", ""),
+        # A coinbase BIP34 commitment is candidate evidence, not an
+        # authoritative Bitcoin height. Classification fills btc_height only
+        # when the header or its parent resolves on Bitcoin's active chain.
+        "btc_height": "",
+        "btc_bip34_height": row.get("btc_bip34_height", ""),
     }
+    validate_child_header_fields(
+        candidate,
+        nbits_from_header=_SPEC.child_nbits_from_header,
+    )
+    return candidate
 
 
 def main():
@@ -103,13 +123,19 @@ def main():
     total_rows = 0
     with open(args.input) as f:
         reader = csv.DictReader(f)
-        for row in reader:
+        for row_number, row in enumerate(reader, start=2):
             total_rows += 1
             h = row["btc_hash"]
             if h in seen:
                 continue
             seen.add(h)
-            candidates.append(remap_candidate(row))
+            try:
+                candidates.append(remap_candidate(row))
+            except ChildHeaderValidationError as exc:
+                raise ChildHeaderValidationError(
+                    f"coiledcoin classifier input row {row_number} "
+                    f"(btc_header_hash={h}): {exc}"
+                ) from exc
     print(f"  Total rows:         {total_rows:,}")
     print(f"  Unique BTC hashes:  {len(candidates):,}")
     print(f"  Load time:          {time.time() - t0:.1f}s")

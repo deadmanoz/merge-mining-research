@@ -45,6 +45,7 @@ from stale_blocks_analysis.auxpow_chainid import (  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     VERSION_AUXPOW,
     hash_meets_btc_difficulty,
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
@@ -62,6 +63,10 @@ CHAINS = {
         "auxpow_start": 160_000,
         "chain_id": 2,
         "name": "i0coin",
+        # The original offline snapshot pipeline exposed the reproducible
+        # blk*.dat scan counter as child_height. Preserve that established
+        # classifier input contract when regenerating the historical set.
+        "child_height_from_sequence": True,
     },
     "ixcoin": {
         "magic": bytes([0xF1, 0xBA, 0xB6, 0xDB]),
@@ -89,6 +94,9 @@ CHAINS = {
         "auxpow_start": 0,  # GetAuxPowStartBlock returns 0 — AuxPoW accepted from genesis+1
         "chain_id": 16,  # collides with Syscoin's chain ID but independent at runtime
         "name": "CoiledCoin",
+        # CoiledCoin's chain-specific classifier has the same historical
+        # child_height contract as the i0coin offline pipeline.
+        "child_height_from_sequence": True,
     },
     "lyncoin": {
         "magic": bytes.fromhex("52030e2f"),
@@ -233,8 +241,8 @@ def parse_block(block_data: bytes) -> dict | None:
     # Parse the child chain's 80-byte block header
     child_header = block_data[:80]
     child_version = struct.unpack_from("<i", child_header, 0)[0]
-    child_time = struct.unpack_from("<I", child_header, 68)[0]
     child_hash_internal = hash_from_header_bytes(child_header)
+    child_fields = parse_child_header(child_header)
 
     result = {
         # MMM's normalized importer expects child_block_hash in internal
@@ -242,9 +250,11 @@ def parse_block(block_data: bytes) -> dict | None:
         # display hex for diagnostics and make the distinction explicit.
         "child_block_hash": child_hash_internal.hex(),
         "child_hash": hash_to_display_hex(child_hash_internal),
+        "child_header_hex": child_fields["child_header_hex"],
         "child_version": child_version,
         "child_chain_id": child_chain_id(child_version),
-        "child_block_time": child_time,
+        "child_block_time": child_fields["child_block_time"],
+        "child_nbits": child_fields["child_nbits"],
         "has_auxpow": False,
         "auxpow": None,
     }
@@ -262,18 +272,31 @@ def parse_block(block_data: bytes) -> dict | None:
     return result
 
 
-def provisional_child_fields(parsed: dict, child_sequence: int) -> dict:
-    """Return raw child identity fields without inventing a consensus height."""
+def provisional_child_fields(
+    parsed: dict,
+    child_sequence: int,
+    *,
+    child_height_from_sequence: bool = False,
+) -> dict:
+    """Return raw child fields using the configured historical height contract.
+
+    Most generic blk-file workflows leave ``child_height`` blank for a later
+    RPC-backed resolution pass. The original i0coin and CoiledCoin pipelines
+    instead use the reproducible scan counter as their classifier-facing
+    ``child_height``; their chain configs opt into preserving that schema.
+    """
     if child_sequence < 1:
         raise ValueError("child_sequence must be at least 1")
     return {
         "child_sequence": child_sequence,
-        "child_height": "",
+        "child_height": child_sequence if child_height_from_sequence else "",
         "child_block_hash": parsed["child_block_hash"],
         "child_block_hash_display": parsed["child_hash"],
+        "child_header_hex": parsed["child_header_hex"],
         "child_version": parsed["child_version"],
         "child_chain_id": parsed["child_chain_id"],
         "child_block_time": parsed["child_block_time"],
+        "child_nbits": parsed["child_nbits"],
     }
 
 
@@ -302,10 +325,12 @@ def process_chain(
     filtered to parents whose hash meets the target encoded in that parent's
     own ``nBits`` field. Skip reasons are tallied into a local ``stats`` dict and
     printed as a summary. The emitted ``child_sequence`` is a reproducible
-    blk*.dat scan-order counter, not a consensus height; resolving true
-    child heights is a separate, later pass. Writes to a temp file in
-    ``output_path``'s directory and atomically renames it into place on
-    completion, fsyncing both the file and its directory entry.
+    blk*.dat scan-order counter, not a consensus height. Chains with the
+    historical ``child_height_from_sequence`` contract also expose that value
+    as ``child_height``; other chains leave the height blank for a later exact
+    RPC resolution pass. Writes to a temp file in ``output_path``'s directory
+    and atomically renames it into place on completion, fsyncing both the file
+    and its directory entry.
     """
     magic = chain_config["magic"]
     chain_name = chain_config["name"]
@@ -329,9 +354,11 @@ def process_chain(
         "child_height",
         "child_block_hash",
         "child_block_hash_display",
+        "child_header_hex",
         "child_version",
         "child_chain_id",
         "child_block_time",
+        "child_nbits",
         "btc_hash",
         "btc_prev_hash",
         "btc_time",
@@ -425,7 +452,13 @@ def process_chain(
             outputs = format_outputs_pkhex(coinbase_tx["vout"])
 
             row = {
-                **provisional_child_fields(parsed, block_sequence),
+                **provisional_child_fields(
+                    parsed,
+                    block_sequence,
+                    child_height_from_sequence=chain_config.get(
+                        "child_height_from_sequence", False
+                    ),
+                ),
                 "btc_hash": parent["hash"],
                 "btc_prev_hash": parent["prev_hash"],
                 "btc_time": parent["time"],

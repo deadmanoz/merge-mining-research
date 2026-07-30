@@ -17,6 +17,7 @@ from stale_blocks_analysis.auxpow_chainid import (
     hash_from_header_bytes,
     hash_to_display_hex,
 )
+from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.btc_classify import (
     _ordered_batch_responses,
     classify_candidates,
@@ -120,6 +121,13 @@ def _candidate(
 ) -> dict:
     raw = bytes.fromhex(header_hex)
     bits = int.from_bytes(raw[72:76], "little")
+    child_time = 1_600_000_000 + int(child_h)
+    child_header = (
+        struct.pack("<I", 1)
+        + b"\x33" * 32
+        + b"\x44" * 32
+        + struct.pack("<III", child_time, 0x1D00FFFF, int(child_h))
+    )
     return {
         "btc_height": height,
         "btc_header_hash": header_hash,
@@ -130,6 +138,10 @@ def _candidate(
         "coinbase_outputs": "out",
         "btc_header_hex": header_hex,
         "ixc_height": child_h,
+        "child_block_hash": hash_from_header_bytes(child_header).hex(),
+        "child_header_hex": child_header.hex(),
+        "child_block_time": str(child_time),
+        "child_nbits": "1d00ffff",
     }
 
 
@@ -307,6 +319,10 @@ def test_output_columns_order_with_height_col():
         "coinbase_outputs",
         "btc_header_hex",
         "ixc_height",
+        "child_block_hash",
+        "child_header_hex",
+        "child_block_time",
+        "child_nbits",
         "classification",
         "validation_status",
         "expected_nbits",
@@ -426,6 +442,10 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert stale_rows[stale_valid_hash]["btc_height"] == "500"  # prev+1 override
     assert stale_rows[stale_valid_hash]["validation_status"] == "VALID"
     assert stale_rows[stale_valid_hash]["expected_nbits"] == canonical_bits
+    assert (
+        stale_rows[stale_valid_hash]["child_header_hex"] == rows[1]["child_header_hex"]
+    )
+    assert stale_rows[stale_valid_hash]["child_nbits"] == "1d00ffff"
     assert stale_rows[stale_rej_hash]["validation_status"].startswith("REJECTED")
 
     # Unknown file: the single unknown row, split out of the stale inventory.
@@ -436,6 +456,7 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert len(unknown_rows) == 1
     assert unknown_rows[0]["btc_header_hash"] == unknown_hash
     assert unknown_rows[0]["classification"] == "unknown"
+    assert unknown_rows[0]["child_header_hex"] == rows[3]["child_header_hex"]
 
     # Canonical artifact: canonical rows with Core's height authoritative.
     with open(summary["canonical_output_path"], newline="") as f:
@@ -446,6 +467,168 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert canonical_rows[0]["btc_header_hash"] == canon_hash
     assert canonical_rows[0]["classification"] == "canonical"
     assert canonical_rows[0]["btc_height"] == "1000"
+    assert canonical_rows[0]["child_header_hex"] == rows[0]["child_header_hex"]
+
+
+def test_run_classifier_normalizes_decimal_bits_once(tmp_path):
+    prev_known = "aa" * 32
+    stale_hex, stale_hash = _passing_header(prev_known)
+    row = _candidate(stale_hex, stale_hash, prev_known, "9", "20")
+    row["btc_bits"] = str(int(row["btc_bits"], 16))
+
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+
+    canonical_bits = f"{REGTEST_BITS:08x}"
+    canonical_hash = _canonical_hash(500)
+    rpc = FakeRpc(
+        {
+            prev_known: {
+                "height": 499,
+                "bits": canonical_bits,
+                "confirmations": 2,
+            },
+            canonical_hash: {
+                "height": 500,
+                "bits": canonical_bits,
+                "confirmations": 1,
+            },
+        },
+        {500: canonical_hash},
+    )
+
+    summary = run_classifier(
+        _spec(tmp_path, in_path, out_path),
+        rpc=rpc,
+        bits_source_is_decimal=True,
+    )
+
+    assert summary["valid"] == 1
+    with open(out_path, newline="") as f:
+        [classified] = list(csv.DictReader(f))
+    assert classified["btc_bits"] == canonical_bits
+
+
+def test_run_classifier_rejects_incomplete_child_header_bundle(tmp_path):
+    header_hex, header_hash = _passing_header("00" * 32)
+    row = _candidate(header_hex, header_hash, "00" * 32, "1000", "10")
+    del row["child_nbits"]
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match=rf"ixcoin classifier input row 2 .*{header_hash}.*incomplete",
+    ):
+        run_classifier(
+            _spec(tmp_path, in_path, out_path),
+            rpc=FakeRpc(
+                {
+                    header_hash: {
+                        "height": 1000,
+                        "bits": "1d00ffff",
+                        "confirmations": 1,
+                    }
+                },
+                {},
+            ),
+        )
+
+
+def test_run_classifier_validates_parent_before_child_error_context(tmp_path):
+    header_hex, header_hash = _passing_header("00" * 32)
+    row = _candidate(header_hex, header_hash, "00" * 32, "1000", "10")
+    row["btc_header_hash"] = "ff" * 32
+    del row["child_nbits"]
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+
+    with pytest.raises(
+        ValueError,
+        match="candidate row 2: btc_header_hash does not match btc_header_hex",
+    ):
+        run_classifier(
+            _spec(tmp_path, in_path, out_path),
+            rpc=FakeRpc({}, {}),
+        )
+
+
+def test_run_classifier_rejects_missing_historical_child_header_bundle(tmp_path):
+    header_hex, header_hash = _passing_header("00" * 32)
+    row = _candidate(header_hex, header_hash, "00" * 32, "1000", "10")
+    for field in (
+        "child_block_hash",
+        "child_header_hex",
+        "child_block_time",
+        "child_nbits",
+    ):
+        row[field] = ""
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match=rf"ixcoin classifier input row 2 .*{header_hash}.*incomplete",
+    ):
+        run_classifier(
+            _spec(tmp_path, in_path, out_path),
+            rpc=FakeRpc(
+                {
+                    header_hash: {
+                        "height": 1000,
+                        "bits": "1d00ffff",
+                        "confirmations": 1,
+                    }
+                },
+                {},
+            ),
+        )
+
+
+def test_run_classifier_allows_source_native_partial_bundle_for_live_chain(tmp_path):
+    header_hex, header_hash = _passing_header("00" * 32)
+    row = _candidate(header_hex, header_hash, "00" * 32, "1000", "10")
+    del row["child_header_hex"]
+    del row["child_nbits"]
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+    spec = ChainSpec(
+        key="namecoin",
+        display_name="Namecoin",
+        height_column="ixc_height",
+        chain_id=1,
+        activation_height=1,
+        attribution_mode="coinbase",
+        input_csv=in_path,
+        output_csv=out_path,
+        validated_csv=tmp_path / "validated.csv",
+    )
+
+    summary = run_classifier(
+        spec,
+        rpc=FakeRpc(
+            {
+                header_hash: {
+                    "height": 1000,
+                    "bits": "1d00ffff",
+                    "confirmations": 1,
+                }
+            },
+            {},
+        ),
+    )
+
+    with open(summary["canonical_output_path"], newline="") as handle:
+        exported = next(csv.DictReader(handle))
+    assert exported["child_block_hash"] == row["child_block_hash"]
+    assert exported["child_block_time"] == row["child_block_time"]
+    assert exported["child_header_hex"] == ""
+    assert exported["child_nbits"] == ""
 
 
 def test_run_classifier_nbits_gate_is_not_skippable(tmp_path):

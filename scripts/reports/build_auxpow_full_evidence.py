@@ -23,6 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
+        "--reported-output-dir",
+        type=Path,
+        help=(
+            "Logical final directory to record in manifests when --output-dir "
+            "is a staging directory"
+        ),
+    )
+    parser.add_argument(
         "--chain-archive-dir",
         dest="chain_archive_dirs",
         action="append",
@@ -43,6 +51,7 @@ def main() -> None:
     summary = build_full_evidence_exports(
         data_dir=args.data_dir,
         output_dir=args.output_dir,
+        reported_output_dir=args.reported_output_dir,
         chain_archive_dirs=args.chain_archive_dirs,
     )
     print(f"wrote {summary['counts_csv']}")

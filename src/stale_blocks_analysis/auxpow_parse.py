@@ -25,9 +25,11 @@ library plus intra-package pure helpers only. Do not add third-party imports
 from __future__ import annotations
 
 import struct
+from collections.abc import Mapping
 from typing import Optional
 
 from .auxpow_chainid import (
+    hash_from_display_hex,
     hash_from_header_bytes,
     hash_to_display_hex,
 )
@@ -37,6 +39,17 @@ from .coinbase_markers import parse_bip34_height
 # Namecoin AuxPoW version flag (nVersion bit 8). Re-exported for the migrators
 # that currently define ``VERSION_AUXPOW = 1 << 8`` locally.
 VERSION_AUXPOW = 1 << 8
+
+CHILD_HEADER_FIELDS = [
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
+]
+
+
+class ChildHeaderValidationError(ValueError):
+    """Raised when child-header evidence contradicts its source identity."""
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +243,192 @@ def parse_parent_header(raw80: bytes) -> dict:
         "hash": hash_to_display_hex(header_hash_internal),
         "header_hex": raw80.hex(),
     }
+
+
+def parse_child_header(
+    raw80: bytes,
+    *,
+    expected_hash_display: str | None = None,
+    nbits: int | None = None,
+) -> dict:
+    """Return normalized child-chain evidence from an authenticated header.
+
+    ``child_block_hash`` is the internal/wire-order double-SHA256 digest used
+    by the evidence-export contract. ``expected_hash_display``, when supplied,
+    is the independent RPC or archive hash in display order. ``nbits``
+    overrides the header field only for formats such as Xaya, where the
+    effective PoW target lives in the adjacent ``PowData`` wrapper.
+    """
+    parsed = parse_parent_header(raw80)
+    if expected_hash_display is not None:
+        expected = expected_hash_display.strip().lower()
+        if len(expected) != 64:
+            raise ChildHeaderValidationError(
+                "expected child block hash must be 32-byte hex"
+            )
+        try:
+            bytes.fromhex(expected)
+        except ValueError as exc:
+            raise ChildHeaderValidationError(
+                "expected child block hash must be 32-byte hex"
+            ) from exc
+        if parsed["hash"] != expected:
+            raise ChildHeaderValidationError(
+                "child header hash mismatch: "
+                f"computed={parsed['hash']} source={expected}"
+            )
+
+    effective_nbits = parsed["bits"] if nbits is None else nbits
+    # bool is an int subclass, so reject it before accepting integer targets.
+    if isinstance(effective_nbits, bool) or not isinstance(effective_nbits, int):
+        raise ChildHeaderValidationError("child nBits must be an integer")
+    if not 0 <= effective_nbits <= 0xFFFFFFFF:
+        raise ChildHeaderValidationError("child nBits is outside the uint32 range")
+
+    return {
+        "child_block_hash": hash_from_header_bytes(raw80).hex(),
+        "child_header_hex": parsed["header_hex"],
+        "child_block_time": parsed["time"],
+        "child_nbits": f"{effective_nbits:08x}",
+    }
+
+
+def validate_child_header_fields(
+    row: Mapping[str, object],
+    *,
+    nbits_from_header: bool = True,
+) -> dict:
+    """Validate and normalize a complete four-field child-header bundle.
+
+    This accepts values decoded directly from a block as well as CSV strings.
+    Serialization-specific gates may additionally require an exact unpadded
+    representation before publishing an artifact.
+    """
+    values = {field: str(row.get(field, "")).strip() for field in CHILD_HEADER_FIELDS}
+    missing = [field for field, value in values.items() if not value]
+    if missing:
+        raise ChildHeaderValidationError(
+            "incomplete child header evidence: missing " + ", ".join(missing)
+        )
+    child_hash = values["child_block_hash"]
+    if len(child_hash) != 64 or child_hash != child_hash.lower():
+        raise ChildHeaderValidationError(
+            "child_block_hash must be exactly 32-byte lowercase hex"
+        )
+    try:
+        int(child_hash, 16)
+    except ValueError as exc:
+        raise ChildHeaderValidationError(
+            "child_block_hash must be exactly 32-byte lowercase hex"
+        ) from exc
+    if len(values["child_header_hex"]) != 160:
+        raise ChildHeaderValidationError("child_header_hex must be exactly 80 bytes")
+    if values["child_header_hex"] != values["child_header_hex"].lower():
+        raise ChildHeaderValidationError("child_header_hex must be lowercase hex")
+    child_time_text = values["child_block_time"]
+    if (
+        not child_time_text.isascii()
+        or not child_time_text.isdigit()
+        or len(child_time_text) > 10
+    ):
+        raise ChildHeaderValidationError(
+            "child_block_time must be an unsigned decimal uint32"
+        )
+    if len(values["child_nbits"]) != 8:
+        raise ChildHeaderValidationError("child_nbits must be exactly 4-byte hex")
+    if values["child_nbits"] != values["child_nbits"].lower():
+        raise ChildHeaderValidationError("child_nbits must be lowercase hex")
+    try:
+        raw80 = bytes.fromhex(values["child_header_hex"])
+        nbits_value = int(values["child_nbits"], 16)
+        child_time = int(child_time_text)
+    except ValueError as exc:
+        raise ChildHeaderValidationError(
+            "child header fields contain malformed numeric or hex data"
+        ) from exc
+    if child_time > 0xFFFFFFFF:
+        raise ChildHeaderValidationError(
+            "child_block_time must be an unsigned decimal uint32"
+        )
+    if str(child_time) != child_time_text:
+        raise ChildHeaderValidationError(
+            "child_block_time must use the exact unpadded decimal representation"
+        )
+    if not nbits_from_header:
+        header_nbits = struct.unpack_from("<I", raw80, 72)[0]
+        if header_nbits != 0:
+            raise ChildHeaderValidationError(
+                "child header nBits must be zero when effective nBits is external"
+            )
+        if nbits_value == 0:
+            raise ChildHeaderValidationError("external child nBits must be non-zero")
+    expected = parse_child_header(
+        raw80,
+        nbits=None if nbits_from_header else nbits_value,
+    )
+    if values["child_block_hash"] != expected["child_block_hash"]:
+        raise ChildHeaderValidationError(
+            "child_header_hex does not match child_block_hash"
+        )
+    if child_time != expected["child_block_time"]:
+        raise ChildHeaderValidationError(
+            "child_header_hex does not match child_block_time"
+        )
+    if values["child_nbits"] != expected["child_nbits"]:
+        raise ChildHeaderValidationError("child header does not match child_nbits")
+    return expected
+
+
+def serialize_block_header(
+    *,
+    version: int,
+    previous_block_hash: str,
+    merkle_root: str,
+    timestamp: int,
+    bits: int | str,
+    nonce: int,
+) -> bytes:
+    """Serialize decoded Bitcoin-shaped header fields into 80 wire bytes."""
+    if isinstance(bits, str):
+        if len(bits) != 8 or bits != bits.lower():
+            raise ValueError("bits must be exactly eight lowercase hex characters")
+        try:
+            bits_value = int(bits, 16)
+        except ValueError as exc:
+            raise ValueError(
+                "bits must be exactly eight lowercase hex characters"
+            ) from exc
+    else:
+        bits_value = bits
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or not -(1 << 31) <= version <= 0xFFFFFFFF
+    ):
+        raise ValueError("header version must fit signed or unsigned uint32")
+    # Signed int32 versions and their uint32 forms intentionally serialize to
+    # the same two's-complement wire bytes.
+    uint32_fields = {
+        "version": version & 0xFFFFFFFF,
+        "timestamp": timestamp,
+        "bits": bits_value,
+        "nonce": nonce,
+    }
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= 0xFFFFFFFF
+        for value in uint32_fields.values()
+    ):
+        raise ValueError("header numeric fields must fit uint32")
+    return (
+        struct.pack("<I", uint32_fields["version"])
+        + hash_from_display_hex(previous_block_hash)
+        + hash_from_display_hex(merkle_root)
+        + struct.pack("<I", uint32_fields["timestamp"])
+        + struct.pack("<I", uint32_fields["bits"])
+        + struct.pack("<I", uint32_fields["nonce"])
+    )
 
 
 # ---------------------------------------------------------------------------

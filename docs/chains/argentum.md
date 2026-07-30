@@ -140,8 +140,12 @@ or vestigial Bitcoin merge mining.
 **In-repo artifacts.**
 
 - `data/validated-stales/argentum_validated_stales.csv` - 2 validated stales (committed; the loader's input).
-- `out-of-repo extraction directory/argentum_btc_valid.csv` - 634,306 PoW-passing rows (intermediate, before classification; 27 classify canonical and were not persisted to the split inventories below; on `<archival-host>` only - 405 MB).
-- `out-of-repo extraction directory/argentum_stale_blocks.csv` + `argentum_unknown_blocks.csv` are the classifier's split inventories: 2 stale rows and 634,277 unknown rows (634,279 combined; the unknown bucket carries the ~358 MB; intermediate, on `<archival-host>` only).
+- `results/monitor-evidence/argentum_monitor_evidence.csv` - 27 canonical and
+  2 accepted stale observations.
+- `out-of-repo extraction directory/argentum_btc_valid.csv` - 634,306 PoW-passing rows (intermediate, before classification; on `<archival-host>` only - 405 MB).
+- The external classifier family contains `argentum_canonical_blocks.csv` (27
+  rows), `argentum_stale_blocks.csv` (2 rows), and
+  `argentum_unknown_blocks.csv` (634,277 rows).
 - `out-of-repo extraction directory/argentum_auxpow_raw.csv` - 1,290,127 raw SHA-256d-AuxPoW rows (extractor output, pre-PoW-filter; on `<archival-host>` only - 1.25 GB).
 - `results/per-chain-novelty/argentum.csv` - per-stale `(height, hash, in_upstream, first_seen_chain)` table.
 - `node-infra/argentum/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - build infrastructure (stretch + libssl1.0 toolchain).

@@ -48,10 +48,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    CHILD_HEADER_FIELDS,
     hash_meets_btc_difficulty,
+    parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    validate_child_header_fields,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
 
@@ -94,17 +97,20 @@ def iter_blocks_from_file(filepath: Path, magic: bytes, xor_key: bytes = b""):
 
 
 def parse_xaya_block(block_data: bytes) -> dict | None:
-    """Return {'merge_mined': bool, 'auxpow': dict|None} or None if too short."""
+    """Return Xaya header/PowData/AuxPoW fields, or ``None`` when too short."""
     if len(block_data) < AUXPOW_OFFSET:
         return None
     algo = block_data[POW_OFFSET]
     if not (algo & FLAG_MERGE_MINED):
-        return {"merge_mined": False, "auxpow": None}
+        return {"merge_mined": False, "auxpow": None, "child_fields": None}
+    child_nbits = struct.unpack_from("<I", block_data, POW_OFFSET + 1)[0]
+    child_fields = parse_child_header(block_data[:80], nbits=child_nbits)
+    validate_child_header_fields(child_fields, nbits_from_header=False)
     try:
         auxpow, _ = read_auxpow(block_data, AUXPOW_OFFSET)
     except (IndexError, struct.error, ValueError):
-        return {"merge_mined": True, "auxpow": None}
-    return {"merge_mined": True, "auxpow": auxpow}
+        return {"merge_mined": True, "auxpow": None, "child_fields": child_fields}
+    return {"merge_mined": True, "auxpow": auxpow, "child_fields": child_fields}
 
 
 def main() -> None:
@@ -144,6 +150,7 @@ def main() -> None:
 
     fields = [
         "child_height",
+        *CHILD_HEADER_FIELDS,
         "btc_header_hash",
         "btc_prev_hash",
         "btc_time",
@@ -195,6 +202,7 @@ def main() -> None:
             writer.writerow(
                 {
                     "child_height": counter,
+                    **parsed["child_fields"],
                     "btc_header_hash": parent["hash"],
                     "btc_prev_hash": parent["prev_hash"],
                     "btc_time": parent["time"],

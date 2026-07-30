@@ -17,7 +17,9 @@ import struct
 import sys
 from pathlib import Path
 
-from stale_blocks_analysis.auxpow_parse import parse_parent_header
+import pytest
+
+from stale_blocks_analysis.auxpow_parse import parse_child_header, parse_parent_header
 from stale_blocks_analysis.btc_classify import output_columns, run_classifier
 from stale_blocks_analysis.config import CHAIN_SPECS
 
@@ -164,7 +166,7 @@ def test_elcash_wrapper_forwards_standard_and_reproduces_committed_schema(monkey
     assert call["all_valid_path"] == "data/elcash_btc_valid.csv"
     assert call.get("bits_source_is_decimal", False) is False
     # The wrapper's output schema is exactly the committed loader CSV's header,
-    # so a re-run reproduces the off-tree-produced file's column set/order.
+    # so the normal source rerun reproduces its column set and order.
     committed_header = (
         (REPO / "data" / "validated-stales" / "elcash_validated_stales.csv")
         .read_text()
@@ -227,6 +229,55 @@ def test_emercoin_normalizer_maps_legacy_schema_without_chain_id_filter(tmp_path
     assert "chain_id" not in first
 
 
+def test_coiledcoin_remap_does_not_promote_bip34_commitment_to_btc_height():
+    mod = _load("classify_coiledcoin_stales")
+    child_header = (
+        struct.pack("<I", 1)
+        + b"\x11" * 32
+        + b"\x22" * 32
+        + struct.pack("<III", 1_700_000_001, 0x1D00FFFF, 8)
+    )
+    candidate = mod.remap_candidate(
+        {
+            "btc_hash": "aa" * 32,
+            "btc_prev_hash": "bb" * 32,
+            "btc_time": "1700000000",
+            "btc_bits_hex": "1d00ffff",
+            "btc_bip34_height": "700000",
+            "coinbase_scriptsig_hex": "03abcdef",
+            "coinbase_outputs": "",
+            "btc_header_hex": "00" * 80,
+            "child_height": "123",
+            **parse_child_header(child_header),
+        }
+    )
+
+    assert candidate["btc_height"] == ""
+    assert candidate["btc_bip34_height"] == "700000"
+
+
+def test_coiledcoin_remap_rejects_partial_child_header_bundle():
+    mod = _load("classify_coiledcoin_stales")
+
+    with pytest.raises(
+        mod.ChildHeaderValidationError,
+        match="incomplete child header evidence",
+    ):
+        mod.remap_candidate(
+            {
+                "btc_hash": "aa" * 32,
+                "btc_prev_hash": "bb" * 32,
+                "btc_time": "1700000000",
+                "btc_bits_hex": "1d00ffff",
+                "coinbase_scriptsig_hex": "03abcdef",
+                "coinbase_outputs": "",
+                "btc_header_hex": "00" * 80,
+                "child_height": "123",
+                "child_block_hash": "11" * 32,
+            }
+        )
+
+
 class _PreflightRpc:
     """Fake BtcRpc: answers the getblockcount preflight; anything else -> None."""
 
@@ -256,6 +307,12 @@ def _near_input_row(dvc_height: str) -> dict:
         + struct.pack("<I", 0)
     )
     parsed = parse_parent_header(header)
+    child_header = (
+        struct.pack("<I", 1)
+        + b"\x33" * 32
+        + b"\x44" * 32
+        + struct.pack("<III", 1_600_000_555, 0x1D00FFFF, 555)
+    )
     return {
         "btc_height": "",
         "btc_header_hash": parsed["hash"],
@@ -266,6 +323,7 @@ def _near_input_row(dvc_height: str) -> dict:
         "coinbase_outputs": "",
         "btc_header_hex": header.hex(),
         "dvc_height": dvc_height,
+        **parse_child_header(child_header),
     }
 
 

@@ -12,7 +12,7 @@
 | Source tag (in code) | `elcash` |
 | Loader | `load_elcash_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/elcash_validated_stales.csv` |
-| Full classified inventory | Private chain archive (2,426 canonical + 3 stale; no unknown rows) |
+| Full classified inventory | External refresh (2,426 canonical + 3 stale + 2,711 unknown) |
 
 Electric Cash is a Bitcoin Core 0.20.2 fork that merge-mines Bitcoin from a
 fresh December 2020 genesis, launched within the MineBest ecosystem as a
@@ -39,9 +39,10 @@ parsed and their unique Bitcoin-parent candidates classified against Bitcoin
 Core. The full classified inventory is bucket-split in the private chain
 archive (`elcash_canonical_blocks.csv` with 2,426 canonical rows,
 `elcash_stale_blocks.csv` with the 3 stale rows, and a header-only
-`elcash_unknown_blocks.csv` - there are no unknown rows). The raw extract
-itself was not separately preserved; the classified split is the earliest
-retained artifact. The committed
+`elcash_unknown_blocks.csv` with 2,711 rows). The 2026-07-30
+source-authenticated rerun exercised the normal RPC extractor and classifier
+again, producing complete child-header bundles and parent-coinbase outputs.
+The committed
 `data/validated-stales/elcash_validated_stales.csv` carries the 3 VALID stale
 rows.
 
@@ -51,7 +52,8 @@ attestation evidence is much wider: 2,426 canonical Bitcoin parents from
 2021-01-21 to 2024-11-17.
 
 **Integration status.** Wired into the recovery loader and novelty pipeline;
-`results/monitor-evidence/elcash_monitor_evidence.csv` exports the 3 rows.
+`results/monitor-evidence/elcash_monitor_evidence.csv` exports all 2,426
+canonical rows and 3 accepted stale rows.
 
 **Holes.**
 
@@ -63,10 +65,10 @@ attestation evidence is much wider: 2,426 canonical Bitcoin parents from
   2021, a recovery-session observation); the earliest blocks were
   direct-mined even though AuxPoW is permitted from height 1. The first
   canonical Bitcoin-parent win (2021-01-21) is consistent with that start.
-- **BCH/BSV contamination**: 2,711 BCH/BSV-like parent headers were excluded
-  before the committed classification (a recovery-session figure; with the
-  raw extract unpreserved it is not independently reproducible in-repo). The
-  pools merge-mining ELCASH pointed the same child commitments at BCH/BSV
+- **BCH/BSV contamination**: 2,711 BCH/BSV-like parent headers classify as
+  `unknown` and remain in the full evidence. None receives a final
+  strict/weak relevance verdict, so they do not enter the Monitor projection.
+  The pools merge-mining ELCASH pointed the same child commitments at BCH/BSV
   work as well.
 
 **Reference scripts.**
@@ -96,11 +98,10 @@ header-context validation gates.
 |---|---:|
 | Chain tip at extraction | ≈ 285,143 |
 | AuxPoW-bearing blocks parsed | 248,640 |
-| BCH/BSV-contaminated parents excluded (recovery-session figure) | 2,711 |
-| Classified unique Bitcoin-parent candidates | 2,429 |
+| Classified unique parent candidates | 5,140 |
 | `canonical` (on BTC mainchain) | 2,426 |
 | `stale` (candidate off active chain, predecessor canonical) | **3** |
-| `unknown` (parent + prev both off-chain) | 0 |
+| `unknown` (parent + prev both off-chain) | 2,711 |
 
 The stage-by-stage funnel between 248,640 AuxPoW blocks and the classified
 unique parents (duplicate parents across child blocks, plus sub-difficulty
@@ -184,24 +185,22 @@ Bitcoin Vault evidence from a second ledger. Upstream already carries
 > about which chain literally observed each stale first in real-world block
 > time.
 
-There is no unknown inventory: all classified unique parents resolved to
-canonical or stale, hence the 0/0 strict/weak counts and the header-only
-`results/strict-weak-orphans/elcash_strict_weak_orphans.csv`.
+The 2,711 unknown rows receive no strict or weak verdict, so the committed
+strict/weak projection is header-only while the rows remain in the complete
+external evidence.
 
 ## 4. Outputs & references
 
 **In-repo artifacts.**
 
 - `data/validated-stales/elcash_validated_stales.csv` - 3 VALID direct-stale
-  rows (loader input; committed). Normalized to the shared 12-column
-  validated-stales layout in the 2026-07-17 data-consistency pass. The
-  `coinbase_outputs` column is present but empty: the committed extraction
-  did not preserve outputs, so pool identification relies on scriptsig
-  markers only. (The rewritten extractor emits raw pkscript hex for that
-  column, so a future re-run would populate it.)
+  rows (loader input; committed) in the 16-column historical child-header
+  schema. The normal source rerun populated `coinbase_outputs` with the parent
+  transaction's output scripts and values.
 - `results/per-chain-novelty/elcash.csv` - per-stale
   `(btc_height, btc_hash, in_upstream, first_seen_chain)` table.
-- `results/monitor-evidence/elcash_monitor_evidence.csv` - 3 rows.
+- `results/monitor-evidence/elcash_monitor_evidence.csv` - 2,426 canonical and
+  3 accepted stale rows.
 - `scripts/extract/extract_elcash_auxpow.py`,
   `scripts/classify/classify_elcash_stales.py` - reproducers.
 
@@ -209,7 +208,7 @@ canonical or stale, hence the 0/0 strict/weak counts and the header-only
 
 - Classified split: `elcash_canonical_blocks.csv` (2,426 rows),
   `elcash_stale_blocks.csv` (3 rows), `elcash_unknown_blocks.csv`
-  (header-only). No raw extract was preserved.
+  (2,711 rows).
 
 **External references.**
 
@@ -255,3 +254,8 @@ canonical or stale, hence the 0/0 strict/weak counts and the header-only
   merge-mining ran January 2021 → November 2024 with its peak in
   September-October 2021, and the stale sample (June-September 2021) sits
   inside it; the Bitcoin Vault cross-confirmation recorded.
+- **2026-07-30** - The normal extractor/classifier path was rerun from the
+  authoritative node source. It retained the 2,711 non-Bitcoin parent rows as
+  `unknown`, authenticated child headers for all 5,140 rows, populated parent
+  outputs, and published all 2,426 canonical rows through the uniform Monitor
+  projection.

@@ -55,7 +55,7 @@ The first AuxPoW-bearing block is **GG height 14,092**, parent-block timestamp *
 2. **Header reconstruction**. Build the 80-byte BTC header bytes from `auxpow.parent_block.{version, previousblockhash, merkleroot, time, bits, nonce}` (each field little-endian; the hex strings in the JSON are big-endian display form, byte-reversed before concatenation). Sample-verified against `auxpow.parent_block.hash` for 10 random records: **10/10 pass** - Stifter's pre-computed hash is trustworthy, so per-record header reconstruction is only needed for the `btc_header_hex` column in the output.
 3. **PoW filter**. Compute `SHA256d(header)` and compare to the target derived from the header's own `nBits`. Discard headers that fail. This is the same filter every other classifier in the project uses.
 4. **Dedup** on `auxpow.parent_block.hash`. Many Geistgeld blocks can embed the same BTC parent header during a BTC interval; the first GG height to witness a parent wins.
-5. **BTC RPC classify** against `<archival-host>` (`ssh <archival-host>` + local `bitcoind` cookie auth - same path as the Huntercoin / CoiledCoin classifiers). `getblockheader <btc_header_hash>` hit → `canonical` (dropped from the inventory per the unknown-inventory standard). Miss → lookup `btc_prev_hash`. Prev canonical → `stale`. Both miss → `unknown`.
+5. **BTC RPC classify** against `<archival-host>` (`ssh <archival-host>` + local `bitcoind` cookie auth - same path as the Huntercoin / CoiledCoin classifiers). `getblockheader <btc_header_hash>` hit → `canonical`. Miss → lookup `btc_prev_hash`. Prev canonical → `stale`. Both miss → `unknown`. The shared writer persists all three split inventories.
 
 **Counts after Phase 1 + Phase 2.**
 
@@ -65,7 +65,7 @@ The first AuxPoW-bearing block is **GG height 14,092**, parent-block timestamp *
 | AuxPoW-bearing | 2,493,631 |
 | Headers reconstructed and PoW-filtered | 2,493,631 |
 | Self-target PoW passes (header's own `nBits`) | 2,291 (~0.092 % of AuxPoW; dedup is a no-op because Stifter's parent hashes are already unique here) |
-| **Canonical (dropped from inventory)** | **1** |
+| **Canonical** | **1** |
 | **Stale** | **0** |
 | **Unknown** | **2,290** |
 | BTC height of the 1 canonical | 270,741 (parent_block.time 2013-11-21; nBits `19070bfb`) |

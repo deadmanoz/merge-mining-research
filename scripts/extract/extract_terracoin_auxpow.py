@@ -20,7 +20,13 @@ from pathlib import Path
 
 # Repo `src/` is on sys.path when installed via `pip install -e .`; these
 # shared modules are pure-stdlib and safe to import on the archival host.
-from stale_blocks_analysis.auxpow_parse import parse_parent_header
+from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
+    parse_child_header,
+    parse_parent_header,
+    serialize_block_header,
+)
 from stale_blocks_analysis.coinbase_markers import parse_bip34_height
 from stale_blocks_analysis.child_rpc import RpcClient
 
@@ -33,6 +39,7 @@ PROGRESS_INTERVAL = 10_000
 
 CSV_COLUMNS = [
     "trc_height",
+    *CHILD_HEADER_FIELDS,
     "btc_header_hash",
     "btc_prev_hash",
     "btc_time",
@@ -148,6 +155,20 @@ def extract_range(
             continue
 
         header = parse_header(parent_hex)
+        try:
+            child_raw = serialize_block_header(
+                version=block["version"],
+                previous_block_hash=block["previousblockhash"],
+                merkle_root=block["merkleroot"],
+                timestamp=block["time"],
+                bits=block["bits"],
+                nonce=block["nonce"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ChildHeaderValidationError(
+                f"Terracoin h={height}: malformed RPC child-header fields"
+            ) from exc
+        child_fields = parse_child_header(child_raw, expected_hash_display=hashes[i])
         tx = auxpow.get("tx", {})
         vin = tx.get("vin", [])
         vout = tx.get("vout", [])
@@ -164,6 +185,7 @@ def extract_range(
         writer.writerow(
             {
                 "trc_height": height,
+                **child_fields,
                 "btc_header_hash": header["hash"],
                 "btc_prev_hash": header["prev_hash"],
                 "btc_time": header["timestamp"],
@@ -237,12 +259,16 @@ def main():
             batch_end = min(batch_start + args.batch_size, args.end)
             try:
                 extract_range(batch_start, batch_end, writer, stats, rpc)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 print(f"\nError at heights {batch_start}-{batch_end}: {e}")
                 print("Retrying individually...")
                 for h in range(batch_start, batch_end):
                     try:
                         extract_range(h, h + 1, writer, stats, rpc)
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e2:
                         print(f"  Failed height {h}: {e2}")
                         stats["skipped_bad_header"] += 1

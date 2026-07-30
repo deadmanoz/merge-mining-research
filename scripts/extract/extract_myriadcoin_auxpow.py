@@ -35,6 +35,7 @@ from pathlib import Path
 from stale_blocks_analysis import extract_driver
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
     parse_coinbase_height,
     parse_parent_header,
 )
@@ -54,6 +55,7 @@ PROGRESS_INTERVAL = 10_000
 
 CSV_COLUMNS = [
     "xmy_height",
+    *CHILD_HEADER_FIELDS,
     "btc_header_hash",
     "btc_prev_hash",
     "btc_time",
@@ -120,7 +122,7 @@ def _gate(version: int, stats: dict) -> bool:
     return True
 
 
-def _parse_row(height: int, auxpow: dict) -> dict:
+def _parse_row(height: int, auxpow: dict, child_fields: dict) -> dict:
     """Build one CSV row from a parsed CAuxPow structure."""
     parent = parse_parent_header(auxpow["parent_header_raw"])
     tx = auxpow["coinbase_tx"]
@@ -128,6 +130,7 @@ def _parse_row(height: int, auxpow: dict) -> dict:
     btc_height = parse_coinbase_height(scriptsig)
     return {
         "xmy_height": height,
+        **child_fields,
         "btc_header_hash": parent["hash"],
         "btc_prev_hash": parent["prev_hash"],
         "btc_time": parent["time"],

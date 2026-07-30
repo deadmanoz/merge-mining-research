@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .auxpow_parse import read_auxpow
+from .auxpow_parse import ChildHeaderValidationError, parse_child_header, read_auxpow
 
 # gate(version, stats) -> True to keep parsing the block, False to skip it.
 # A gate that returns False is responsible for tallying its own skip reason
@@ -38,11 +38,13 @@ from .auxpow_parse import read_auxpow
 # per-chain vocabulary.
 BlockGate = Callable[[int, dict], bool]
 
-# parse_row(height, auxpow) -> the CSV row dict for a block that passed the
+# parse_row(height, auxpow, child_fields) -> the CSV row dict for a block that passed the
 # gate and parsed as a CAuxPow. ``auxpow`` is the dict returned by
 # ``auxpow_parse.read_auxpow`` (carries ``coinbase_tx`` and
-# ``parent_header_raw``).
-RowParser = Callable[[int, dict], dict]
+# ``parent_header_raw``). For a row that passes the gate and AuxPoW parse,
+# ``child_fields`` is authenticated against the independently fetched child
+# block hash before the callback runs.
+RowParser = Callable[[int, dict, dict], dict]
 
 
 def _default_block_fetch_params(block_hash: str) -> list:
@@ -109,8 +111,10 @@ def run_extraction(
     call ``gate(version, stats)`` (a False return skips the block, having
     already tallied its own reason), deserialise the CAuxPow tail
     (``stats["skipped_parse_error"]`` on a malformed payload), and hand the
-    parsed ``auxpow`` dict to ``parse_row(height, auxpow)`` for the CSV row,
-    tallying ``stats["auxpow_blocks"]``.
+    parsed ``auxpow`` dict and authenticated child fields to
+    ``parse_row(height, auxpow, child_fields)`` for the CSV row, tallying
+    ``stats["auxpow_blocks"]``. Only blocks that pass the version gate and
+    AuxPoW parse reach child-header authentication and the callback.
 
     A batch that raises is retried one height at a time before giving up on
     it (unparseable individual heights fall into
@@ -167,7 +171,8 @@ def run_extraction(
                 stats["skipped_parse_error"] += 1
                 continue
 
-            row = parse_row(height, auxpow)
+            child_fields = parse_child_header(raw[:80], expected_hash_display=hashes[i])
+            row = parse_row(height, auxpow, child_fields)
             stats["auxpow_blocks"] += 1
             writer.writerow(row)
 
@@ -182,11 +187,15 @@ def run_extraction(
             be = min(bs + batch_size, end)
             try:
                 extract_range(bs, be)
+            except ChildHeaderValidationError:
+                raise
             except Exception as e:
                 print(f"\n  ! batch {bs}-{be} failed: {e}; retrying individually")
                 for h in range(bs, be):
                     try:
                         extract_range(h, h + 1)
+                    except ChildHeaderValidationError:
+                        raise
                     except Exception as e2:
                         print(f"    skip h={h}: {e2}")
                         stats["skipped_parse_error"] += 1

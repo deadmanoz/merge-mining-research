@@ -13,6 +13,7 @@ from stale_blocks_analysis.config import (  # noqa: E402
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
     DATA_DIR,
+    HISTORICAL_CHILD_HEADER_CHAINS,
     ChainSpec,
 )
 
@@ -56,10 +57,26 @@ def test_chain_specs_covers_integrated_chains() -> None:
     assert not missing, f"CHAIN_SPECS missing integrated chains: {sorted(missing)}"
 
 
+def test_historical_child_header_keys_match_chain_specs() -> None:
+    missing = set(HISTORICAL_CHILD_HEADER_CHAINS) - set(CHAIN_SPECS)
+    assert not missing, (
+        f"historical child-header keys missing from CHAIN_SPECS: {sorted(missing)}"
+    )
+
+
 def test_keys_match_key_field() -> None:
     for key, spec in CHAIN_SPECS.items():
         assert isinstance(spec, ChainSpec)
         assert spec.key == key, f"dict key {key!r} != spec.key {spec.key!r}"
+
+
+def test_xaya_uses_powdata_nbits_and_other_specs_use_header_nbits() -> None:
+    assert CHAIN_SPECS["xaya"].child_nbits_from_header is False
+    assert all(
+        spec.child_nbits_from_header
+        for key, spec in CHAIN_SPECS.items()
+        if key != "xaya"
+    )
 
 
 def test_all_specs_present_in_activation_order() -> None:
@@ -133,6 +150,11 @@ def test_attribution_modes() -> None:
             "geistgeld",
             "groupcoin",
         ), f"{key}: coinbase chain should have a known chain_id unless JSON-dump"
+
+
+def test_historical_chain_spec_keys_match_registry_keys() -> None:
+    for key in HISTORICAL_CHILD_HEADER_CHAINS:
+        assert CHAIN_SPECS[key].key == key
 
 
 def test_paths_under_repo_data_dir() -> None:

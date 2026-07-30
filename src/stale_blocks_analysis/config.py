@@ -41,6 +41,29 @@ BLOCKS_DIR = STALE_DIR / "blocks"
 # data and is safe to consume in CI without access to an operator's node.
 BITCOIN_EPOCH_REFERENCE_DIR = DATA_DIR / "bitcoin-epoch-reference"
 
+# Historical Namecoin-family pipelines whose refreshed rows must carry a
+# complete authenticated child-header bundle. The order is the recovery
+# priority used by the coverage report and source preflight.
+HISTORICAL_CHILD_HEADER_CHAINS = (
+    "devcoin",
+    "ixcoin",
+    "i0coin",
+    "groupcoin",
+    "coiledcoin",
+    "geistgeld",
+    "huntercoin",
+    "bitmark",
+    "terracoin",
+    "emercoin",
+    "myriadcoin",
+    "unobtanium",
+    "argentum",
+    "crown",
+    "elcash",
+    "xaya",
+    "bitcoin-vault",
+)
+
 # Compact repo-owned overlay for upstream or per-chain rows that later
 # available evidence proved consensus-invalid or misclassified as direct
 # stales. This is applied
@@ -466,6 +489,8 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 #     scripts/classify/classify_<chain>_stales.py argument defaults under data/. The
 #     validated_csv reuses the existing module-level *_CSV constants so the
 #     two never drift.
+#   - child_nbits_from_header: false only when a chain stores its effective
+#     AuxPoW target outside the 80-byte child header (currently Xaya PowData).
 
 
 @dataclass(frozen=True)
@@ -481,6 +506,7 @@ class ChainSpec:
     input_csv: Path
     output_csv: Path
     validated_csv: Path
+    child_nbits_from_header: bool = True
 
 
 def _chain_input_csv(key: str) -> Path:
@@ -702,6 +728,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
         input_csv=_chain_input_csv("xaya"),
         output_csv=_chain_output_csv("xaya"),
         validated_csv=XAYA_CSV,
+        child_nbits_from_header=False,
     ),
     "elastos": ChainSpec(
         key="elastos",

@@ -15,6 +15,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Verify Git LFS payload checkout
+        run: |
+          git lfs fsck
+          test "$(git lfs ls-files --name-only | wc -l)" -eq 28
+          git lfs ls-files --name-only | while read -r payload; do
+            test "$(wc -c < "$payload")" -gt 200
+          done
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7

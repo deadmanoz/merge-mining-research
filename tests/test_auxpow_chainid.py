@@ -178,12 +178,28 @@ def test_blkdat_child_hash_has_explicit_importer_compatible_byte_order():
         "child_height": "",
         "child_block_hash": BTC_800000_INTERNAL_HASH_HEX,
         "child_block_hash_display": BTC_800000_DISPLAY_HASH,
+        "child_header_hex": BTC_800000_HEADER_HEX,
         "child_version": parsed["child_version"],
         "child_chain_id": child_chain_id(parsed["child_version"]),
         "child_block_time": int.from_bytes(
             bytes.fromhex(BTC_800000_HEADER_HEX)[68:72], "little"
         ),
+        "child_nbits": "17053894",
     }
+
+    historical = provisional_child_fields(
+        parsed,
+        child_sequence=17,
+        child_height_from_sequence=True,
+    )
+    assert historical["child_sequence"] == 17
+    assert historical["child_height"] == 17
+
+
+def test_offline_historical_chains_preserve_sequence_height_contract():
+    assert BLKDAT_CHAINS["i0coin"]["child_height_from_sequence"] is True
+    assert BLKDAT_CHAINS["coiledcoin"]["child_height_from_sequence"] is True
+    assert "child_height_from_sequence" not in BLKDAT_CHAINS["lyncoin"]
 
 
 def test_blast_blkdat_scope_accepts_both_consensus_chain_ids():

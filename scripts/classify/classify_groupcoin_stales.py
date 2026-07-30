@@ -7,8 +7,7 @@ Streams the archival `getblock`-JSON dump shared by Nicholas Stifter
 those whose parent header meets its own encoded target, dedups by parent
 header hash, then classifies each unique parent against Bitcoin Core:
 
-  1. ``getblockheader <parent_hash>`` hit → ``canonical`` (dropped from the
-     non-canonical inventory).
+  1. ``getblockheader <parent_hash>`` hit → ``canonical``.
   2. miss → ``getblockheader <prev_hash>`` hit → ``stale``; height is
      ``prev.height + 1``.
   3. both miss → ``unknown``; ``btc_height`` is left blank.
@@ -21,8 +20,9 @@ pkscripts correctly.
 
 Outputs:
 
-* ``data/groupcoin_stale_blocks.csv`` — standard unknown-inventory schema
-  (``classification ∈ {stale, unknown}``).
+* ``data/groupcoin_canonical_blocks.csv`` — canonical rows.
+* ``data/groupcoin_stale_blocks.csv`` — stale rows.
+* ``data/groupcoin_unknown_blocks.csv`` — unknown rows.
 * ``data/validated-stales/groupcoin_validated_stales.csv`` — loader input;
   ``classification == "stale"`` rows only.
 """
@@ -40,6 +40,11 @@ from pathlib import Path
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty
+from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
+    serialize_block_header,
+)
 from stale_blocks_analysis.btc_classify import (
     classify_candidates,
     derive_split_paths,
@@ -160,6 +165,25 @@ def extract_candidates(
                 stats["duplicates"] += 1
                 continue
 
+            try:
+                child_raw = serialize_block_header(
+                    version=rec["version"],
+                    previous_block_hash=rec["previousblockhash"],
+                    merkle_root=rec["merkleroot"],
+                    timestamp=rec["time"],
+                    bits=rec["bits"],
+                    nonce=rec["nonce"],
+                )
+                child_fields = parse_child_header(
+                    child_raw, expected_hash_display=rec["hash"]
+                )
+            except ChildHeaderValidationError:
+                raise
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"record {stats['total_records']}: invalid child header: {exc}"
+                ) from exc
+
             cb = ap.get("coinbasetx") or {}
             scriptsig = ""
             try:
@@ -178,6 +202,7 @@ def extract_candidates(
                     outputs_hex.append(spk)
 
             candidates[btc_hash] = {
+                **child_fields,
                 "btc_height": "",
                 "btc_header_hash": btc_hash,
                 "btc_prev_hash": parent.get("previousblockhash", ""),

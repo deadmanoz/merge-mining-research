@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build compact monitor-facing evidence exports.
+"""Build final-category monitor-facing evidence exports.
 
 Filters the normalized evidence to the categories the merge-mining-monitor
 ingests as final — canonical rows, VALID direct stales, valid stale
@@ -80,18 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=[],
         help=(
-            "Already-normalized monitor evidence for an intentional scope "
-            "outside CHAIN_SPECS, such as the VCash canonical hydration. "
-            "May be repeated."
+            "Already-normalized monitor evidence for a source outside "
+            "CHAIN_SPECS. May be repeated."
         ),
     )
     parser.add_argument(
         "--skip-canonical",
         action="store_true",
         help=(
-            "Exclude canonical-parent companions so the exports stay "
-            "compact (stales, valid descendants, strict/weak orphans "
-            "only). Publication builds reject this option; use it only with "
+            "Exclude canonical-parent evidence from a diagnostic export. "
+            "Publication builds reject this option; use it only with "
             "--allow-partial and a disposable output directory."
         ),
     )
@@ -121,6 +119,37 @@ def _classification_counts(path: Path) -> Counter[str]:
             (row.get("classification") or "").strip().lower() or "unknown"
             for row in csv.DictReader(handle)
         )
+
+
+def _classification_hashes(path: Path, classification: str) -> set[str] | None:
+    """Return exact header identities, or None for a count-only fixture."""
+    hashes: set[str] = set()
+    with path.open(newline="") as handle:
+        for row_number, row in enumerate(csv.DictReader(handle), start=2):
+            row_classification = (
+                row.get("classification") or ""
+            ).strip().lower() or "unknown"
+            if row_classification != classification:
+                continue
+            block_hash = (
+                (row.get("btc_header_hash") or row.get("btc_hash") or "")
+                .strip()
+                .lower()
+            )
+            if not block_hash:
+                return None
+            if len(block_hash) != 64:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed {classification} header hash"
+                )
+            try:
+                int(block_hash, 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed {classification} header hash"
+                ) from exc
+            hashes.add(block_hash)
+    return hashes
 
 
 def _load_publication_baseline(
@@ -225,6 +254,8 @@ def _missing_unknown_observations(
 ) -> Counter[str]:
     """Return baseline unknown-hash observations absent from source inventories."""
     remaining = required.copy()
+    if not remaining:
+        return remaining
     for source in sources:
         if source.path is None or not source.path.is_file():
             continue
@@ -486,6 +517,31 @@ def validate_publication_inputs(
                 # inventory (which could let duplicate stales hide truncation).
                 source_counts = _classification_counts(source.path)
                 coverage = sum(source_counts.values()) - source_counts["stale"]
+                canonical_source = canonical.get(chain)
+                canonical_coverage = source_counts["canonical"]
+                if canonical_source is not None and canonical_source.path is not None:
+                    companion_canonical = _classification_counts(canonical_source.path)[
+                        "canonical"
+                    ]
+                    source_hashes = _classification_hashes(source.path, "canonical")
+                    companion_hashes = _classification_hashes(
+                        canonical_source.path, "canonical"
+                    )
+                    if source_hashes is not None and companion_hashes is not None:
+                        canonical_coverage = len(source_hashes | companion_hashes)
+                        coverage += len(companion_hashes - source_hashes)
+                    elif source_counts["canonical"] == 0:
+                        canonical_coverage = companion_canonical
+                        coverage += companion_canonical
+                    else:
+                        canonical_coverage = max(
+                            canonical_coverage, companion_canonical
+                        )
+                if canonical_coverage < expected_categories["canonical"]:
+                    problems.append(
+                        f"{chain} canonical-classified evidence is below the "
+                        "publication baseline"
+                    )
                 unknown_source = unknown.get(chain)
                 if unknown_source is not None and unknown_source.path is not None:
                     coverage += _csv_row_count(unknown_source.path)
@@ -512,6 +568,16 @@ def validate_publication_inputs(
                     )
             elif baseline_source_kind == "canonical_blocks":
                 canonical_source = canonical.get(chain)
+                # A full archival classifier inventory is authoritative for
+                # its canonical rows even when no separate canonical companion
+                # exists. Accept that strictly richer representation here.
+                if (
+                    canonical_source is None
+                    and source.source_kind == "full_inventory"
+                    and source.provenance == "archive"
+                    and source.path is not None
+                ):
+                    canonical_source = source
                 if (
                     canonical_source is None
                     or canonical_source.provenance != "archive"
