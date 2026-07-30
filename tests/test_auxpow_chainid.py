@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import csv
 import sqlite3
 import sys
 from pathlib import Path

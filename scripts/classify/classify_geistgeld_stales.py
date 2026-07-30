@@ -26,10 +26,10 @@ other chains:
 Outputs are written in the shared classifier schema (matches
 ``classify_huntercoin_stales.py``):
 
-  - ``data/geistgeld_canonical_blocks.csv`` — canonical rows.
-  - ``data/geistgeld_stale_blocks.csv`` — stale rows.
-  - ``data/geistgeld_unknown_blocks.csv`` — unknown rows.
-  - ``data/validated-stales/geistgeld_validated_stales.csv`` — stale-only subset, the
+  - ``data/geistgeld_canonical_blocks.csv``: canonical rows.
+  - ``data/geistgeld_stale_blocks.csv``: stale rows.
+  - ``data/geistgeld_unknown_blocks.csv``: unknown rows.
+  - ``data/validated-stales/geistgeld_validated_stales.csv``: stale-only subset, the
     loader's input.
 
 ``coinbase_outputs`` is always empty for Geistgeld: ``auxpow.coinbasetx``
@@ -370,7 +370,6 @@ def main() -> int:
     )
     stales = [r for r in all_results if r["classification"] == "stale"]
     unknown_rows = [r for r in all_results if r["classification"] == "unknown"]
-    valid_stales = [s for s in stales if s.get("validation_status") == "VALID"]
 
     heights = [int(r["btc_height"]) for r in all_results if r.get("btc_height")]
 

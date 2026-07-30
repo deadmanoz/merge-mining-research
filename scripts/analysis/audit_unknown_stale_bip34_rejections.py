@@ -202,7 +202,6 @@ def main() -> None:
     for row in rejected:
         candidate_hash = row["btc_header_hash"]
         root_hash = row["root_stale_hash"]
-        depth = int(row["stale_fork_depth"])
         root_height = rec.int_or_none(row["root_stale_height"])
         inferred_height = rec.int_or_none(row["btc_height"])
         observed_heights = [

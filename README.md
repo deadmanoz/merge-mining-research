@@ -281,6 +281,9 @@ The per-chain `results/monitor-evidence/*_monitor_evidence.csv` payloads are
 stored in Git LFS. The counts CSV and JSON manifest remain ordinary Git files
 so publication changes retain a compact, directly reviewable summary. Without
 Git LFS, a checkout contains pointer files instead of the evidence payloads.
+`just test-unit` excludes the `dataset`-marked publication invariants and can
+run from that pointer-only checkout. `just test-dataset`, and therefore
+`just test`, requires the payloads to be materialized first.
 
 `fetch-data.sh` checks out `bitcoin-data/stale-blocks` at the exact commit
 pinned in [`data-sources.tsv`](data-sources.tsv), so stale-block membership and
@@ -296,6 +299,8 @@ clone that is on a branch or has local edits. Override its location with
 just format-check
 just lint
 just test
+just test-unit
+just test-dataset
 just upstream-check
 just refresh-bitcoin-epoch-reference
 just full-evidence

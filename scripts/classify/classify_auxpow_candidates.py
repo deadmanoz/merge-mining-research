@@ -48,9 +48,11 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args  # noqa: E402
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
     hash_meets_btc_difficulty,
-    parse_child_header,
     parse_parent_header,
+    validate_child_header_fields,
 )
 
 
@@ -402,61 +404,14 @@ def _require_exact_child_identity(row):
     ):
         raise ValueError("evidence output requires an exact non-negative child_height")
 
-    child_block_hash = row.get("child_block_hash")
-    if (
-        not isinstance(child_block_hash, str)
-        or len(child_block_hash) != 64
-        or child_block_hash != child_block_hash.strip().lower()
-    ):
-        raise ValueError(
-            "evidence output requires an exact lowercase 64-character child_block_hash"
-        )
+    for field in CHILD_HEADER_FIELDS:
+        value = row.get(field)
+        if not isinstance(value, str) or value != value.strip():
+            raise ValueError(f"evidence output requires exact string {field}")
     try:
-        bytes.fromhex(child_block_hash)
-    except ValueError as exc:
-        raise ValueError(
-            "evidence output requires a hexadecimal child_block_hash"
-        ) from exc
-
-    child_header_value = row.get("child_header_hex")
-    if (
-        not isinstance(child_header_value, str)
-        or child_header_value != child_header_value.lower()
-    ):
-        raise ValueError("evidence output requires exact lowercase child_header_hex")
-    child_header_hex = _require_hex(
-        child_header_value, field="child_header_hex", length=160
-    )
-    child_fields = parse_child_header(bytes.fromhex(child_header_hex))
-    if child_fields["child_block_hash"] != child_block_hash:
-        raise ValueError("child_header_hex does not match child_block_hash")
-
-    child_block_time = row.get("child_block_time")
-    if (
-        not isinstance(child_block_time, str)
-        or not child_block_time
-        or child_block_time != child_block_time.strip()
-        or not child_block_time.isascii()
-        or not child_block_time.isdigit()
-        or int(child_block_time) > 0xFFFFFFFF
-    ):
-        raise ValueError("evidence output requires an exact uint32 child_block_time")
-    if str(child_fields["child_block_time"]) != child_block_time:
-        raise ValueError("child_header_hex does not match child_block_time")
-
-    child_nbits = row.get("child_nbits")
-    if (
-        not isinstance(child_nbits, str)
-        or len(child_nbits) != 8
-        or child_nbits != child_nbits.strip().lower()
-    ):
-        raise ValueError("evidence output requires exact lowercase child_nbits")
-    try:
-        int(child_nbits, 16)
-    except ValueError as exc:
-        raise ValueError("evidence output requires hexadecimal child_nbits") from exc
-    if child_fields["child_nbits"] != child_nbits:
-        raise ValueError("child_header_hex does not match child_nbits")
+        validate_child_header_fields(row)
+    except ChildHeaderValidationError as exc:
+        raise ValueError(f"evidence output requires {exc}") from exc
 
 
 def _require_exact_child_identity_with_context(row, *, row_number):

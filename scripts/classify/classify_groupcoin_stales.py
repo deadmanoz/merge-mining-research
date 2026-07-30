@@ -20,10 +20,10 @@ pkscripts correctly.
 
 Outputs:
 
-* ``data/groupcoin_canonical_blocks.csv`` — canonical rows.
-* ``data/groupcoin_stale_blocks.csv`` — stale rows.
-* ``data/groupcoin_unknown_blocks.csv`` — unknown rows.
-* ``data/validated-stales/groupcoin_validated_stales.csv`` — loader input;
+* ``data/groupcoin_canonical_blocks.csv``: canonical rows.
+* ``data/groupcoin_stale_blocks.csv``: stale rows.
+* ``data/groupcoin_unknown_blocks.csv``: unknown rows.
+* ``data/validated-stales/groupcoin_validated_stales.csv``: loader input;
   ``classification == "stale"`` rows only.
 """
 

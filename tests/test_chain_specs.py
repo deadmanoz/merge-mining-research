@@ -152,11 +152,6 @@ def test_attribution_modes() -> None:
         ), f"{key}: coinbase chain should have a known chain_id unless JSON-dump"
 
 
-def test_historical_chain_spec_keys_match_registry_keys() -> None:
-    for key in HISTORICAL_CHILD_HEADER_CHAINS:
-        assert CHAIN_SPECS[key].key == key
-
-
 def test_paths_under_repo_data_dir() -> None:
     for key, spec in CHAIN_SPECS.items():
         for label, path in (

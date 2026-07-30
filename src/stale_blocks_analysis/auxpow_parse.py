@@ -304,56 +304,16 @@ def validate_child_header_fields(
     Serialization-specific gates may additionally require an exact unpadded
     representation before publishing an artifact.
     """
-    values = {field: str(row.get(field, "")).strip() for field in CHILD_HEADER_FIELDS}
+    values = _child_header_values(row)
     missing = [field for field, value in values.items() if not value]
     if missing:
         raise ChildHeaderValidationError(
             "incomplete child header evidence: missing " + ", ".join(missing)
         )
-    child_hash = values["child_block_hash"]
-    if len(child_hash) != 64 or child_hash != child_hash.lower():
-        raise ChildHeaderValidationError(
-            "child_block_hash must be exactly 32-byte lowercase hex"
-        )
-    try:
-        int(child_hash, 16)
-    except ValueError as exc:
-        raise ChildHeaderValidationError(
-            "child_block_hash must be exactly 32-byte lowercase hex"
-        ) from exc
-    if len(values["child_header_hex"]) != 160:
-        raise ChildHeaderValidationError("child_header_hex must be exactly 80 bytes")
-    if values["child_header_hex"] != values["child_header_hex"].lower():
-        raise ChildHeaderValidationError("child_header_hex must be lowercase hex")
-    child_time_text = values["child_block_time"]
-    if (
-        not child_time_text.isascii()
-        or not child_time_text.isdigit()
-        or len(child_time_text) > 10
-    ):
-        raise ChildHeaderValidationError(
-            "child_block_time must be an unsigned decimal uint32"
-        )
-    if len(values["child_nbits"]) != 8:
-        raise ChildHeaderValidationError("child_nbits must be exactly 4-byte hex")
-    if values["child_nbits"] != values["child_nbits"].lower():
-        raise ChildHeaderValidationError("child_nbits must be lowercase hex")
-    try:
-        raw80 = bytes.fromhex(values["child_header_hex"])
-        nbits_value = int(values["child_nbits"], 16)
-        child_time = int(child_time_text)
-    except ValueError as exc:
-        raise ChildHeaderValidationError(
-            "child header fields contain malformed numeric or hex data"
-        ) from exc
-    if child_time > 0xFFFFFFFF:
-        raise ChildHeaderValidationError(
-            "child_block_time must be an unsigned decimal uint32"
-        )
-    if str(child_time) != child_time_text:
-        raise ChildHeaderValidationError(
-            "child_block_time must use the exact unpadded decimal representation"
-        )
+    raw80, child_time, nbits_value = _validate_child_header_encodings(values)
+    assert raw80 is not None
+    assert child_time is not None
+    assert nbits_value is not None
     if not nbits_from_header:
         header_nbits = struct.unpack_from("<I", raw80, 72)[0]
         if header_nbits != 0:
@@ -366,17 +326,115 @@ def validate_child_header_fields(
         raw80,
         nbits=None if nbits_from_header else nbits_value,
     )
-    if values["child_block_hash"] != expected["child_block_hash"]:
+    _validate_child_header_relationships(values, expected)
+    return expected
+
+
+def validate_available_child_header_fields(
+    row: Mapping[str, object],
+) -> dict[str, str]:
+    """Validate every populated field in a possibly partial child bundle.
+
+    Sources outside the historical hydration set do not all expose the complete
+    four-field contract. Each available value still uses the publication
+    encoding, and an available serialized header authenticates every other
+    populated field.
+    """
+    values = _child_header_values(row)
+    raw80, _child_time, _nbits_value = _validate_child_header_encodings(values)
+    if raw80 is not None:
+        expected = parse_child_header(raw80)
+        _validate_child_header_relationships(values, expected)
+    return {field: value for field, value in values.items() if value}
+
+
+def _child_header_values(row: Mapping[str, object]) -> dict[str, str]:
+    """Return stripped string values for the canonical child-header fields."""
+    return {field: str(row.get(field, "")).strip() for field in CHILD_HEADER_FIELDS}
+
+
+def _validate_child_header_encodings(
+    values: Mapping[str, str],
+) -> tuple[bytes | None, int | None, int | None]:
+    """Validate populated child fields and return their parsed wire values."""
+    child_hash = values["child_block_hash"]
+    if child_hash and (len(child_hash) != 64 or child_hash != child_hash.lower()):
+        raise ChildHeaderValidationError(
+            "child_block_hash must be exactly 32-byte lowercase hex"
+        )
+    if child_hash:
+        try:
+            int(child_hash, 16)
+        except ValueError as exc:
+            raise ChildHeaderValidationError(
+                "child_block_hash must be exactly 32-byte lowercase hex"
+            ) from exc
+
+    child_header_hex = values["child_header_hex"]
+    if child_header_hex and len(child_header_hex) != 160:
+        raise ChildHeaderValidationError("child_header_hex must be exactly 80 bytes")
+    if child_header_hex and child_header_hex != child_header_hex.lower():
+        raise ChildHeaderValidationError("child_header_hex must be lowercase hex")
+
+    child_time_text = values["child_block_time"]
+    if child_time_text and (
+        not child_time_text.isascii()
+        or not child_time_text.isdigit()
+        or len(child_time_text) > 10
+    ):
+        raise ChildHeaderValidationError(
+            "child_block_time must be an unsigned decimal uint32"
+        )
+
+    child_nbits = values["child_nbits"]
+    if child_nbits and len(child_nbits) != 8:
+        raise ChildHeaderValidationError("child_nbits must be exactly 4-byte hex")
+    if child_nbits and child_nbits != child_nbits.lower():
+        raise ChildHeaderValidationError("child_nbits must be lowercase hex")
+
+    raw80 = None
+    child_time = None
+    nbits_value = None
+    try:
+        if child_header_hex:
+            raw80 = bytes.fromhex(child_header_hex)
+        if child_nbits:
+            nbits_value = int(child_nbits, 16)
+        if child_time_text:
+            child_time = int(child_time_text)
+    except ValueError as exc:
+        raise ChildHeaderValidationError(
+            "child header fields contain malformed numeric or hex data"
+        ) from exc
+    if child_time is not None and child_time > 0xFFFFFFFF:
+        raise ChildHeaderValidationError(
+            "child_block_time must be an unsigned decimal uint32"
+        )
+    if child_time is not None and str(child_time) != child_time_text:
+        raise ChildHeaderValidationError(
+            "child_block_time must use the exact unpadded decimal representation"
+        )
+    return raw80, child_time, nbits_value
+
+
+def _validate_child_header_relationships(
+    values: Mapping[str, str], expected: Mapping[str, object]
+) -> None:
+    """Authenticate populated decoded values against a parsed header."""
+    if values["child_block_hash"] and (
+        values["child_block_hash"] != expected["child_block_hash"]
+    ):
         raise ChildHeaderValidationError(
             "child_header_hex does not match child_block_hash"
         )
-    if child_time != expected["child_block_time"]:
+    if values["child_block_time"] and (
+        int(values["child_block_time"]) != expected["child_block_time"]
+    ):
         raise ChildHeaderValidationError(
             "child_header_hex does not match child_block_time"
         )
-    if values["child_nbits"] != expected["child_nbits"]:
+    if values["child_nbits"] and values["child_nbits"] != expected["child_nbits"]:
         raise ChildHeaderValidationError("child header does not match child_nbits")
-    return expected
 
 
 def serialize_block_header(

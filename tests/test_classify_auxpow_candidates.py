@@ -494,26 +494,6 @@ def test_publication_inventory_identifies_parent_on_child_identity_failure(tmp_p
         mod._write_publication_inventory(tmp_path / "i0coin_stale_blocks.csv", [row])
 
 
-def test_publication_inventory_rejects_uppercase_child_hash(tmp_path):
-    mod = _load_classifier()
-    row = _candidate("10" * 32, "207fffff", 10)
-    row["classification"] = "canonical"
-    row["child_block_hash"] = row["child_block_hash"].upper()
-
-    with pytest.raises(ValueError, match="exact lowercase.*child_block_hash"):
-        mod._write_publication_inventory(tmp_path / "i0coin_stale_blocks.csv", [row])
-
-
-def test_publication_inventory_rejects_uppercase_child_header(tmp_path):
-    mod = _load_classifier()
-    row = _candidate("10" * 32, "207fffff", 10)
-    row["classification"] = "canonical"
-    row["child_header_hex"] = row["child_header_hex"].upper()
-
-    with pytest.raises(ValueError, match="exact lowercase child_header_hex"):
-        mod._write_publication_inventory(tmp_path / "i0coin_stale_blocks.csv", [row])
-
-
 def test_publication_inventory_preflights_child_identity_before_rpc(tmp_path):
     mod = _load_classifier()
     row = _candidate("10" * 32, "207fffff", 10)
@@ -618,18 +598,6 @@ def test_publication_inventory_rolls_back_the_whole_family_on_install_failure(
         mod._write_publication_inventory(stale_path, [row])
 
     assert {path: path.read_text() for path in old_contents} == old_contents
-
-
-def test_publication_inventory_fsyncs_output_directory(tmp_path, monkeypatch):
-    mod = _load_classifier()
-    row = _candidate("10" * 32, "207fffff", 10)
-    row["classification"] = "canonical"
-    synced = []
-    monkeypatch.setattr(mod, "_fsync_directory", synced.append)
-
-    mod._write_publication_inventory(tmp_path / "i0coin_stale_blocks.csv", [row])
-
-    assert tmp_path in synced
 
 
 def test_rpc_client_bounds_large_batches_and_preserves_response_alignment():

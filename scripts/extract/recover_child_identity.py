@@ -140,15 +140,20 @@ def strip_0x(value: str) -> str:
 
 
 def load_targets(evidence_path: Path) -> list[tuple[str, int]]:
-    """(btc_header_hash, child_height) work list from a monitor-evidence CSV.
+    """Non-canonical ``(btc_header_hash, child_height)`` recovery work list.
 
     Deduplicates by header hash (one parent header commits to exactly one
     child block) and refuses a hash that appears with two different child
-    heights, which would mean the source artifacts disagree.
+    heights, which would mean the source artifacts disagree. Canonical rows
+    are publishable without exact child identity and are deliberately skipped;
+    otherwise uniform canonical publication would turn this bounded recovery
+    into a scan of entire live chains.
     """
     targets: dict[str, tuple[int, int]] = {}
     with evidence_path.open(newline="") as f:
         for row_number, row in enumerate(csv.DictReader(f), start=2):
+            if (row.get("classification") or "").strip() == "canonical":
+                continue
             btc_hash = row["btc_header_hash"].strip().lower()
             height_text = row["child_height"].strip()
             if not btc_hash or not height_text:
@@ -431,7 +436,7 @@ def write_rows(output_dir: Path, chain: str, rows: list[dict], complete: bool) -
     name = f"{chain}_child_identity.csv" + ("" if complete else ".partial")
     path = output_dir / name
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
+        writer = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fields})

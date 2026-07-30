@@ -65,6 +65,14 @@ child-header-coverage *ARGS:
 test:
     {{python}} -m pytest tests/
 
+# Run tests that do not require materialized Git LFS publication payloads.
+test-unit:
+    {{python}} -m pytest tests/ -m "not dataset"
+
+# Run only committed publication-dataset invariants after `git lfs pull`.
+test-dataset:
+    {{python}} -m pytest tests/ -m dataset
+
 test-markers:
     {{python}} -m pytest tests/test_coinbase_markers.py -v
 

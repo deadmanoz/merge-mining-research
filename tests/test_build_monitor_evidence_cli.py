@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
-from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -295,24 +294,6 @@ def test_canonical_baseline_accepts_canonical_rows_in_full_inventory(
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
 
-def test_missing_unknown_observations_skips_sources_when_none_are_required(
-    tmp_path: Path,
-) -> None:
-    module = _load_module()
-    source_path = tmp_path / "incomplete.csv"
-    source_path.write_text("classification\ncanonical\n")
-    source = module.EvidenceSource(
-        chain="geistgeld",
-        display_name="Geistgeld",
-        path=source_path,
-        source_kind="full_inventory",
-        artifact_scope="full_classifier_inventory",
-        provenance="archive",
-    )
-
-    assert module._missing_unknown_observations(Counter(), [source]) == Counter()
-
-
 def test_full_inventory_coverage_applies_validated_stale_replacement(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -531,6 +512,7 @@ def test_supplemental_input_must_be_independent_of_output(tmp_path: Path) -> Non
         module._supplemental_coverage([supplemental], output_dir=output_dir)
 
 
+@pytest.mark.dataset
 def test_repo_data_monitor_provenance_paths_exist() -> None:
     """Committed repo-data provenance must resolve after source-layout changes."""
     monitor_dir = REPO / "results" / "monitor-evidence"

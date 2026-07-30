@@ -49,10 +49,14 @@ packages = ["src/stale_blocks_analysis"]
 target-version = "py310"
 
 [tool.ruff.lint]
-# Hard-error gate (also what CI enforces): syntax errors plus the likely-bug
-# pyflakes rules, including F821 undefined-name which catches the path/import
-# bug class. Style-only rules (F401 unused-import, F841 unused-var, F541, E402,
-# ...) are intentionally NOT enforced repo-wide here; the
-# dynamically-resolved per-chain *_CSV imports in stale_blocks.py carry a local
-# `# noqa: F401` documenting the LoaderSpec monkeypatch contract.
-select = ["E9", "F63", "F7", "F82"]
+# Hard-error gate (also what CI enforces): syntax errors, unused imports and
+# local variables, plus the likely-bug pyflakes rules including F821
+# undefined-name. The dynamically resolved per-chain *_CSV imports in
+# stale_blocks.py carry a local `# noqa: F401` documenting the LoaderSpec
+# monkeypatch contract.
+select = ["E9", "F63", "F7", "F82", "F401", "F841"]
+
+[tool.pytest.ini_options]
+markers = [
+    "dataset: requires materialized Git LFS publication payloads",
+]

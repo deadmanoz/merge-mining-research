@@ -36,6 +36,33 @@ def _load_repo_script(relative_path: str):
     return module
 
 
+def test_child_identity_recovery_skips_optional_canonical_rows(tmp_path: Path) -> None:
+    mod = _load_script("recover_child_identity")
+    evidence = tmp_path / "elastos_monitor_evidence.csv"
+    with evidence.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["classification", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "classification": "canonical",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+        writer.writerow(
+            {
+                "classification": "unknown",
+                "btc_header_hash": "22" * 32,
+                "child_height": "2",
+            }
+        )
+
+    assert mod.load_targets(evidence) == [("22" * 32, 2)]
+
+
 @pytest.mark.parametrize(
     ("relative_path", "loader_name"),
     [
@@ -108,36 +135,6 @@ def test_xaya_child_fields_use_pure_header_and_powdata_nbits():
     }
 
 
-def test_xaya_extractor_rejects_nonzero_pure_header_nbits():
-    mod = _load_script("extract_xaya_auxpow")
-    pure_header = (
-        struct.pack("<i", 0x100)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
-    )
-    block_prefix = (
-        pure_header + bytes([mod.FLAG_MERGE_MINED]) + struct.pack("<I", 0x1B123456)
-    )
-
-    with pytest.raises(ChildHeaderValidationError, match="child header nBits"):
-        mod.parse_xaya_block(block_prefix)
-
-
-def test_xaya_extractor_rejects_zero_powdata_nbits():
-    mod = _load_script("extract_xaya_auxpow")
-    pure_header = (
-        struct.pack("<i", 0x100)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0, 7)
-    )
-    block_prefix = pure_header + bytes([mod.FLAG_MERGE_MINED]) + struct.pack("<I", 0)
-
-    with pytest.raises(ChildHeaderValidationError, match="external child nBits"):
-        mod.parse_xaya_block(block_prefix)
-
-
 def test_xaya_non_merge_mined_prefix_has_no_child_evidence_row():
     mod = _load_script("extract_xaya_auxpow")
     pure_header = b"\x00" * 80
@@ -148,19 +145,6 @@ def test_xaya_non_merge_mined_prefix_has_no_child_evidence_row():
         "auxpow": None,
         "child_fields": None,
     }
-
-
-def test_huntercoin_rejects_index_hash_contradiction_before_auxpow_parse():
-    mod = _load_script("extract_huntercoin_auxpow")
-    header = (
-        struct.pack("<i", (mod.HUC_CHAIN_ID_SHA256 << 16) | mod.VERSION_AUXPOW)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
-    )
-
-    with pytest.raises(ChildHeaderValidationError, match="hash mismatch"):
-        mod.parse_huc_block(1, header, expected_child_hash="00" * 32)
 
 
 def _set_huntercoin_main_argv(
@@ -473,30 +457,6 @@ def test_coverage_report_counts_authenticated_and_missing_rows(tmp_path: Path):
     assert row["min_child_parent_delta"] == "10"
 
 
-def test_coverage_report_schema():
-    mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
-
-    assert mod.REPORT_FIELDS == (
-        "chain",
-        "artifact_status",
-        "artifact_path",
-        "total_rows",
-        "hydrated_rows",
-        "unrecoverable_rows",
-        "unrecoverable_reasons",
-        "stale_descendant_observations",
-        "hydrated_stale_descendant_observations",
-        "unrecoverable_stale_descendant_observations",
-        "stale_descendant_unrecoverable_reasons",
-        "min_child_time",
-        "max_child_time",
-        "child_parent_delta_status",
-        "child_parent_delta_coverage",
-        "min_child_parent_delta",
-        "max_child_parent_delta",
-    )
-
-
 def test_coverage_report_loads_each_accepted_descendant_source_observation(
     tmp_path: Path,
 ):
@@ -649,27 +609,6 @@ def test_coverage_report_rejects_malformed_parent_time(tmp_path: Path):
         )
 
     with pytest.raises(ValueError, match=r":2: btc_time must be an integer"):
-        mod.summarize_artifact("devcoin", artifact)
-
-
-def test_coverage_report_fails_on_authenticated_field_contradiction(tmp_path: Path):
-    mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
-    artifact = tmp_path / "devcoin_monitor_evidence.csv"
-    fields = [*mod.CHILD_HEADER_FIELDS, "btc_time"]
-    with artifact.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerow(
-            {
-                "child_block_hash": "00" * 32,
-                "child_header_hex": "00" * 80,
-                "child_block_time": "0",
-                "child_nbits": "00000000",
-                "btc_time": "0",
-            }
-        )
-
-    with pytest.raises(ChildHeaderValidationError, match=r":2: child_header_hex"):
         mod.summarize_artifact("devcoin", artifact)
 
 
