@@ -251,7 +251,29 @@ def _set_xaya_main_argv(
     )
 
 
-def test_xaya_main_skips_malformed_height_and_keeps_scanning(
+def test_xaya_main_publishes_exact_height(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    mod = _load_script("extract_xaya_auxpow")
+    blocks_dir = tmp_path / "blocks"
+    blocks_dir.mkdir()
+    valid_height = 2_840_038
+    _write_xaya_blkdat(
+        blocks_dir / "blk00000.dat",
+        mod,
+        _xaya_block_with_child_coinbase(mod, _minimal_coinbase(valid_height)),
+    )
+    output_path = tmp_path / "xaya.csv"
+    _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
+
+    mod.main()
+
+    with output_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["child_height"] for row in rows] == [str(valid_height)]
+
+
+def test_xaya_main_fails_closed_after_malformed_height(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     mod = _load_script("extract_xaya_auxpow")
@@ -267,13 +289,17 @@ def test_xaya_main_skips_malformed_height_and_keeps_scanning(
         _xaya_block_with_child_coinbase(mod, _minimal_coinbase(valid_height)),
     )
     output_path = tmp_path / "xaya.csv"
+    output_path.write_text("last good output\n")
     _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
 
-    mod.main()
+    with pytest.raises(
+        mod.XayaChildHeightError,
+        match="1 merge-mined Xaya blocks lacked an exact BIP34 child height",
+    ):
+        mod.main()
 
-    with output_path.open(newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    assert [row["child_height"] for row in rows] == [str(valid_height)]
+    assert output_path.read_text() == "last good output\n"
+    assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
 
 
 def test_xaya_main_preserves_output_on_child_header_failure(

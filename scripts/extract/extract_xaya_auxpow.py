@@ -241,7 +241,14 @@ def main() -> None:
         "coinbase_outputs",
         "btc_header_hex",
     ]
-    st = {"scanned": 0, "merge_mined": 0, "auxpow_ok": 0, "btc_valid": 0, "errors": 0}
+    st = {
+        "scanned": 0,
+        "merge_mined": 0,
+        "auxpow_ok": 0,
+        "btc_valid": 0,
+        "height_errors": 0,
+        "errors": 0,
+    }
     t0 = time.time()
     with _atomic_csv_writer(args.output, fields) as writer:
         for blk_file in blk_files:
@@ -252,9 +259,11 @@ def main() -> None:
                     parsed = parse_xaya_block(block_data)
                 except XayaChildHeightError:
                     # The uniform publication identity requires an exact height.
-                    # Skip only this height-specific failure; child-header
-                    # authentication errors still abort the transaction.
+                    # Count every height-specific failure so the complete scan
+                    # can report its scope, then fail the output transaction.
+                    # Child-header authentication errors abort immediately.
                     st["merge_mined"] += 1
+                    st["height_errors"] += 1
                     st["errors"] += 1
                     continue
                 if parsed is None:
@@ -308,12 +317,18 @@ def main() -> None:
                 f"merge-mined={st['merge_mined']:,} "
                 f"self-target-valid={st['btc_valid']:,}"
             )
+        if st["height_errors"]:
+            raise XayaChildHeightError(
+                f"{st['height_errors']:,} merge-mined Xaya blocks lacked an exact "
+                "BIP34 child height; refusing to replace the extraction output"
+            )
     dt = time.time() - t0
     print("\n=== Xaya AuxPoW extraction summary ===")
     print(f"  blocks scanned:        {st['scanned']:,}")
     print(f"  merge-mined (SHA256D): {st['merge_mined']:,}")
     print(f"  CAuxPow parsed ok:     {st['auxpow_ok']:,}")
     print(f"  Self-target PoW valid: {st['btc_valid']:,}   (candidate parent headers)")
+    print(f"  Child-height errors:   {st['height_errors']:,}")
     print(f"  parse errors:          {st['errors']:,}")
     print(f"  elapsed: {dt:,.0f}s -> {args.output}")
 
