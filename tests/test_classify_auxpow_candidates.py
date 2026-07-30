@@ -82,13 +82,13 @@ def _bip34_scriptsig(height):
     return (bytes([len(encoded)]) + bytes(encoded) + b"pool-data").hex()
 
 
-def _candidate(prev_hash, bits, child_height, *, nonce_seed=0, bip34_height=478_559):
+def _candidate(prev_hash, bits, child_seed, *, nonce_seed=0, bip34_height=478_559):
     bits_value = int(bits, 16)
-    timestamp = 1_700_000_000 + child_height
+    timestamp = 1_700_000_000 + child_seed
     prefix = (
         struct.pack("<i", 4)
         + bytes.fromhex(prev_hash)[::-1]
-        + bytes([child_height & 0xFF]) * 32
+        + bytes([child_seed & 0xFF]) * 32
         + struct.pack("<II", timestamp, bits_value)
     )
     target = _compact_target(bits_value)
@@ -99,13 +99,13 @@ def _candidate(prev_hash, bits, child_height, *, nonce_seed=0, bip34_height=478_
         if int.from_bytes(internal_hash, "little") <= target:
             break
         nonce += 1
-    child_timestamp = 1_600_000_000 + child_height
+    child_timestamp = 1_600_000_000 + child_seed
     child_nbits = 0x1D00FFFF
     child_header = (
         struct.pack("<i", 1)
         + b"\x33" * 32
-        + bytes([child_height & 0xFF]) * 32
-        + struct.pack("<III", child_timestamp, child_nbits, child_height)
+        + bytes([child_seed & 0xFF]) * 32
+        + struct.pack("<III", child_timestamp, child_nbits, child_seed)
     )
     child_hash = hashlib.sha256(hashlib.sha256(child_header).digest()).digest()
     return {
@@ -118,7 +118,7 @@ def _candidate(prev_hash, bits, child_height, *, nonce_seed=0, bip34_height=478_
         "coinbase_scriptsig_hex": _bip34_scriptsig(bip34_height),
         "coinbase_outputs": "[]",
         "btc_header_hex": header.hex(),
-        "child_height": str(child_height),
+        "child_height": "",
         "child_block_hash": child_hash.hex(),
         "child_header_hex": child_header.hex(),
         "child_block_time": str(child_timestamp),
@@ -240,7 +240,7 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
     assert validated[0]["validation_status"] == (
         "VALID (post-BCH, difficulty matches BTC)"
     )
-    assert validated[0]["child_height"] == "11"
+    assert validated[0]["child_height"] == ""
     assert validated[0]["child_block_hash"] == rows[1]["child_block_hash"]
     assert validated[0]["child_block_time"] == str(1_600_000_011)
 
@@ -260,7 +260,6 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
     assert canonical_evidence["validation_status"] == (
         "VALID (canonical Bitcoin block)"
     )
-    assert canonical_evidence["child_height"] == "10"
     assert canonical_evidence["child_block_hash"] == rows[0]["child_block_hash"]
     assert canonical_evidence["child_block_time"] == str(1_600_000_010)
     assert stale_evidence["btc_hash"] == validated[0]["btc_header_hash"]
@@ -440,7 +439,6 @@ def test_classifier_does_not_create_evidence_file_by_default(tmp_path):
 @pytest.mark.parametrize(
     "missing_field",
     [
-        "child_height",
         "child_block_hash",
         "child_header_hex",
         "child_block_time",
@@ -494,10 +492,59 @@ def test_publication_inventory_identifies_parent_on_child_identity_failure(tmp_p
         mod._write_publication_inventory(tmp_path / "i0coin_stale_blocks.csv", [row])
 
 
+def test_publication_inventory_preserves_authenticated_child_height(tmp_path):
+    mod = _load_classifier()
+    row = _candidate("10" * 32, "207fffff", 10)
+    row["child_height"] = "123"
+    row["classification"] = "canonical"
+    stale_path = tmp_path / "lyncoin_stale_blocks.csv"
+
+    mod._write_publication_inventory(stale_path, [row])
+
+    canonical_path = tmp_path / "lyncoin_canonical_blocks.csv"
+    with canonical_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    assert reader.fieldnames == mod.OUTPUT_FIELDS
+    assert rows[0]["child_height"] == "123"
+
+
+def test_publication_inventory_rejects_invalid_declared_child_height(tmp_path):
+    mod = _load_classifier()
+    row = _candidate("10" * 32, "207fffff", 10)
+    row["child_height"] = "scan-10"
+    row["classification"] = "canonical"
+
+    with pytest.raises(ValueError, match="blank or an exact non-negative integer"):
+        mod._write_publication_inventory(
+            tmp_path / "lyncoin_stale_blocks.csv",
+            [row],
+        )
+
+
+def test_classifier_requires_uniform_child_height_column(tmp_path):
+    mod = _load_classifier()
+    input_path = tmp_path / "candidates.csv"
+    row = _candidate("10" * 32, "207fffff", 10)
+    del row["child_height"]
+    with input_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+
+    with pytest.raises(ValueError, match="input schema must include child_height"):
+        mod.classify_and_validate(
+            input_path,
+            tmp_path / "validated.csv",
+            tmp_path / "rejected.csv",
+            object(),
+        )
+
+
 def test_publication_inventory_preflights_child_identity_before_rpc(tmp_path):
     mod = _load_classifier()
     row = _candidate("10" * 32, "207fffff", 10)
-    row["child_height"] = ""
+    row["child_header_hex"] = ""
     input_path = tmp_path / "candidates.csv"
     output_path = tmp_path / "validated.csv"
     rejected_path = tmp_path / "rejected.csv"
@@ -513,7 +560,7 @@ def test_publication_inventory_preflights_child_identity_before_rpc(tmp_path):
 
     with pytest.raises(
         ValueError,
-        match=rf"evidence row 2 \(btc_header_hash={row['btc_hash']}\).*child_height",
+        match=rf"evidence row 2 \(btc_header_hash={row['btc_hash']}\).*child_header_hex",
     ):
         mod.classify_and_validate(
             input_path,

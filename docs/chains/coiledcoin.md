@@ -41,10 +41,11 @@ CoiledCoin was announced 2012-01-05 by `makomk` and is famously associated with 
 
 **Method.** Offline `blk*.dat` binary parse with the generic Namecoin-family extractor. Pre-0.6 Bitcoin Core's RPC predates `AuxpowToJSON()` and doesn't return AuxPoW data via any `getblock` verbosity, so the binary path is the only practical option (also matches Devcoin's pattern, where the JSON RPC also lacked AuxPoW exposure).
 
-The extractor preserves its reproducible block-file scan counter in both
-`child_sequence` and the established classifier-facing `child_height` column.
-The chain-specific classifier maps that value to `clc_height`; the full child
-header and authenticated child hash remain the authoritative identity evidence.
+The archive exposes the serialized child header and hash but no authenticated
+consensus height. Because `blk*.dat` order is not chain order, the extractor
+leaves the uniform child-height slot blank and does not persist a scan counter.
+The full child header, authenticated child hash, timestamp, and `nBits` remain
+the available child identity evidence.
 
 **Phases.**
 

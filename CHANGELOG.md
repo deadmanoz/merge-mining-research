@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Stop persisting block-file scan order as child-chain data. Generic `blk*.dat`
+extracts now omit scan sequence and leave unresolved height blank; the RPC
+normalizer fills only an authenticated consensus height resolved by child hash.
+Remove the old synthetic i0coin `child_height`, CoiledCoin `clc_height`, and
+archived Doichain height values while retaining uniform blank height columns
+and their other evidence. Normalize every committed validated CSV to the same
+16-column core schema, with source-specific research columns trailing. All
+non-empty exports without an exact child height disclose
+`child_height=unavailable`.
+
+Derive Xaya's exact consensus child height from its BIP34 child coinbase after
+the `PowData`/`CAuxPow` wrapper. Validate every populated field in incomplete
+coverage bundles, require the stale-descendant coverage input, and align
+canonical-companion `source_rows` accounting with the deduplicated publication
+projection.
+
 Integrate VCash's partial canonical recovery through the standard discovered
 `vcash_canonical_blocks.csv` source and normal evidence validation path. Remove
 the generic pre-normalized supplemental-evidence escape hatch and its separate

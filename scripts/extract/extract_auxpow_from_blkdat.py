@@ -63,10 +63,6 @@ CHAINS = {
         "auxpow_start": 160_000,
         "chain_id": 2,
         "name": "i0coin",
-        # The original offline snapshot pipeline exposed the reproducible
-        # blk*.dat scan counter as child_height. Preserve that established
-        # classifier input contract when regenerating the historical set.
-        "child_height_from_sequence": True,
     },
     "ixcoin": {
         "magic": bytes([0xF1, 0xBA, 0xB6, 0xDB]),
@@ -94,9 +90,6 @@ CHAINS = {
         "auxpow_start": 0,  # GetAuxPowStartBlock returns 0 — AuxPoW accepted from genesis+1
         "chain_id": 16,  # collides with Syscoin's chain ID but independent at runtime
         "name": "CoiledCoin",
-        # CoiledCoin's chain-specific classifier has the same historical
-        # child_height contract as the i0coin offline pipeline.
-        "child_height_from_sequence": True,
     },
     "lyncoin": {
         "magic": bytes.fromhex("52030e2f"),
@@ -106,8 +99,8 @@ CHAINS = {
         "name": "Lyncoin",
         "enforce_chain_id": True,
         # Height 260,500 switches to the incompatible Flex encoding. The
-        # child-header version flag lets us reject those blocks without
-        # pretending the approximate blk*.dat sequence counter is a height.
+        # child-header version flag lets us reject those blocks without a
+        # consensus-height lookup.
         "excluded_version_mask": 0x8000,
     },
     "sixeleven": {
@@ -272,24 +265,10 @@ def parse_block(block_data: bytes) -> dict | None:
     return result
 
 
-def provisional_child_fields(
-    parsed: dict,
-    child_sequence: int,
-    *,
-    child_height_from_sequence: bool = False,
-) -> dict:
-    """Return raw child fields using the configured historical height contract.
-
-    Most generic blk-file workflows leave ``child_height`` blank for a later
-    RPC-backed resolution pass. The original i0coin and CoiledCoin pipelines
-    instead use the reproducible scan counter as their classifier-facing
-    ``child_height``; their chain configs opt into preserving that schema.
-    """
-    if child_sequence < 1:
-        raise ValueError("child_sequence must be at least 1")
+def provisional_child_fields(parsed: dict) -> dict:
+    """Return child fields with an explicitly unavailable consensus height."""
     return {
-        "child_sequence": child_sequence,
-        "child_height": child_sequence if child_height_from_sequence else "",
+        "child_height": "",
         "child_block_hash": parsed["child_block_hash"],
         "child_block_hash_display": parsed["child_hash"],
         "child_header_hex": parsed["child_header_hex"],
@@ -324,13 +303,11 @@ def process_chain(
     ``btc_difficulty_only`` is true (the default), rows are further
     filtered to parents whose hash meets the target encoded in that parent's
     own ``nBits`` field. Skip reasons are tallied into a local ``stats`` dict and
-    printed as a summary. The emitted ``child_sequence`` is a reproducible
-    blk*.dat scan-order counter, not a consensus height. Chains with the
-    historical ``child_height_from_sequence`` contract also expose that value
-    as ``child_height``; other chains leave the height blank for a later exact
-    RPC resolution pass. Writes to a temp file in ``output_path``'s directory
-    and atomically renames it into place on completion, fsyncing both the file
-    and its directory entry.
+    printed as a summary. The raw output leaves child height blank because
+    ``blk*.dat`` order is not consensus order. A later RPC-backed pass may fill
+    the exact height by child hash. Writes to a temp file in ``output_path``'s
+    directory and atomically renames it into place on completion, fsyncing both
+    the file and its directory entry.
     """
     magic = chain_config["magic"]
     chain_name = chain_config["name"]
@@ -350,7 +327,6 @@ def process_chain(
     print(f"Found {len(blk_files)} blk*.dat files in {blocks_dir}")
 
     fieldnames = [
-        "child_sequence",
         "child_height",
         "child_block_hash",
         "child_block_hash_display",
@@ -390,18 +366,11 @@ def process_chain(
     }
     t0 = time.time()
 
-    # blk*.dat order is useful only as a reproducible source sequence. It is
-    # not a child-chain consensus height because files can contain side-chain
-    # blocks and are not strictly height-ordered. Exact child heights are
-    # resolved by hash through the chain RPC in a separate fail-closed pass.
-    block_sequence = 0
-
     for blk_file in blk_files:
         blk_path = Path(blk_file)
         file_blocks = 0
 
         for _offset, block_data in iter_blocks_from_file(blk_path, magic, xor_key):
-            block_sequence += 1
             stats["blocks_scanned"] += 1
 
             parsed = parse_block(block_data)
@@ -452,13 +421,7 @@ def process_chain(
             outputs = format_outputs_pkhex(coinbase_tx["vout"])
 
             row = {
-                **provisional_child_fields(
-                    parsed,
-                    block_sequence,
-                    child_height_from_sequence=chain_config.get(
-                        "child_height_from_sequence", False
-                    ),
-                ),
+                **provisional_child_fields(parsed),
                 "btc_hash": parent["hash"],
                 "btc_prev_hash": parent["prev_hash"],
                 "btc_time": parent["time"],

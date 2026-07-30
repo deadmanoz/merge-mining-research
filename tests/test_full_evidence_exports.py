@@ -10,8 +10,11 @@ import pytest
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.full_evidence import (
     EvidenceSource,
+    SourceStats,
     build_full_evidence_exports,
+    build_monitor_evidence_exports,
     discover_evidence_sources,
+    note_child_height_availability,
     normalize_evidence_row,
     safe_path,
     write_csv,
@@ -41,6 +44,16 @@ def test_write_csv_uses_lf_line_endings(tmp_path: Path) -> None:
 
     assert write_csv(output, [{"chain": "namecoin"}], ["chain"]) == 1
     assert output.read_bytes() == b"chain\nnamecoin\n"
+
+
+def test_child_height_unavailable_note_depends_on_emitted_values() -> None:
+    unavailable = SourceStats()
+    note_child_height_availability(unavailable, [{"child_height": ""}])
+    assert unavailable.notes == {"child_height=unavailable"}
+
+    available = SourceStats()
+    note_child_height_availability(available, [{"child_height": "42"}])
+    assert not available.notes
 
 
 def test_safe_path_resolves_repo_relative_inputs() -> None:
@@ -1361,6 +1374,17 @@ def test_canonical_companion_duplicate_rows_are_deduped(tmp_path: Path) -> None:
     manifest = _read_csv(output_dir / "auxpow-full-evidence-manifest.csv")
     namecoin = next(row for row in manifest if row["chain"] == "namecoin")
     assert namecoin["canonical"] == "2"
+    assert namecoin["source_rows"] == "2"
+
+    monitor_dir = tmp_path / "monitor"
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=monitor_dir,
+        relevance_inventory=None,
+    )
+    counts = _read_csv(monitor_dir / "monitor-evidence-counts.csv")
+    namecoin_counts = next(row for row in counts if row["chain"] == "namecoin")
+    assert namecoin_counts["source_rows"] == "2"
 
 
 def test_monitor_export_hydrates_empty_namecoin_header_from_prototype(

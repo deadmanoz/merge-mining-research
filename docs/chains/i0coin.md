@@ -25,7 +25,7 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
 
 **Provenance.** Snapshot downloaded to `<archival-host>` in early 2026, extracted into `~/.i0coin/`, parsed offline against the project's generic Namecoin-family AuxPoW extractor. No live RPC node ran for this chain. Bitcoin Core on `<archival-host>` provided the RPC for the subsequent classification step.
 
-**Coverage.** Validated stales span BTC heights **160,948 → 504,952** (parent timestamps **2012-01-06 → 2018-01-19**, i.e. Jan 2012 → Jan 2018), bounded above by the January 2018 snapshot date. I0C heights in the validated CSV: see the `child_height` column (179,844 → 2,356,895).
+**Coverage.** Validated stales span BTC heights **160,948 → 504,952** (parent timestamps **2012-01-06 → 2018-01-19**, i.e. Jan 2012 → Jan 2018), bounded above by the January 2018 snapshot date. The snapshot does not provide authenticated I0C consensus heights.
 
 **Holes.**
 
@@ -43,11 +43,11 @@ In practice the committed data is a January 2018 partial snapshot, and the valid
 
 **Method.** Offline binary parse of every block in the snapshot's `blk*.dat`. Same extractor used for Namecoin. For each I0C block ≥ 160,000 carrying a `CAuxPow` payload, extract the embedded Bitcoin parent header, coinbase tx, and Merkle branch.
 
-The extractor preserves its reproducible block-file scan counter in both
-`child_sequence` and the established classifier-facing `child_height` column
-for this snapshot pipeline. The full child header and authenticated child hash
-remain the authoritative identity evidence; no later RPC height-resolution
-pass is available for this dead-chain snapshot.
+The snapshot exposes the serialized child header and hash but no authenticated
+consensus height. Because `blk*.dat` order is not chain order, the extractor
+leaves the uniform `child_height` slot blank and does not persist a scan
+counter. The full child header, authenticated child hash, timestamp, and
+`nBits` remain the available child identity evidence.
 
 **Phases.**
 

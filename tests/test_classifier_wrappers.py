@@ -247,13 +247,14 @@ def test_coiledcoin_remap_does_not_promote_bip34_commitment_to_btc_height():
             "coinbase_scriptsig_hex": "03abcdef",
             "coinbase_outputs": "",
             "btc_header_hex": "00" * 80,
-            "child_height": "123",
+            "child_height": "",
             **parse_child_header(child_header),
         }
     )
 
     assert candidate["btc_height"] == ""
     assert candidate["btc_bip34_height"] == "700000"
+    assert candidate["clc_height"] == ""
 
 
 def test_coiledcoin_remap_rejects_partial_child_header_bundle():
@@ -272,7 +273,7 @@ def test_coiledcoin_remap_rejects_partial_child_header_bundle():
                 "coinbase_scriptsig_hex": "03abcdef",
                 "coinbase_outputs": "",
                 "btc_header_hex": "00" * 80,
-                "child_height": "123",
+                "child_height": "",
                 "child_block_hash": "11" * 32,
             }
         )

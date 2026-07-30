@@ -70,13 +70,13 @@ python scripts/extract/extract_auxpow_from_blkdat.py \
 ```
 
 That scan read 430,685 block records, exactly the observed tip plus genesis, and
-found 429,401 parseable AuxPoW commitments. The archived extractor recorded its
-file-order sequence in the historical `child_height` field. Those values are
-offset by one from Doichain consensus height: sequence 1 is genesis and
-sequence 2 is child height 1. This does not affect any published row because
-the accepted output is empty, but it must not be treated as exact child
-provenance. The current extractor instead keeps `child_height` blank. A new run
-must resolve each child hash through Doichain RPC before classification:
+found 429,401 parseable AuxPoW commitments. The original archived extractor
+recorded its file-order sequence as a child height. Those acquisition-only
+values have been cleared from the retained raw and derived artifacts because
+file order is not consensus height. The uniform height columns remain present
+and blank. This does not affect any published row because the accepted output
+is empty. A new run must fill the exact height by resolving each child hash
+through Doichain RPC before classification:
 
 ```bash
 python scripts/prep/normalize_auxpow_child_heights.py \

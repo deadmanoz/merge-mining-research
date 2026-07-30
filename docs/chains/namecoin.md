@@ -57,11 +57,11 @@ The rows span:
 - recorded legacy Namecoin heights 22,379 through 809,650
 - Bitcoin parent timestamps 2011-10-17 through 2026-01-31
 
-The current public block-file extractor deliberately writes a reproducible
-`child_sequence`, the child block hash, and a blank `child_height`: block-file
-order is not consensus height. The `nmc_height` values above originated as
-historical acquisition metadata from the legacy inventory, but every accepted
-row's height is now node-verified: `scripts/extract/recover_child_identity.py`
+The current public block-file extractor writes the child block evidence and a
+blank height slot: block-file order is not consensus height. The `nmc_height`
+values above originated as historical acquisition metadata from the legacy
+inventory, but every accepted row's height is now node-verified:
+`scripts/extract/recover_child_identity.py`
 (which does carry a Namecoin RPC configuration, `NAMECOIN_RPC_*`) fetched the
 canonical Namecoin block at each recorded height and required its decoded
 CAuxPow parent hash to equal the row's own `btc_header_hash`, committing the

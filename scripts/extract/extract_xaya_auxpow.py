@@ -24,12 +24,9 @@ The CAuxPow tail at offset 85 is the standard Namecoin CAuxPow, so the shared
 parser is reused unchanged.
 
 The output CSV uses the canonical ``run_classifier`` input schema
-(``btc_header_hash`` / ``btc_bits`` plus the ``child_height`` provenance column),
-so ``scripts/classify/classify_xaya_stales.py`` consumes it directly. The
-``child_height`` value is a synthetic disk-order counter (blocks are scanned in
-blk*.dat order, not consensus order), matching the i0coin offline-blkdat
-precedent; it is carried through untouched and the loader keys on the BTC parent
-height instead.
+(``btc_header_hash`` / ``btc_bits`` plus exact ``child_height``). Xaya enforces
+BIP34 from child height 1, so the extractor reads the consensus height from the
+child coinbase after the ``PowData`` wrapper.
 
 Requires: Python 3.10+ and the installed stale_blocks_analysis package.
 """
@@ -49,11 +46,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     CHILD_HEADER_FIELDS,
+    ChildHeaderValidationError,
+    _varint,
     hash_meets_btc_difficulty,
     parse_child_header,
     parse_coinbase_height,
     parse_parent_header,
     read_auxpow,
+    read_transaction,
     validate_child_header_fields,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
@@ -96,21 +96,64 @@ def iter_blocks_from_file(filepath: Path, magic: bytes, xor_key: bytes = b""):
         pos += 8 + block_size
 
 
+def _child_height_from_coinbase(block_data: bytes, offset: int) -> int:
+    """Return Xaya's consensus-enforced BIP34 height from the first child tx."""
+    try:
+        tx_count, offset = _varint(block_data, offset)
+        if tx_count < 1:
+            raise ValueError("block has no child transactions")
+        coinbase, _ = read_transaction(block_data, offset)
+    except (IndexError, struct.error, ValueError) as exc:
+        raise ChildHeaderValidationError(
+            "cannot decode Xaya child coinbase after PowData"
+        ) from exc
+    vins = coinbase["vin"]
+    if (
+        len(vins) != 1
+        or vins[0]["prev_hash"] != b"\x00" * 32
+        or vins[0]["prev_idx"] != 0xFFFFFFFF
+    ):
+        raise ChildHeaderValidationError(
+            "Xaya child transaction vector does not begin with a coinbase"
+        )
+    height = parse_coinbase_height(vins[0]["scriptsig"])
+    if height is None or height < 1:
+        raise ChildHeaderValidationError(
+            "Xaya child coinbase lacks its consensus BIP34 height"
+        )
+    return height
+
+
 def parse_xaya_block(block_data: bytes) -> dict | None:
     """Return Xaya header/PowData/AuxPoW fields, or ``None`` when too short."""
     if len(block_data) < AUXPOW_OFFSET:
         return None
     algo = block_data[POW_OFFSET]
     if not (algo & FLAG_MERGE_MINED):
-        return {"merge_mined": False, "auxpow": None, "child_fields": None}
+        return {
+            "merge_mined": False,
+            "auxpow": None,
+            "child_fields": None,
+            "child_height": None,
+        }
     child_nbits = struct.unpack_from("<I", block_data, POW_OFFSET + 1)[0]
     child_fields = parse_child_header(block_data[:80], nbits=child_nbits)
     validate_child_header_fields(child_fields, nbits_from_header=False)
     try:
-        auxpow, _ = read_auxpow(block_data, AUXPOW_OFFSET)
+        auxpow, offset = read_auxpow(block_data, AUXPOW_OFFSET)
     except (IndexError, struct.error, ValueError):
-        return {"merge_mined": True, "auxpow": None, "child_fields": child_fields}
-    return {"merge_mined": True, "auxpow": auxpow, "child_fields": child_fields}
+        return {
+            "merge_mined": True,
+            "auxpow": None,
+            "child_fields": child_fields,
+            "child_height": None,
+        }
+    return {
+        "merge_mined": True,
+        "auxpow": auxpow,
+        "child_fields": child_fields,
+        "child_height": _child_height_from_coinbase(block_data, offset),
+    }
 
 
 def main() -> None:
@@ -123,8 +166,8 @@ def main() -> None:
     with an all-zero or all-ones ``bits`` field are dropped as
     unparseable; by default (``--all-headers`` unset) rows are further
     filtered to those whose parent hash meets the target encoded in its header. The
-    emitted ``child_height`` is a synthetic disk-scan counter, not a Xaya
-    consensus height. Prints periodic progress and a final scan summary.
+    emitted ``child_height`` is the exact consensus height encoded by the
+    BIP34 child coinbase. Prints periodic progress and a final scan summary.
     """
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--blocks-dir", type=Path, required=True)
@@ -166,12 +209,10 @@ def main() -> None:
     writer.writeheader()
 
     st = {"scanned": 0, "merge_mined": 0, "auxpow_ok": 0, "btc_valid": 0, "errors": 0}
-    counter = 0
     t0 = time.time()
     for blk_file in blk_files:
         p = Path(blk_file)
         for block_data in iter_blocks_from_file(p, XAYA_MAGIC, xor_key):
-            counter += 1
             st["scanned"] += 1
             parsed = parse_xaya_block(block_data)
             if parsed is None:
@@ -201,7 +242,7 @@ def main() -> None:
             bip34 = parse_coinbase_height(scriptsig)
             writer.writerow(
                 {
-                    "child_height": counter,
+                    "child_height": parsed["child_height"],
                     **parsed["child_fields"],
                     "btc_header_hash": parent["hash"],
                     "btc_prev_hash": parent["prev_hash"],

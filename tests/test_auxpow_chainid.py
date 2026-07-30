@@ -171,9 +171,8 @@ def test_blkdat_child_hash_has_explicit_importer_compatible_byte_order():
         bytes.fromhex(BTC_800000_HEADER_HEX)[:4], "little", signed=True
     )
 
-    provisional = provisional_child_fields(parsed, child_sequence=17)
+    provisional = provisional_child_fields(parsed)
     assert provisional == {
-        "child_sequence": 17,
         "child_height": "",
         "child_block_hash": BTC_800000_INTERNAL_HASH_HEX,
         "child_block_hash_display": BTC_800000_DISPLAY_HASH,
@@ -185,20 +184,6 @@ def test_blkdat_child_hash_has_explicit_importer_compatible_byte_order():
         ),
         "child_nbits": "17053894",
     }
-
-    historical = provisional_child_fields(
-        parsed,
-        child_sequence=17,
-        child_height_from_sequence=True,
-    )
-    assert historical["child_sequence"] == 17
-    assert historical["child_height"] == 17
-
-
-def test_offline_historical_chains_preserve_sequence_height_contract():
-    assert BLKDAT_CHAINS["i0coin"]["child_height_from_sequence"] is True
-    assert BLKDAT_CHAINS["coiledcoin"]["child_height_from_sequence"] is True
-    assert "child_height_from_sequence" not in BLKDAT_CHAINS["lyncoin"]
 
 
 def test_blast_blkdat_scope_accepts_both_consensus_chain_ids():
@@ -406,7 +391,6 @@ def test_sidecar_chain_merkle_root_ok_is_empty_when_not_compared():
 
     row = infer_row(
         chain_slug="namecoin",
-        child_sequence=1,
         child_header_raw=b"\x01" * 80,
         child_version=0x10100,
         auxpow=auxpow,

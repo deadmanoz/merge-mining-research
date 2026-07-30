@@ -1,9 +1,9 @@
 """Resolve provisional blk-file child records to exact RPC-backed heights.
 
-The generic Namecoin-family blk-file extractor deliberately emits disk order as
-``child_sequence``, never as ``child_height``. This module validates each raw
-child hash and version against a running child-chain node before atomically
-writing an otherwise unchanged CSV with the exact consensus height populated.
+The generic Namecoin-family blk-file extractor leaves child height blank
+because disk order is not consensus order. This module validates each raw child
+hash and version against a running child-chain node before atomically filling
+the uniform height slot with the exact consensus height.
 """
 
 from __future__ import annotations
@@ -88,7 +88,6 @@ CHAIN_SPECS = {
 }
 
 REQUIRED_FIELDS = {
-    "child_sequence",
     "child_height",
     "child_block_hash",
     "child_block_hash_display",
@@ -244,31 +243,13 @@ def _resolve_row(
 ) -> dict[str, str]:
     """Validate one raw child row and resolve its exact consensus height via RPC.
 
-    ``row`` must arrive with an empty ``child_height``; every field
-    (``child_sequence``, ``child_block_hash``/``child_block_hash_display``
-    byte-order agreement, ``child_version`` AuxPoW/chain-ID shape,
-    ``child_block_time``) is checked before the RPC call. The RPC result
+    Every child hash byte-order pair, ``child_version`` AuxPoW/chain-ID shape,
+    and ``child_block_time`` is checked before the RPC call. The RPC result
     (``spec.rpc_method`` on the display hash, then ``getblockhash`` at the
     resolved height) must agree on hash, height range, version, time, and
     canonical linkage. Returns ``row`` with ``child_height`` populated;
     raises ``ValueError`` on any mismatch.
     """
-    if (row.get("child_height") or "").strip():
-        raise ValueError(
-            f"{input_path}:{row_number}: child_height must be empty before RPC resolution"
-        )
-
-    sequence = _require_int(
-        row.get("child_sequence"),
-        field="child_sequence",
-        input_path=input_path,
-        row_number=row_number,
-    )
-    if sequence < 1:
-        raise ValueError(
-            f"{input_path}:{row_number}: child_sequence must be at least 1"
-        )
-
     internal_hash = _require_hash(
         row.get("child_block_hash"),
         field="child_block_hash",
@@ -379,7 +360,6 @@ def _resolve_row(
 
     return {
         **row,
-        "child_sequence": str(sequence),
         "child_height": str(height),
         "child_block_hash": internal_hash,
         "child_block_hash_display": display_hash,
@@ -451,6 +431,10 @@ def normalize_auxpow_child_heights(
         first_row = next(reader, None)
         if first_row is None:
             raise ValueError(f"{input_path}: contains no candidate rows")
+        if first_row.get("child_height"):
+            raise ValueError(
+                f"{input_path}: unresolved input child_height must be blank"
+            )
 
         tip_height = rpc.call("getblockcount")
         if isinstance(tip_height, bool) or not isinstance(tip_height, int):
@@ -458,17 +442,19 @@ def normalize_auxpow_child_heights(
         if tip_height < 0:
             raise ValueError(f"{spec.slug} RPC getblockcount returned a negative tip")
 
-        seen_sequences: set[int] = set()
         seen_hashes: set[str] = set()
         seen_heights: set[int] = set()
 
         def resolved_rows() -> Iterable[dict[str, str]]:
-            """Yield each row resolved via ``_resolve_row``, rejecting duplicate
-            ``child_sequence``, ``child_block_hash``, or resolved ``child_height``.
-            """
+            """Yield rows, rejecting duplicate child hashes or resolved heights."""
             for row_number, row in enumerate(
                 itertools.chain((first_row,), reader), start=2
             ):
+                if row.get("child_height"):
+                    raise ValueError(
+                        f"{input_path}:{row_number}: unresolved input child_height "
+                        "must be blank"
+                    )
                 resolved = _resolve_row(
                     row,
                     row_number=row_number,
@@ -477,13 +463,8 @@ def normalize_auxpow_child_heights(
                     rpc=rpc,
                     tip_height=tip_height,
                 )
-                sequence = int(resolved["child_sequence"])
                 internal_hash = resolved["child_block_hash"]
                 height = int(resolved["child_height"])
-                if sequence in seen_sequences:
-                    raise ValueError(
-                        f"{input_path}:{row_number}: duplicate child_sequence {sequence}"
-                    )
                 if internal_hash in seen_hashes:
                     raise ValueError(
                         f"{input_path}:{row_number}: duplicate child_block_hash "
@@ -494,7 +475,6 @@ def normalize_auxpow_child_heights(
                         f"{input_path}:{row_number}: duplicate canonical "
                         f"child_height {height}"
                     )
-                seen_sequences.add(sequence)
                 seen_hashes.add(internal_hash)
                 seen_heights.add(height)
                 yield resolved

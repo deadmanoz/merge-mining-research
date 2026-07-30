@@ -37,11 +37,12 @@ One row per recovered direct-stale BTC header candidate for a merge-mined
 chain. Every committed row is `classification = stale` and
 `validation_status = VALID` with a `VALID`-prefixed variant allowed. These
 files are the publication-gate-accepted output; namecoin and i0coin carry
-`VALID (post-BCH ...)` annotations under the documented prefix contract. All
-files share the normalized Bitcoin-parent and verdict columns below. Legacy
-per-extractor variants (`btc_stale_height`, `btc_hash`, `btc_bits_hex`) were
-normalized in the data pass. Chain-specific child and research columns occupy
-the documented positions between those common groups:
+`VALID (post-BCH ...)` annotations under the documented prefix contract. Every
+file begins with the same 16-column core layout: normalized Bitcoin-parent
+fields, the registered child-height slot, the four child-header fields, and the
+verdict fields. Legacy per-extractor variants (`btc_stale_height`, `btc_hash`,
+`btc_bits_hex`) were normalized in the data pass. Chain-specific research
+columns trail that shared core:
 
 | Column | Notes |
 | --- | --- |
@@ -53,7 +54,7 @@ the documented positions between those common groups:
 | `coinbase_scriptsig_hex` | Preserved coinbase evidence for later pool-attribution research. |
 | `coinbase_outputs` | Semicolon-separated `value:scriptPubKeyHex` (or address) list; empty where the extraction preserved none (RSK). |
 | `btc_header_hex` | Full 80-byte header, hex (160 chars). |
-| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. Namecoin's `nmc_height` is a recorded legacy acquisition field that cannot be reverified from the compact public artifacts; see `docs/chains/namecoin.md`. |
+| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. The column occupies the same position in every validated schema and remains blank when unavailable. Namecoin's `nmc_height` is a recorded legacy acquisition field that cannot be reverified from the compact public artifacts; see `docs/chains/namecoin.md`. |
 | `child_block_hash` | Authenticated child block hash for the 17 refreshed historical source families. |
 | `child_header_hex` | Authenticated serialized 80-byte child header for the 17 refreshed historical source families. |
 | `child_block_time` | Unsigned decimal timestamp decoded from `child_header_hex`. |
@@ -318,6 +319,17 @@ headers; live-chain observations use the independently verified identities in
 `data/child-identity/`. A publication build fails closed if any accepted
 `(chain, btc_header_hash)` observation is absent; a partial diagnostic reports
 the identity as deferred instead of claiming representation.
+
+i0coin and CoiledCoin publish their authenticated child hash, header, time, and
+`nBits`, but the normalized `child_height` value remains empty because their
+offline archives provide no authenticated consensus height. Doichain's retained
+historical inventories likewise leave their former file-order values blank; a
+future run can fill exact heights through its documented RPC normalization
+pass. The old block-file scan counters have been removed rather than presented
+as heights. Height columns remain present uniformly. Any non-empty export with
+no exact child height records `child_height=unavailable`; downstream importers
+that require a height must skip those rows until an exact height source becomes
+available.
 The child-header coverage report
 cross-references those accepted observations by source chain and Bitcoin
 header hash so their coverage is explicit:
@@ -345,7 +357,9 @@ unknown rows were present without a relevance inventory to judge them, and --
 for namecoin -- the header-hydration coverage in the `notes` field
 (`namecoin_header_hydration=hydrated:N/still_missing:M/hash_mismatch_rejected:K`,
 with `no_namecoin_header_hydration_sources_found` appended when no extract file
-was available). The JSON manifest also carries a machine-readable
+was available). A non-empty chain export also records
+`child_height=unavailable` when none of its rows carries an exact height. The
+JSON manifest also carries a machine-readable
 `validation_contract` object. Its
 `valid_token_scope=publication_gate_accepted_not_full_block_validity` value is
 the normative interpretation of `validation_status=VALID` for downstream
@@ -356,9 +370,11 @@ the complete block and historical chain state.
 For full-inventory sources, `source_rows` removes every raw stale-classified
 row and inserts the committed gate-accepted validated overlay. It can therefore
 be smaller than the full-evidence or child-header coverage total when a stale
-candidate was rejected. The current differences are 9 i0coin rows, 1
+candidate was rejected. A canonical row present in both the main inventory and
+its canonical companion is likewise counted once, matching the deduplicated
+publication projection. The current validation differences are 9 i0coin rows, 1
 Groupcoin row, and 1 Emercoin row; this is validation accounting, not
-deduplication or missing source acquisition.
+missing source acquisition.
 
 ## Strict/weak BTC orphans: `results/strict-weak-orphans/<chain>_strict_weak_orphans.csv`
 

@@ -7,6 +7,10 @@ and validated outputs. Full-evidence and monitor-evidence exports retain them
 in the stable order `child_height`, `child_block_hash`, `child_header_hex`,
 `child_block_time`, `child_nbits`.
 
+Every committed validated CSV retains the same 16-column core schema even when
+its source cannot populate every child field. Unavailable values remain blank;
+chain-specific research columns follow the core columns.
+
 This is not a post-processing workflow. An existing raw, classified, or
 validated CSV without the header bundle is insufficient. Regeneration starts
 from a raw block, decoded block record, immutable block dump, or an
@@ -21,7 +25,7 @@ omits hostnames, mount paths, credentials, and operator-specific locations.
 | --- | --- | --- |
 | Devcoin | Raw RPC block by true height and source hash | Regenerated and authenticated. |
 | ixcoin | Raw RPC block by true height and source hash | Regenerated and authenticated. |
-| i0coin | Original `blk*.dat` snapshot, preserving disk order | Regenerated and authenticated. |
+| i0coin | Original `blk*.dat` snapshot; consensus height unavailable | Header bundle regenerated and authenticated. |
 | Groupcoin | Original decoded `getblock` JSON dump | Regenerated and authenticated. |
 | CoiledCoin | Original `blk*.dat` blocks scanned by embedded BTC parent | Regenerated and authenticated. |
 | Geistgeld | Original decoded `getblock` JSON dump | Regenerated and authenticated. |

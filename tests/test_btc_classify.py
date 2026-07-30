@@ -329,10 +329,9 @@ def test_output_columns_order_with_height_col():
     ]
 
 
-def test_output_columns_without_height_col():
-    cols = output_columns(None)
-    assert "ixc_height" not in cols
-    assert cols[-3:] == ["classification", "validation_status", "expected_nbits"]
+def test_output_columns_requires_height_col():
+    with pytest.raises(ValueError, match="height_col must be a non-empty"):
+        output_columns(None)
 
 
 # ---------------------------------------------------------------------------

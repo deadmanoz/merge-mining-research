@@ -147,6 +147,27 @@ def test_child_header_validator_rejects_zero_xaya_powdata_nbits():
         ap.validate_child_header_fields(fields, nbits_from_header=False)
 
 
+def test_partial_child_header_validator_uses_xaya_external_nbits_contract():
+    raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0, 7)
+    fields = ap.parse_child_header(raw, nbits=0x1B123456)
+    fields["child_nbits"] = ""
+
+    assert ap.validate_available_child_header_fields(
+        fields, nbits_from_header=False
+    ) == {
+        "child_block_hash": fields["child_block_hash"],
+        "child_header_hex": fields["child_header_hex"],
+        "child_block_time": str(fields["child_block_time"]),
+    }
+
+    fields["child_block_hash"] = "00" * 32
+    with pytest.raises(
+        ap.ChildHeaderValidationError,
+        match="child_header_hex does not match child_block_hash",
+    ):
+        ap.validate_available_child_header_fields(fields, nbits_from_header=False)
+
+
 @pytest.mark.parametrize("malformed_time", ["1_700_000_000", "+1700000000"])
 def test_child_header_validator_rejects_non_decimal_time(malformed_time):
     raw = _build_header(1, b"\x11" * 32, b"\x22" * 32, 1_700_000_000, 0x1D00FFFF, 7)

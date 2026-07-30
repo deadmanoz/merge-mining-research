@@ -19,7 +19,7 @@ from stale_blocks_analysis.auxpow_child_heights import (  # noqa: E402
 
 
 def main() -> None:
-    """Rewrite synthetic child heights to exact consensus heights via child RPC."""
+    """Fill exact consensus child heights in unresolved blk-file rows via RPC."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chain", required=True, choices=sorted(CHAIN_SPECS))
     parser.add_argument("--input", type=Path, required=True)

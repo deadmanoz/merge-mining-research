@@ -243,7 +243,8 @@ def main():
             flag = " [ELIGIUS]" if s["eligius_attack_window"] == "true" else ""
             print(
                 f"  BTC {s['btc_height']:>7} | {s['btc_header_hash'][:16]}... | "
-                f"CLC {s['clc_height']} | time {s['btc_time']}{flag}"
+                f"CLC {s['clc_height'] or 'unavailable'} | "
+                f"time {s['btc_time']}{flag}"
             )
 
 

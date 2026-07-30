@@ -153,17 +153,23 @@ _CHILD_OUTPUT_COLUMNS = [
 ]
 
 
-def output_columns(height_col: Optional[str]) -> list[str]:
+def output_columns(height_col: str) -> list[str]:
     """Build the OUTPUT_COLUMNS list for a chain.
 
     ``height_col`` is the per-chain child-height column (e.g. ``ixc_height``).
-    When ``None`` no child-height column is emitted. The nBits-gate annotation
-    columns (``validation_status`` / ``expected_nbits``) trail the row so the
-    Phase 3 gate output is always carried.
+    It is always present even when a source cannot authenticate a value for
+    every row. The nBits-gate annotation columns (``validation_status`` /
+    ``expected_nbits``) trail the row so the Phase 3 gate output is always
+    carried.
     """
+    if (
+        not isinstance(height_col, str)
+        or not height_col
+        or height_col.strip() != height_col
+    ):
+        raise ValueError("height_col must be a non-empty stripped string")
     cols = list(_BASE_OUTPUT_COLUMNS)
-    if height_col:
-        cols.append(height_col)
+    cols.append(height_col)
     cols.extend(_CHILD_OUTPUT_COLUMNS)
     cols.extend(_TRAILING_OUTPUT_COLUMNS)
     return cols

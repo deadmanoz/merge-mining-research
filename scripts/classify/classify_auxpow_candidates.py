@@ -392,18 +392,8 @@ def _validate_block_hash_result(block_hash):
         ) from exc
 
 
-def _require_exact_child_identity(row):
-    """Reject evidence rows whose child identity is absent or malformed."""
-    child_height = row.get("child_height")
-    if (
-        not isinstance(child_height, str)
-        or not child_height
-        or child_height != child_height.strip()
-        or not child_height.isascii()
-        or not child_height.isdigit()
-    ):
-        raise ValueError("evidence output requires an exact non-negative child_height")
-
+def _require_authenticated_child_header(row):
+    """Reject evidence rows whose authenticated child header is malformed."""
     for field in CHILD_HEADER_FIELDS:
         value = row.get(field)
         if not isinstance(value, str) or value != value.strip():
@@ -414,10 +404,25 @@ def _require_exact_child_identity(row):
         raise ValueError(f"evidence output requires {exc}") from exc
 
 
-def _require_exact_child_identity_with_context(row, *, row_number):
+def _validate_child_height(row):
+    """Validate a populated consensus height; an unavailable value stays blank."""
+    child_height = row.get("child_height")
+    if child_height == "":
+        return
+    if (
+        not isinstance(child_height, str)
+        or child_height != child_height.strip()
+        or not child_height.isascii()
+        or not child_height.isdigit()
+    ):
+        raise ValueError("child_height must be blank or an exact non-negative integer")
+
+
+def _require_authenticated_child_header_with_context(row, *, row_number):
     """Add a stable row and Bitcoin-parent identifier to validation errors."""
     try:
-        _require_exact_child_identity(row)
+        _validate_child_height(row)
+        _require_authenticated_child_header(row)
     except ValueError as exc:
         parent_hash = row.get("btc_header_hash") or row.get("btc_hash") or "<missing>"
         raise ValueError(
@@ -696,7 +701,7 @@ def _write_publication_inventory(stale_csv, rows):
     """Authenticate, normalize, and transactionally publish three buckets."""
     buckets = {"canonical": [], "stale": [], "unknown": []}
     for row_number, row in enumerate(rows, start=2):
-        _require_exact_child_identity_with_context(row, row_number=row_number)
+        _require_authenticated_child_header_with_context(row, row_number=row_number)
         publication_row = _publication_row(row)
         bucket = buckets.get(publication_row["classification"])
         if bucket is None:
@@ -795,11 +800,15 @@ def classify_and_validate(
         reader = csv.DictReader(f)
         input_fields = reader.fieldnames or []
         rows = list(reader)
+    if "child_height" not in input_fields:
+        raise ValueError("input schema must include child_height")
 
     for row_number, row in enumerate(rows, start=2):
         _validate_candidate_parent_header(row, row_number=row_number)
         if evidence_csv is not None or publication_csv is not None:
-            _require_exact_child_identity_with_context(row, row_number=row_number)
+            _require_authenticated_child_header_with_context(row, row_number=row_number)
+        else:
+            _validate_child_height(row)
 
     print(f"Loaded {len(rows):,} self-target-PoW-valid headers to classify")
 
@@ -1027,7 +1036,7 @@ def classify_and_validate(
     if evidence_csv is not None:
         evidence.sort(key=lambda item: item[0])
         for input_index, evidence_row in evidence:
-            _require_exact_child_identity_with_context(
+            _require_authenticated_child_header_with_context(
                 evidence_row, row_number=input_index + 2
             )
 
@@ -1109,8 +1118,10 @@ def main():
         "--evidence-output",
         help=(
             "Optional import-ready CSV of canonical and validated stale evidence. "
-            "Every input row must carry an exact child height and complete "
-            "authenticated child-header bundle"
+            "Every input row must carry a complete authenticated child-header "
+            "bundle and the uniform child_height column. Heights that cannot be "
+            "authenticated remain blank; populated values must be exact and "
+            "non-negative"
         ),
     )
     parser.add_argument(
@@ -1126,9 +1137,10 @@ def main():
             "Optional normalized three-bucket publication family. This path is "
             "the stale CSV; canonical and unknown peer paths are derived from "
             "its filename, and a refresh transactionally replaces the complete "
-            "three-file family. Every input row must already carry an exact "
-            "child height and complete authenticated child-header bundle; this "
-            "is checked before any Bitcoin RPC classification"
+            "three-file family. Every input row must carry a complete authenticated "
+            "child-header bundle and the uniform child_height column. Unavailable "
+            "heights remain blank; populated values must be exact and non-negative. "
+            "This is checked before any Bitcoin RPC classification"
         ),
     )
     add_rpc_args(parser)

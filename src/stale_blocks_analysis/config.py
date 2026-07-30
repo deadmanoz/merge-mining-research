@@ -473,7 +473,9 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 #   - key: the canonical chain key, matching CHAINS_BY_AUXPOW_ACTIVATION
 #     (hyphenated for "bitcoin-vault" / "fractal").
 #   - height_column: the chain's OWN height column in its raw/classified CSVs
-#     (e.g. "sys_height"), not the BTC parent height ("btc_height").
+#     (e.g. "sys_height"), not the BTC parent height ("btc_height"). Every
+#     schema retains this slot; sources without an authenticated value leave it
+#     blank.
 #   - chain_id: the AuxPoW chain ID embedded in the child block nVersion high
 #     16 bits. None where the value is not needed for our recovery and
 #     not confirmed from source (the JSON-dump chains Geistgeld and Groupcoin),
@@ -499,7 +501,7 @@ class ChainSpec:
 
     key: str
     display_name: str
-    height_column: Optional[str]
+    height_column: str
     chain_id: Optional[int]
     activation_height: Optional[int]
     attribution_mode: Literal["coinbase", "miner_address", "rest"]
@@ -545,7 +547,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "i0coin": ChainSpec(
         key="i0coin",
         display_name="i0coin",
-        height_column="child_height",  # i0coin validated CSV uses "child_height", not "i0c_height"
+        height_column="child_height",  # blank when the snapshot cannot prove it
         chain_id=2,
         activation_height=160_000,
         attribution_mode="coinbase",
@@ -556,7 +558,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "coiledcoin": ChainSpec(
         key="coiledcoin",
         display_name="CoiledCoin",
-        height_column="clc_height",
+        height_column="clc_height",  # blank when the archive cannot prove it
         chain_id=16,  # collides with Syscoin chain 2; harmless at runtime
         activation_height=1,  # AuxPoW accepted from genesis (height 1)
         attribution_mode="coinbase",
@@ -721,7 +723,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "xaya": ChainSpec(
         key="xaya",
         display_name="Xaya",
-        height_column="child_height",  # synthetic disk-order counter (i0coin precedent), not a consensus height
+        height_column="child_height",  # exact BIP34 height from the child coinbase
         chain_id=1829,  # 0x0725; no fStrictChainId flag (AuxPoW parent carries no chain ID)
         activation_height=1,  # SHA256D-AuxPoW accepted from genesis (genesis block itself is NEOSCRYPT)
         attribution_mode="coinbase",

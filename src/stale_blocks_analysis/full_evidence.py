@@ -315,6 +315,14 @@ def child_height_for(
     return row.get("child_height", "").strip()
 
 
+def note_child_height_availability(
+    stats: SourceStats, rows: list[dict[str, str]]
+) -> None:
+    """Disclose when a non-empty normalized artifact has no exact child height."""
+    if rows and not any((row.get("child_height") or "").strip() for row in rows):
+        stats.notes.add("child_height=unavailable")
+
+
 def child_hash_for(
     chain: str,
     row: dict[str, str],
@@ -455,7 +463,12 @@ def normalize_evidence_row(
                 ),
             )
         elif populated_child_fields:
-            validate_available_child_header_fields(child_bundle)
+            validate_available_child_header_fields(
+                child_bundle,
+                nbits_from_header=(
+                    source_spec.child_nbits_from_header if source_spec else True
+                ),
+            )
     except ChildHeaderValidationError as exc:
         detail = str(exc)
         if source.chain in HISTORICAL_CHILD_HEADER_CHAINS and len(
@@ -1376,6 +1389,7 @@ def build_full_evidence_exports(
                 rows, companion_rows
             )
             if skipped:
+                companion_stats.source_rows -= skipped
                 companion_stats.classifications["canonical"] -= skipped
                 stats.notes.add(f"skipped_duplicate_canonical_companion_rows={skipped}")
             rows.extend(companion_rows)
@@ -1401,6 +1415,7 @@ def build_full_evidence_exports(
         identity_hydration = hydrate_child_identity(rows, child_identity)
         if identity_hydration.note():
             stats.notes.add(identity_hydration.note())
+        note_child_height_availability(stats, rows)
         if (
             source.path is not None
             or companion is not None
@@ -1743,6 +1758,7 @@ def build_monitor_evidence_exports(
                 rows, companion_rows
             )
             if skipped_canonical:
+                companion_stats.source_rows -= skipped_canonical
                 companion_stats.classifications["canonical"] -= skipped_canonical
             rows.extend(companion_rows)
             stats = merge_stats(stats, companion_stats)
@@ -1754,6 +1770,7 @@ def build_monitor_evidence_exports(
         )
         hydration = hydrate_namecoin_headers(kept, namecoin_paths)
         identity_hydration = hydrate_child_identity(kept, child_identity)
+        note_child_height_availability(stats, kept)
         if identity_hydration.missing_identity or identity_hydration.height_mismatch:
             identity_shortfalls[source.chain] = identity_hydration
         if source.chain != "stale-descendants":

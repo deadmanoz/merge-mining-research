@@ -330,14 +330,11 @@ def validate_child_header_fields(
     assert raw80 is not None
     assert child_time is not None
     assert nbits_value is not None
-    if not nbits_from_header:
-        header_nbits = struct.unpack_from("<I", raw80, 72)[0]
-        if header_nbits != 0:
-            raise ChildHeaderValidationError(
-                "child header nBits must be zero when effective nBits is external"
-            )
-        if nbits_value == 0:
-            raise ChildHeaderValidationError("external child nBits must be non-zero")
+    _validate_external_child_nbits(
+        raw80,
+        nbits_value,
+        nbits_from_header=nbits_from_header,
+    )
     expected = parse_child_header(
         raw80,
         nbits=None if nbits_from_header else nbits_value,
@@ -348,6 +345,8 @@ def validate_child_header_fields(
 
 def validate_available_child_header_fields(
     row: Mapping[str, object],
+    *,
+    nbits_from_header: bool = True,
 ) -> dict[str, str]:
     """Validate every populated field in a possibly partial child bundle.
 
@@ -357,11 +356,40 @@ def validate_available_child_header_fields(
     populated field.
     """
     values = _child_header_values(row)
-    raw80, _child_time, _nbits_value = _validate_child_header_encodings(values)
+    raw80, _child_time, nbits_value = _validate_child_header_encodings(values)
+    _validate_external_child_nbits(
+        raw80,
+        nbits_value,
+        nbits_from_header=nbits_from_header,
+    )
     if raw80 is not None:
-        expected = parse_child_header(raw80)
+        expected = parse_child_header(
+            raw80,
+            nbits=(
+                nbits_value
+                if not nbits_from_header and nbits_value is not None
+                else None
+            ),
+        )
         _validate_child_header_relationships(values, expected)
     return {field: value for field, value in values.items() if value}
+
+
+def _validate_external_child_nbits(
+    raw80: bytes | None,
+    nbits_value: int | None,
+    *,
+    nbits_from_header: bool,
+) -> None:
+    """Enforce the Xaya-style external-target invariants when evidence exists."""
+    if nbits_from_header:
+        return
+    if raw80 is not None and struct.unpack_from("<I", raw80, 72)[0] != 0:
+        raise ChildHeaderValidationError(
+            "child header nBits must be zero when effective nBits is external"
+        )
+    if nbits_value == 0:
+        raise ChildHeaderValidationError("external child nBits must be non-zero")
 
 
 def _child_header_values(row: Mapping[str, object]) -> dict[str, str]:

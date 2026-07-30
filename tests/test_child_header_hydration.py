@@ -127,6 +127,7 @@ def test_xaya_child_fields_use_pure_header_and_powdata_nbits():
     assert parsed is not None
     assert parsed["merge_mined"] is True
     assert parsed["auxpow"] is None
+    assert parsed["child_height"] is None
     assert parsed["child_fields"] == {
         "child_block_hash": hash_from_header_bytes(pure_header).hex(),
         "child_header_hex": pure_header.hex(),
@@ -144,7 +145,85 @@ def test_xaya_non_merge_mined_prefix_has_no_child_evidence_row():
         "merge_mined": False,
         "auxpow": None,
         "child_fields": None,
+        "child_height": None,
     }
+
+
+def _minimal_coinbase(height: int) -> bytes:
+    height_bytes = height.to_bytes(3, "little")
+    scriptsig = bytes([len(height_bytes)]) + height_bytes
+    return (
+        struct.pack("<i", 1)
+        + b"\x01"
+        + b"\x00" * 32
+        + struct.pack("<I", 0xFFFFFFFF)
+        + bytes([len(scriptsig)])
+        + scriptsig
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"\x01"
+        + struct.pack("<Q", 1)
+        + b"\x00"
+        + struct.pack("<I", 0)
+    )
+
+
+def _xaya_block_with_child_coinbase(mod, child_coinbase: bytes) -> bytes:
+    pure_header = (
+        struct.pack("<i", 0x100)
+        + b"\x11" * 32
+        + b"\x22" * 32
+        + struct.pack("<III", 1_700_000_000, 0, 7)
+    )
+    parent_header = (
+        struct.pack("<i", 1)
+        + b"\x33" * 32
+        + b"\x44" * 32
+        + struct.pack("<III", 1_700_000_001, 0x1D00FFFF, 8)
+    )
+    auxpow = (
+        _minimal_coinbase(500_000)
+        + b"\x00" * 32
+        + b"\x00"
+        + struct.pack("<i", 0)
+        + b"\x00"
+        + struct.pack("<i", 0)
+        + parent_header
+    )
+    return (
+        pure_header
+        + bytes([mod.FLAG_MERGE_MINED])
+        + struct.pack("<I", 0x1B123456)
+        + auxpow
+        + b"\x01"
+        + child_coinbase
+    )
+
+
+def test_xaya_child_height_comes_from_consensus_coinbase_not_scan_order():
+    mod = _load_script("extract_xaya_auxpow")
+    child_height = 2_840_038
+
+    parsed = mod.parse_xaya_block(
+        _xaya_block_with_child_coinbase(mod, _minimal_coinbase(child_height))
+    )
+
+    assert parsed is not None
+    assert parsed["auxpow"] is not None
+    assert parsed["child_height"] == child_height
+
+
+def test_xaya_rejects_child_transaction_without_bip34_height():
+    mod = _load_script("extract_xaya_auxpow")
+    malformed_child_coinbase = bytearray(_minimal_coinbase(1))
+    malformed_child_coinbase[42] = 0
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match="Xaya child coinbase lacks its consensus BIP34 height",
+    ):
+        mod.parse_xaya_block(
+            _xaya_block_with_child_coinbase(mod, malformed_child_coinbase)
+        )
 
 
 def _set_huntercoin_main_argv(
@@ -458,6 +537,38 @@ def test_coverage_report_counts_authenticated_and_missing_rows(tmp_path: Path):
     assert row["min_child_parent_delta"] == "10"
 
 
+def test_coverage_report_authenticates_populated_fields_in_incomplete_bundle(
+    tmp_path: Path,
+):
+    mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
+    header = (
+        struct.pack("<i", 1)
+        + b"\x11" * 32
+        + b"\x22" * 32
+        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
+    )
+    artifact = tmp_path / "devcoin_monitor_evidence.csv"
+    fields = [*mod.CHILD_HEADER_FIELDS, "btc_header_hash"]
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "child_block_hash": "00" * 32,
+                "child_header_hex": header.hex(),
+                "child_block_time": "1700000000",
+                "child_nbits": "",
+                "btc_header_hash": "aa" * 32,
+            }
+        )
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match=r":2: child_header_hex does not match child_block_hash",
+    ):
+        mod.summarize_artifact("devcoin", artifact)
+
+
 def test_coverage_report_loads_each_accepted_descendant_source_observation(
     tmp_path: Path,
 ):
@@ -494,6 +605,17 @@ def test_coverage_report_loads_each_accepted_descendant_source_observation(
     assert observations["devcoin"] == {"33" * 32}
     assert observations["ixcoin"] == {"33" * 32}
     assert sum(map(len, observations.values())) == 2
+
+
+def test_coverage_report_requires_stale_descendant_input(tmp_path: Path):
+    mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
+    missing = tmp_path / "missing-stale-descendants.csv"
+
+    with pytest.raises(
+        FileNotFoundError,
+        match="stale-descendant coverage input is not a readable file",
+    ):
+        mod.load_stale_descendant_observations(missing)
 
 
 def test_coverage_report_accounts_for_accepted_descendant_observations(

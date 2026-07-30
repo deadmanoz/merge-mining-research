@@ -18,6 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
+    validate_available_child_header_fields,
     validate_child_header_fields,
 )
 from stale_blocks_analysis.config import (  # noqa: E402
@@ -55,6 +56,10 @@ GIT_LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
 
 def load_stale_descendant_observations(path: Path) -> dict[str, frozenset[str]]:
     """Return accepted descendant parent-hash observations by target chain."""
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"stale-descendant coverage input is not a readable file: {path}"
+        )
     targets: dict[str, set[str]] = {
         chain: set() for chain in HISTORICAL_CHILD_HEADER_CHAINS
     }
@@ -156,19 +161,24 @@ def summarize_artifact(
             is_descendant_observation = parent_hash in stale_descendant_observations
             if is_descendant_observation:
                 matched_descendants.add(parent_hash)
-            if not all((row.get(field) or "").strip() for field in CHILD_HEADER_FIELDS):
-                reason = _missing_reason(row)
-                reasons[reason] += 1
-                if is_descendant_observation:
-                    descendant_missing_reasons.setdefault(parent_hash, set()).add(
-                        reason
-                    )
-                continue
             try:
-                parsed = validate_child_header_fields(
-                    row,
-                    nbits_from_header=CHAIN_SPECS[chain].child_nbits_from_header,
-                )
+                if all((row.get(field) or "").strip() for field in CHILD_HEADER_FIELDS):
+                    parsed = validate_child_header_fields(
+                        row,
+                        nbits_from_header=CHAIN_SPECS[chain].child_nbits_from_header,
+                    )
+                else:
+                    validate_available_child_header_fields(
+                        row,
+                        nbits_from_header=CHAIN_SPECS[chain].child_nbits_from_header,
+                    )
+                    reason = _missing_reason(row)
+                    reasons[reason] += 1
+                    if is_descendant_observation:
+                        descendant_missing_reasons.setdefault(parent_hash, set()).add(
+                            reason
+                        )
+                    continue
             except ChildHeaderValidationError as exc:
                 raise ChildHeaderValidationError(f"{path}:{row_number}: {exc}") from exc
             hydrated += 1
