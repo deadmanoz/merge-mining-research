@@ -276,7 +276,7 @@ def test_xaya_main_skips_malformed_height_and_keeps_scanning(
     assert [row["child_height"] for row in rows] == [str(valid_height)]
 
 
-def test_xaya_main_preserves_output_on_unhandled_failure(
+def test_xaya_main_preserves_output_on_child_header_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     mod = _load_script("extract_xaya_auxpow")
@@ -288,10 +288,10 @@ def test_xaya_main_preserves_output_on_unhandled_failure(
     _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
 
     def fail(_block_data: bytes):
-        raise RuntimeError("unexpected extractor failure")
+        raise ChildHeaderValidationError("corrupt child header")
 
     monkeypatch.setattr(mod, "parse_xaya_block", fail)
-    with pytest.raises(RuntimeError, match="unexpected extractor failure"):
+    with pytest.raises(ChildHeaderValidationError, match="corrupt child header"):
         mod.main()
 
     assert output_path.read_text() == "last good output\n"

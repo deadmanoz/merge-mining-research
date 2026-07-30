@@ -69,6 +69,10 @@ POW_OFFSET = 80  # PowData starts right after the 80-byte pure header
 AUXPOW_OFFSET = 85  # 80 (header) + 1 (algo) + 4 (nBits)
 
 
+class XayaChildHeightError(ChildHeaderValidationError):
+    """A merge-mined Xaya block lacks its consensus-enforced BIP34 height."""
+
+
 @contextmanager
 def _atomic_csv_writer(output_path: Path, fieldnames: list[str]):
     """Yield a CSV writer and replace ``output_path`` only after a clean scan."""
@@ -137,7 +141,7 @@ def _child_height_from_coinbase(block_data: bytes, offset: int) -> int:
             raise ValueError("block has no child transactions")
         coinbase, _ = read_transaction(block_data, offset)
     except (IndexError, struct.error, ValueError) as exc:
-        raise ChildHeaderValidationError(
+        raise XayaChildHeightError(
             "cannot decode Xaya child coinbase after PowData"
         ) from exc
     vins = coinbase["vin"]
@@ -146,12 +150,12 @@ def _child_height_from_coinbase(block_data: bytes, offset: int) -> int:
         or vins[0]["prev_hash"] != b"\x00" * 32
         or vins[0]["prev_idx"] != 0xFFFFFFFF
     ):
-        raise ChildHeaderValidationError(
+        raise XayaChildHeightError(
             "Xaya child transaction vector does not begin with a coinbase"
         )
     height = parse_coinbase_height(vins[0]["scriptsig"])
     if height is None or height < 1:
-        raise ChildHeaderValidationError(
+        raise XayaChildHeightError(
             "Xaya child coinbase lacks its consensus BIP34 height"
         )
     return height
@@ -246,7 +250,10 @@ def main() -> None:
                 st["scanned"] += 1
                 try:
                     parsed = parse_xaya_block(block_data)
-                except ChildHeaderValidationError:
+                except XayaChildHeightError:
+                    # The uniform publication identity requires an exact height.
+                    # Skip only this height-specific failure; child-header
+                    # authentication errors still abort the transaction.
                     st["merge_mined"] += 1
                     st["errors"] += 1
                     continue
