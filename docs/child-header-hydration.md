@@ -149,6 +149,10 @@ The normal publication build now emits every available canonical row together
 with accepted direct stales, accepted descendants, and strict/weak unknown-row
 observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
-inputs. Complete normalized full-evidence and canonical-classifier inventories
-were retained as dated external refreshes because those broad artifacts are
-too large for the repository's normal source-data boundary.
+inputs. The monitor projection publishes all 28 exact per-chain observations
+behind the accepted descendant sidecar: 26 preserve their source `unknown`
+classification, while the Namecoin and RSK rows corrected from direct stales
+are published in their final `stale_descendant` state. Complete normalized
+full-evidence and canonical-classifier inventories were retained as dated
+external refreshes because those broad artifacts are too large for the
+repository's normal source-data boundary.

@@ -25,6 +25,7 @@ from stale_blocks_analysis.stale_exclusions import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
+from stale_blocks_analysis.stale_blocks import load_stale_descendant_observation_keys
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -66,6 +67,7 @@ def test_committed_exclusion_inventory_is_complete() -> None:
             assert version < 4
 
 
+@pytest.mark.dataset
 def test_excluded_keys_are_absent_from_committed_publication_csvs() -> None:
     excluded = load_stale_exclusion_keys()
     consensus_invalid = load_consensus_invalid_stale_keys()
@@ -93,6 +95,7 @@ def test_excluded_keys_are_absent_from_committed_publication_csvs() -> None:
     assert found == []
 
 
+@pytest.mark.dataset
 def test_published_monitor_stales_pass_historical_consensus_checks() -> None:
     failures: list[tuple[Path, int, str, str]] = []
     for path in sorted(
@@ -137,6 +140,26 @@ def test_published_monitor_stales_pass_historical_consensus_checks() -> None:
                     )
 
     assert failures == []
+
+
+@pytest.mark.dataset
+def test_published_monitor_represents_every_stale_descendant_observation() -> None:
+    expected = load_stale_descendant_observation_keys()
+    represented: set[tuple[str, str]] = set()
+    for path in sorted(
+        (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
+    ):
+        with path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                if row.get("relevance_reason") != "valid_stale_descendant":
+                    continue
+                observation_key = (row["chain"], row["btc_header_hash"].lower())
+                if observation_key in expected:
+                    assert len(row["child_block_hash"]) == 64, (path, observation_key)
+                    assert row["child_block_time"].isdigit(), (path, observation_key)
+                    represented.add(observation_key)
+
+    assert represented == expected
 
 
 def _load_script(relative_path: str, name: str):

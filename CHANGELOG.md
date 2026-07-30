@@ -2,9 +2,31 @@
 
 ## Unreleased
 
+Publish all 28 accepted stale-descendant source observations through their
+exact per-chain monitor rows. The 26 observations sourced from unknown rows
+retain `classification=unknown` and record
+`relevance_reason=valid_stale_descendant`; the Namecoin and RSK observations
+corrected from direct stales are projected as
+`classification=stale_descendant` with
+`validation_status=VALID_STALE_DESCENDANT`. Publication now fails closed if
+any accepted `(chain, btc_header_hash)` observation is absent, and provenance
+redaction resolves relative paths before deciding whether they are
+repository-local.
+
+Consolidate complete and partial child-header authentication in the shared
+parser, separate Huntercoin source-index and acquisition-coverage validation
+from its scan driver, remove redundant contract tests, and enforce unused-name
+checks. CI now runs lint, formatting, and leak checks once; exercises the unit
+suite across supported Python versions without downloading LFS payloads; and
+runs the `dataset`-marked publication invariants once with Git LFS. Child
+identity recovery now skips optional canonical rows, keeping uniform canonical
+publication from expanding a bounded non-canonical recovery into a full-chain
+scan.
+
 Store every per-chain monitor-evidence publication payload in Git LFS while
-keeping its counts CSV and JSON manifest in ordinary Git, and emit evidence CSV
-line endings as LF directly so regenerated LFS objects remain byte-reproducible.
+keeping its counts CSV and JSON manifest in ordinary Git, and emit generated
+evidence and child-identity CSV line endings as LF directly so regenerated
+artifacts remain byte-reproducible.
 
 Teach every historical Namecoin-family extraction path to emit authenticated
 child-chain evidence directly from its original block source. Raw RPC blocks,
@@ -33,9 +55,9 @@ imported rows exactly like live capture and deduplicate against it.
 - New `scripts/extract/recover_child_identity.py` recovers each row's child
   block hash and timestamp by height -> hash -> block RPC against the live
   child nodes (public API for Hathor), verifying the Bitcoin parent linkage
-  re-derives from every fetched child block. All 2,219 chain/header
-  observations across the six chains verified (1,870 distinct Bitcoin
-  parent headers; 214 parents were observed by more than one chain);
+  re-derives from every fetched child block. All 2,241 chain/header
+  observations across the six chains verified (1,889 distinct Bitcoin
+  parent headers; 216 parents were observed by more than one chain);
   results are committed under `data/child-identity/`.
 - The evidence schema gains `child_block_time` (after `child_block_hash`),
   and both the monitor and full-evidence exports hydrate the child identity
@@ -62,8 +84,12 @@ imported rows exactly like live capture and deduplicate against it.
   chains into chain-less rows and merge-mining-monitor's import surface has
   no stale-descendants entry, so its child identity columns stay empty. The
   counts row records `child_identity=represented_by_source_chain_observations`;
-  all 6 corresponding historical source-chain observations carry complete
-  authenticated child headers.
+  all 28 corresponding source-chain observations are published through their
+  exact per-chain rows with source-authenticated child evidence. Six of those
+  observations have complete historical child headers and belong to the 17
+  refresh chains reported by `results/child-header-coverage.csv`; the live-chain
+  observations use the independently node-verified child identities under
+  `data/child-identity/`.
 - Because the strict/weak orphan projections mirror the monitor export's
   schema, the regenerated RSK projection also carries the seven sidecar
   columns; the other chains' projections gain only `child_block_time`.

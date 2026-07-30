@@ -228,9 +228,9 @@ the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
 rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
 identity for Hathor, whose merge-mined block hash IS its BTC parent header
-hash. All 2,219 chain/header observations across the six chains verified
-against today's canonical child chains (1,870 distinct Bitcoin parent
-headers; 214 parents were observed by more than one chain, a single miner
+hash. All 2,241 chain/header observations across the six chains verified
+against today's canonical child chains (1,889 distinct Bitcoin parent
+headers; 216 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
@@ -308,10 +308,17 @@ rather than being inferred. The standalone stale-descendants export remains outs
 exact-child-identity contract because each row aggregates observations from
 several chains. Its child identity columns therefore stay empty and its counts
 note is `child_identity=represented_by_source_chain_observations`. The
-corresponding source-chain rows remain `unknown` in their per-chain
-inventories, are admitted as known descendants through
-`relevance_reason=valid_stale_descendant`, and carry their own authenticated
-child headers after the historical refresh. The child-header coverage report
+corresponding source-chain rows are admitted to the monitor payloads through
+`relevance_reason=valid_stale_descendant`. The 26 observations sourced from
+unknown rows preserve that classification. The Namecoin and RSK observations
+corrected from direct stales are projected as `stale_descendant` with
+`validation_status=VALID_STALE_DESCENDANT`, matching the exact-key correction
+overlay. The six historical observations carry complete authenticated child
+headers; live-chain observations use the independently verified identities in
+`data/child-identity/`. A publication build fails closed if any accepted
+`(chain, btc_header_hash)` observation is absent; a partial diagnostic reports
+the identity as deferred instead of claiming representation.
+The child-header coverage report
 cross-references those accepted observations by source chain and Bitcoin
 header hash so their coverage is explicit:
 

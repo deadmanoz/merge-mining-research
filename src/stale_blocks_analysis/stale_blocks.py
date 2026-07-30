@@ -21,7 +21,9 @@ _bech32_decode_to_program).
 
 import csv
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
+
 from .bitcoin_binary import (
     _b58_decode_to_hash160,
     _bech32_decode_to_program,
@@ -835,3 +837,57 @@ def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
             )
     rows.sort(key=lambda r: r["height"])
     return exclude_consensus_invalid_rows(rows)
+
+
+def load_stale_descendant_observation_keys(
+    path: Path = STALE_DESCENDANTS_CSV,
+) -> frozenset[tuple[str, str]]:
+    """Return accepted source observations as ``(chain, BTC header hash)`` keys.
+
+    These keys join exact source rows to the independently validated
+    stale-descendant sidecar. Unknown source rows retain their primary
+    classification; a direct-stale source row corrected by the exact-key
+    overlay can be projected into its final ``stale_descendant`` state.
+    """
+    if not path.exists():
+        return frozenset()
+
+    observations: set[tuple[str, str]] = set()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {
+            "classification",
+            "validation_status",
+            "btc_header_hash",
+            "source_rows",
+        }
+        missing = required.difference(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{path}: missing stale-descendant columns: "
+                + ", ".join(sorted(missing))
+            )
+        for row_number, row in enumerate(reader, start=2):
+            if row["classification"] != "stale_descendant" or (
+                row["validation_status"] != "VALID_STALE_DESCENDANT"
+            ):
+                continue
+            block_hash = row["btc_header_hash"].strip().lower()
+            if len(block_hash) != 64:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_header_hash must be 32 bytes"
+                )
+            try:
+                bytes.fromhex(block_hash)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_header_hash must be hexadecimal"
+                ) from exc
+            for source_row in row["source_rows"].split("|"):
+                chain, separator, _source = source_row.strip().partition(":")
+                if not separator or not chain:
+                    raise ValueError(
+                        f"{path}:{row_number}: malformed source_rows entry"
+                    )
+                observations.add((chain, block_hash))
+    return frozenset(observations)

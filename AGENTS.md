@@ -52,8 +52,10 @@ pip install -e ".[dev]"
 ./scripts/fetch-data.sh
 ```
 
-The full test suite reads the committed monitor-evidence baseline, so CI and
-local clean checkouts must materialize the Git LFS payloads before running it.
+The `dataset`-marked tests read the committed monitor-evidence baseline, so a
+full local test run must materialize the Git LFS payloads first. CI runs the
+remaining tests across the Python matrix without LFS and runs the publication
+dataset checks once with the payloads materialized.
 
 The development install includes pytest and Ruff. The core install
 (`pip install -e .`) covers the acquisition/recovery pipeline when development
@@ -73,6 +75,8 @@ Prefer the `justfile` recipes when they cover the task:
 
 ```bash
 just test
+just test-unit
+just test-dataset
 just test-markers
 just full-evidence
 just child-header-coverage
@@ -179,6 +183,11 @@ Preserve these distinctions:
   `validation_status=VALID_STALE_DESCENDANT`.
 - Raw classifier rows labelled `unknown` remain unknown rows. Do not relabel
   them as direct stales just because a separate sidecar promotes a descendant.
+  The monitor projection admits an exact accepted descendant source observation
+  with `relevance_reason=valid_stale_descendant` while preserving that unknown
+  classification. Source rows corrected from direct stales are projected as
+  `stale_descendant` only when the accepted sidecar and exact-key correction
+  overlay agree.
 - The word "orphan" is reserved for the strict/weak relevance buckets
   (`strict_btc_orphan`/`weak_btc_orphan`), matching the merge-mining-monitor's
   vocabulary. The broad evidence state is `unknown`. Legacy artifacts (the

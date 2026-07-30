@@ -25,6 +25,9 @@ from stale_blocks_analysis.config import (  # noqa: E402
     HISTORICAL_CHILD_HEADER_CHAINS,
     STALE_DESCENDANTS_CSV,
 )
+from stale_blocks_analysis.stale_blocks import (  # noqa: E402
+    load_stale_descendant_observation_keys,
+)
 
 REPORT_FIELDS = (
     "chain",
@@ -52,43 +55,9 @@ def load_stale_descendant_observations(path: Path) -> dict[str, frozenset[str]]:
     targets: dict[str, set[str]] = {
         chain: set() for chain in HISTORICAL_CHILD_HEADER_CHAINS
     }
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = {
-            "classification",
-            "validation_status",
-            "btc_header_hash",
-            "source_rows",
-        }
-        missing = required.difference(reader.fieldnames or ())
-        if missing:
-            raise ValueError(
-                f"{path}: missing stale-descendant columns: {', '.join(sorted(missing))}"
-            )
-        for row_number, row in enumerate(reader, start=2):
-            if row["classification"] != "stale_descendant" or (
-                row["validation_status"] != "VALID_STALE_DESCENDANT"
-            ):
-                continue
-            block_hash = row["btc_header_hash"].strip().lower()
-            if len(block_hash) != 64:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be 32 bytes"
-                )
-            try:
-                bytes.fromhex(block_hash)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be hexadecimal"
-                ) from exc
-            for source_row in row["source_rows"].split("|"):
-                chain, separator, _source = source_row.strip().partition(":")
-                if not separator:
-                    raise ValueError(
-                        f"{path}:{row_number}: malformed source_rows entry"
-                    )
-                if chain in targets:
-                    targets[chain].add(block_hash)
+    for chain, block_hash in load_stale_descendant_observation_keys(path):
+        if chain in targets:
+            targets[chain].add(block_hash)
     return {chain: frozenset(hashes) for chain, hashes in targets.items()}
 
 

@@ -64,6 +64,16 @@ def test_safe_path_preserves_repo_paths_with_chain_named_directories() -> None:
     )
 
 
+def test_safe_path_redacts_relative_paths_outside_repository() -> None:
+    assert (
+        safe_path(
+            Path("../private-host/chains/devcoin/classified/input.csv"),
+            chain="devcoin",
+        )
+        == "<chain-archive>/devcoin/classified/input.csv"
+    )
+
+
 def test_full_evidence_can_report_a_logical_output_directory(tmp_path: Path) -> None:
     summary = build_full_evidence_exports(
         data_dir=tmp_path / "data",
@@ -935,6 +945,23 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
     valid_hex, valid_hash = _header(prev_hash="aa" * 32)
     rejected_hex, rejected_hash = _header(prev_hash="bb" * 32)
     _write_csv(
+        data_dir / "devcoin_unknown_blocks.csv",
+        [
+            {
+                "dvc_height": "900001",
+                **_child_fields(),
+                "btc_height": "800001",
+                "btc_header_hash": valid_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": valid_hex,
+                "classification": "unknown",
+                "validation_status": "",
+            }
+        ],
+    )
+    _write_csv(
         data_dir / "stale_descendants.csv",
         [
             {
@@ -946,6 +973,7 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
                 "btc_header_hex": valid_hex,
                 "classification": "stale_descendant",
                 "validation_status": "VALID_STALE_DESCENDANT",
+                "source_rows": "devcoin:classified:2",
             },
             {
                 "btc_height": "800002",
@@ -956,6 +984,7 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
                 "btc_header_hex": rejected_hex,
                 "classification": "stale_descendant",
                 "validation_status": "REJECTED_bip34_height_mismatch",
+                "source_rows": "devcoin:classified:3",
             },
         ],
     )
@@ -971,9 +1000,143 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
     assert rows[0]["btc_header_hash"] == valid_hash
     assert rows[0]["btc_stale_relevance"] == ""
     assert rows[0]["relevance_reason"] == "valid_stale_descendant"
+    source_rows = _read_csv(output_dir / "devcoin_monitor_evidence.csv")
+    assert len(source_rows) == 1
+    assert source_rows[0]["classification"] == "unknown"
+    assert source_rows[0]["relevance_reason"] == "valid_stale_descendant"
+    assert source_rows[0]["child_header_hex"]
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    devcoin = next(row for row in counts if row["chain"] == "devcoin")
+    assert devcoin["stale_descendant"] == "1"
     sidecar = next(row for row in counts if row["chain"] == "stale-descendants")
     assert "child_identity=represented_by_source_chain_observations" in sidecar["notes"]
+    assert "represented_source_chain_observations=1" in sidecar["notes"]
+
+
+def test_monitor_export_projects_reclassified_direct_stale_source_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import stale_blocks_analysis.full_evidence as full_evidence
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    source_row = {
+        "namecoin_height": "532212",
+        "btc_height": "656478",
+        "btc_header_hash": header_hash,
+        "btc_prev_hash": "aa" * 32,
+        "btc_time": "1700000000",
+        "btc_bits": "1d00ffff",
+        "btc_header_hex": header_hex,
+        "classification": "stale",
+        "validation_status": "VALID",
+    }
+    _write_csv(data_dir / "namecoin_stale_blocks.csv", [source_row])
+    _write_csv(
+        data_dir / "validated-stales" / "namecoin_validated_stales.csv",
+        [source_row],
+    )
+    _write_csv(
+        data_dir / "stale_descendants.csv",
+        [
+            {
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "source_rows": "namecoin:classified:2",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "child-identity" / "namecoin_child_identity.csv",
+        [
+            {
+                "chain": "namecoin",
+                "btc_header_hash": header_hash,
+                "child_height": "532212",
+                "child_block_hash": "33" * 32,
+                "child_block_time": "1700000001",
+                "verification": "node-verified",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        full_evidence,
+        "load_stale_exclusion_keys",
+        lambda: {(656478, header_hash)},
+    )
+
+    full_evidence.build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+        fail_on_missing_child_identity=True,
+    )
+
+    rows = _read_csv(output_dir / "namecoin_monitor_evidence.csv")
+    assert len(rows) == 1
+    assert rows[0]["classification"] == "stale_descendant"
+    assert rows[0]["validation_status"] == "VALID_STALE_DESCENDANT"
+    assert rows[0]["relevance_reason"] == "valid_stale_descendant"
+    assert rows[0]["child_block_hash"] == "33" * 32
+    assert rows[0]["child_block_time"] == "1700000001"
+    assert rows[0]["child_header_hex"] == ""
+    counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    namecoin = next(row for row in counts if row["chain"] == "namecoin")
+    assert namecoin["stale"] == "0"
+    assert namecoin["stale_descendant"] == "1"
+    assert "reclassified_stale_descendant_observations=1" in namecoin["notes"]
+
+
+def test_publication_flag_rejects_unrepresented_descendant_observations(
+    tmp_path: Path,
+) -> None:
+    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    valid_hex, valid_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "stale_descendants.csv",
+        [
+            {
+                "btc_height": "800001",
+                "btc_header_hash": valid_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": valid_hex,
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "source_rows": "devcoin:classified:2",
+            }
+        ],
+    )
+
+    diagnostic_dir = tmp_path / "diagnostic"
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=diagnostic_dir,
+        relevance_inventory=None,
+    )
+    counts = _read_csv(diagnostic_dir / "monitor-evidence-counts.csv")
+    sidecar = next(row for row in counts if row["chain"] == "stale-descendants")
+    assert "child_identity=deferred_per_observation_recovery" in sidecar["notes"]
+    assert "missing_usable_source_chain_observations=1" in sidecar["notes"]
+
+    with pytest.raises(ValueError, match="source observations missing"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=tmp_path / "monitor",
+            relevance_inventory=None,
+            fail_on_missing_child_identity=True,
+        )
 
 
 def test_canonical_companion_file_is_discovered_and_merged(tmp_path: Path) -> None:
