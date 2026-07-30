@@ -203,11 +203,6 @@ def safe_path(path: Path | None, *, chain: str = "") -> str:
     return "<external>/" + resolved.name
 
 
-def safe_supplemental_path(path: Path) -> str:
-    """Render an out-of-registry input without exposing its staging root."""
-    return f"<external>/supplemental/{path.expanduser().name}"
-
-
 def first_present(fieldnames: Iterable[str] | None, candidates: Iterable[str]) -> str:
     """Return the first candidate column name present in ``fieldnames``, else ''."""
     names = set(fieldnames or [])
@@ -620,7 +615,26 @@ def discover_canonical_sources(
     """
     archive_dirs = normalize_chain_archive_dirs(chain_archive_dirs)
     sources: dict[str, EvidenceSource] = {}
-    for chain, spec in CHAIN_SPECS.items():
+    source_profiles = [
+        (
+            chain,
+            spec.display_name,
+            "canonical_blocks",
+            "canonical_blocks",
+            "",
+        )
+        for chain, spec in CHAIN_SPECS.items()
+    ]
+    source_profiles.append(
+        (
+            "vcash",
+            "VCash",
+            "wayback_canonical_hydration",
+            "partial_canonical_subset",
+            "wayback:vcash.tech/block + bitcoin-core:canonical",
+        )
+    )
+    for chain, display_name, source_kind, artifact_scope, provenance in source_profiles:
         candidates: list[Path] = []
         for root in archive_dirs:
             candidates.extend(
@@ -632,11 +646,13 @@ def discover_canonical_sources(
             continue
         sources[chain] = EvidenceSource(
             chain=chain,
-            display_name=spec.display_name,
+            display_name=display_name,
             path=path,
-            source_kind="canonical_blocks",
-            artifact_scope="canonical_blocks",
-            provenance="repo-data" if path.parent == data_dir else "archive",
+            source_kind=source_kind,
+            artifact_scope=artifact_scope,
+            provenance=(
+                provenance or ("repo-data" if path.parent == data_dir else "archive")
+            ),
         )
     return sources
 
@@ -778,8 +794,9 @@ def collect_source_rows(
     error labels rather than dropping malformed rows; classification tallies,
     rejection counts, and missing-evidence counts feed the counts/manifest
     artifacts. A source row formerly published as a direct stale is projected
-    into its accepted ``stale_descendant`` state when its exact chain/hash
-    observation appears in the descendant sidecar.
+    into its accepted ``stale_descendant`` state only when both its exact
+    chain/hash observation appears in the descendant sidecar and its exact
+    height/hash appears in the correction overlay.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []
@@ -792,6 +809,13 @@ def collect_source_rows(
     reclassified_descendant_count = 0
     for normalized, errors in iter_source_rows(source):
         classification = normalized["classification"]
+        try:
+            key = (
+                int(normalized["btc_height"]),
+                normalized["btc_header_hash"].lower(),
+            )
+        except (TypeError, ValueError):
+            key = None
         observation_key = (
             source.chain,
             normalize_hash(normalized.get("btc_header_hash")),
@@ -799,6 +823,8 @@ def collect_source_rows(
         if (
             classification == "stale"
             and observation_key in stale_descendant_observations
+            and key in excluded
+            and key not in consensus_invalid
         ):
             normalized = {
                 **normalized,
@@ -809,13 +835,6 @@ def collect_source_rows(
             reclassified_descendant_count += 1
         if classification in exclude_classifications:
             continue
-        try:
-            key = (
-                int(normalized["btc_height"]),
-                normalized["btc_header_hash"].lower(),
-            )
-        except ValueError:
-            key = None
         if key in consensus_invalid or (
             key in excluded and normalized["classification"] != "stale_descendant"
         ):
@@ -1137,13 +1156,6 @@ CHILD_IDENTITY_DIR_NAME = "child-identity"
 # silently narrow the target set.
 LIVE_CHILD_IDENTITY_CHAINS = frozenset(
     {"namecoin", "rsk", "syscoin", "hathor", "elastos", "fractal"}
-)
-
-# Evidence columns newer than the pre-built supplemental artifacts; the
-# supplemental required-field checks tolerate their absence and the export
-# writer fills them as empty rather than requiring regeneration.
-SUPPLEMENTAL_LAG_COLUMNS = frozenset(
-    {"child_header_hex", "child_block_time", "child_nbits"}
 )
 
 RSK_SIDECAR_EXPORT_FIELDS = [
@@ -1611,7 +1623,6 @@ def build_monitor_evidence_exports(
     reported_output_dir: Path | None = None,
     chain_archive_dirs: Iterable[Path] = (),
     relevance_inventory: Path | None = DEFAULT_RELEVANCE_INVENTORY,
-    supplemental_evidence_paths: Iterable[Path] = (),
     include_canonical: bool = True,
     fail_on_missing_child_identity: bool = False,
 ) -> dict[str, object]:
@@ -1622,12 +1633,9 @@ def build_monitor_evidence_exports(
     unhydrated live-chain row fatal: the monitor importer deliberately skips
     rows without exact child identity, so a publication build must fail closed
     rather than silently publish rows the importer will drop.
-    ``supplemental_evidence_paths``
-    accepts already-normalized evidence from sources outside ``CHAIN_SPECS``.
     ``reported_output_dir`` is the logical final directory recorded in counts
     and manifests when a caller writes to a temporary staging directory first.
     """
-    supplemental_paths = list(supplemental_evidence_paths)
     logical_output_dir = reported_output_dir or output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     sources = discover_evidence_sources(data_dir, chain_archive_dirs)
@@ -1722,7 +1730,13 @@ def build_monitor_evidence_exports(
             for row in kept:
                 if row.get("relevance_reason") != "valid_stale_descendant":
                     continue
-                if not row.get("child_block_hash") or not row.get("child_block_time"):
+                child_height = int_or_none(row.get("child_height"))
+                if (
+                    child_height is None
+                    or child_height < 0
+                    or not row.get("child_block_hash")
+                    or not row.get("child_block_time")
+                ):
                     continue
                 observation_key = (
                     source.chain,
@@ -1752,6 +1766,8 @@ def build_monitor_evidence_exports(
             notes_parts.append(
                 f"skipped_duplicate_canonical_companion_rows={skipped_canonical}"
             )
+        if source.artifact_scope == "partial_canonical_subset":
+            notes_parts.append("partial_canonical_subset_not_complete_coverage")
         if hydration.note():
             notes_parts.append(hydration.note())
         if identity_hydration.note():
@@ -1793,76 +1809,6 @@ def build_monitor_evidence_exports(
             )
         )
 
-    def export_supplemental(path: Path) -> None:
-        """Copy one normalized out-of-registry evidence artifact into the export."""
-        with path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            missing_fields = (
-                set(EVIDENCE_FIELDS)
-                - SUPPLEMENTAL_LAG_COLUMNS
-                - set(reader.fieldnames or [])
-            )
-            if missing_fields:
-                raise ValueError(
-                    f"{path}: supplemental evidence lacks fields: "
-                    + ", ".join(sorted(missing_fields))
-                )
-            rows = list(reader)
-        if not rows:
-            raise ValueError(f"{path}: supplemental evidence is empty")
-
-        chains = {(row.get("chain") or "").strip() for row in rows}
-        if len(chains) != 1 or "" in chains:
-            raise ValueError(f"{path}: supplemental evidence must contain one chain")
-        chain = chains.pop()
-        if chain in CHAIN_SPECS or chain == "stale-descendants":
-            raise ValueError(f"{path}: duplicate integrated evidence chain {chain}")
-        if chain in artifacts:
-            raise ValueError(f"{path}: duplicate supplemental evidence chain {chain}")
-
-        source_kinds = {(row.get("source_kind") or "").strip() for row in rows}
-        scopes = {(row.get("artifact_scope") or "").strip() for row in rows}
-        provenances = {(row.get("provenance") or "").strip() for row in rows}
-        if len(source_kinds) != 1 or len(scopes) != 1 or len(provenances) != 1:
-            raise ValueError(
-                f"{path}: supplemental source metadata must be uniform per chain"
-            )
-
-        kept, counts = _monitor_rows_and_counts(
-            rows, orphan_verdicts, include_canonical=include_canonical
-        )
-        if len(kept) != len(rows):
-            raise ValueError(
-                f"{path}: supplemental evidence contains non-monitor rows "
-                f"({len(kept)} accepted of {len(rows)})"
-            )
-
-        source = EvidenceSource(
-            chain=chain,
-            display_name=chain,
-            path=path,
-            source_kind=source_kinds.pop(),
-            artifact_scope=scopes.pop(),
-            provenance=provenances.pop(),
-        )
-        stats = SourceStats(source_rows=len(rows))
-        stats.classifications.update(row["classification"] for row in rows)
-        artifact_name = f"{chain}_monitor_evidence.csv"
-        artifact_path = output_dir / artifact_name
-        write_csv(artifact_path, kept, MONITOR_EVIDENCE_FIELDS)
-        reported_artifact_path = logical_output_dir / artifact_name
-        artifacts[chain] = safe_path(reported_artifact_path, chain=chain)
-        notes = (
-            "partial_canonical_subset_not_complete_coverage"
-            if source.artifact_scope == "partial_canonical_subset"
-            else "supplemental_prebuilt_evidence"
-        )
-        count_row = monitor_count_row(
-            source, stats, counts, len(kept), reported_artifact_path, notes
-        )
-        count_row["source_path"] = (rows[0].get("source_path") or "").strip()
-        count_rows.append(count_row)
-
     for chain, spec in CHAIN_SPECS.items():
         main = sources[chain]
         validated: EvidenceSource | None = None
@@ -1890,6 +1836,11 @@ def build_monitor_evidence_exports(
             unknown_companion=unknown_sources.get(chain),
         )
 
+    for chain, canonical_source in canonical_sources.items():
+        if chain in CHAIN_SPECS:
+            continue
+        export(canonical_source, f"{chain}_monitor_evidence.csv")
+
     sidecar = stale_descendant_source(data_dir)
     if sidecar is not None:
         export(sidecar, "stale-descendants_monitor_evidence.csv")
@@ -1897,9 +1848,6 @@ def build_monitor_evidence_exports(
     missing_descendant_observations = (
         descendant_observations - represented_descendant_observations
     )
-
-    for supplemental_path in supplemental_paths:
-        export_supplemental(supplemental_path)
 
     if fail_on_missing_child_identity and identity_shortfalls:
         detail = "; ".join(
@@ -1959,9 +1907,6 @@ def build_monitor_evidence_exports(
             safe_path(relevance_inventory) if inventory_available else "missing"
         ),
         "strict_weak_verdicts_loaded": len(orphan_verdicts),
-        "supplemental_evidence": [
-            safe_supplemental_path(path) for path in supplemental_paths
-        ],
         "counts": count_rows,
     }
     manifest_json_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")

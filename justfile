@@ -51,8 +51,7 @@ strict-weak-orphans *ARGS:
 # available. A disposable diagnostic build must opt in explicitly with
 # `--allow-partial` (and may add `--skip-canonical`).
 #   just monitor-evidence --chain-archive-dir <private-chain-archive>/chains \
-#     --relevance-inventory <private-relevance-inventory.csv> \
-#     --supplemental-evidence <out-of-registry-evidence.csv>
+#     --relevance-inventory <private-relevance-inventory.csv>
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
 

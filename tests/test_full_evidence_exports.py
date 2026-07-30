@@ -1095,6 +1095,44 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     assert "reclassified_stale_descendant_observations=1" in namecoin["notes"]
 
 
+def test_monitor_export_does_not_reclassify_stale_without_correction_overlay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import stale_blocks_analysis.full_evidence as full_evidence
+
+    data_dir = tmp_path / "data"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "namecoin_stale_blocks.csv",
+        [
+            {
+                "namecoin_height": "532212",
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    monkeypatch.setattr(full_evidence, "load_stale_exclusion_keys", set)
+    monkeypatch.setattr(full_evidence, "load_consensus_invalid_stale_keys", set)
+    source = full_evidence.discover_evidence_sources(data_dir)["namecoin"]
+
+    rows, stats = full_evidence.collect_source_rows(
+        source,
+        stale_descendant_observations=frozenset({("namecoin", header_hash)}),
+    )
+
+    assert [row["classification"] for row in rows] == ["stale"]
+    assert stats.classifications["stale"] == 1
+    assert "reclassified_stale_descendant_observations=1" not in stats.notes
+
+
 def test_publication_flag_rejects_unrepresented_descendant_observations(
     tmp_path: Path,
 ) -> None:
@@ -1102,6 +1140,23 @@ def test_publication_flag_rejects_unrepresented_descendant_observations(
 
     data_dir = tmp_path / "data"
     valid_hex, valid_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "sixeleven_stale_blocks.csv",
+        [
+            {
+                "btc_height": "800001",
+                "btc_header_hash": valid_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": valid_hex,
+                "child_block_hash": "22" * 32,
+                "child_block_time": "1700000001",
+                "classification": "unknown",
+                "validation_status": "",
+            }
+        ],
+    )
     _write_csv(
         data_dir / "stale_descendants.csv",
         [
@@ -1114,7 +1169,7 @@ def test_publication_flag_rejects_unrepresented_descendant_observations(
                 "btc_header_hex": valid_hex,
                 "classification": "stale_descendant",
                 "validation_status": "VALID_STALE_DESCENDANT",
-                "source_rows": "devcoin:classified:2",
+                "source_rows": "sixeleven:classified:2",
             }
         ],
     )
@@ -1129,6 +1184,10 @@ def test_publication_flag_rejects_unrepresented_descendant_observations(
     sidecar = next(row for row in counts if row["chain"] == "stale-descendants")
     assert "child_identity=deferred_per_observation_recovery" in sidecar["notes"]
     assert "missing_usable_source_chain_observations=1" in sidecar["notes"]
+    source_rows = _read_csv(diagnostic_dir / "sixeleven_monitor_evidence.csv")
+    assert len(source_rows) == 1
+    assert source_rows[0]["relevance_reason"] == "valid_stale_descendant"
+    assert source_rows[0]["child_height"] == ""
 
     with pytest.raises(ValueError, match="source observations missing"):
         build_monitor_evidence_exports(
@@ -1547,7 +1606,7 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
     assert devcoin["stale"] == "1"
 
 
-def test_monitor_export_includes_normalized_supplemental_source(
+def test_monitor_export_discovers_and_normalizes_vcash_canonical_source(
     tmp_path: Path,
 ) -> None:
     from stale_blocks_analysis.full_evidence import (
@@ -1557,7 +1616,7 @@ def test_monitor_export_includes_normalized_supplemental_source(
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
-    supplemental = tmp_path / "vcash_hydrated.csv"
+    canonical_source = data_dir / "vcash_canonical_blocks.csv"
     header_hex, header_hash = _header()
     row = {field: "" for field in EVIDENCE_FIELDS}
     row.update(
@@ -1570,6 +1629,7 @@ def test_monitor_export_includes_normalized_supplemental_source(
             "provenance": "wayback:vcash.tech/block + bitcoin-core:canonical",
             "child_height": "100",
             "child_block_hash": "22" * 32,
+            "child_block_time": "1700000001",
             "btc_height": "800000",
             "btc_header_hash": header_hash,
             "btc_prev_hash": "11" * 32,
@@ -1580,32 +1640,30 @@ def test_monitor_export_includes_normalized_supplemental_source(
             "validation_status": "CANONICAL_CONFIRMED",
         }
     )
-    _write_csv(supplemental, [row])
+    _write_csv(canonical_source, [row])
 
-    summary = build_monitor_evidence_exports(
+    build_monitor_evidence_exports(
         data_dir=data_dir,
         output_dir=output_dir,
         relevance_inventory=None,
-        supplemental_evidence_paths=[supplemental],
     )
 
     exported = _read_csv(output_dir / "vcash_monitor_evidence.csv")
     assert len(exported) == 1
     assert exported[0]["btc_header_hash"] == header_hash
-    assert exported[0]["source_path"].endswith("vcash/wayback_scrape/results.tsv")
-    # A supplemental artifact predating the lag-tolerated columns still emits
-    # them, filled empty, so every export shares one schema.
+    assert exported[0]["source_path"] == "<external>/vcash_canonical_blocks.csv"
+    # Normalization fills optional child-header fields so every canonical
+    # companion reaches the same monitor schema.
     assert exported[0]["child_header_hex"] == ""
-    assert exported[0]["child_block_time"] == ""
+    assert exported[0]["child_block_time"] == "1700000001"
     assert exported[0]["child_nbits"] == ""
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
     vcash = next(item for item in counts if item["chain"] == "vcash")
     assert vcash["canonical"] == "1"
     assert vcash["monitor_rows"] == "1"
     assert vcash["notes"] == "partial_canonical_subset_not_complete_coverage"
-    assert summary["supplemental_evidence"] == [
-        "<external>/supplemental/vcash_hydrated.csv"
-    ]
+    assert vcash["source_kind"] == "wayback_canonical_hydration"
+    assert vcash["artifact_scope"] == "partial_canonical_subset"
 
 
 def test_monitor_export_hydrates_child_identity_and_rsk_sidecar_columns(

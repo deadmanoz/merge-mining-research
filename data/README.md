@@ -84,7 +84,9 @@ classifier or explorer archive from which they were derived. In particular,
 canonical mappings from a 767-row explorer archive, but no VCash blockchain
 was recovered and 699 mappings remain unresolved. It is canonical-only partial
 evidence, not a stale-only loader input or a basis for stale and strict/weak
-totals.
+totals. `scripts/prep/hydrate_vcash_canonical.py` writes the standard
+gitignored `data/vcash_canonical_blocks.csv` source by default; the publication
+builder discovers and normalizes it like every other canonical companion.
 
 For downstream consumers that need canonical, stale, unknown, near, rejected,
 or stale-descendant evidence rather than only stale census inputs, build the

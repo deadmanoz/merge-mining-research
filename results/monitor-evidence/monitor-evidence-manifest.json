@@ -471,7 +471,7 @@
       "monitor_rows": 68,
       "notes": "partial_canonical_subset_not_complete_coverage",
       "source_kind": "wayback_canonical_hydration",
-      "source_path": "<chain-archive>/vcash/wayback_scrape/results.tsv",
+      "source_path": "<chain-archive>/vcash/classified/vcash_canonical_blocks.csv",
       "source_rows": 68,
       "stale": 0,
       "stale_descendant": 0,
@@ -484,9 +484,6 @@
   "output_dir": "results/monitor-evidence",
   "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
   "strict_weak_verdicts_loaded": 21,
-  "supplemental_evidence": [
-    "<external>/supplemental/vcash_monitor_evidence.csv"
-  ],
   "validation_contract": {
     "documentation": "docs/data-validity.md",
     "full_block_consensus_validity_asserted": false,

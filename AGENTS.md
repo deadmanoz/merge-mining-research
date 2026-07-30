@@ -152,6 +152,10 @@ Be strict about what belongs in git:
   outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
   marker SQLite/Parquet outputs, or node data directories unless a doc
   explicitly says that exact artifact is public.
+- VCash's partial explorer recovery follows the same canonical-companion
+  contract: `scripts/prep/hydrate_vcash_canonical.py` writes the gitignored
+  `data/vcash_canonical_blocks.csv` by default, and monitor publication
+  discovers that filename under `data/` or a supplied chain archive.
 - Commit the complete final-category projection under
   `results/monitor-evidence/`: every available canonical row, accepted direct
   stale and descendant, and strict/weak unknown-row observation. Do not

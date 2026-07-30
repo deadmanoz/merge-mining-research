@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Integrate VCash's partial canonical recovery through the standard discovered
+`vcash_canonical_blocks.csv` source and normal evidence validation path. Remove
+the generic pre-normalized supplemental-evidence escape hatch and its separate
+publication guard, preserving the actual child timestamps already carried by
+the VCash recovery source.
+
 Publish all 28 accepted stale-descendant source observations through their
 exact per-chain monitor rows. The 26 observations sourced from unknown rows
 retain `classification=unknown` and record

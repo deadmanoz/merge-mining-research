@@ -27,9 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
-    EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
-    SUPPLEMENTAL_LAG_COLUMNS,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -71,17 +69,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Private chain archive root to scan for "
             "*/classified/*_stale_blocks.csv and "
             "*/validated/*_validated_stales.csv. May be repeated."
-        ),
-    )
-    parser.add_argument(
-        "--supplemental-evidence",
-        dest="supplemental_evidence_paths",
-        action="append",
-        type=Path,
-        default=[],
-        help=(
-            "Already-normalized monitor evidence for a source outside "
-            "CHAIN_SPECS. May be repeated."
         ),
     )
     parser.add_argument(
@@ -299,69 +286,6 @@ def _accepted_descendant_count(path: Path) -> int:
         )
 
 
-def _supplemental_coverage(
-    paths: list[Path], *, output_dir: Path
-) -> dict[str, Counter[str]]:
-    """Summarize prebuilt out-of-registry evidence for baseline comparison."""
-    coverage: dict[str, Counter[str]] = {}
-    for path in paths:
-        if not path.is_file():
-            raise ValueError(f"supplemental evidence does not exist: {path}")
-        if path.resolve().is_relative_to(output_dir.resolve()):
-            raise ValueError(
-                f"supplemental evidence must be independent of the output directory: {path}"
-            )
-        with path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            missing_fields = (
-                set(EVIDENCE_FIELDS)
-                - SUPPLEMENTAL_LAG_COLUMNS
-                - set(reader.fieldnames or [])
-            )
-            if missing_fields:
-                raise ValueError(
-                    f"supplemental evidence lacks required fields: {path}: "
-                    + ", ".join(sorted(missing_fields))
-                )
-            rows = list(reader)
-        if not rows:
-            raise ValueError(f"supplemental evidence is empty: {path}")
-        chains = {(row.get("chain") or "").strip() for row in rows}
-        if len(chains) != 1 or "" in chains:
-            raise ValueError(f"supplemental evidence must contain one chain: {path}")
-        chain = chains.pop()
-        if chain in coverage:
-            raise ValueError(f"duplicate supplemental evidence chain: {chain}")
-        if chain in CHAIN_SPECS or chain == "stale-descendants":
-            raise ValueError(
-                f"supplemental evidence duplicates integrated chain: {chain}"
-            )
-        for field in ("source_kind", "artifact_scope", "provenance"):
-            values = {(row.get(field) or "").strip() for row in rows}
-            if len(values) != 1 or "" in values:
-                raise ValueError(
-                    f"supplemental evidence has non-uniform {field}: {path}"
-                )
-        counts: Counter[str] = Counter(source_rows=len(rows))
-        for row in rows:
-            classification = (row.get("classification") or "").strip()
-            status = (row.get("validation_status") or "").strip()
-            relevance = (row.get("btc_stale_relevance") or "").strip()
-            if classification == "canonical":
-                counts["canonical"] += 1
-            elif classification == "stale" and status.startswith("VALID"):
-                counts["stale"] += 1
-            elif (
-                classification == "stale_descendant"
-                and status == "VALID_STALE_DESCENDANT"
-            ):
-                counts["stale_descendant"] += 1
-            if relevance in ("strict_btc_orphan", "weak_btc_orphan"):
-                counts[relevance] += 1
-        coverage[chain] = counts
-    return coverage
-
-
 def validate_publication_inputs(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
@@ -430,14 +354,6 @@ def validate_publication_inputs(
     if args.skip_canonical:
         problems.append("--skip-canonical is a partial-build option")
 
-    try:
-        supplemental = _supplemental_coverage(
-            args.supplemental_evidence_paths, output_dir=args.output_dir
-        )
-    except (OSError, ValueError) as exc:
-        supplemental = {}
-        problems.append(str(exc))
-
     if sources:
         for chain, baseline_row in baseline.items():
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
@@ -470,22 +386,19 @@ def validate_publication_inputs(
                             "publication baseline"
                         )
                     continue
-                supplied = supplemental.get(chain)
-                if supplied is None:
-                    problems.append(
-                        f"baseline chain {chain} requires --supplemental-evidence"
-                    )
+                canonical_source = canonical.get(chain)
+                if canonical_source is None or canonical_source.path is None:
+                    problems.append(f"{chain} canonical source is missing")
                     continue
-                for category, expected in expected_categories.items():
-                    if supplied[category] < expected:
-                        problems.append(
-                            f"supplemental {chain} {category} coverage is below the "
-                            f"publication baseline ({supplied[category]} < {expected})"
-                        )
-                if supplied["source_rows"] < expected_source_rows:
+                source_counts = _classification_counts(canonical_source.path)
+                if source_counts["canonical"] < expected_categories["canonical"]:
                     problems.append(
-                        f"supplemental {chain} source coverage is below the "
+                        f"{chain} canonical-classified evidence is below the "
                         "publication baseline"
+                    )
+                if _csv_row_count(canonical_source.path) < expected_source_rows:
+                    problems.append(
+                        f"{chain} canonical source is below the publication baseline"
                     )
                 continue
 
@@ -723,7 +636,6 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             reported_output_dir=output_dir,
             chain_archive_dirs=args.chain_archive_dirs,
             relevance_inventory=args.relevance_inventory,
-            supplemental_evidence_paths=args.supplemental_evidence_paths,
             include_canonical=not args.skip_canonical,
             # A publication build fails closed on an unhydrated live-chain
             # row (the importer would silently drop it); a partial diagnostic

@@ -42,6 +42,9 @@ rows with the full Bitcoin header and coinbase evidence, VCash child hash and
 height, and the actual VCash child timestamp.
 Every row is explicitly marked `artifact_scope=partial_canonical_subset` and
 `classification=canonical`.
+`scripts/prep/hydrate_vcash_canonical.py` regenerates the standard
+`vcash_canonical_blocks.csv` source consumed by the monitor-evidence builder;
+there is no separate pre-normalized publication-input path.
 
 No VCash blockchain, block database, complete RPC export, or full explorer dump
 was recovered. In particular, the 68-row file is not a substitute for the

@@ -123,7 +123,7 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
         module.main(["--allow-partial"])
 
 
-def test_late_supplemental_failure_preserves_existing_publication_set(
+def test_late_vcash_validation_failure_preserves_existing_publication_set(
     tmp_path: Path,
 ) -> None:
     module = _load_module()
@@ -146,26 +146,34 @@ def test_late_supplemental_failure_preserves_existing_publication_set(
         f"1,{'11' * 32},stale,VALID\n"
     )
 
-    supplemental = tmp_path / "invalid-supplemental.csv"
-    canonical = {field: "" for field in module.EVIDENCE_FIELDS}
-    canonical.update(
-        {
-            "chain": "vcash",
-            "source_kind": "wayback_canonical_hydration",
-            "artifact_scope": "partial_canonical_subset",
-            "provenance": "test",
-            "btc_header_hash": "22" * 32,
-            "classification": "canonical",
-        }
-    )
-    non_monitor = dict(canonical)
-    non_monitor.update({"btc_header_hash": "33" * 32, "classification": "near"})
-    with supplemental.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=module.EVIDENCE_FIELDS)
+    vcash_source = data_dir / "vcash_canonical_blocks.csv"
+    with vcash_source.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "child_height",
+                "child_block_hash",
+                "child_header_hex",
+                "child_block_time",
+                "child_nbits",
+                "btc_header_hash",
+                "classification",
+            ],
+        )
         writer.writeheader()
-        writer.writerows([canonical, non_monitor])
+        writer.writerow(
+            {
+                "child_height": "1",
+                "child_block_hash": "11" * 32,
+                "child_header_hex": "00" * 80,
+                "child_block_time": "0",
+                "child_nbits": "00000000",
+                "btc_header_hash": "22" * 32,
+                "classification": "canonical",
+            }
+        )
 
-    with pytest.raises(ValueError, match="contains non-monitor rows"):
+    with pytest.raises(ValueError, match="does not match child_block_hash"):
         module.main(
             [
                 "--allow-partial",
@@ -175,8 +183,6 @@ def test_late_supplemental_failure_preserves_existing_publication_set(
                 str(output_dir),
                 "--relevance-inventory",
                 str(tmp_path / "missing.csv"),
-                "--supplemental-evidence",
-                str(supplemental),
             ]
         )
 
@@ -223,7 +229,31 @@ def test_publication_build_rejects_merely_discoverable_partial_archive(
 
     error = capsys.readouterr().err
     assert "lacks its private full inventory" in error
-    assert "baseline chain vcash requires --supplemental-evidence" in error
+    assert "vcash canonical source is missing" in error
+
+
+def test_vcash_baseline_accepts_standard_canonical_source(tmp_path: Path) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    canonical = (
+        archive_dir / "chains" / "vcash" / "classified" / "vcash_canonical_blocks.csv"
+    )
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("classification\ncanonical\ncanonical\n")
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="vcash",
+        source_kind="wayback_canonical_hydration",
+        canonical=2,
+        source_rows=2,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
 
 def test_canonical_baseline_requires_canonical_classified_rows(
@@ -500,17 +530,6 @@ def test_malformed_numeric_publication_baseline_is_a_parser_error(
         module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
     assert "invalid numeric source_rows" in capsys.readouterr().err
-
-
-def test_supplemental_input_must_be_independent_of_output(tmp_path: Path) -> None:
-    module = _load_module()
-    output_dir = tmp_path / "monitor"
-    supplemental = output_dir / "vcash_monitor_evidence.csv"
-    supplemental.parent.mkdir(parents=True)
-    supplemental.write_text("chain\nvcash\n")
-
-    with pytest.raises(ValueError, match="independent of the output directory"):
-        module._supplemental_coverage([supplemental], output_dir=output_dir)
 
 
 @pytest.mark.dataset

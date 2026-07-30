@@ -313,7 +313,9 @@ just check-leaks
 
 `just monitor-evidence` is a release rebuild, not a clean-clone regeneration
 recipe. A complete rebuild requires the private canonical/classifier archives
-plus the relevance and supplemental evidence described by the command's help.
+plus the relevance evidence described by the command's help. VCash uses the
+same canonical-source convention as other chains: stage its hydrated source as
+`vcash_canonical_blocks.csv` under `data/` or a supplied archive root.
 It includes every available canonical row for every chain and fails closed
 when required inputs are incomplete. `--skip-canonical` is a diagnostic option
 and is accepted only with `--allow-partial` and an explicit, disposable
