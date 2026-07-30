@@ -358,8 +358,8 @@ for namecoin -- the header-hydration coverage in the `notes` field
 (`namecoin_header_hydration=hydrated:N/still_missing:M/hash_mismatch_rejected:K`,
 with `no_namecoin_header_hydration_sources_found` appended when no extract file
 was available). A non-empty chain export also records
-`child_height=unavailable` when none of its rows carries an exact height. The
-JSON manifest also carries a machine-readable
+`child_height=unavailable` when one or more rows lack an exact height. The JSON
+manifest also carries a machine-readable
 `validation_contract` object. Its
 `valid_token_scope=publication_gate_accepted_not_full_block_validity` value is
 the normative interpretation of `validation_status=VALID` for downstream

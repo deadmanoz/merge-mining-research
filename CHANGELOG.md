@@ -8,8 +8,8 @@ normalizer fills only an authenticated consensus height resolved by child hash.
 Remove the old synthetic i0coin `child_height`, CoiledCoin `clc_height`, and
 archived Doichain height values while retaining uniform blank height columns
 and their other evidence. Normalize every committed validated CSV to the same
-16-column core schema, with source-specific research columns trailing. All
-non-empty exports without an exact child height disclose
+16-column core schema, with source-specific research columns trailing. Exports
+with one or more rows lacking an exact child height disclose
 `child_height=unavailable`.
 
 Derive Xaya's exact consensus child height from its BIP34 child coinbase after

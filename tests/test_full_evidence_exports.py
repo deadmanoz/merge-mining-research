@@ -55,6 +55,13 @@ def test_child_height_unavailable_note_depends_on_emitted_values() -> None:
     note_child_height_availability(available, [{"child_height": "42"}])
     assert not available.notes
 
+    partial = SourceStats()
+    note_child_height_availability(
+        partial,
+        [{"child_height": "42"}, {"child_height": ""}],
+    )
+    assert partial.notes == {"child_height=unavailable"}
+
 
 def test_safe_path_resolves_repo_relative_inputs() -> None:
     assert safe_path(Path("data/example.csv")) == "data/example.csv"

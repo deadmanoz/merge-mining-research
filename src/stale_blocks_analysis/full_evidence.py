@@ -318,8 +318,8 @@ def child_height_for(
 def note_child_height_availability(
     stats: SourceStats, rows: list[dict[str, str]]
 ) -> None:
-    """Disclose when a non-empty normalized artifact has no exact child height."""
-    if rows and not any((row.get("child_height") or "").strip() for row in rows):
+    """Disclose when any normalized evidence row lacks an exact child height."""
+    if rows and any(not (row.get("child_height") or "").strip() for row in rows):
         stats.notes.add("child_height=unavailable")
 
 
