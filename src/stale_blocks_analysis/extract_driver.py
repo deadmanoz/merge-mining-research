@@ -119,9 +119,10 @@ def run_extraction(
     A batch that raises is retried one height at a time before giving up on
     it (unparseable individual heights fall into
     ``stats["skipped_parse_error"]``). Opens ``output_path`` in append mode
-    when ``append`` is True (the caller has already decided this from its
-    own ``--resume``/existing-file logic) and write mode otherwise, writing
-    the CSV header only in write mode. Prints periodic progress/ETA every
+    when ``append`` is True, after requiring its existing CSV header to match
+    ``csv_columns`` exactly; this prevents a resume against a pre-hydration
+    schema from corrupting the file. Write mode writes the current header.
+    Prints periodic progress/ETA every
     ``progress_interval`` processed heights (flushing the output file each
     time) and a final ``Done in Xm`` summary iterating ``stats`` in
     insertion order, plus the output path. ``progress_extra`` is an optional
@@ -132,6 +133,16 @@ def run_extraction(
     Returns ``stats`` (mutated in place; returned for convenience).
     """
     mode = "a" if append else "w"
+    if append:
+        if not output_path.is_file():
+            raise ValueError(f"cannot resume missing extraction CSV: {output_path}")
+        with output_path.open(newline="") as existing:
+            existing_header = next(csv.reader(existing), None)
+        if existing_header != csv_columns:
+            raise ValueError(
+                f"cannot resume {output_path}: existing CSV header does not match "
+                "the current extraction schema; rerun without --resume"
+            )
 
     def extract_range(bs: int, be: int) -> None:
         hash_calls = [

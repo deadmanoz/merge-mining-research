@@ -195,6 +195,30 @@ def test_run_extraction_fails_hard_on_child_hash_mismatch(tmp_path: Path) -> Non
         )
 
 
+def test_run_extraction_rejects_resume_with_an_old_csv_schema(
+    tmp_path: Path,
+) -> None:
+    out_path = tmp_path / "out.csv"
+    original = "height,btc_header_hash\n100,abc\n"
+    out_path.write_text(original)
+
+    with pytest.raises(ValueError, match="existing CSV header does not match"):
+        extract_driver.run_extraction(
+            rpc=_FakeRpc({}),
+            start=101,
+            end=101,
+            batch_size=1,
+            output_path=out_path,
+            csv_columns=CSV_COLUMNS,
+            gate=_gate,
+            parse_row=_parse_row,
+            stats={},
+            append=True,
+        )
+
+    assert out_path.read_text() == original
+
+
 def test_run_extraction_gate_parse_batching_retry_and_resume(tmp_path: Path) -> None:
     # Heights 100..105: a normal batch (100-102) and a batch (103-105) whose
     # first getblockhash attempt fails and is retried one height at a time.
