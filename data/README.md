@@ -23,12 +23,18 @@ analysis package:
   was shown to be stale rather than active. Raw classifier rows stay `unknown`;
   this file carries the separate `stale_descendant` classification, and loaders
   admit only `VALID_STALE_DESCENDANT` rows.
-- `stale_block_exclusions.csv` - exact-key publication corrections with a
-  mandatory, explicit scope. Its 31 `consensus_invalid` rows are removed from
-  all public stale sets. Its one
-  explicit `direct_stale_only` row is removed from per-chain direct
-  inputs but retained in `stale_descendants.csv` because it extends a known
-  stale root.
+- `error-blocks/error_blocks.csv` - the error-blocks dataset and publication
+  gate: 33 full-proof-of-work Bitcoin headers that each fail a contextual
+  consensus rule, keyed off `classification == "error_block"` (there is no
+  `exclusion_scope` column). It supersedes the deleted
+  `stale_block_exclusions.csv` overlay: its rows are removed from all public
+  stale sets by exact `(height, hash)` key. The former `direct_stale_only`
+  row (656478) is not here - it is a `stale_descendant` single-home in
+  `stale_descendants.csv` with no exclusion guard.
+- `error-blocks/mtp_context.csv` - the median-time-past sidecar: the
+  canonical parent's median-time-past for each time-rule error block, keyed
+  by `(height, hash)`, so the offline validator can re-derive time-rule
+  violations without live RPC.
 
 Per-chain recovery intermediates do not live in the public repo. The committed
 inputs are the stale-only `data/validated-stales/*_validated_stales.csv` files named after each

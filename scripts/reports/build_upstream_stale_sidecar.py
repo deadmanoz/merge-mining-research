@@ -8,7 +8,7 @@ import csv
 from collections import Counter
 from pathlib import Path
 
-from stale_blocks_analysis.stale_exclusions import (
+from stale_blocks_analysis.error_blocks import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
@@ -145,7 +145,6 @@ def collect_candidates(
     missing_header: dict[str, set[tuple[int, str]]] = {}
     warnings: Counter[str] = Counter()
     excluded = load_stale_exclusion_keys()
-    consensus_invalid = load_consensus_invalid_stale_keys()
     for path in iter_committed_inputs(data_dir):
         source = _display_path(path)
         with path.open(newline="") as f:
@@ -157,9 +156,7 @@ def collect_candidates(
                     warnings[f"{source}: missing height/hash"] += 1
                     continue
                 key, header = parsed
-                if key in consensus_invalid or (
-                    key in excluded and row.get("classification") != "stale_descendant"
-                ):
+                if key in excluded:
                     continue
                 if header is None:
                     header = header_cache.get(key)

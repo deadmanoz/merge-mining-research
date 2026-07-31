@@ -70,6 +70,26 @@ commit under `data/stale-blocks/`. Review and commit the resulting
 commit hash in that diff is the upstream version referenced by the project
 commit.
 
+## Merge-mining-monitor vocabulary lockstep
+
+The `error_block` primary `classification` value (catalogued in
+`data/error-blocks/error_blocks.csv`) and the extended `rejection_reason` /
+`rules_violated` vocabulary are breaking changes for the merge-mining-monitor
+importer and its ported BTC-orphan relevance classifier, which read these
+strings verbatim. The new rejection-reason tokens this branch introduces are:
+
+- `time_below_mtp` and `nbits_retarget_not_applied` — each has a committed
+  dataset row (heights 946,213 and 717,696 respectively);
+- `time_beyond_future_limit` — vocabulary-only (no committed row; the rule is
+  not offline-recheckable, so the offline validator rejects any row carrying
+  the token);
+- `bip34_block_version_below_2` and `coinbase_scriptsig_length_below_2` —
+  vocabulary-only correctness hardening (no committed row uses them yet).
+
+The monitor-side
+display work is a follow-up in that repository; the vocabulary change must be
+coordinated with the monitor so it does not land silently.
+
 ## Contribution and post-merge workflow
 
 1. Run `just upstream-check`. If upstream has moved, run

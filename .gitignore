@@ -74,6 +74,15 @@ results/full-evidence/
 # be large. The namespace and its README are committed, but generated family
 # subdirectories stay local or in the private chain archive.
 results/analysis/*/
+# Exception: the error-blocks rejected-row sweep report is a compact dated
+# summary (no row-level bulk) committed as audit evidence for the
+# error-blocks dataset.
+!results/analysis/error-blocks/
+# The per-chain observation views under by-chain/ are generated row-level
+# diagnostics (they re-split the committed consolidated dataset), not committed
+# loader inputs or audit reports, so they stay out of git. Regenerate with
+# `just error-blocks-report`.
+results/analysis/error-blocks/by-chain/
 
 # Upstream public datasets fetched via scripts/fetch-data.sh
 data/stale-blocks/

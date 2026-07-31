@@ -1668,7 +1668,7 @@ def test_monitor_export_reports_consensus_exclusions(
     )
     monkeypatch.setattr(
         full_evidence,
-        "load_stale_exclusion_keys",
+        "load_consensus_invalid_stale_keys",
         lambda: {(331735, excluded_hash)},
     )
 

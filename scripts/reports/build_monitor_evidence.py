@@ -41,7 +41,7 @@ from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
     load_stale_descendant_observation_keys,
 )
-from stale_blocks_analysis.stale_exclusions import (  # noqa: E402
+from stale_blocks_analysis.error_blocks import (  # noqa: E402
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
@@ -500,7 +500,7 @@ def validate_publication_inputs(
         descendant_counts = Counter(
             chain for chain, _block_hash in descendant_observations
         )
-        exclusions_path = args.data_dir / "stale_block_exclusions.csv"
+        exclusions_path = args.data_dir / "error-blocks" / "error_blocks.csv"
         excluded_keys = (
             load_stale_exclusion_keys(exclusions_path)
             if exclusions_path.is_file()

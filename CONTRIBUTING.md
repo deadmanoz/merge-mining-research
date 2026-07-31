@@ -88,7 +88,9 @@ Be strict about what belongs in git:
 
 - Commit only the canonical, compact loader inputs (for example
   `data/validated-stales/*_validated_stales.csv`, including RSK, plus
-  `data/stale_descendants.csv` and `data/stale_block_exclusions.csv`).
+  `data/stale_descendants.csv` and the error-blocks dataset
+  `data/error-blocks/error_blocks.csv` with its
+  `data/error-blocks/mtp_context.csv` sidecar).
 - Do not commit fetched upstream data under `data/stale-blocks/`, raw extracts,
   PoW-passing intermediates, full classifier outputs, marker SQLite/Parquet
   outputs, or node datadirs.

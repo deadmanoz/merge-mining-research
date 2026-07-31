@@ -54,7 +54,7 @@ The profile currently checks:
 | Candidate time greater than the active parent's median-time-past | Yes |
 | Historical minimum signed block version | Yes |
 | Coinbase scriptSig serialized length of 2 to 100 bytes | Yes when the real parent coinbase scriptSig is available |
-| BIP34 coinbase-height prefix | Yes when the real parent coinbase scriptSig is available; exact-key exclusions protect shared rows from weak-only sources |
+| BIP34 coinbase-height prefix | Yes when the real parent coinbase scriptSig is available; exact-key error-blocks exclusions protect shared rows from weak-only sources |
 | Coinbase transaction hash to header merkle-root proof | Not revalidated by the generic public classifier |
 | Complete transaction merkle root and duplicate-transaction check | No, requires the full Bitcoin block |
 | Block transaction, finality, weight, witness, and sigop rules | No, requires the full Bitcoin block |
@@ -62,7 +62,7 @@ The profile currently checks:
 
 Because validity is asymmetric, a failed necessary rule is conclusive evidence
 that a candidate is invalid, while passing all available checks means only that
-no failure was found within this profile. The exclusion overlay therefore may
+no failure was found within this profile. The error-blocks dataset therefore may
 call a rejected row consensus-invalid, but accepted rows are described as
 publication-gate-accepted header candidates rather than fully consensus-valid
 blocks. RSK's midstate-compressed proof does not expose the real parent
@@ -102,8 +102,8 @@ full-block consensus replay.
 | `stale_descendant` + `VALID_STALE_DESCENDANT` | Header candidate whose recovered ancestry reaches a known stale root and passes its declared gates | No |
 | `unknown` + `strict_btc_orphan` | Core-absent header with strong BIP34-height and Bitcoin-epoch `nBits` evidence | No, and not classified as stale |
 | `unknown` + `weak_btc_orphan` | Core-absent header with weaker timestamp/epoch evidence | No, and not classified as stale |
-| Exclusion overlay row with `consensus_invalid` scope | Candidate fails at least one necessary Bitcoin rule | Explicitly invalid under the recorded reason |
-| Exclusion overlay row with `direct_stale_only` scope | Candidate must not enter a direct-stale loader but may remain accepted under another evidence class | Depends on the replacement evidence class |
+| `error_block` | Consensus-invalid full-proof-of-work Bitcoin block catalogued in `data/error-blocks/error_blocks.csv`; the candidate fails at least one necessary Bitcoin rule | Explicitly invalid under the recorded reason |
+| `stale_descendant` single-home (formerly a `direct_stale_only` overlay row) | Candidate must not enter a direct-stale loader but remains accepted as a stale descendant | Depends on the replacement evidence class |
 
 Cross-chain repetition strengthens provenance because independent sibling
 ledgers preserve the same header. It does not upgrade a header candidate into a
@@ -139,7 +139,7 @@ does not perform full historical Bitcoin consensus validation, and none of the
 1,330 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
-The exclusion overlay records 31 consensus-invalid Namecoin candidates: 21
+The error-blocks dataset records 31 consensus-invalid Namecoin candidates: 21
 fail BIP34's coinbase-height rule, three fail BIP66's minimum block version,
 five fail BIP65's minimum block version, one violates median-time-past, and one
 has a 103-byte coinbase scriptSig. A separate direct-only correction moves the

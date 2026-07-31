@@ -72,7 +72,8 @@ The canonical rows were not persisted by the original 2026-04 prototype split
 and were backfilled by the 2026-06-23 canonical refresh; the earlier "75,625 =
 484 stale + 75,141 unknown" figure was that non-canonical subset, not the full
 classifier output. The committed validated file contains 468 rows after the
-consensus-invalid overlay removes 16 candidates.
+error-blocks dataset (`data/error-blocks/error_blocks.csv`) removes 16
+consensus-invalid candidates.
 
 **Chain-specific quirks.**
 
@@ -93,8 +94,8 @@ classification == "stale" and validation_status.startswith("VALID")
 ```
 
 The `validation_status` gate is persisted on this CSV. All 468 entries are
-`validation_status=VALID`; the loader also applies the exact-key exclusion
-overlay.
+`validation_status=VALID`; the loader also applies the exact-key error-blocks
+exclusion gate (`data/error-blocks/error_blocks.csv`).
 
 **Post-filter count: 468 accepted direct-stale header candidates.**
 

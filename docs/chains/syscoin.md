@@ -76,8 +76,8 @@ classification == "stale" and validation_status.startswith("VALID")
 
 The `VALID` gate is unconditional and fails closed - rows without a
 `VALID`-prefixed `validation_status` never load. The shared loader also
-applies the exact-key exclusion overlay (`data/stale_block_exclusions.csv`;
-no syscoin rows at present). 98 entries pass.
+applies the exact-key error-blocks exclusion gate
+(`data/error-blocks/error_blocks.csv`; no syscoin rows at present). 98 entries pass.
 
 **Post-filter count: 98 accepted direct-stale header candidates.**
 

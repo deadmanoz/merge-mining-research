@@ -131,7 +131,7 @@ here.
 classification == "stale" and validation_status.startswith("VALID")
 ```
 
-The exact-key exclusion overlay is applied after this persisted gate (no
+The exact-key error-blocks gate (`data/error-blocks/error_blocks.csv`) is applied after this persisted gate (no
 ELCASH rows are excluded). Three entries pass; `expected_nbits` matches the
 encoded `btc_bits` on every row.
 

@@ -71,7 +71,7 @@ from stale_blocks_analysis.config import (
     RELEVANCE_STRICT_BTC_ORPHAN as STRICT_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN as WEAK_ORPHAN,
 )
-from stale_blocks_analysis.stale_exclusions import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
 
 # Reasons stamped on confirmed direct-stale / stale-descendant rows. These
 # rows write an EMPTY `btc_stale_relevance` (the primary `classification`

@@ -98,17 +98,24 @@ retarget-boundary block plus a six-confirmation horizon block. This separates
 reproducible Bitcoin `nBits` and timestamp context from the private runtime
 cache used for optional mainchain lookups.
 
-`data/stale_block_exclusions.csv` is a compact publication overlay over the
-pinned upstream dataset and committed per-chain inputs. Its 32 exact keys have
-two scopes. Thirty-one are consensus-invalid: 21 fail BIP34's coinbase-height
+`data/error-blocks/error_blocks.csv` is the consensus-invalid error-blocks
+dataset and exact-key exclusion gate over the
+pinned upstream dataset and committed per-chain inputs. It supersedes the
+former `data/stale_block_exclusions.csv` overlay. Its 33 rows carry 31
+consensus-invalid keys plus two rows added by this work. Of the 31 carried-over
+keys, 21 fail BIP34's coinbase-height
 rule, three version 2 headers after height 363,725 fail BIP66's minimum version
 3 rule, five headers below version 4 after height 388,381 fail BIP65's minimum
 version 4 rule, one violates median-time-past, and one has a 103-byte coinbase
-scriptSig. The remaining key is a direct-stale-only correction at Bitcoin
-height 656,478. Its predecessor is a known stale rather than an active-chain
-block, so it is removed from direct-stale inputs and retained in the accepted
-stale-descendant sidecar. Loaders and upstream-derived reports apply the
-overlay by exact `(height, hash)` key and respect the recorded scope.
+scriptSig. The two added rows are the 946,213 `time_below_mtp` block (from
+merge-mining-monitor live evidence) and the 717,696 `nbits_retarget_not_applied`
+block (found by the rejected-row sweep). The former overlay's 32nd key, a
+direct-stale-only correction at Bitcoin
+height 656,478, is not an error block: its predecessor is a known stale rather
+than an active-chain block, so it now lives only in the accepted
+stale-descendant sidecar with no exclusion guard. Loaders and upstream-derived
+reports apply the
+gate by exact `(height, hash)` key, keying off `classification == "error_block"`.
 
 A separate generated evidence layer serves downstream consumers that need more
 than the stale census. Run `just full-evidence` to write normalized per-chain
@@ -266,7 +273,8 @@ coinbase-to-pool matcher, or emit a unified pool-attributed stale-event dataset.
   transition for alternative historical branches, so the project applies the
   contemporaneous rule explicitly. From heights 363,725 and 388,381, the
   version must also meet BIP66's minimum 3 and BIP65's minimum 4 respectively.
-  The public exclusion overlay removes 31 historical candidates. RSK cannot
+  The error-blocks dataset (`data/error-blocks/error_blocks.csv`) removes 31
+  historical consensus-invalid candidates. RSK cannot
   expose the coinbase field because its proof stores a midstate-compressed
   coinbase, so its matching exclusions are applied by exact cross-chain
   identity.

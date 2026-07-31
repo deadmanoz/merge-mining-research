@@ -32,7 +32,7 @@ from .config import (
     RELEVANCE_STRICT_BTC_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN,
 )
-from .stale_exclusions import (
+from .error_blocks import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
@@ -850,13 +850,14 @@ def collect_source_rows(
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
     Every normalized row is kept except requested source classifications and
-    exact identities in the public consensus-invalid overlay. The stats record
+    exact identities in the committed error-blocks dataset. The stats record
     error labels rather than dropping malformed rows; classification tallies,
     rejection counts, and missing-evidence counts feed the counts/manifest
     artifacts. A source row formerly published as a direct stale is projected
     into its accepted ``stale_descendant`` state only when both its exact
     chain/hash observation appears in the descendant sidecar and its exact
-    height/hash appears in the correction overlay.
+    height/hash appears in the error-blocks dataset without being
+    consensus-invalid.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []

@@ -582,6 +582,11 @@ def test_full_inventory_allows_canonical_reclassification_to_valid_stale(
 def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     tmp_path: Path,
 ) -> None:
+    # A baseline-canonical header corrected into a stale descendant is admitted
+    # in its final category. Post error-blocks, the correction is expressed by
+    # reclassifying the source row to stale_descendant (the former
+    # direct_stale_only exclusion scope is abolished; the gate no longer
+    # distinguishes scopes), not by an exclusion-overlay carve-out.
     module = _load_module()
     descendant_hash = "22" * 32
     data_dir = tmp_path / "data"
@@ -592,9 +597,6 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
         "classification,validation_status,btc_header_hash,source_rows\n"
         f"stale_descendant,VALID_STALE_DESCENDANT,{descendant_hash},namecoin:2\n"
     )
-    (data_dir / "stale_block_exclusions.csv").write_text(
-        f"height,hash,exclusion_scope\n2,{descendant_hash},direct_stale_only\n"
-    )
     archive_dir = tmp_path / "archive"
     inventory = (
         archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
@@ -603,7 +605,7 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     inventory.write_text(
         "btc_height,btc_header_hash,classification,validation_status\n"
         f"1,{'11' * 32},canonical,\n"
-        f"2,{descendant_hash},stale,VALID\n"
+        f"2,{descendant_hash},stale_descendant,VALID_STALE_DESCENDANT\n"
     )
     baseline_dir = tmp_path / "baseline"
     _write_baseline(

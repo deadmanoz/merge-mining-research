@@ -34,7 +34,7 @@ from .config import (
     STALE_CSV,
     STALE_DESCENDANTS_CSV,
 )
-from .stale_exclusions import exclude_consensus_invalid_rows, exclude_stale_rows
+from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
 
 # The per-chain *_CSV path constants below are referenced only indirectly, via
 # globals()[spec.csv_attr] at load time (see the LoaderSpec docstring), so a test
