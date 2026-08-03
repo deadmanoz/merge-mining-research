@@ -46,6 +46,10 @@ DEFAULT_RELEVANCE_INVENTORY = (
     / "btc-stale-relevance"
     / "btc-stale-relevance-inventory.csv"
 )
+# Publication manifests use a stable logical external name so temporary staging
+# basenames do not make otherwise identical builds non-reproducible. Diagnostic
+# library calls still report the sanitized path they actually read.
+REPORTED_RELEVANCE_INVENTORY = "<external>/btc-stale-relevance-inventory.csv"
 
 EVIDENCE_FIELDS = [
     "chain",
@@ -280,7 +284,8 @@ def btc_height(
 
     Takes the first populated height column; for stale rows falls back to
     ``btc_parent_height + 1`` (the stale sits one above its canonical
-    parent). Returns '' when nothing resolves.
+    parent), then to the validated BIP34 coinbase height used by legacy
+    Namecoin inventories. Returns '' when nothing resolves.
     """
     height = get_value(row, fieldnames, BTC_HEIGHT_COLUMNS)
     if height:
@@ -288,6 +293,8 @@ def btc_height(
     parent_height = int_or_none(row.get("btc_parent_height", "").strip())
     if classification == "stale" and parent_height is not None:
         return str(parent_height + 1)
+    if classification == "stale":
+        return row.get("btc_bip34_height", "").strip()
     return ""
 
 
@@ -412,6 +419,18 @@ def normalize_evidence_row(
     hex, or full coinbase) that feed the per-source stats.
     """
     classification = normalize_classification(source, row)
+    normalized_input = set(EVIDENCE_FIELDS).issubset(fieldnames or ())
+
+    def source_metadata(field: str, fallback: str) -> str:
+        """Preserve provenance when a normalized export is read again."""
+        if normalized_input:
+            value = row.get(field, "").strip()
+            if value:
+                if field == "source_path":
+                    return safe_path(Path(value), chain=source.chain)
+                return value
+        return fallback
+
     header_hex = get_value(row, fieldnames, HEADER_HEX_COLUMNS)
     parsed = parse_header_fields(header_hex)
     header_hash = normalize_hash(get_value(row, fieldnames, HASH_COLUMNS))
@@ -484,11 +503,13 @@ def normalize_evidence_row(
 
     normalized = {
         "chain": source.chain,
-        "source_kind": source.source_kind,
-        "source_path": safe_path(source.path, chain=source.chain),
-        "source_row_number": str(row_number),
-        "artifact_scope": source.artifact_scope,
-        "provenance": source.provenance,
+        "source_kind": source_metadata("source_kind", source.source_kind),
+        "source_path": source_metadata(
+            "source_path", safe_path(source.path, chain=source.chain)
+        ),
+        "source_row_number": source_metadata("source_row_number", str(row_number)),
+        "artifact_scope": source_metadata("artifact_scope", source.artifact_scope),
+        "provenance": source_metadata("provenance", source.provenance),
         "child_height": child_height_for(source.chain, row, fieldnames),
         "child_block_hash": child_hash,
         "child_header_hex": child_header_hex,
@@ -1675,6 +1696,7 @@ def build_monitor_evidence_exports(
     reported_output_dir: Path | None = None,
     chain_archive_dirs: Iterable[Path] = (),
     relevance_inventory: Path | None = DEFAULT_RELEVANCE_INVENTORY,
+    reported_relevance_inventory: str | None = None,
     include_canonical: bool = True,
     fail_on_missing_child_identity: bool = False,
 ) -> dict[str, object]:
@@ -1687,6 +1709,8 @@ def build_monitor_evidence_exports(
     rather than silently publish rows the importer will drop.
     ``reported_output_dir`` is the logical final directory recorded in counts
     and manifests when a caller writes to a temporary staging directory first.
+    ``reported_relevance_inventory`` can supply a stable logical publication
+    name while diagnostic callers retain the sanitized path they actually read.
     """
     logical_output_dir = reported_output_dir or output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1959,7 +1983,12 @@ def build_monitor_evidence_exports(
         },
         "artifacts": artifacts,
         "relevance_inventory": (
-            safe_path(relevance_inventory) if inventory_available else "missing"
+            (
+                reported_relevance_inventory
+                or safe_path(relevance_inventory, chain="relevance")
+            )
+            if inventory_available
+            else "missing"
         ),
         "strict_weak_verdicts_loaded": len(orphan_verdicts),
         "counts": count_rows,

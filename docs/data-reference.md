@@ -127,7 +127,7 @@ holds one former direct-stale row whose predecessor was shown to be stale
 rather than active. The file retains the gate verdict for transparency, so not
 every row is loadable: loaders take only
 `classification = stale_descendant` and `validation_status =
-VALID_STALE_DESCENDANT` (currently 20 of 24 rows; the other 4 are
+VALID_STALE_DESCENDANT` (currently 21 of 25 rows; the other 4 are
 `REJECTED_bip34_height_mismatch`).
 
 Key columns beyond the standard BTC header fields: `promotion_subclass`,
@@ -143,6 +143,10 @@ observations), `pow_valid`, `header_hash_match`, `bip34_height_status`, and
 The set of publication-gate-accepted stale `(height, hash)` pairs this project
 contributes that are not already in `bitcoin-data/stale-blocks`. Rebuilt from the committed inputs
 above by `scripts/reports/build_upstream_stale_sidecar.py`.
+Because this sidecar intentionally combines direct stales and accepted stale
+descendants without a classification column, ancestry reconciliation never
+uses it as a stale-root input. Direct roots come only from effective upstream
+and accepted per-chain direct-stale inventories.
 
 | Column | Meaning |
 | --- | --- |
@@ -163,7 +167,8 @@ without changing where the files are written.
 
 The 2026-07-30 complete refresh retained 30 external artifacts. Its historical
 coverage report authenticated 2,933,154 of 2,933,154 rows and all 6 accepted
-stale-descendant source observations, with zero unrecoverable rows.
+stale-descendant observations belonging to those 17 sources, with zero
+unrecoverable rows.
 
 Each `<chain>_evidence.csv` uses this normalized schema:
 
@@ -229,9 +234,9 @@ the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
 rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
 identity for Hathor, whose merge-mined block hash IS its BTC parent header
-hash. All 2,241 chain/header observations across the six chains verified
-against today's canonical child chains (1,889 distinct Bitcoin parent
-headers; 216 parents were observed by more than one chain, a single miner
+hash. All 2,287 chain/header observations across the six chains verified
+against today's canonical child chains (1,919 distinct Bitcoin parent
+headers; 232 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
@@ -312,7 +317,7 @@ exact-child-identity contract because each row aggregates observations from
 several chains. Its child identity columns therefore stay empty and its counts
 note is `child_identity=represented_by_source_chain_observations`. The
 corresponding source-chain rows are admitted to the monitor payloads through
-`relevance_reason=valid_stale_descendant`. The 26 observations sourced from
+`relevance_reason=valid_stale_descendant`. The 28 observations sourced from
 unknown rows preserve that classification. The Namecoin and RSK observations
 corrected from direct stales are projected as `stale_descendant` with
 `validation_status=VALID_STALE_DESCENDANT`, matching the exact-key correction

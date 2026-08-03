@@ -153,6 +153,17 @@ def test_syscoin_wrapper_forwards_standard(monkeypatch):
     )
 
 
+def test_elastos_bespoke_classifier_reproduces_committed_schema():
+    mod = _load("classify_elastos_stales")
+    committed_header = (
+        (REPO / "data" / "validated-stales" / "elastos_validated_stales.csv")
+        .read_text()
+        .splitlines()[0]
+        .split(",")
+    )
+    assert mod.OUTPUT_COLUMNS == committed_header
+
+
 def test_elcash_wrapper_forwards_standard_and_reproduces_committed_schema(monkeypatch):
     mod = _load("classify_elcash_stales")
     call = _run_main(monkeypatch, mod, ["x"])  # all defaults

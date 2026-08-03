@@ -99,6 +99,9 @@ On 20 July 2026, all 3,652 accepted direct observations in the committed chain
 inputs were replayed against Bitcoin Core tip 958,882 and passed every check
 available from their evidence. RSK's 298 rows lack the coinbase required for the
 scriptSig-length and BIP34-prefix checks.
+On 3 August 2026, source-driven Elastos and Syscoin reclassification corrected
+44 additional side-chain headers from canonical to valid direct stale; each
+passed the same available-evidence profile against Bitcoin Core.
 
 ## Child-chain coverage
 
@@ -143,8 +146,8 @@ cross-chain accounting snapshot.
 | [Doichain](docs/chains/doichain.md) | Local node; block-file survey through the active-chain tip observed at child height 430,684 | 0 | 0 | 0 | Observed-window negative result with no accepted stale or strict/weak evidence. |
 | [Bitmark](docs/chains/bitmark.md) | Synced multi-algo node; SHA-256d branch scanned to the recovered tip | 1 | 0 | 0 | The single accepted candidate cross-confirms an event already seen by other chains. |
 | [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 40 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
-| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through January 2026 | 153 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
-| [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 78 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
+| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through January 2026 | 177 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
+| [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 98 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
 | [Hathor](docs/chains/hathor.md) | Public REST API; child heights 1,000,000 to roughly 6,569,000 | 6 | Not assessed | Not assessed | The unknown-parent inventory was unavailable to the public strict/weak pass; earlier merge-mined history below child height 1,000,000 is outside scope. |
 | [Bitcoin Vault](docs/chains/bitcoin-vault.md) | Trezor Blockbook raw-block API; nearly complete AuxPoW lifetime | 9 | 0 | 0 | No node was available, and no later accepted direct stale was found after 2021. |
 | [Electric Cash](docs/chains/elcash.md) | Self-synced local node; standard Namecoin-style AuxPoW | 3 | 0 | 0 | The three accepted stales from June to September 2021 all cross-confirm Bitcoin Vault observations. |

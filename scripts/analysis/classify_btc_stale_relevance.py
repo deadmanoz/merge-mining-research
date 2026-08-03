@@ -1086,7 +1086,7 @@ def build_known_stale_membership(
 ) -> tuple[set[str], set[str], dict[str, object]]:
     """Build the set of BTC hashes already known to be stale, plus rejected descendants.
 
-    Scans the upstream and local-upstream-candidate stale-blocks CSVs (via
+    Scans the upstream stale-blocks CSV (via
     `reconcile_unknown_stale_ancestry.scan_upstream_stales`), then every
     discovered chain's rows: `stale`-classified rows with a validation status
     that allows a direct stale are added to `known_stale_hashes`;
@@ -1107,25 +1107,12 @@ def build_known_stale_membership(
     upstream_path = data_dir / "stale-blocks" / "stale-blocks.csv"
     upstream_count = rec.scan_upstream_stales(
         upstream_path,
-        "upstream",
         stale_by_hash,
         all_hash_chains,
         prevs_by_hash,
     )
     source_rows["upstream"] = upstream_count
     source_hashes["upstream"].update(stale_by_hash)
-
-    before_local = set(stale_by_hash)
-    local_upstream_path = data_dir / "new_stale_blocks_for_upstream.csv"
-    local_count = rec.scan_upstream_stales(
-        local_upstream_path,
-        "local-upstream-candidate",
-        stale_by_hash,
-        all_hash_chains,
-        prevs_by_hash,
-    )
-    source_rows["local-upstream-candidate"] = local_count
-    source_hashes["local-upstream-candidate"].update(set(stale_by_hash) - before_local)
 
     for src in iter_source_rows(data_dir, chain_archive_dirs):
         block_hash = get_header_hash(src)
@@ -1556,7 +1543,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "Source classifications are preserved; this file emits only a derived relevance layer.",
             "Confirmed BTC stale rows still require valid header hash, prev hash, and self-PoW evidence.",
             "Private chain archives can be passed with --chain-archive-dir and are read without copying private inventories into this repo.",
-            "Upstream and local upstream candidate CSVs are membership-only inputs, not row-level output rows.",
+            "The upstream stale-block CSV is a membership-only input, not a row-level output source.",
             "Row-count summaries count source rows, not unique hashes; unique_confirmed_btc_stale is the deduplicated confirmed-hash view.",
             "Missing full inventories are reported as unavailable, not counted as zero unknown rows.",
             "RSK cannot produce strict_btc_orphan in this implementation because it lacks BTC coinbase/BIP34 evidence.",

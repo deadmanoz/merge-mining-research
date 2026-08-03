@@ -44,12 +44,12 @@ def parse_bip34_height(scriptsig_hex: str) -> int | None:
 def load_stale_header_index(data_dir: Path) -> dict[str, list[dict[str, str]]]:
     """Index known BTC stale headers by hash across upstream and per-chain sources.
 
-    Scans the upstream stale-blocks CSV, the local upstream-candidate CSV, and
-    every discovered per-chain full-inventory/validated-stales CSV (only rows
-    with ``classification == "stale"``), building ``hash -> [observation, ...]``
+    Scans the upstream stale-blocks CSV and every discovered per-chain
+    full-inventory/validated-stales CSV (only rows with
+    ``classification == "stale"``), building ``hash -> [observation, ...]``
     where each observation carries the source path/kind/row number plus
-    prev_hash/bits/time/header_hex. A hash can map to more than one
-    observation when several sources report the same stale header.
+    prev_hash/bits/time/header_hex. A hash can map to more than one observation
+    when several sources report the same stale header.
     """
     out: dict[str, list[dict[str, str]]] = defaultdict(list)
 
@@ -89,18 +89,14 @@ def load_stale_header_index(data_dir: Path) -> dict[str, list[dict[str, str]]]:
             }
         )
 
-    for path, source_kind in [
-        (data_dir / "stale-blocks" / "stale-blocks.csv", "upstream"),
-        (data_dir / "new_stale_blocks_for_upstream.csv", "local-upstream-candidate"),
-    ]:
-        if not path.exists():
-            continue
+    path = data_dir / "stale-blocks" / "stale-blocks.csv"
+    if path.exists():
         with path.open(newline="") as f:
             for row_number, row in enumerate(csv.DictReader(f), start=2):
                 add(
                     row.get("hash", ""),
                     source_path=path,
-                    source_kind=source_kind,
+                    source_kind="upstream",
                     row_number=row_number,
                     height=row.get("height", ""),
                     prev_hash="",

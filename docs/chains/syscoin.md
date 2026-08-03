@@ -15,7 +15,7 @@
 
 This doc covers the **current Syscoin chain (chain 2)** - the fresh-genesis 2019-06-03 launch, not the retired Syscoin 2.x/3.x chain that ran May 2016 → Jun 2019 (SHA-256d Bitcoin-merge-mined from launch under the legacy chain ID 4096, separate genesis). The Scrypt era belongs to a third, still-earlier chain: the original Syscoin 1.0 launched Aug 2014 on a Litecoin lineage and was retired at the 2.0 swap. The old 2016-2019 chain is in scope for the merge-mining catalogue but is **not extracted by this project**; its `chainz.cryptoid.info/sys-old/` archive is dead ("hosting expired", already so when the 2026-05 feasibility probe checked), and no other public source of chain-1 block data has been located (see **Remaining work** below).
 
-Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin Core fork that returns a fully decoded `auxpow` JSON object from `getblock <hash> 1`. No raw-hex parsing, no binary CAuxPow deserialisation. The 78 committed validated stales are produced from straightforward JSON field access after stale-classified rows are filtered by canonical-at-height `nBits` validation.
+Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin Core fork that returns a fully decoded `auxpow` JSON object from `getblock <hash> 1`. No raw-hex parsing, no binary CAuxPow deserialisation. The 98 committed validated stales are produced from straightforward JSON field access after stale-classified rows are filtered by canonical-at-height `nBits` validation.
 
 ## 1. Chain data
 
@@ -48,16 +48,16 @@ Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin
 3. **Dedup**: do *not* dedup at extraction time - with 10× (pre-NEVM) or 4× (post-NEVM) sampling density, consecutive SYS blocks reference different parent headers within the same BTC interval. Downstream cross-source publication views deduplicate only exact `(height, hash)` identities.
 4. **BTC RPC classify** (`classify_syscoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
 
-**Counts.** The 2026-04-17 extraction walked 2,220,963 AuxPoW blocks (SYS 1,973 → tip) and yielded **116,994 unique self-target-PoW-valid parent headers**. The original classifier run persisted only the non-canonical split (18,360 rows); the 98,634 canonical rows were backfilled by the 2026-07-18 canonical refresh (§5). Full classifier output (the logical split across `syscoin_canonical_blocks.csv`, `syscoin_stale_blocks.csv`, and `syscoin_unknown_blocks.csv`):
+**Counts.** The 2026-04-17 extraction walked 2,220,963 AuxPoW blocks (SYS 1,973 → tip) and yielded **116,994 unique self-target-PoW-valid parent headers**. The source-driven 2026-08-03 reclassification materialized the complete current split across `syscoin_canonical_blocks.csv`, `syscoin_stale_blocks.csv`, and `syscoin_unknown_blocks.csv`:
 
 | `classification` | Count |
 |---|---:|
-| `canonical` | 98,634 |
-| `unknown` | 18,281 |
-| `stale` | 79 raw; 78 committed after `nBits` validation |
+| `canonical` | 98,613 |
+| `unknown` | 18,282 |
+| `stale` | 99 raw; 98 committed after `nBits` validation |
 | **Total** | **116,994** |
 
-The one rejected stale candidate is BTC 717,696 (SYS 1,336,057, Jan 2022) - the first block of difficulty epoch 356, whose header carries the previous epoch's target (`nBits` `170b98ab` vs expected `170b8c8b`). Emercoin's set rejects a BTC 717,696 candidate with the same `nBits` mismatch (emercoin.md §3). The 18,281-row unknown tail is mid-sized for the integrated set - larger than Namecoin's 7,841, well below Devcoin's 75,141 or Argentum's 634,277. Syscoin's recovery window (2019-06 onward) post-dates the Namecoin-family era discussed in Namecoin's [private research boundary](namecoin.md#private-research-boundary).
+The one rejected stale candidate is BTC 717,696 (SYS 1,336,057, Jan 2022) - the first block of difficulty epoch 356, whose header carries the previous epoch's target (`nBits` `170b98ab` vs expected `170b8c8b`). Emercoin's set rejects a BTC 717,696 candidate with the same `nBits` mismatch (emercoin.md §3). The 18,282-row unknown tail is mid-sized for the integrated set - larger than Namecoin's 7,841, well below Devcoin's 75,141 or Argentum's 634,277. Syscoin's recovery window (2019-06 onward) post-dates the Namecoin-family era discussed in Namecoin's [private research boundary](namecoin.md#private-research-boundary).
 
 **Chain-specific quirks.**
 
@@ -77,9 +77,9 @@ classification == "stale" and validation_status.startswith("VALID")
 The `VALID` gate is unconditional and fails closed - rows without a
 `VALID`-prefixed `validation_status` never load. The shared loader also
 applies the exact-key exclusion overlay (`data/stale_block_exclusions.csv`;
-no syscoin rows at present). 78 entries pass.
+no syscoin rows at present). 98 entries pass.
 
-**Post-filter count: 78 accepted direct-stale header candidates.**
+**Post-filter count: 98 accepted direct-stale header candidates.**
 
 **Derived strict/weak relevance: 1 strict, 0 weak observation.** This is an
 unknown row admitted to the separate relevance axis, not a direct-stale
@@ -93,8 +93,8 @@ Generated by `python scripts/compute_chain_novelty.py syscoin`. Per-stale row-le
 
 | Split | Count | % |
 |---|---:|---:|
-| also in upstream | 63 | 80.8 % |
-| novel vs upstream | 15 | 19.2 % |
+| also in upstream | 83 | 84.7 % |
+| novel vs upstream | 15 | 15.3 % |
 
 **(b) Chronological cumulative - layered on upstream + every chronologically-earlier chain**
 
@@ -102,11 +102,11 @@ Syscoin is 21st chronologically. Earlier-born integrated chains now include Name
 
 | Split | Count |
 |---|---:|
-| also in upstream | 63 |
-| also in earlier-born chain (`namecoin`: 52, `emercoin`: 12, `rsk`: 12 - first-claim distribution) | 76 |
+| also in upstream | 83 |
+| also in earlier-born chain (`namecoin`: 52, `emercoin`: 15, `rsk`: 12, `elastos`: 10, `xaya`: 5 - first-claim distribution) | 94 |
 | **novel at this position** | **1** |
 
-One further row is upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 78. Namecoin, Emercoin, and RSK contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
+Three rows are upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 98. Namecoin, Emercoin, RSK, Elastos, and Xaya contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
 
 - **BTC 751,763** (`0000000000000000000993e1c4ab09844605bbec0b810e70beb0c364312bce86`, Aug 2022) - not in upstream `bitcoin-data/stale-blocks`, and not in any chronologically-earlier integrated chain's validated set.
 
@@ -118,12 +118,12 @@ One further row is upstream-only (in upstream but first-claimed by no earlier-bo
 
 **In-repo artifacts.**
 
-- `data/validated-stales/syscoin_validated_stales.csv` - 78 validated stales (committed; the loader's input).
+- `data/validated-stales/syscoin_validated_stales.csv` - 98 validated stales (committed; the loader's input).
 - `results/per-chain-novelty/syscoin.csv` - per-stale `(btc_height, btc_hash, in_upstream, first_seen_chain)` table.
 
 **Private archive artifacts.**
 
-- Split inventories: `syscoin_canonical_blocks.csv` (98,634 canonical, backfilled by the 2026-07-18 refresh), `syscoin_stale_blocks.csv` (79 stale-classified), and `syscoin_unknown_blocks.csv` (18,281 unknown) - 116,994 rows total (§2).
+- Split inventories: `syscoin_canonical_blocks.csv` (98,613 canonical), `syscoin_stale_blocks.csv` (99 stale-classified), and `syscoin_unknown_blocks.csv` (18,282 unknown) - 116,994 rows total (§2).
 
 **External references.**
 
@@ -133,7 +133,7 @@ One further row is upstream-only (in upstream but first-claimed by no earlier-bo
 **Remaining work.**
 
 - **Old chain (Syscoin 2.x/3.x) recovery decision** - closed. Phase A feasibility + value investigation concluded "not worth it" on the value side (estimated novel yield in BTC 410k–580k window is < 5%; upstream + namecoin + unobtanium alone cover 96.2% of the 391-event hash-keyed union), and found chain-1 block data unrecoverable through any public source in any case (legacy 3.x binaries survive as Docker images, so software was never the blocker).
-- **Unknown-chain origin (H1 vs H2)**. Syscoin's 18,281 unknowns are a moderate-sized sample. Because Syscoin chain 2 starts in 2019, most of the 31 cross-chain-confirmed Namecoin unknown roots are too early to appear in Syscoin's unknown set. A future public analysis could test whether that substrate is era-bound; no public reproducer exists yet.
+- **Unknown-chain origin (H1 vs H2)**. Syscoin's 18,282 unknowns are a moderate-sized sample. Because Syscoin chain 2 starts in 2019, most of the 31 cross-chain-confirmed Namecoin unknown roots are too early to appear in Syscoin's unknown set. A future public analysis could test whether that substrate is era-bound; no public reproducer exists yet.
 - **nBits validation against BTC mainchain difficulty schedule** - closed. The classifier now emits `validation_status` and `expected_nbits`; only rows marked `VALID` are committed.
 - **Future F2Pool concentration check**: earlier notes recorded "15 F2Pool, 1 ViaBTC" for the original 16-novel extraction-time set. Under chronological precedence the novel count is now 1. In the later attribution phase, recompute labels against `results/per-chain-novelty/syscoin.csv` and check the remaining chronologically novel hash (BTC 751,763).
 
@@ -145,3 +145,4 @@ One further row is upstream-only (in upstream but first-claimed by no earlier-bo
 - **2026-06-24** - full-evidence export (18,360 non-canonical rows, split unchanged).
 - **2026-07-17** - public release: novelty recomputed at the bumped upstream pin (isolated view 63 in upstream / 15 novel).
 - **2026-07-18** - canonical backfill: the preserved raw extraction re-classified against a live Bitcoin Core node, producing the 98,634-row canonical split (Syscoin was still on the canonical needs-infrastructure list until this run); stale/unknown counts unchanged.
+- **2026-08-03** - source-driven reclassification against Bitcoin Core corrected 20 side-chain headers from canonical to valid direct stale and one from canonical to an accepted stale descendant. The complete split is now 98,613 canonical, 99 stale candidates (98 accepted), and 18,282 unknown.

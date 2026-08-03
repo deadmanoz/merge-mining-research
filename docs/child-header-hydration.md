@@ -146,9 +146,9 @@ exit alone as a complete-coverage assertion.
 
 The completed refresh authenticated all **2,933,154 of 2,933,154** historical
 source rows, with zero unrecoverable rows. All **6 of 6** accepted
-stale-descendant source observations also carry complete authenticated child
-headers. `results/child-header-coverage.csv` records the per-chain totals and
-time ranges.
+stale-descendant observations belonging to those 17 sources also carry
+complete authenticated child headers. `results/child-header-coverage.csv`
+records the per-chain totals and time ranges.
 
 The timestamp-delta columns are diagnostics across every evidence state, not
 canonical-Bitcoin assertions. Crown's maximum delta of 1,544,645,238 seconds
@@ -161,8 +161,8 @@ The normal publication build now emits every available canonical row together
 with accepted direct stales, accepted descendants, and strict/weak unknown-row
 observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
-inputs. The monitor projection publishes all 28 exact per-chain observations
-behind the accepted descendant sidecar: 26 preserve their source `unknown`
+inputs. The monitor projection publishes all 30 exact per-chain observations
+behind the accepted descendant sidecar: 28 preserve their source `unknown`
 classification, while the Namecoin and RSK rows corrected from direct stales
 are published in their final `stale_descendant` state. Complete normalized
 full-evidence and canonical-classifier inventories were retained as dated

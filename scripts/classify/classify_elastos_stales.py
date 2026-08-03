@@ -45,6 +45,7 @@ from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty
 from stale_blocks_analysis.btc_classify import (
     classify_candidates as _classify_candidates,
     derive_split_paths,
+    output_columns,
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
@@ -54,27 +55,11 @@ from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
 # --- Bitcoin Core RPC config ---
 BATCH_SIZE = 200
 
-# BCH/BSV fork boundaries. All ELA real-parent evidence is post-BCH, and most
-# is post-BSV.
-BCH_FORK_HEIGHT = 478_559
-
-# Output CSV columns. This matches the syscoin/ixcoin schema so the downstream
-# load_elastos_stales() loader can mirror load_syscoin_stales().
-OUTPUT_COLUMNS = [
-    "btc_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-    "ela_height",
-    "classification",  # "stale" | "unknown"
-    "validation_status",  # "VALID" | "REJECTED: ..." | "UNKNOWN"
-    "expected_nbits",  # canonical nBits at that height, when known
-    "post_bch_fork",  # "true" / "false"
-]
+# Use the same canonical classifier schema as every other AuxPoW chain. The
+# archived Elastos extract predates child-header capture, so its child fields
+# are empty until the authenticated recovery sidecar hydrates them, but the
+# classifier must still preserve the uniform output contract from a clean run.
+OUTPUT_COLUMNS = output_columns("ela_height")
 
 
 def hash_meets_target(header_hex: str) -> bool:
@@ -98,27 +83,8 @@ def hash_meets_target(header_hex: str) -> bool:
 
 
 def classify_candidates(candidates: list[dict], rpc: BtcRpc) -> list[dict]:
-    """Batch-classify self-target-PoW-valid headers as stale or unknown.
-
-    Delegates the canonical/prev getblockheader linkage and the authoritative
-    prev-height+1 override to the shared ``btc_classify.classify_candidates``
-    (keyed on the Elastos child-height column), then re-applies the Elastos-
-    specific annotations the inline copy carried: a tentative
-    ``NEEDS_CONTEXT_VALIDATION`` status for stales (replaced later by
-    ``validate_stale_header_context``), an ``UNKNOWN`` status for unknowns,
-    the ``post_bch_fork`` flag derived from the corrected height, and an
-    ``expected_nbits`` default.
-    """
-    results = _classify_candidates(candidates, rpc)
-    for c in results:
-        if c["classification"] == "stale":
-            c["validation_status"] = "NEEDS_CONTEXT_VALIDATION"
-            c["post_bch_fork"] = str(int(c["btc_height"]) >= BCH_FORK_HEIGHT).lower()
-        else:
-            c["validation_status"] = "UNKNOWN"
-            c["post_bch_fork"] = ""
-        c.setdefault("expected_nbits", "")
-    return results
+    """Classify Elastos rows through the shared canonical/stale/unknown path."""
+    return _classify_candidates(candidates, rpc)
 
 
 def main():

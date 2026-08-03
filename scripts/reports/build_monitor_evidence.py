@@ -28,6 +28,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
     MONITOR_OUTPUT_DIR,
+    REPORTED_RELEVANCE_INVENTORY,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -37,6 +38,13 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     normalize_evidence_row,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
+from stale_blocks_analysis.stale_blocks import (  # noqa: E402
+    load_stale_descendant_observation_keys,
+)
+from stale_blocks_analysis.stale_exclusions import (  # noqa: E402
+    load_consensus_invalid_stale_keys,
+    load_stale_exclusion_keys,
+)
 
 PUBLICATION_COUNTS = MONITOR_OUTPUT_DIR / "monitor-evidence-counts.csv"
 PUBLICATION_MANIFEST = MONITOR_OUTPUT_DIR / "monitor-evidence-manifest.json"
@@ -146,6 +154,7 @@ def _load_publication_baseline(
     int,
     dict[str, str],
     dict[str, Counter[str]],
+    dict[str, set[str]],
 ]:
     """Load the committed category/count floor used by publication preflight."""
     counts_path = baseline_dir / PUBLICATION_COUNTS.name
@@ -203,29 +212,50 @@ def _load_publication_baseline(
         raise ValueError(f"{manifest_path}: invalid strict/weak verdict count")
     relevance_by_hash: dict[str, str] = {}
     relevance_rows_by_chain: dict[str, Counter[str]] = {}
+    canonical_hashes_by_chain: dict[str, set[str]] = {}
     for artifact in sorted(baseline_dir.glob("*_monitor_evidence.csv")):
+        artifact_chain = artifact.name.removesuffix("_monitor_evidence.csv")
+        canonical_hashes_by_chain.setdefault(artifact_chain, set())
         with artifact.open(newline="") as handle:
             for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                classification = (row.get("classification") or "").strip().lower()
                 bucket = (row.get("btc_stale_relevance") or "").strip()
-                if bucket not in ("strict_btc_orphan", "weak_btc_orphan"):
+                if classification != "canonical" and bucket not in (
+                    "strict_btc_orphan",
+                    "weak_btc_orphan",
+                ):
                     continue
                 block_hash = (row.get("btc_header_hash") or "").strip().lower()
                 chain = (row.get("chain") or "").strip()
-                if len(block_hash) != 64 or not chain:
+                if len(block_hash) != 64 or chain != artifact_chain:
                     raise ValueError(
-                        f"{artifact}:{row_number}: malformed baseline relevance row"
+                        f"{artifact}:{row_number}: malformed baseline evidence row"
                     )
                 try:
                     int(block_hash, 16)
                 except ValueError as exc:
                     raise ValueError(
-                        f"{artifact}:{row_number}: malformed baseline relevance hash"
+                        f"{artifact}:{row_number}: malformed baseline evidence hash"
                     ) from exc
+                if classification == "canonical":
+                    canonical_hashes_by_chain.setdefault(chain, set()).add(block_hash)
+                if bucket not in ("strict_btc_orphan", "weak_btc_orphan"):
+                    continue
                 relevance_rows_by_chain.setdefault(chain, Counter())[block_hash] += 1
                 existing = relevance_by_hash.get(block_hash)
                 if existing != "strict_btc_orphan":
                     relevance_by_hash[block_hash] = bucket
     for chain, row in rows.items():
+        canonical_hashes = canonical_hashes_by_chain.get(chain)
+        if canonical_hashes is None:
+            raise ValueError(
+                f"{baseline_dir}: {chain} monitor-evidence artifact is missing"
+            )
+        if len(canonical_hashes) != int(row["canonical"]):
+            raise ValueError(
+                f"{baseline_dir}: {chain} canonical identities do not match counts "
+                f"({len(canonical_hashes)} != {row['canonical']})"
+            )
         expected_rows = int(row["strict_btc_orphan"]) + int(row["weak_btc_orphan"])
         actual_rows = sum(relevance_rows_by_chain.get(chain, Counter()).values())
         if actual_rows != expected_rows:
@@ -233,7 +263,13 @@ def _load_publication_baseline(
                 f"{baseline_dir}: {chain} relevance rows do not match counts "
                 f"({actual_rows} != {expected_rows})"
             )
-    return rows, expected_verdicts, relevance_by_hash, relevance_rows_by_chain
+    return (
+        rows,
+        expected_verdicts,
+        relevance_by_hash,
+        relevance_rows_by_chain,
+        canonical_hashes_by_chain,
+    )
 
 
 def _missing_unknown_observations(
@@ -275,6 +311,31 @@ def _accepted_stale_count(path: Path) -> int:
         )
 
 
+def _accepted_stale_hashes(path: Path) -> set[str] | None:
+    """Return exact accepted stale identities, or None for a count-only fixture."""
+    hashes: set[str] = set()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "btc_header_hash" not in (reader.fieldnames or []):
+            return None
+        for row_number, row in enumerate(reader, start=2):
+            if (row.get("classification") or "").strip() != "stale" or not (
+                row.get("validation_status") or ""
+            ).strip().startswith("VALID"):
+                continue
+            block_hash = (row.get("btc_header_hash") or "").strip().lower()
+            if len(block_hash) != 64:
+                raise ValueError(f"{path}:{row_number}: malformed stale header hash")
+            try:
+                int(block_hash, 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed stale header hash"
+                ) from exc
+            hashes.add(block_hash)
+    return hashes
+
+
 def _accepted_descendant_count(path: Path) -> int:
     """Count accepted stale-descendant rows in the committed sidecar."""
     with path.open(newline="") as handle:
@@ -284,6 +345,81 @@ def _accepted_descendant_count(path: Path) -> int:
             if (row.get("classification") or "").strip() == "stale_descendant"
             and (row.get("validation_status") or "").strip() == "VALID_STALE_DESCENDANT"
         )
+
+
+def _projected_stale_descendant_count(
+    source: EvidenceSource,
+    descendant_observations: frozenset[tuple[str, str]],
+    excluded_keys: set[tuple[int, str]],
+    consensus_invalid_keys: set[tuple[int, str]],
+) -> int:
+    """Count stale source rows retained through descendant reclassification."""
+    if source.path is None:
+        return 0
+    count = 0
+    with source.path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row_number, row in enumerate(reader, start=2):
+            normalized, _errors = normalize_evidence_row(
+                source, row, reader.fieldnames, row_number
+            )
+            if normalized["classification"] != "stale":
+                continue
+            block_hash = normalized["btc_header_hash"]
+            try:
+                key = (int(normalized["btc_height"]), block_hash)
+            except ValueError:
+                continue
+            if (
+                (source.chain, block_hash) in descendant_observations
+                and key in excluded_keys
+                and key not in consensus_invalid_keys
+            ):
+                count += 1
+    return count
+
+
+def _accepted_descendant_observations(
+    sources: list[EvidenceSource],
+    descendant_observations: frozenset[tuple[str, str]],
+    excluded_keys: set[tuple[int, str]],
+    consensus_invalid_keys: set[tuple[int, str]],
+) -> set[tuple[str, str]]:
+    """Return distinct source identities admitted as stale descendants."""
+    accepted: set[tuple[str, str]] = set()
+    for source in sources:
+        if source.path is None:
+            continue
+        with source.path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row_number, row in enumerate(reader, start=2):
+                normalized, _errors = normalize_evidence_row(
+                    source, row, reader.fieldnames, row_number
+                )
+                classification = normalized["classification"]
+                block_hash = normalized["btc_header_hash"]
+                if (source.chain, block_hash) not in descendant_observations:
+                    continue
+                try:
+                    key = (int(normalized["btc_height"]), block_hash)
+                except ValueError:
+                    key = None
+                if key in consensus_invalid_keys:
+                    continue
+                if classification == "unknown":
+                    if key in excluded_keys:
+                        continue
+                    accepted.add((source.chain, block_hash))
+                    continue
+                if classification == "stale_descendant":
+                    if normalized["validation_status"] == "VALID_STALE_DESCENDANT":
+                        accepted.add((source.chain, block_hash))
+                    continue
+                if classification != "stale":
+                    continue
+                if key in excluded_keys and key not in consensus_invalid_keys:
+                    accepted.add((source.chain, block_hash))
+    return accepted
 
 
 def validate_publication_inputs(
@@ -308,12 +444,14 @@ def validate_publication_inputs(
             expected_verdicts,
             expected_relevance,
             expected_relevance_rows,
+            baseline_canonical_hashes,
         ) = _load_publication_baseline(baseline_dir)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         baseline = {}
         expected_verdicts = 0
         expected_relevance = {}
         expected_relevance_rows = {}
+        baseline_canonical_hashes = {}
         problems.append(str(exc))
 
     archive_dirs = [path.expanduser() for path in args.chain_archive_dirs]
@@ -355,6 +493,24 @@ def validate_publication_inputs(
         problems.append("--skip-canonical is a partial-build option")
 
     if sources:
+        descendants_path = args.data_dir / "stale_descendants.csv"
+        descendant_observations = load_stale_descendant_observation_keys(
+            descendants_path
+        )
+        descendant_counts = Counter(
+            chain for chain, _block_hash in descendant_observations
+        )
+        exclusions_path = args.data_dir / "stale_block_exclusions.csv"
+        excluded_keys = (
+            load_stale_exclusion_keys(exclusions_path)
+            if exclusions_path.is_file()
+            else set()
+        )
+        consensus_invalid_keys = (
+            load_consensus_invalid_stale_keys(exclusions_path)
+            if exclusions_path.is_file()
+            else set()
+        )
         for chain, baseline_row in baseline.items():
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
             expected_categories = {
@@ -410,11 +566,20 @@ def validate_publication_inputs(
             )
             if not validated_path.is_file():
                 problems.append(f"{chain} committed validated input is missing")
-            elif _accepted_stale_count(validated_path) < expected_categories["stale"]:
-                problems.append(
-                    f"{chain} accepted direct-stale coverage is below the "
-                    "publication baseline"
-                )
+                accepted_stale_count = 0
+                accepted_stale_hashes: set[str] | None = set()
+            else:
+                accepted_stale_count = _accepted_stale_count(validated_path)
+                try:
+                    accepted_stale_hashes = _accepted_stale_hashes(validated_path)
+                except ValueError as exc:
+                    accepted_stale_hashes = set()
+                    problems.append(str(exc))
+                if accepted_stale_count < expected_categories["stale"]:
+                    problems.append(
+                        f"{chain} accepted direct-stale coverage is below the "
+                        "publication baseline"
+                    )
             baseline_source_kind = baseline_row.get("source_kind") or ""
             if baseline_source_kind == "full_inventory":
                 if (
@@ -432,11 +597,11 @@ def validate_publication_inputs(
                 coverage = sum(source_counts.values()) - source_counts["stale"]
                 canonical_source = canonical.get(chain)
                 canonical_coverage = source_counts["canonical"]
+                source_hashes = _classification_hashes(source.path, "canonical")
                 if canonical_source is not None and canonical_source.path is not None:
                     companion_canonical = _classification_counts(canonical_source.path)[
                         "canonical"
                     ]
-                    source_hashes = _classification_hashes(source.path, "canonical")
                     companion_hashes = _classification_hashes(
                         canonical_source.path, "canonical"
                     )
@@ -450,16 +615,77 @@ def validate_publication_inputs(
                         canonical_coverage = max(
                             canonical_coverage, companion_canonical
                         )
-                if canonical_coverage < expected_categories["canonical"]:
-                    problems.append(
-                        f"{chain} canonical-classified evidence is below the "
-                        "publication baseline"
-                    )
+                    if source_hashes is not None:
+                        if companion_hashes is None:
+                            source_hashes = None
+                        else:
+                            source_hashes |= companion_hashes
                 unknown_source = unknown.get(chain)
+                descendant_sources = [source]
+                if unknown_source is not None:
+                    descendant_sources.append(unknown_source)
+                accepted_descendants = _accepted_descendant_observations(
+                    descendant_sources,
+                    descendant_observations,
+                    excluded_keys,
+                    consensus_invalid_keys,
+                )
+                accepted_descendant_hashes = {
+                    block_hash
+                    for observation_chain, block_hash in accepted_descendants
+                    if observation_chain == chain
+                }
+                accepted_stale_coverage = accepted_stale_count
+                if accepted_stale_hashes is not None:
+                    accepted_stale_coverage = len(
+                        accepted_stale_hashes - accepted_descendant_hashes
+                    )
+                accepted_final_coverage = (
+                    canonical_coverage
+                    + accepted_stale_coverage
+                    + len(accepted_descendants)
+                )
+                expected_final_coverage = sum(
+                    expected_categories[category]
+                    for category in ("canonical", "stale", "stale_descendant")
+                )
+                if accepted_final_coverage < expected_final_coverage:
+                    problems.append(
+                        f"{chain} accepted canonical/stale/descendant evidence is "
+                        "below the publication baseline"
+                    )
+                if source_hashes is not None and baseline_canonical_hashes.get(chain):
+                    # Category corrections are intentional: a header published as
+                    # canonical in the baseline may now be an accepted direct stale
+                    # or stale descendant. Preserve its exact identity in any final
+                    # category, while rejecting unrelated rows that merely replace
+                    # the old count.
+                    current_final_hashes = set(source_hashes)
+                    if accepted_stale_hashes is not None:
+                        current_final_hashes.update(accepted_stale_hashes)
+                    current_final_hashes.update(accepted_descendant_hashes)
+                    missing_canonical_hashes = (
+                        baseline_canonical_hashes.get(chain, set())
+                        - current_final_hashes
+                    )
+                    if missing_canonical_hashes:
+                        first_missing = min(missing_canonical_hashes)
+                        problems.append(
+                            f"{chain} accepted evidence is missing "
+                            f"{len(missing_canonical_hashes)} baseline canonical "
+                            f"header identities (first: {first_missing})"
+                        )
                 if unknown_source is not None and unknown_source.path is not None:
                     coverage += _csv_row_count(unknown_source.path)
                 if validated_path.is_file():
                     coverage += _csv_row_count(validated_path)
+                if descendant_counts[chain]:
+                    coverage += _projected_stale_descendant_count(
+                        source,
+                        descendant_observations,
+                        excluded_keys,
+                        consensus_invalid_keys,
+                    )
                 if coverage < expected_source_rows:
                     problems.append(
                         f"{chain} private inventory is below the publication baseline "
@@ -636,6 +862,9 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             reported_output_dir=output_dir,
             chain_archive_dirs=args.chain_archive_dirs,
             relevance_inventory=args.relevance_inventory,
+            reported_relevance_inventory=(
+                None if args.allow_partial else REPORTED_RELEVANCE_INVENTORY
+            ),
             include_canonical=not args.skip_canonical,
             # A publication build fails closed on an unhydrated live-chain
             # row (the importer would silently drop it); a partial diagnostic

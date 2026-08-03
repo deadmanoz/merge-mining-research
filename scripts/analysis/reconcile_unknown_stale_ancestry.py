@@ -90,6 +90,7 @@ class PublicationBaseline:
     observed_chains_by_hash: dict[str, frozenset[str]]
     unknown_rows_by_hash: dict[str, int]
     source_observation_counts_by_hash: dict[str, Counter[str]]
+    notes_by_hash: dict[str, str]
     required_inventory_chains: frozenset[str]
 
 
@@ -97,8 +98,8 @@ class PublicationBaseline:
 class StaleObservation:
     """One source row reporting a known-stale BTC header.
 
-    `source_kind` is `upstream`, `local-upstream-candidate`, `full_inventory`,
-    or `validated_stales`. `btc_height` is the BTC parent height; `child_height`
+    `source_kind` is `upstream`, `full_inventory`, or `validated_stales`.
+    `btc_height` is the BTC parent height; `child_height`
     is the sibling-chain block height that carries the AuxPoW (empty for the
     upstream sources, which have no child-chain column).
     """
@@ -493,6 +494,7 @@ def load_publication_baseline(path: Path = PROMOTED_CSV) -> PublicationBaseline:
         observed_chains_by_hash: dict[str, frozenset[str]] = {}
         unknown_rows_by_hash: dict[str, int] = {}
         source_observation_counts_by_hash: dict[str, Counter[str]] = {}
+        notes_by_hash: dict[str, str] = {}
         required_chains: set[str] = set()
         for row_number, row in enumerate(reader, start=2):
             block_hash = normalize_hash(row.get("btc_header_hash"))
@@ -546,6 +548,7 @@ def load_publication_baseline(path: Path = PROMOTED_CSV) -> PublicationBaseline:
             observed_chains_by_hash[block_hash] = observed_chain_set
             unknown_rows_by_hash[block_hash] = unknown_rows
             source_observation_counts_by_hash[block_hash] = source_counts
+            notes_by_hash[block_hash] = (row.get("notes") or "").strip()
             required_chains.update(observed_chains)
     if not statuses:
         raise ValueError(f"publication descendant baseline is empty: {path}")
@@ -558,8 +561,28 @@ def load_publication_baseline(path: Path = PROMOTED_CSV) -> PublicationBaseline:
         observed_chains_by_hash=observed_chains_by_hash,
         unknown_rows_by_hash=unknown_rows_by_hash,
         source_observation_counts_by_hash=source_observation_counts_by_hash,
+        notes_by_hash=notes_by_hash,
         required_inventory_chains=frozenset(required_chains),
     )
+
+
+def descendant_notes(
+    block_hash: str,
+    validation_failures: list[str],
+    baseline: PublicationBaseline | None,
+) -> str:
+    """Return current failures or immutable audit notes from the prior row."""
+    if validation_failures:
+        return ";".join(validation_failures)
+    if baseline is not None:
+        baseline_notes = baseline.notes_by_hash.get(block_hash, "")
+        return ";".join(
+            note
+            for note in baseline_notes.split(";")
+            if note == "reclassified_from_direct_stale"
+            or note.startswith("branch_mtp=")
+        )
+    return ""
 
 
 def validate_output_mode(
@@ -742,6 +765,30 @@ def join_sorted(values: Iterable[str]) -> str:
     return "|".join(sorted(v for v in values if v))
 
 
+def select_promoted_evidence(
+    observations: list[UnknownObservation], fallback_header_hex: str
+) -> tuple[str, str, str, str, str, str]:
+    """Select coherent header and coinbase evidence from ordered observations."""
+    header_observation = next(
+        (observation for observation in observations if observation.header_hex),
+        observations[0],
+    )
+    coinbase_observation = next(
+        (observation for observation in observations if observation.scriptsig_hex),
+        None,
+    ) or next(
+        (observation for observation in observations if observation.outputs), None
+    )
+    return (
+        header_observation.header_hex or fallback_header_hex,
+        header_observation.prev_hash,
+        header_observation.btc_time,
+        header_observation.bits,
+        coinbase_observation.scriptsig_hex if coinbase_observation else "",
+        coinbase_observation.outputs if coinbase_observation else "",
+    )
+
+
 def load_mainchain_cache(cache_dir: Path) -> dict[str, dict]:
     """Load and merge the shadow-resolver and unknown-origin mainchain-status caches.
 
@@ -851,7 +898,6 @@ def fetch_mainchain_status(
 
 def scan_upstream_stales(
     path: Path,
-    source_kind: str,
     stale_by_hash: dict[str, list[StaleObservation]],
     all_hash_chains: dict[str, set[str]],
     prevs_by_hash: dict[str, set[str]],
@@ -860,8 +906,7 @@ def scan_upstream_stales(
     """Scan an upstream `stale-blocks.csv`-shaped file into the shared stale-index dicts.
 
     Each row's 80-byte `header` hex is parsed for prev_hash/time/bits, tagged
-    with `chain="upstream"` or `"local-upstream-candidate"` based on
-    `source_kind`, and appended to `stale_by_hash[block_hash]`;
+    as upstream evidence, and appended to `stale_by_hash[block_hash]`;
     `all_hash_chains` and `prevs_by_hash` are updated in the same pass. Rows
     with a malformed `hash` column are skipped. Mutates `stale_by_hash`,
     `all_hash_chains`, and `prevs_by_hash` in place; returns the number of
@@ -890,10 +935,8 @@ def scan_upstream_stales(
             btc_time = parsed.get("time", "")
             bits = parsed.get("bits", "")
             obs = StaleObservation(
-                chain="upstream"
-                if source_kind == "upstream"
-                else "local-upstream-candidate",
-                source_kind=source_kind,
+                chain="upstream",
+                source_kind="upstream",
                 source_path=rel(path),
                 row_number=row_number,
                 block_hash=block_hash,
@@ -929,6 +972,12 @@ def stale_identity_key(
         parent_height = int_or_none(row.get("btc_parent_height", ""))
         if parent_height is not None:
             height_text = str(parent_height + 1)
+    if not height_text and "btc_bip34_height" in fields:
+        # Legacy inventories sometimes expose no height other than a decoded
+        # BIP34 claim. This fallback can match an exclusion only when that claim
+        # agrees with the overlay's independently established height; a mismatch
+        # deliberately leaves the row unmatched rather than guessing ancestry.
+        height_text = row.get("btc_bip34_height", "").strip()
     try:
         height = int(height_text)
     except (TypeError, ValueError):
@@ -1027,6 +1076,8 @@ def main(argv: list[str] | None = None) -> None:
         )
     epoch_bits = load_epoch_bits(args.epoch_reference_dir / "btc_nbits_by_epoch.json")
     excluded_keys = load_stale_exclusion_keys()
+    consensus_invalid_keys = load_consensus_invalid_stale_keys()
+    direct_stale_only_keys = excluded_keys - consensus_invalid_keys
 
     stale_by_hash: dict[str, list[StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
@@ -1049,15 +1100,6 @@ def main(argv: list[str] | None = None) -> None:
 
     upstream_count = scan_upstream_stales(
         data_dir / "stale-blocks" / "stale-blocks.csv",
-        "upstream",
-        stale_by_hash,
-        all_hash_chains,
-        prevs_by_hash,
-        excluded_keys,
-    )
-    local_upstream_candidate_count = scan_upstream_stales(
-        data_dir / "new_stale_blocks_for_upstream.csv",
-        "local-upstream-candidate",
         stale_by_hash,
         all_hash_chains,
         prevs_by_hash,
@@ -1133,8 +1175,15 @@ def main(argv: list[str] | None = None) -> None:
                 child_height = get_child_height(row, fieldnames)
 
                 exclusion_key = stale_identity_key(row, fieldnames, hash_col)
-                if classification == "stale" and exclusion_key in excluded_keys:
-                    continue
+                if classification == "stale":
+                    if exclusion_key in consensus_invalid_keys:
+                        continue
+                    if exclusion_key in direct_stale_only_keys:
+                        # This is valid stale-chain evidence, but not a direct
+                        # stale root. Feed it through the ancestry walk as an
+                        # unknown observation so it can be published only as a
+                        # stale descendant.
+                        classification = "unknown"
 
                 if recovered_prev:
                     recovered_prev_rows += 1
@@ -1736,15 +1785,21 @@ def main(argv: list[str] | None = None) -> None:
                 obs.row_number,
             ),
         )
-        representative = observations[0]
-        header_hex = representative.header_hex or namecoin_header_hexes.get(
-            block_hash, ""
+        (
+            header_hex,
+            observed_prev,
+            observed_time,
+            observed_bits,
+            scriptsig_hex,
+            coinbase_outputs,
+        ) = select_promoted_evidence(
+            observations, namecoin_header_hexes.get(block_hash, "")
         )
         parsed = parse_header_fields(header_hex)
         path_prev = path[1] if len(path) > 1 else ""
-        row_prev = parsed.get("prev_hash") or representative.prev_hash
-        row_time = parsed.get("time") or representative.btc_time
-        row_bits = parsed.get("bits") or representative.bits
+        row_prev = parsed.get("prev_hash") or observed_prev
+        row_time = parsed.get("time") or observed_time
+        row_bits = parsed.get("bits") or observed_bits
         observed_heights = sorted(
             {obs.btc_height for obs in observations if obs.btc_height}
         )
@@ -1775,7 +1830,7 @@ def main(argv: list[str] | None = None) -> None:
         else:
             bip34_height_status, bip34_failure = descendant_bip34_verdict(
                 header_hex,
-                representative.scriptsig_hex,
+                scriptsig_hex,
                 inferred_height,
             )
             if bip34_failure is not None:
@@ -1828,12 +1883,12 @@ def main(argv: list[str] | None = None) -> None:
                     f"{obs.chain}:{obs.source_path}:{obs.row_number}"
                     for obs in observations
                 ),
-                "coinbase_scriptsig_hex": representative.scriptsig_hex,
-                "coinbase_outputs": representative.outputs,
+                "coinbase_scriptsig_hex": scriptsig_hex,
+                "coinbase_outputs": coinbase_outputs,
                 "btc_header_hex": header_hex,
-                "notes": ""
-                if not validation_failures
-                else ";".join(validation_failures),
+                "notes": descendant_notes(
+                    block_hash, validation_failures, publication_baseline
+                ),
             }
         )
 
@@ -1973,7 +2028,6 @@ def main(argv: list[str] | None = None) -> None:
     summary = {
         "known_stale_hashes": len(known_stale_hashes),
         "upstream_stale_hashes": upstream_count,
-        "local_upstream_candidate_hashes": local_upstream_candidate_count,
         "auxpow_stale_hashes": len(auxpow_stale_hashes),
         "total_unknown_rows": len(unknown_rows),
         "unique_unknown_hashes": len(unknown_row_counts_by_hash),

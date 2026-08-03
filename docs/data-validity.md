@@ -81,6 +81,11 @@ height, required `nBits`, median-time-past, historical signed-version floors,
 persisted `expected_nbits`, and the coinbase scriptSig length and BIP34 prefix
 where the coinbase was available.
 
+On 3 August, source-driven Elastos and Syscoin reclassification added 44
+direct observations, each of which passed the same available-evidence profile
+against Bitcoin Core. The current committed direct set therefore contains
+3,696 observations and 2,133 unique header hashes.
+
 The evidence limitations remain part of that result. Namecoin has 228 headers
 that are absent from its loader CSV but were hash-verified after hydration into
 the monitor export. RSK has no recoverable parent coinbase for any of its 298
