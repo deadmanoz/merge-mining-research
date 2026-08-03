@@ -9,6 +9,7 @@ import pytest
 
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.full_evidence import (
+    EVIDENCE_FIELDS,
     EvidenceSource,
     SourceStats,
     build_full_evidence_exports,
@@ -63,6 +64,73 @@ def test_child_height_unavailable_note_depends_on_emitted_values() -> None:
         [{"child_height": "42"}, {"child_height": ""}],
     )
     assert partial.notes == {"child_height=unavailable"}
+
+
+def test_stale_btc_height_uses_legacy_bip34_height_fallback(tmp_path: Path) -> None:
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=tmp_path / "source.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+    row = {
+        "btc_hash": "11" * 32,
+        "btc_prev_hash": "22" * 32,
+        "btc_bip34_height": "656478",
+        "classification": "stale",
+    }
+
+    normalized, _errors = normalize_evidence_row(source, row, list(row), 2)
+
+    assert normalized["btc_height"] == "656478"
+
+
+def test_normalized_evidence_preserves_original_source_metadata(tmp_path: Path) -> None:
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=tmp_path / "namecoin_evidence.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="archive",
+    )
+    row = {field: "" for field in EVIDENCE_FIELDS}
+    row.update(
+        {
+            "chain": "namecoin",
+            "source_kind": "validated_stales",
+            "source_path": "data/validated-stales/argentum_validated_stales.csv",
+            "source_row_number": "17",
+            "artifact_scope": "stale_only_publication",
+            "provenance": "repo-data",
+            "btc_header_hash": "11" * 32,
+            "classification": "stale",
+        }
+    )
+
+    normalized, _errors = normalize_evidence_row(
+        source, row, EVIDENCE_FIELDS, row_number=2
+    )
+
+    assert normalized["source_kind"] == "validated_stales"
+    assert normalized["source_path"] == (
+        "data/validated-stales/argentum_validated_stales.csv"
+    )
+    assert normalized["source_row_number"] == "17"
+    assert normalized["artifact_scope"] == "stale_only_publication"
+    assert normalized["provenance"] == "repo-data"
+
+    row["source_path"] = str(
+        tmp_path / "private" / "namecoin" / "classified" / "input.csv"
+    )
+    normalized, _errors = normalize_evidence_row(
+        source, row, EVIDENCE_FIELDS, row_number=2
+    )
+    assert normalized["source_path"] == (
+        "<chain-archive>/namecoin/classified/input.csv"
+    )
 
 
 def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
@@ -1677,7 +1745,7 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
         ],
     )
 
-    build_monitor_evidence_exports(
+    summary = build_monitor_evidence_exports(
         data_dir=data_dir, output_dir=output_dir, relevance_inventory=inventory
     )
 
@@ -1696,6 +1764,7 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
     assert devcoin["strict_btc_orphan"] == "1"
     assert devcoin["weak_btc_orphan"] == "1"
     assert devcoin["stale"] == "1"
+    assert summary["relevance_inventory"] == "<external>/inventory.csv"
 
 
 @pytest.mark.parametrize("builder", ["full", "monitor"])
@@ -1772,7 +1841,9 @@ def test_monitor_export_discovers_and_normalizes_vcash_canonical_source(
     exported = _read_csv(output_dir / "vcash_monitor_evidence.csv")
     assert len(exported) == 1
     assert exported[0]["btc_header_hash"] == header_hash
-    assert exported[0]["source_path"] == "<external>/vcash_canonical_blocks.csv"
+    assert exported[0]["source_path"] == (
+        "<chain-archive>/vcash/wayback_scrape/results.tsv"
+    )
     # Normalization fills optional child-header fields so every canonical
     # companion reaches the same monitor schema.
     assert exported[0]["child_header_hex"] == ""

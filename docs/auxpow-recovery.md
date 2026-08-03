@@ -23,8 +23,10 @@ block body, and some omit a self-contained AuxPoW proof. See the
 [data validity contract](data-validity.md) before interpreting `stale` or
 `validation_status=VALID`.
 
-The 20 July 2026 audit replayed all 3,652 accepted direct observations against
-Bitcoin Core tip 958,882. Every row passed its available checks. This includes
+The 20 July 2026 audit replayed all 3,652 then-accepted direct observations
+against Bitcoin Core tip 958,882. Every row passed its available checks. The
+3 August source reclassification added 44 Elastos and Syscoin direct
+observations that passed the same profile against Bitcoin Core. This includes
 active-parent linkage and median-time-past for the complete set; RSK's 298 rows
 remain unable to test coinbase scriptSig length or BIP34 prefix because the
 required coinbase data is not recoverable.
@@ -141,8 +143,8 @@ predecessor is stale rather than active. The sidecar carries the separate
 `classification=stale_descendant` contribution for multi-block BTC stale-fork
 continuations, and the analysis loader admits only rows with
 `validation_status=VALID_STALE_DESCENDANT`. Current reconciliation evidence
-finds 24 stale-rooted headers (19 direct children + 5 deeper descendants), of
-which 20 are accepted under the declared descendant gate and 4 remain recorded
+finds 25 stale-rooted headers (20 direct children + 5 deeper descendants), of
+which 21 are accepted under the declared descendant gate and 4 remain recorded
 as BIP34-height rejections. A follow-up audit confirms
 those 4 are not script artifacts: their coinbase BIP34 heights decode exactly
 one block above the height implied by stale-root ancestry, while their header
@@ -180,8 +182,8 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 | 17 | [Doichain](chains/doichain.md) | 0 | 0 | Pinned-source node and blkdat survey through the active-chain tip observed at child height 430,684. The scan found 429,401 AuxPoW commitments; a later exact-target audit confirmed 300,625 canonical-tip rows matched Bitcoin's full expected `nBits` and BIP34 height. The surveyed window yielded 0 accepted direct-stale candidates, 0 strict BTC orphans, and 0 weak BTC orphans. |
 | 18 | [Bitmark](chains/bitmark.md) | 1 | 0 | Multi-algo SHA-256d subset with all eight algorithms merge-mineable. One publication-gate-accepted direct-stale candidate, already present in Unobtanium, Myriadcoin, and RSK; retained as cross-confirmation only. |
 | 19 | [Xaya](chains/xaya.md) | 40 | 0 | Daniel Kraft's Xaya (CHI), a multi-algo chain (NEOSCRYPT solo or SHA256D merge-mined). The source enforces "SHA256D must be merge-mined", so every SHA256D block carries a merge-mining parent header. Recovered offline from Xaya's open `blocks.zip` dump (the legacy P2P network is dead, so no live node), parsing the `PowData` block-header wrapper. 1,695,912 merge-mined blocks yielded 38,483 self-target-PoW-valid parents. The original run recorded 34 stale-labelled candidates and 17,642 unknowns; the 2026-06-24 refreshed accepted set contains 40 direct-stale candidates spanning BTC 547,182 to 853,120 (October 2018 to July 2024). A historical private attribution pass was F2Pool-dominated; the public pipeline does not reproduce that result. **0 chronologically novel** (every accepted row was first claimed by upstream or an earlier chain). The 2024-11-15 snapshot (Xaya ~6.34M) bounds coverage; the tail to Xaya's ~7.3M deprecation height is a documented gap. Not in Stifter 2018. |
-| 20 | [Elastos](chains/elastos.md) | 153 | 25 | Go-based node (`Elastos.ELA`), not a Bitcoin Core fork. Hybrid local-node + public-RPC extraction. The July refresh retained 175,078 canonical parents and rejected one direct-stale candidate whose `nBits` did not match Bitcoin at its decoded height. Not in Stifter 2018. |
-| 21 | [Syscoin](chains/syscoin.md) | 78 | 1 | Modern Bitcoin Core fork (v5.0.5); decoded-JSON extraction where `getblock <hash> 1` returns a decoded `auxpow` object. Canonical-at-height `nBits` validation filters stale candidates before commit. Chain 2 (Jun 2019 →). Not in Stifter 2018. |
+| 20 | [Elastos](chains/elastos.md) | 177 | 25 | Go-based node (`Elastos.ELA`), not a Bitcoin Core fork. Hybrid local-node + public-RPC extraction. The August source reclassification retains 175,053 canonical parents, accepts 177 direct stales, and rejects one candidate whose `nBits` does not match Bitcoin at its decoded height. Not in Stifter 2018. |
+| 21 | [Syscoin](chains/syscoin.md) | 98 | 1 | Modern Bitcoin Core fork (v5.0.5); decoded-JSON extraction where `getblock <hash> 1` returns a decoded `auxpow` object. The August source reclassification accepts 98 direct stales after canonical-height `nBits` validation. Chain 2 (Jun 2019 →). Not in Stifter 2018. |
 | 22 | [Hathor](chains/hathor.md) | 6 | 0 | **Only RFC-0006 split-header proof in the pipeline**: the 32-byte parent merkle root is reconstructed from the coinbase and merkle path; a three-part byte-order correction was required (see `docs/chains/hathor.md` §2). Of 147,216 self-target-valid rows, 3,612 link to a canonical Bitcoin predecessor and 143,604 remain unresolved; the latter are not identified as BCH or any other parent chain. The linked set yielded 6 accepted direct-stale candidates and **0 chronologically novel** candidates. Public REST API extraction; the early merge-mined interval before child height 1,000,000 is outside scope. Not in Stifter 2018. |
 | 23 | [Bitcoin Vault](chains/bitcoin-vault.md) | 9 | 6 | Dormant chain recovered without running a node, via Blockbook `/api/rawblock/<hash>`. The original run classified 8 stale-labelled candidates from 2,575 self-target-PoW-valid headers; the refreshed committed input adds one already-upstream accepted candidate. |
 | 24 | [Electric Cash](chains/elcash.md) | 3 | 0 | Bitcoin Core 0.20.2 fork merge-mining from a fresh Dec 2020 genesis; the three accepted stales (Jun-Sep 2021) fall inside a 2021-2024 real-hashrate era that peaked Sep-Oct 2021, and all three re-observe Bitcoin Vault-first-claimed headers. Self-synced `elcashd`; standard Namecoin-style CAuxPow. Zombie chain, negligible current hashrate. |

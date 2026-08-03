@@ -314,7 +314,6 @@ def test_unknown_ancestry_upstream_scan_applies_exclusion_overlay(
 
     count = module.scan_upstream_stales(
         upstream,
-        "upstream",
         stale_by_hash,
         all_hash_chains,
         prevs_by_hash,
@@ -338,6 +337,22 @@ def test_unknown_ancestry_inventory_identity_uses_parent_height_fallback() -> No
 
     assert module.stale_identity_key(row, list(row), "btc_hash") == (
         331735,
+        EXCLUDED_HASH,
+    )
+
+
+def test_unknown_ancestry_inventory_identity_uses_bip34_height_fallback() -> None:
+    module = _load_script(
+        "scripts/analysis/reconcile_unknown_stale_ancestry.py",
+        "reconcile_unknown_stale_ancestry_bip34_identity_under_test",
+    )
+    row = {
+        "btc_hash": EXCLUDED_HASH,
+        "btc_bip34_height": "331736",
+    }
+
+    assert module.stale_identity_key(row, list(row), "btc_hash") == (
+        331736,
         EXCLUDED_HASH,
     )
 
@@ -370,6 +385,51 @@ def test_unknown_ancestry_admits_only_accepted_stale_roots(
         )
         is expected
     )
+
+
+def test_unknown_ancestry_does_not_treat_mixed_upstream_sidecar_as_roots(
+    tmp_path: Path,
+) -> None:
+    module = _load_script(
+        "scripts/analysis/reconcile_unknown_stale_ancestry.py",
+        "reconcile_unknown_stale_ancestry_mixed_sidecar_under_test",
+    )
+    data_dir = tmp_path / "data"
+    upstream_dir = data_dir / "stale-blocks"
+    upstream_dir.mkdir(parents=True)
+    (upstream_dir / "stale-blocks.csv").write_text("height,hash,header\n")
+
+    derived_root = "22" * 32
+    derived_child = "33" * 32
+    (data_dir / "new_stale_blocks_for_upstream.csv").write_text(
+        f"height,hash,header\n100,{derived_root},{'00' * 80}\n"
+    )
+    (data_dir / "namecoin_unknown_blocks.csv").write_text(
+        "btc_header_hash,btc_prev_hash,classification\n"
+        f"{derived_child},{derived_root},unknown\n"
+    )
+    results_dir = tmp_path / "results"
+    promoted_csv = tmp_path / "stale_descendants.csv"
+
+    module.main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "--results-dir",
+            str(results_dir),
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--promoted-csv",
+            str(promoted_csv),
+            "--allow-partial",
+        ]
+    )
+
+    summary = json.loads((results_dir / module.OUTPUT_SUMMARY).read_text())
+    assert summary["known_stale_hashes"] == 0
+    assert "local_upstream_candidate_hashes" not in summary
+    with promoted_csv.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
 
 
 def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
@@ -433,6 +493,11 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
         module, "load_stale_exclusion_keys", lambda: {(331735, EXCLUDED_HASH)}
     )
     monkeypatch.setattr(
+        module,
+        "load_consensus_invalid_stale_keys",
+        lambda: {(331735, EXCLUDED_HASH)},
+    )
+    monkeypatch.setattr(
         sys,
         "argv",
         [
@@ -454,6 +519,112 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
     summary = json.loads((results_dir / module.OUTPUT_SUMMARY).read_text())
     assert summary["known_stale_hashes"] == 1
     assert summary["auxpow_stale_hashes"] == 1
+
+
+def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_script(
+        "scripts/analysis/reconcile_unknown_stale_ancestry.py",
+        "reconcile_unknown_stale_ancestry_direct_only_under_test",
+    )
+    data_dir = tmp_path / "data"
+    upstream_dir = data_dir / "stale-blocks"
+    upstream_dir.mkdir(parents=True)
+    upstream = upstream_dir / "stale-blocks.csv"
+    _write_upstream(upstream)
+
+    descendant_hash = "77" * 32
+    inventory = data_dir / "namecoin_stale_blocks.csv"
+    with inventory.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "btc_height",
+                "btc_hash",
+                "btc_prev_hash",
+                "classification",
+                "validation_status",
+                "coinbase_scriptsig_hex",
+                "btc_header_hex",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "btc_height": "331737",
+                "btc_hash": descendant_hash,
+                "btc_prev_hash": INCLUDED_HASH,
+                "classification": "stale",
+                "validation_status": "VALID",
+                "coinbase_scriptsig_hex": _scriptsig(331737),
+                "btc_header_hex": "",
+            }
+        )
+
+    rsk_inventory = data_dir / "rsk_stale_blocks.csv"
+    with rsk_inventory.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "btc_height",
+                "btc_hash",
+                "btc_prev_hash",
+                "classification",
+                "validation_status",
+                "coinbase_scriptsig_hex",
+                "btc_header_hex",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "btc_height": "331737",
+                "btc_hash": descendant_hash,
+                "btc_prev_hash": INCLUDED_HASH,
+                "classification": "stale",
+                "validation_status": "VALID",
+                "coinbase_scriptsig_hex": "",
+                "btc_header_hex": "00" * 80,
+            }
+        )
+
+    direct_only_key = (331737, descendant_hash)
+    monkeypatch.setattr(module, "load_stale_exclusion_keys", lambda: {direct_only_key})
+    monkeypatch.setattr(module, "load_consensus_invalid_stale_keys", set)
+    bip34_calls: list[tuple[str, str, int]] = []
+
+    def record_bip34(header_hex: str, scriptsig_hex: str, height: int):
+        bip34_calls.append((header_hex, scriptsig_hex, height))
+        return "match", None
+
+    monkeypatch.setattr(module, "descendant_bip34_verdict", record_bip34)
+
+    results_dir = tmp_path / "results"
+    promoted_csv = tmp_path / "stale_descendants.csv"
+    module.main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "--results-dir",
+            str(results_dir),
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--promoted-csv",
+            str(promoted_csv),
+            "--allow-partial",
+        ]
+    )
+
+    with promoted_csv.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert rows[0]["classification"] == "stale_descendant"
+    assert rows[0]["btc_header_hash"] == descendant_hash
+    assert rows[0]["root_stale_hash"] == INCLUDED_HASH
+    assert rows[0]["coinbase_scriptsig_hex"] == _scriptsig(331737)
+    assert rows[0]["btc_header_hex"] == "00" * 80
+    assert bip34_calls == [("00" * 80, _scriptsig(331737), 331737)]
 
 
 def _header(version: int) -> str:

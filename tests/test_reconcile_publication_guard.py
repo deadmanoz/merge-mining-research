@@ -51,6 +51,71 @@ def _set_publication_paths(module, monkeypatch, tmp_path: Path) -> tuple[Path, P
     return promoted, results
 
 
+def test_promoted_evidence_never_stitches_coinbase_observations() -> None:
+    module = _load_module()
+    common = {
+        "chain": "namecoin",
+        "source_path": "<archive>/namecoin.csv",
+        "block_hash": BASELINE_HASH,
+        "btc_height": "100",
+        "child_height": "200",
+        "header_hex": "",
+    }
+    observations = [
+        module.UnknownObservation(
+            **common,
+            row_number=2,
+            prev_hash="22" * 32,
+            btc_time="1",
+            bits="1d00ffff",
+            scriptsig_hex="03aabb",
+            outputs="",
+        ),
+        module.UnknownObservation(
+            **common,
+            row_number=3,
+            prev_hash="33" * 32,
+            btc_time="2",
+            bits="1b0404cb",
+            scriptsig_hex="",
+            outputs="76a91400",
+        ),
+    ]
+
+    selected = module.select_promoted_evidence(observations, "00" * 80)
+
+    assert selected == (
+        "00" * 80,
+        "22" * 32,
+        "1",
+        "1d00ffff",
+        "03aabb",
+        "",
+    )
+
+
+def test_descendant_notes_preserve_valid_baseline_audit_evidence(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    baseline_path = tmp_path / "stale_descendants.csv"
+    baseline_path.write_text(
+        "classification,validation_status,btc_header_hash,observed_chains,"
+        "unknown_rows,source_rows,notes\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,{BASELINE_HASH},namecoin,1,"
+        "namecoin:data/namecoin_unknown_blocks.csv:2,"
+        "reclassified_from_direct_stale;branch_mtp=1;old_validation_failure\n"
+    )
+    baseline = module.load_publication_baseline(baseline_path)
+
+    assert module.descendant_notes(BASELINE_HASH, [], baseline) == (
+        "reclassified_from_direct_stale;branch_mtp=1"
+    )
+    assert module.descendant_notes(
+        BASELINE_HASH, ["pow_target_mismatch"], baseline
+    ) == ("pow_target_mismatch")
+
+
 def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -126,8 +191,11 @@ def test_publication_mode_rejects_overlapping_hash_with_reduced_provenance(
         "btc_header_hash,btc_prev_hash,classification\n"
         f"{BASELINE_HASH},{'22' * 32},unknown\n"
     )
-    (data_dir / "new_stale_blocks_for_upstream.csv").write_text(
-        f"height,hash,header\n100,{'22' * 32},\n"
+    validated_dir = data_dir / "validated-stales"
+    validated_dir.mkdir()
+    (validated_dir / "gamma_validated_stales.csv").write_text(
+        "btc_height,btc_header_hash,btc_prev_hash,classification,validation_status\n"
+        f"100,{'22' * 32},{'11' * 32},stale,VALID\n"
     )
     baseline = _write_baseline(
         promoted,

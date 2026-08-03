@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Reclassify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
+and correct 44 side-chain headers previously retained as canonical into valid
+direct stales. Add the shared Elastos/Syscoin stale descendant, recover child
+identity for all newly retained monitor rows, and rebuild the monitor evidence,
+novelty outputs, and ancestry sidecar. Make normalized evidence inputs
+idempotent, remove Elastos-only classifier columns and status semantics, and
+exclude the mixed upstream-contribution sidecar from the direct-stale root set
+so descendant publication cannot rewrite its own ancestry on a later run.
+
 Stop persisting block-file scan order as child-chain data. Generic `blk*.dat`
 extracts now omit scan sequence and leave unresolved height blank; the RPC
 normalizer fills only an authenticated consensus height resolved by child hash.
@@ -36,8 +45,8 @@ source-authenticated bundles, reject Git LFS pointers and malformed evidence
 schemas in child-header coverage, and document the shared 16-column validated
 stale layout.
 
-Publish all 28 accepted stale-descendant source observations through their
-exact per-chain monitor rows. The 26 observations sourced from unknown rows
+Publish all 30 accepted stale-descendant source observations through their
+exact per-chain monitor rows. The 28 observations sourced from unknown rows
 retain `classification=unknown` and record
 `relevance_reason=valid_stale_descendant`; the Namecoin and RSK observations
 corrected from direct stales are projected as
@@ -89,9 +98,9 @@ imported rows exactly like live capture and deduplicate against it.
 - New `scripts/extract/recover_child_identity.py` recovers each row's child
   block hash and timestamp by height -> hash -> block RPC against the live
   child nodes (public API for Hathor), verifying the Bitcoin parent linkage
-  re-derives from every fetched child block. All 2,241 chain/header
-  observations across the six chains verified (1,889 distinct Bitcoin
-  parent headers; 216 parents were observed by more than one chain);
+  re-derives from every fetched child block. All 2,287 chain/header
+  observations across the six chains verified (1,919 distinct Bitcoin
+  parent headers; 232 parents were observed by more than one chain);
   results are committed under `data/child-identity/`.
 - The evidence schema gains `child_block_time` (after `child_block_hash`),
   and both the monitor and full-evidence exports hydrate the child identity
