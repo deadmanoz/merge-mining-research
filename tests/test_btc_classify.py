@@ -958,10 +958,10 @@ def _cls_row(cls, height, status="", nbits=""):
 def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
     cols = output_columns("ixc_height")
     all_results = [
-        _cls_row("canonical", 1000),
+        _cls_row("canonical", 1000, status="UNKNOWN", nbits="1b0404cb"),
         _cls_row("stale", 500, status="VALID", nbits="1b0404cb"),
         _cls_row("stale", 501, status="REJECTED_NBITS"),
-        _cls_row("unknown", 30),
+        _cls_row("unknown", 30, status="UNKNOWN", nbits="1b0404cb"),
         _cls_row("unknown", 20),
     ]
     paths = {
@@ -988,8 +988,12 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
 
     # Each file is bucket-pure (no commingling).
     assert [r["classification"] for r in canon] == ["canonical"]
+    assert canon[0]["validation_status"] == ""
+    assert canon[0]["expected_nbits"] == ""
     assert {r["classification"] for r in stale} == {"stale"}
     assert {r["classification"] for r in unknown} == {"unknown"}
+    assert all(r["validation_status"] == "" for r in unknown)
+    assert all(r["expected_nbits"] == "" for r in unknown)
     # stale file has NO canonical/unknown rows; unknown file has NO stale rows.
     assert all(r["classification"] == "stale" for r in stale)
     assert all(r["classification"] == "unknown" for r in unknown)

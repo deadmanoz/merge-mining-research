@@ -155,11 +155,59 @@ def test_published_monitor_represents_every_stale_descendant_observation() -> No
                     continue
                 observation_key = (row["chain"], row["btc_header_hash"].lower())
                 if observation_key in expected:
+                    assert row["validation_status"] == "VALID_STALE_DESCENDANT", (
+                        path,
+                        observation_key,
+                    )
                     assert len(row["child_block_hash"]) == 64, (path, observation_key)
                     assert row["child_block_time"].isdigit(), (path, observation_key)
                     represented.add(observation_key)
 
     assert represented == expected
+
+
+@pytest.mark.dataset
+def test_published_monitor_canonical_rows_have_no_stale_gate_verdict() -> None:
+    for path in sorted(
+        (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
+    ):
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), 2):
+                if row.get("classification") != "canonical":
+                    continue
+                assert row.get("validation_status") == "", (path, row_number)
+                assert row.get("expected_nbits") == "", (path, row_number)
+                assert row.get("rejection_reason") == "", (path, row_number)
+
+
+@pytest.mark.dataset
+def test_published_monitor_unknown_rows_only_use_descendant_verdict() -> None:
+    for path in sorted(
+        (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
+    ):
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), 2):
+                if row.get("classification") != "unknown":
+                    continue
+                expected = (
+                    "VALID_STALE_DESCENDANT"
+                    if row.get("relevance_reason") == "valid_stale_descendant"
+                    else ""
+                )
+                assert row.get("validation_status") == expected, (path, row_number)
+                assert row.get("expected_nbits") == "", (path, row_number)
+                assert row.get("rejection_reason") == "", (path, row_number)
+
+
+@pytest.mark.dataset
+def test_unresolved_offline_child_heights_remain_blank() -> None:
+    # These offline sources cannot authenticate consensus child height. Remove
+    # a chain from this pin when its historical evidence is fully hydrated.
+    for chain in ("coiledcoin", "i0coin"):
+        path = REPO / "results" / "monitor-evidence" / f"{chain}_monitor_evidence.csv"
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), 2):
+                assert row.get("child_height") == "", (path, row_number)
 
 
 def _load_script(relative_path: str, name: str):

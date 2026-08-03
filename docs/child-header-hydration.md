@@ -163,8 +163,9 @@ observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
 inputs. The monitor projection publishes all 30 exact per-chain observations
 behind the accepted descendant sidecar: 28 preserve their source `unknown`
-classification, while the Namecoin and RSK rows corrected from direct stales
-are published in their final `stale_descendant` state. Complete normalized
+classification while carrying `validation_status=VALID_STALE_DESCENDANT`,
+while the Namecoin and RSK rows corrected from direct stales are published in
+their final `stale_descendant` state with the same verdict. Complete normalized
 full-evidence and canonical-classifier inventories were retained as dated
 external refreshes because those broad artifacts are too large for the
 repository's normal source-data boundary.

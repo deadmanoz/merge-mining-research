@@ -87,6 +87,38 @@ def test_stale_btc_height_uses_legacy_bip34_height_fallback(tmp_path: Path) -> N
     assert normalized["btc_height"] == "656478"
 
 
+@pytest.mark.parametrize("classification", ["canonical", "unknown"])
+def test_non_stale_evidence_clears_stale_gate_annotations(
+    tmp_path: Path, classification: str
+) -> None:
+    source = EvidenceSource(
+        chain="elastos",
+        display_name="Elastos",
+        path=tmp_path / "elastos_canonical_blocks.csv",
+        source_kind="canonical_blocks",
+        artifact_scope="canonical_blocks",
+        provenance="test",
+    )
+    row = {field: "" for field in EVIDENCE_FIELDS}
+    row.update(
+        {
+            "btc_header_hash": "11" * 32,
+            "classification": classification,
+            "validation_status": "UNKNOWN",
+            "expected_nbits": "170b8c8b",
+            "rejection_reason": "legacy annotation",
+        }
+    )
+
+    normalized, _errors = normalize_evidence_row(
+        source, row, EVIDENCE_FIELDS, row_number=2
+    )
+
+    assert normalized["validation_status"] == ""
+    assert normalized["expected_nbits"] == ""
+    assert normalized["rejection_reason"] == ""
+
+
 def test_normalized_evidence_preserves_original_source_metadata(tmp_path: Path) -> None:
     source = EvidenceSource(
         chain="namecoin",
@@ -1152,6 +1184,7 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
     source_rows = _read_csv(output_dir / "devcoin_monitor_evidence.csv")
     assert len(source_rows) == 1
     assert source_rows[0]["classification"] == "unknown"
+    assert source_rows[0]["validation_status"] == "VALID_STALE_DESCENDANT"
     assert source_rows[0]["relevance_reason"] == "valid_stale_descendant"
     assert source_rows[0]["child_header_hex"]
     counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
