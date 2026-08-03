@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Project the accepted stale-descendant sidecar's `VALID_STALE_DESCENDANT`
+verdict onto every corresponding monitor source observation while preserving
+its original source classification as provenance. Regenerate the complete
+monitor-evidence publication from the authenticated source estate so every
+committed payload follows the same current builder contract, including an
+empty stale-gate axis for canonical and unresolved-unknown rows, plus blank
+child heights where the offline source cannot authenticate consensus height.
+Publish the exact BIP34 child height for 19,610 Xaya canonical observations
+that still carried legacy block-file positions in the prior monitor
+projection.
+
 Reclassify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
 and correct 44 side-chain headers previously retained as canonical into valid
 direct stales. Add the shared Elastos/Syscoin stale descendant, recover child

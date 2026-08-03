@@ -501,6 +501,17 @@ def normalize_evidence_row(
             f"{source.chain} evidence row {row_number}: {detail}"
         ) from exc
 
+    expected_nbits = row.get("expected_nbits", "").strip()
+    normalized_rejection_reason = rejection_reason(row, validation_status)
+    if classification in ("canonical", "unknown"):
+        # Canonical and unresolved-unknown state is already represented on the
+        # primary axis. Source-specific annotations do not belong on the
+        # stale-validation axis; accepted descendants receive their verdict
+        # later from the exact-key sidecar.
+        validation_status = ""
+        expected_nbits = ""
+        normalized_rejection_reason = ""
+
     normalized = {
         "chain": source.chain,
         "source_kind": source_metadata("source_kind", source.source_kind),
@@ -527,8 +538,8 @@ def normalize_evidence_row(
         "full_coinbase_hex": full_coinbase,
         "classification": classification,
         "validation_status": validation_status,
-        "expected_nbits": row.get("expected_nbits", "").strip(),
-        "rejection_reason": rejection_reason(row, validation_status),
+        "expected_nbits": expected_nbits,
+        "rejection_reason": normalized_rejection_reason,
     }
     return normalized, errors
 
@@ -1585,8 +1596,9 @@ def monitor_verdict(
     empty and only the `relevance_reason` records the confirmation.
     Unknown-classified rows survive when the accepted stale-descendant sidecar
     identifies the same source-chain observation, or with a strict/weak verdict
-    from the relevance inventory. Near, rejected, and everything else is
-    dropped.
+    from the relevance inventory. The caller projects the accepted sidecar's
+    ``VALID_STALE_DESCENDANT`` verdict onto the published source observation.
+    Near, rejected, and everything else is dropped.
     """
     classification = str(row.get("classification", ""))
     status = str(row.get("validation_status", "")).strip()
@@ -1604,7 +1616,7 @@ def monitor_verdict(
         if status != "VALID_STALE_DESCENDANT":
             return None
         return "", "valid_stale_descendant"
-    if classification in ("orphan", "unknown"):
+    if classification == "unknown":
         observation_key = (
             str(row.get("chain", "")),
             normalize_hash(row.get("btc_header_hash")),
@@ -1647,13 +1659,14 @@ def _monitor_rows_and_counts(
             continue
         bucket, reason = verdict
         out = dict(row)
+        if reason == "valid_stale_descendant" and classification == "unknown":
+            # The source classification remains provenance, while the accepted
+            # descendant sidecar supplies the publication validation verdict.
+            out["validation_status"] = "VALID_STALE_DESCENDANT"
         out["btc_stale_relevance"] = bucket
         out["relevance_reason"] = reason
         kept.append(out)
-        if reason == "valid_stale_descendant" and classification in (
-            "orphan",
-            "unknown",
-        ):
+        if reason == "valid_stale_descendant" and classification == "unknown":
             counts["stale_descendant"] += 1
         elif bucket in (RELEVANCE_STRICT_BTC_ORPHAN, RELEVANCE_WEAK_BTC_ORPHAN):
             counts[bucket] += 1

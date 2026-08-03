@@ -447,8 +447,9 @@ def write_classifier_outputs(
     bucket-split output files, each on the same ``columns`` schema.
 
     ``canonical`` / ``stale`` / ``unknown`` are partitioned on the primary
-    ``classification`` -- never on ``validation_status`` (a canonical row with a
-    stray status still lands in the canonical file). ``validated`` is the
+    ``classification`` -- never on ``validation_status``. Canonical and
+    unresolved-unknown output rows clear stale-gate annotations because their
+    state is already final on the primary axis. ``validated`` is the
     ``classification == "stale"`` AND ``validation_status == "VALID"`` subset --
     the committed loader input the ``stale_blocks.py`` loaders read. Each file
     is sorted by ``btc_height`` and its header is always written, even when the
@@ -458,7 +459,12 @@ def write_classifier_outputs(
     for row in all_results:
         bucket = buckets.get(row.get("classification"))
         if bucket is not None:
-            bucket.append(row)
+            output_row = dict(row)
+            if row.get("classification") in ("canonical", "unknown"):
+                output_row["validation_status"] = ""
+                output_row["expected_nbits"] = ""
+                output_row["rejection_reason"] = ""
+            bucket.append(output_row)
     validated = [s for s in buckets["stale"] if s.get("validation_status") == "VALID"]
 
     _write_split_file(canonical_path, buckets["canonical"], columns=columns)

@@ -318,10 +318,11 @@ several chains. Its child identity columns therefore stay empty and its counts
 note is `child_identity=represented_by_source_chain_observations`. The
 corresponding source-chain rows are admitted to the monitor payloads through
 `relevance_reason=valid_stale_descendant`. The 28 observations sourced from
-unknown rows preserve that classification. The Namecoin and RSK observations
-corrected from direct stales are projected as `stale_descendant` with
-`validation_status=VALID_STALE_DESCENDANT`, matching the exact-key correction
-overlay. The six historical observations carry complete authenticated child
+unknown rows preserve that source classification and carry the sidecar's
+`validation_status=VALID_STALE_DESCENDANT` verdict. The Namecoin and RSK
+observations corrected from direct stales are projected as `stale_descendant`
+with the same validation verdict, matching the exact-key correction overlay.
+The six historical observations carry complete authenticated child
 headers; live-chain observations use the independently verified identities in
 `data/child-identity/`. A publication build fails closed if any accepted
 `(chain, btc_header_hash)` observation is absent; a partial diagnostic reports
