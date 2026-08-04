@@ -62,6 +62,7 @@ import os
 import sys
 from pathlib import Path
 
+from stale_blocks_analysis.auxpow_chainid import hash_to_display_hex
 from stale_blocks_analysis.config import (
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_MTP_CONTEXT_CSV,
@@ -165,6 +166,20 @@ def parse_header_fields(header_hex: str) -> dict[str, str]:
         "btc_time": str(time_),
         "btc_bits": f"{bits:08x}",
     }
+
+
+def parse_header_prev_hash(header_hex: str) -> str:
+    """Derive the parent block hash (display order) from an 80-byte header hex.
+
+    The parent hash sits at bytes 4..36 of the serialized header in internal
+    (little-endian) order; ``hash_to_display_hex`` reverses it to display
+    order, so the value is derived from the authoritative header bytes rather
+    than trusted from a seed/import column.
+    """
+    raw = bytes.fromhex(header_hex)
+    if len(raw) != 80:
+        raise ValueError(f"header hex must be 80 bytes, got {len(raw)}")
+    return hash_to_display_hex(raw[4:36])
 
 
 def load_seed_rows(path: Path) -> list[dict[str, str]]:
@@ -337,10 +352,22 @@ def assemble_row(
             f"hash check failed for {seed['height']}:{seed['hash'][-12:]}: "
             f"sha256d(header)={derived_hash[-12:]}..."
         )
+    # The authoritative 80-byte header is available, so derive the parent hash
+    # from its bytes rather than trust the seed/import column: a mistyped seed
+    # btc_prev_hash is otherwise copied verbatim into the committed dataset.
+    # Fail closed on a mismatch (the header-derived value is authoritative).
+    derived_prev_hash = parse_header_prev_hash(header_hex)
+    seed_prev_hash = (seed["btc_prev_hash"] or "").strip().lower()
+    if seed_prev_hash and seed_prev_hash != derived_prev_hash:
+        raise ValueError(
+            f"btc_prev_hash mismatch for {seed['height']}:{seed['hash'][-12:]}: "
+            f"seed={seed_prev_hash[-12:]}... but header derives "
+            f"{derived_prev_hash[-12:]}..."
+        )
     return {
         "height": seed["height"],
         "hash": seed["hash"],
-        "btc_prev_hash": seed["btc_prev_hash"],
+        "btc_prev_hash": derived_prev_hash,
         "btc_header_version": fields["btc_header_version"],
         "btc_time": fields["btc_time"],
         "btc_bits": fields["btc_bits"],

@@ -771,6 +771,48 @@ def test_builder_fails_closed_on_missing_fixture_evidence(tmp_path: Path) -> Non
     assert not out.exists()
 
 
+def test_builder_fails_closed_on_prev_hash_mismatch_without_private_archives(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: a self-contained import whose btc_prev_hash disagrees with
+    # the authoritative 80-byte header must NOT be copied verbatim into the
+    # dataset. The builder derives the parent hash from the header bytes and
+    # fails closed on a mismatch. Uses only fixture sources; the committed
+    # output path is redirected to a tmp copy so the real CSV is untouched.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_prev_hash_mismatch_under_test",
+    )
+    _patch_nbits_table_with_fake_epoch(module, monkeypatch)
+    header_hex, block_hash = _easy_header()
+    export = _time_below_mtp_export(block_hash, header_hex)
+    # The easy header's prev-hash bytes are b"\x11" * 32, so the derived
+    # display prev hash is "11"*32; claim a different one.
+    assert module.parse_header_prev_hash(header_hex) == "11" * 32
+    export["btc_prev_hash"] = "22" * 32
+    extra_path = tmp_path / "extra_rows.json"
+    extra_path.write_text(json.dumps([export]))
+
+    committed_copy = tmp_path / "error_blocks.csv"
+    committed_copy.write_bytes(_FIXTURE_SEED.read_bytes())
+    monkeypatch.setattr(module, "ERROR_BLOCKS_CSV", committed_copy)
+
+    rc = module.main(
+        [
+            *_fixture_source_args(),
+            "--extra-rows",
+            str(extra_path),
+            "--output",
+            str(committed_copy),
+        ]
+    )
+
+    assert rc == 1
+    assert "btc_prev_hash mismatch" in capsys.readouterr().err
+    # Fail closed: the tmp committed copy was not overwritten with the bad row.
+    assert committed_copy.read_bytes() == _FIXTURE_SEED.read_bytes()
+
+
 def test_builder_self_contained_validation_without_private_archives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
