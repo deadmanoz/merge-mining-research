@@ -74,9 +74,10 @@ commit.
 
 The `error_block` primary `classification` value (catalogued in
 `data/error-blocks/error_blocks.csv`) and the extended `rejection_reason` /
-`rules_violated` vocabulary are breaking changes for the merge-mining-monitor
-importer and its ported BTC-orphan relevance classifier, which read these
-strings verbatim. The new rejection-reason tokens this branch introduces are:
+`rules_violated` vocabulary this branch introduces are a BREAKING change for
+the merge-mining-monitor importer and its ported BTC-orphan relevance
+classifier, which read these strings verbatim. The new rejection-reason
+tokens are:
 
 - `time_below_mtp` and `nbits_retarget_not_applied` — each has a committed
   dataset row (heights 946,213 and 717,696 respectively);
@@ -86,9 +87,11 @@ strings verbatim. The new rejection-reason tokens this branch introduces are:
 - `bip34_block_version_below_2` and `coinbase_scriptsig_length_below_2` —
   vocabulary-only correctness hardening (no committed row uses them yet).
 
-The monitor-side
-display work is a follow-up in that repository; the vocabulary change must be
-coordinated with the monitor so it does not land silently.
+Landing this PR means the monitor will need a corresponding update to handle
+`error_block` and the new tokens; until that update lands, the monitor may
+reject or misclassify these rows. The monitor-side change is a deliberate,
+accepted follow-up in that repository: merging this PR constitutes accepting
+that the monitor must be updated to match (break-then-fix).
 
 ## Contribution and post-merge workflow
 
