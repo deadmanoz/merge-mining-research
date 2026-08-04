@@ -742,13 +742,22 @@ def validate_dataset(path: Path = ERROR_BLOCKS_CSV) -> list[str]:
     nbits_by_epoch = _load_nbits_by_epoch()
     mtp_context = _load_mtp_context()
     failures: list[str] = []
+    row_count = 0
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
+            row_count += 1
             row_id = f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
             for failure in validate_row(
                 row, nbits_by_epoch=nbits_by_epoch, mtp_context=mtp_context
             ):
                 failures.append(f"{row_id}: {failure}")
+    if row_count == 0:
+        # Fail closed: a header-only or empty dataset yields an empty failure
+        # list, which the CLI would otherwise report as success — a truncated
+        # committed dataset would silently pass validation. This mirrors the
+        # fail-closed empty-dataset checks in the gate loader
+        # (``stale_blocks_analysis.error_blocks``) and the builder.
+        failures.append(f"dataset is empty (no error-block rows in {path})")
     return failures
 
 

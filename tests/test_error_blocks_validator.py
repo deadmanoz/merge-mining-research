@@ -971,3 +971,24 @@ def test_rejection_reason_must_be_primary_rule_of_rules_violated() -> None:
     # An empty/missing rejection_reason: flagged.
     row["rejection_reason"] = ""
     assert any("rejection_reason is empty" in f for f in mod.validate_row(row))
+
+
+def test_empty_dataset_fails_closed(tmp_path: Path) -> None:
+    mod = _load_validator()
+    # A header-only (or fully empty) dataset processes no rows and would
+    # otherwise return an empty failure list — the CLI would print success for
+    # a truncated committed dataset. validate_dataset must fail closed.
+    header_only = tmp_path / "error_blocks.csv"
+    header_only.write_text(
+        "height,hash,btc_prev_hash,btc_header_version,btc_time,btc_bits,"
+        "expected_nbits,btc_header_hex,coinbase_height,coinbase_scriptsig_hex,"
+        "rejection_reason,rules_violated\n"
+    )
+    failures = mod.validate_dataset(header_only)
+    assert failures, "a header-only dataset must not validate"
+    assert any("dataset is empty" in f for f in failures)
+
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    failures = mod.validate_dataset(empty)
+    assert any("dataset is empty" in f for f in failures)
