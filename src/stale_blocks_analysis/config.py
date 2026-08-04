@@ -64,12 +64,15 @@ HISTORICAL_CHILD_HEADER_CHAINS = (
     "bitcoin-vault",
 )
 
-# Compact repo-owned overlay for upstream or per-chain rows that later
-# available evidence proved consensus-invalid or misclassified as direct
-# stales. This is applied
-# to every public stale loader until the corresponding source dataset is
-# corrected and the pinned revision is updated.
-STALE_EXCLUSIONS_CSV = DATA_DIR / "stale_block_exclusions.csv"
+# Committed error-blocks dataset: consensus-invalid full-proof-of-work
+# Bitcoin blocks. The file is committed, so the directory is not created at
+# import time; the loader fails closed if the file is missing.
+ERROR_BLOCKS_DIR = DATA_DIR / "error-blocks"
+ERROR_BLOCKS_CSV = ERROR_BLOCKS_DIR / "error_blocks.csv"
+# Committed median-time-past context for time-rule error blocks: the canonical
+# parent's median-time-past, keyed by (height, hash), so the validator can
+# re-derive time-rule violations offline.
+ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
 
 # Output locations (all relative to the project root).
 RESULTS_DIR = PROJECT_ROOT / "results"

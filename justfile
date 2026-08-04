@@ -34,6 +34,12 @@ upstream-sidecar:
 
 # ── AuxPoW evidence exports ─────────────────────────────────────────────
 
+# Generate per-chain error-block observation views under
+# results/analysis/error-blocks/by-chain/ (generated diagnostics, gitignored;
+# the consolidated data/error-blocks/error_blocks.csv is the source of truth).
+error-blocks-report *ARGS:
+    {{python}} scripts/reports/report_error_blocks_by_chain.py {{ARGS}}
+
 # Build normalized full-evidence artifacts and manifest (all evidence states;
 # bulky, gitignored).
 full-evidence:

@@ -34,7 +34,7 @@ from .config import (
     STALE_CSV,
     STALE_DESCENDANTS_CSV,
 )
-from .stale_exclusions import exclude_consensus_invalid_rows, exclude_stale_rows
+from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
 
 # The per-chain *_CSV path constants below are referenced only indirectly, via
 # globals()[spec.csv_attr] at load time (see the LoaderSpec docstring), so a test
@@ -841,8 +841,8 @@ def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 def load_stale_descendant_observation_keys(
     path: Path = STALE_DESCENDANTS_CSV,
-) -> frozenset[tuple[str, str]]:
-    """Return accepted source observations as ``(chain, BTC header hash)`` keys.
+) -> frozenset[tuple[str, int, str]]:
+    """Return accepted source observations as ``(chain, BTC height, hash)`` keys.
 
     These keys join exact source rows to the independently validated
     stale-descendant sidecar. Unknown source rows retain their primary
@@ -852,12 +852,13 @@ def load_stale_descendant_observation_keys(
     if not path.exists():
         return frozenset()
 
-    observations: set[tuple[str, str]] = set()
+    observations: set[tuple[str, int, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
             "classification",
             "validation_status",
+            "btc_height",
             "btc_header_hash",
             "source_rows",
         }
@@ -872,6 +873,16 @@ def load_stale_descendant_observation_keys(
                 row["validation_status"] != "VALID_STALE_DESCENDANT"
             ):
                 continue
+            try:
+                height = int(row["btc_height"])
+            except (KeyError, ValueError) as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_height must be an integer"
+                ) from exc
+            if height < 0:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_height must be non-negative"
+                )
             block_hash = row["btc_header_hash"].strip().lower()
             if len(block_hash) != 64:
                 raise ValueError(
@@ -889,5 +900,5 @@ def load_stale_descendant_observation_keys(
                     raise ValueError(
                         f"{path}:{row_number}: malformed source_rows entry"
                     )
-                observations.add((chain, block_hash))
+                observations.add((chain, height, block_hash))
     return frozenset(observations)

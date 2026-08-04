@@ -48,7 +48,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     load_namecoin_header_hexes,
     normalize_hash,
 )
-from stale_blocks_analysis.stale_exclusions import (  # noqa: E402
+from stale_blocks_analysis.error_blocks import (  # noqa: E402
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )

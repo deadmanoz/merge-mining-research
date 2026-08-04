@@ -60,8 +60,9 @@ The 46,808 canonical parents were not persisted by the original 2026-04 prototyp
 split and were backfilled by the 2026-06-24 canonical refresh; the earlier
 "254,452 = 253,974 unknown + 478 stale" figure was that non-canonical subset, not
 the full classifier output. The full historical CSV is gitignored due to size. The
-committed validated file contains 465 rows after the consensus-invalid overlay
-removes 13 candidates.
+committed validated file contains 465 rows after the error-blocks dataset
+(`data/error-blocks/error_blocks.csv`) removes 13 shared consensus-invalid
+candidates.
 
 **Chain-specific quirks.**
 
@@ -78,8 +79,8 @@ classification == "stale" and validation_status.startswith("VALID")
 ```
 
 The `validation_status` gate is persisted on this CSV. All 465 entries are
-`validation_status=VALID`; the loader also applies the exact-key exclusion
-overlay.
+`validation_status=VALID`; the loader also applies the exact-key error-blocks
+exclusion gate (`data/error-blocks/error_blocks.csv`).
 
 **Post-filter count: 465 accepted direct-stale header candidates.**
 

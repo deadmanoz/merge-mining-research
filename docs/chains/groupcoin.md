@@ -77,12 +77,12 @@ Groupcoin (GPC) was a ~2011-launched Namecoin-family merge-mined chain (a Devcoi
 classification == "stale" and validation_status.startswith("VALID")
 ```
 
-The exact-key publication overlay is applied after this persisted gate. Thirty
+The exact-key error-blocks gate (`data/error-blocks/error_blocks.csv`) is applied after this persisted gate. Thirty
 entries pass. One stale-classified row is rejected because its encoded
 `btc_bits` (`1a1bf2d4`) does not match Bitcoin's canonical bits
 (`181287ba`) at height 376,388. One version 2 header after BIP66 height
-363,725 (BTC 367,047, a shared consensus-invalid exclusion applied via the
-exact-key overlay) fails the minimum version 3 rule.
+363,725 (BTC 367,047, a shared consensus-invalid error block applied via the
+exact-key gate) fails the minimum version 3 rule.
 
 **Post-filter count: 30 accepted direct-stale header candidates.**
 
@@ -147,4 +147,4 @@ The unknown population is not yet characterised. It **may** encode a non-BTC SHA
 
 - **2026-05-15** - Archival `getblock`-JSON dump shared by Nicholas Stifter alongside the Geistgeld dump.
 - **2026-06** - Streaming classifier (`classify_groupcoin_stales.py`) shipped; `load_groupcoin_stales()` wired into the recovery and novelty pipeline; the `docs/auxpow-recovery.md` cross-chain table gained the Groupcoin row at chronological position 7. Classification produced 32 stale candidates; the canonical-at-height `nBits` gate rejected the row at BTC 376,388, leaving 31.
-- **2026-07** - Repo-wide exact-key exclusion overlay applied. The shared version 2 header at BTC 367,047 (also observed by Namecoin, Devcoin, i0coin, and Unobtanium) was excluded under BIP66, dropping the accepted set from 31 to 30. The doc's accepted window was corrected from an earlier upper bound of BTC 376,388 / September 2015 (which counted the excluded `nBits` row) to the true BTC 181,492 → 312,238 (May 2012 → July 2014).
+- **2026-07** - Repo-wide exact-key exclusion gate applied (now the `data/error-blocks/error_blocks.csv` dataset). The shared version 2 header at BTC 367,047 (also observed by Namecoin, Devcoin, i0coin, and Unobtanium) was excluded under BIP66, dropping the accepted set from 31 to 30. The doc's accepted window was corrected from an earlier upper bound of BTC 376,388 / September 2015 (which counted the excluded `nBits` row) to the true BTC 181,492 → 312,238 (May 2012 → July 2014).

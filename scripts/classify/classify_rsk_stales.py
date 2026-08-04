@@ -49,7 +49,7 @@ from stale_blocks_analysis.btc_stale_validation import (
     median_time_past_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
-from stale_blocks_analysis.stale_exclusions import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
 
 BATCH = 100
 

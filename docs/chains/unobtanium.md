@@ -56,7 +56,7 @@ Unobtanium has one of the **longest continuous single-chain AuxPoW scan windows*
 | Raw AuxPoW rows | 1,881,845 (99.84% density) |
 | After self-target PoW filter | 445,933 unique |
 | After classification | **14,958 canonical + 44 stale-labelled + 430,931 unknown** |
-| Committed after consensus exclusions | **43 stale** |
+| Committed after the error-blocks consensus gate | **43 stale** |
 
 The 430,931 unknown rows are headers from non-BTC SHA-256 parents (UNO miners merge-mined to NMC / DVC / IXC / etc., not just BTC). Most of those unknowns should overlap with the other Namecoin-family chains' validated sets - this is exactly the cross-chain unknown-substrate question. The unknown rows were produced in the archived inventory; `data/unobtanium_unknown_blocks.csv` can be recreated as a local gitignored mirror when running the analysis scripts.
 
@@ -75,7 +75,7 @@ The 430,931 unknown rows are headers from non-BTC SHA-256 parents (UNO miners me
 classification == "stale" and validation_status.startswith("VALID")
 ```
 
-The `validation_status` gate is now persisted on this CSV: all 43 entries are `validation_status=VALID`; the loader also applies the exact-key exclusion overlay.
+The `validation_status` gate is now persisted on this CSV: all 43 entries are `validation_status=VALID`; the loader also applies the exact-key error-blocks exclusion gate (`data/error-blocks/error_blocks.csv`).
 
 **Post-filter count: 43 accepted direct-stale header candidates.**
 

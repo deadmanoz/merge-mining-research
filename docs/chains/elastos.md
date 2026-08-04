@@ -22,9 +22,11 @@ scriptSig, and outputs from that blob.
 The post-2017 parent-header window makes Bitcoin-family contamination a
 material risk, but the evidence must be stated narrowly. One direct-stale
 candidate extending Bitcoin height 717,695 failed the expected-`nBits` check
-at height 717,696 (`170b98ab` instead of `170b8c8b`). That establishes a
-Bitcoin-linked, consensus-invalid candidate whose difficulty context is not
-Bitcoin's. It does not identify the header as BCH or BSV. The 177 committed
+at height 717,696 (`170b98ab` instead of `170b8c8b`). That block is now
+catalogued as an error block (`nbits_retarget_not_applied`) in
+`data/error-blocks/error_blocks.csv`: it carries the previous epoch's target
+at a retarget boundary while still meeting full proof of work. It does not
+identify the header as BCH or BSV. The 177 committed
 rows passed the full available-evidence publication profile.
 
 ## 1. Chain Data

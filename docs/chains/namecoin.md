@@ -30,7 +30,7 @@ and Stifter et al.,
 The recovery was produced from an archival Namecoin Core `blk*.dat` snapshot.
 The raw block files and complete candidate inventories are not published. This
 repository publishes the compact accepted loader input, the extraction and
-classification code, the consensus-invalid exclusion overlay, and derived
+classification code, the consensus-invalid error-blocks dataset, and derived
 novelty and monitor tables. A reader can rerun the documented header-level
 checks over the public union of the loader and monitor exports. The public
 checkout does not contain the complete original candidate inventory, complete
@@ -169,10 +169,13 @@ The correction makes three related changes:
 - removes the 31 consensus-invalid rows and the one direct-only reclassification
   from `data/validated-stales/namecoin_validated_stales.csv`;
 - rejects equivalent rows in any other committed chain input; and
-- records the 32 exact keys, signed header versions, coinbase evidence, and
-  exclusion scope in
-  `data/stale_block_exclusions.csv` until the pinned upstream source publishes
-  a corresponding correction.
+- records the 31 consensus-invalid exact keys, signed header versions, coinbase
+  evidence, and rejection reasons in
+  `data/error-blocks/error_blocks.csv` (which supersedes the former
+  `data/stale_block_exclusions.csv` overlay) until the pinned upstream source
+  publishes a corresponding correction. The 656,478 direct-only correction is
+  not an error block; it now lives only in `data/stale_descendants.csv` with no
+  exclusion guard.
 
 The historical Namecoin contribution therefore contains **1,061 accepted direct
 additions**, not 1,089. The historical upstream commit still records the
@@ -189,7 +192,7 @@ present, so current isolated novelty versus upstream is zero.
 
 | Current split | Rows |
 |---|---:|
-| Also in effective upstream after exclusions | 1,625 |
+| Also in effective upstream after the error-blocks gate | 1,625 |
 | Novel versus upstream | 0 |
 | Earlier-chain attribution | 0 |
 | Chronologically novel at this position | 0 |
@@ -227,9 +230,10 @@ in the strict/weak and monitor evidence artifacts.
 
 - `data/validated-stales/namecoin_validated_stales.csv`: corrected publication-gate-accepted
   loader input. The historical filename is retained for compatibility.
-- `data/stale_block_exclusions.csv`: compact consensus-invalid and direct-only
-  publication overlay with raw coinbase scriptSig evidence. It is an audit
-  record, not a self-contained AuxPoW proof.
+- `data/error-blocks/error_blocks.csv`: the consensus-invalid error-blocks
+  dataset and exact-key exclusion gate, with raw coinbase scriptSig evidence.
+  It supersedes the former `data/stale_block_exclusions.csv` overlay and is an
+  audit record, not a self-contained AuxPoW proof.
 - `results/per-chain-novelty/namecoin.csv`: row-level upstream and chronology
   comparison.
 - `results/monitor-evidence/namecoin_monitor_evidence.csv`: monitor-facing

@@ -85,8 +85,9 @@ accepted stales, and the 2 unknown rows with final strict relevance verdicts.
 The other unknown and rejected rows remain in the full external evidence. Of
 the 176 stale-labelled candidates, 9 fail the `nBits` gate (parent difficulty
 inconsistent with Bitcoin at that height) and are rejected, leaving 167
-`VALID`; the exact-key exclusion overlay then removes one shared post-BIP66
-version 2 candidate (BTC 367,047), leaving **166** committed loader rows.
+`VALID`; the error-blocks dataset (`data/error-blocks/error_blocks.csv`) then
+removes one shared post-BIP66 version 2 candidate (BTC 367,047), leaving
+**166** committed loader rows.
 
 **Counts in the committed validated CSV** (`data/validated-stales/i0coin_validated_stales.csv`, 166 rows, all `classification == "stale"`):
 
@@ -110,7 +111,7 @@ version 2 candidate (BTC 367,047), leaving **166** committed loader rows.
 classification == "stale" and validation_status.startswith("VALID")
 ```
 
-The `VALID`-prefix gate passes both `VALID` (pre-BCH) and `VALID (post-BCH, ...)` rows. All 166 committed entries are `classification == "stale"` with a `VALID` prefix; the loader also applies the exact-key exclusion overlay, which removes the one shared post-BIP66 version 2 candidate (BTC 367,047).
+The `VALID`-prefix gate passes both `VALID` (pre-BCH) and `VALID (post-BCH, ...)` rows. All 166 committed entries are `classification == "stale"` with a `VALID` prefix; the loader also applies the exact-key error-blocks exclusion gate, which removes the one shared post-BIP66 version 2 candidate (BTC 367,047).
 
 **Post-filter count: 166 accepted direct-stale header candidates.**
 

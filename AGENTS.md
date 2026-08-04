@@ -121,7 +121,8 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   `btc_stale_validation` (the combined expected-`nBits`, active-parent,
   median-time-past, historical minimum-version, coinbase scriptSig-length, and
   BIP34 coinbase-height gates),
-  `stale_exclusions` (the exact-key consensus-invalid overlay), and the
+  `error_blocks` (the exact-key consensus-invalid exclusion gate, reading
+  `data/error-blocks/error_blocks.csv`), and the
   `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
   Prefer adding shared logic here over re-inlining it in a script. Future
@@ -130,7 +131,13 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   organized into family subdirectories: `extract/`, `classify/`, `analysis/`,
   `reports/`, `prep/`. `compute_chain_novelty.py` and `fetch-data.sh` stay at
   the `scripts/` root. Unknown-ancestry reconciliation lives at
-  `scripts/analysis/reconcile_unknown_stale_ancestry.py`. Scripts import the
+  `scripts/analysis/reconcile_unknown_stale_ancestry.py`. The error-blocks
+  workflow adds `scripts/prep/build_error_blocks.py` (the dataset builder),
+  `scripts/analysis/validate_error_blocks.py` (the offline re-derivation
+  validator, wired into tests), four population sweeps under `scripts/analysis/`
+  sharing `scripts/analysis/_sweep_common.py`, and
+  `scripts/reports/report_error_blocks_by_chain.py` (per-chain diagnostic
+  views). Scripts import the
   installed package and many default to `data/` paths for operator convenience.
 - `data/`: committed compact loader inputs plus gitignored fetched/scratch data.
 - `results/`: committed reference CSVs and recovery diagnostics.
@@ -145,8 +152,11 @@ Be strict about what belongs in git:
 - Commit canonical compact loader inputs such as
   `data/validated-stales/*_validated_stales.csv` (RSK included: `rsk_validated_stales.csv`)
   and `data/stale_descendants.csv`. Commit
-  `data/stale_block_exclusions.csv`, the compact exact-key overlay that prevents
-  corrected upstream or archived candidates from re-entering public outputs.
+  `data/error-blocks/error_blocks.csv`, the consensus-invalid error-blocks
+  dataset that is also the exact-key exclusion gate preventing
+  corrected upstream or archived candidates from re-entering public outputs
+  (it supersedes the removed `data/stale_block_exclusions.csv` overlay), along
+  with its `data/error-blocks/mtp_context.csv` sidecar.
 - Do not commit fetched upstream data under `data/stale-blocks/`.
 - Do not commit raw extracts, PoW-passing intermediates, full classifier
   outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
@@ -198,10 +208,13 @@ Preserve these distinctions:
   private archive, pre-rename inventories) wrote `orphan` in the
   `classification` column; writers emit `unknown` and readers accept both.
 - The taxonomy has two axes and they must not be conflated: the primary
-  `classification` (`canonical`/`stale`/`unknown`/`stale_descendant`/`near`)
+  `classification` (`canonical`/`stale`/`unknown`/`stale_descendant`/`near`/`error_block`)
   is the evidence state, and the derived `btc_stale_relevance` refines unknown
   rows into `strict_btc_orphan`/`weak_btc_orphan`/`excluded`/`pending`
-  (constants in `config.py`). `stale`/`stale_descendant` rows already carry
+  (constants in `config.py`). `error_block` is a consensus-invalid
+  full-proof-of-work Bitcoin block witnessed via merge mining (catalogued in
+  `data/error-blocks/error_blocks.csv`); it was never a stale/orphan contender,
+  and blocks that merely fail the PoW target stay `near`. `stale`/`stale_descendant` rows already carry
   their confirmation on the primary axis (a VALID `validation_status`), so
   they carry an EMPTY `btc_stale_relevance` and a `relevance_reason` of
   `valid_direct_stale`/`valid_stale_descendant`; the derived axis holds only
@@ -209,7 +222,8 @@ Preserve these distinctions:
   classifier is a port of `scripts/analysis/classify_btc_stale_relevance.py`
   and its importer reads the `btc_stale_relevance`/`relevance_reason` columns
   verbatim, so renames of those columns, the bucket strings, or the
-  `classification` vocabulary must land in lockstep with the monitor, and
+  `classification` vocabulary (including adding `error_block`) must land in
+  lockstep with the monitor, and
   strict/weak never fold into the primary `classification` column. See
   `docs/data-reference.md` "Value vocabularies".
 - Deduplicate stale events by `(height, hash)`, not by height alone. Competing
@@ -237,7 +251,8 @@ Preserve these distinctions:
   complete Bitcoin block was consensus-valid. The committed file is
   VALID-only; loaders read/filter the verdict but never recompute the gate.
   RSK does not expose the real parent coinbase and therefore cannot apply the
-  two coinbase-dependent checks independently. The exact-key exclusion overlay
+  two coinbase-dependent checks independently. The exact-key error-blocks
+  exclusion gate (`data/error-blocks/error_blocks.csv`)
   protects sources that have not yet incorporated a correction.
 - Hash byte order must be explicit. Use the helpers in
   `stale_blocks_analysis.auxpow_chainid` instead of guessing display vs

@@ -41,7 +41,7 @@ from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
     load_stale_descendant_observation_keys,
 )
-from stale_blocks_analysis.stale_exclusions import (  # noqa: E402
+from stale_blocks_analysis.error_blocks import (  # noqa: E402
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
@@ -349,7 +349,7 @@ def _accepted_descendant_count(path: Path) -> int:
 
 def _projected_stale_descendant_count(
     source: EvidenceSource,
-    descendant_observations: frozenset[tuple[str, str]],
+    descendant_observations: frozenset[tuple[str, int, str]],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> int:
@@ -370,23 +370,26 @@ def _projected_stale_descendant_count(
                 key = (int(normalized["btc_height"]), block_hash)
             except ValueError:
                 continue
+            # A stale descendant is never an error block, so the projection
+            # turns on the sidecar observation alone; the consensus-invalid
+            # gate still excludes any exact key recorded as an error block.
             if (
-                (source.chain, block_hash) in descendant_observations
-                and key in excluded_keys
-                and key not in consensus_invalid_keys
-            ):
+                source.chain,
+                key[0],
+                block_hash,
+            ) in descendant_observations and key not in consensus_invalid_keys:
                 count += 1
     return count
 
 
 def _accepted_descendant_observations(
     sources: list[EvidenceSource],
-    descendant_observations: frozenset[tuple[str, str]],
+    descendant_observations: frozenset[tuple[str, int, str]],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
-) -> set[tuple[str, str]]:
+) -> set[tuple[str, int, str]]:
     """Return distinct source identities admitted as stale descendants."""
-    accepted: set[tuple[str, str]] = set()
+    accepted: set[tuple[str, int, str]] = set()
     for source in sources:
         if source.path is None:
             continue
@@ -398,27 +401,30 @@ def _accepted_descendant_observations(
                 )
                 classification = normalized["classification"]
                 block_hash = normalized["btc_header_hash"]
-                if (source.chain, block_hash) not in descendant_observations:
-                    continue
                 try:
                     key = (int(normalized["btc_height"]), block_hash)
                 except ValueError:
-                    key = None
+                    continue
+                observation_key = (source.chain, key[0], block_hash)
+                if observation_key not in descendant_observations:
+                    continue
                 if key in consensus_invalid_keys:
                     continue
                 if classification == "unknown":
                     if key in excluded_keys:
                         continue
-                    accepted.add((source.chain, block_hash))
+                    accepted.add(observation_key)
                     continue
                 if classification == "stale_descendant":
                     if normalized["validation_status"] == "VALID_STALE_DESCENDANT":
-                        accepted.add((source.chain, block_hash))
+                        accepted.add(observation_key)
                     continue
                 if classification != "stale":
                     continue
-                if key in excluded_keys and key not in consensus_invalid_keys:
-                    accepted.add((source.chain, block_hash))
+                # A stale descendant is never an error block, so the sidecar
+                # observation alone admits the row; the consensus-invalid gate
+                # above has already excluded any exact error-block key.
+                accepted.add(observation_key)
     return accepted
 
 
@@ -498,9 +504,9 @@ def validate_publication_inputs(
             descendants_path
         )
         descendant_counts = Counter(
-            chain for chain, _block_hash in descendant_observations
+            chain for chain, _height, _block_hash in descendant_observations
         )
-        exclusions_path = args.data_dir / "stale_block_exclusions.csv"
+        exclusions_path = args.data_dir / "error-blocks" / "error_blocks.csv"
         excluded_keys = (
             load_stale_exclusion_keys(exclusions_path)
             if exclusions_path.is_file()
@@ -632,7 +638,7 @@ def validate_publication_inputs(
                 )
                 accepted_descendant_hashes = {
                     block_hash
-                    for observation_chain, block_hash in accepted_descendants
+                    for observation_chain, _height, block_hash in accepted_descendants
                     if observation_chain == chain
                 }
                 accepted_stale_coverage = accepted_stale_count

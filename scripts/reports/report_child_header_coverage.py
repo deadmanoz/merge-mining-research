@@ -63,7 +63,7 @@ def load_stale_descendant_observations(path: Path) -> dict[str, frozenset[str]]:
     targets: dict[str, set[str]] = {
         chain: set() for chain in HISTORICAL_CHILD_HEADER_CHAINS
     }
-    for chain, block_hash in load_stale_descendant_observation_keys(path):
+    for chain, _height, block_hash in load_stale_descendant_observation_keys(path):
         if chain in targets:
             targets[chain].add(block_hash)
     return {chain: frozenset(hashes) for chain, hashes in targets.items()}

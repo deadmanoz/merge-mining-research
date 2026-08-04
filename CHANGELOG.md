@@ -13,6 +13,14 @@ Publish the exact BIP34 child height for 19,610 Xaya canonical observations
 that still carried legacy block-file positions in the prior monitor
 projection.
 
+Require a stale-descendant projection to match the source chain, Bitcoin
+height, and header hash, so a mistyped source height cannot enter monitor
+evidence or satisfy its publication preflight. Make the error-block builder
+reject duplicate witnessing-chain declarations, make its offline validator
+reject duplicate canonical keys, and require every committed error-block
+sweep inventory to meet its recorded minimum row baseline before replacing a
+publication report. Add Elastos to the rejected-row sweep coverage map.
+
 Reclassify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
 and correct 44 side-chain headers previously retained as canonical into valid
 direct stales. Add the shared Elastos/Syscoin stale descendant, recover child
@@ -100,6 +108,53 @@ fields and validation annotations. The normalized rejected rows no longer carry
 standalone `nbits_match` or `post_bch_fork` columns; those diagnostics remain
 represented by `validation_status` and `expected_nbits` and are preserved as
 standalone fields in the full classifier inventory.
+
+Promote consensus-invalid full-proof-of-work Bitcoin blocks ("error blocks")
+from a negative exclusion overlay into a first-class, re-derivable published
+dataset, hunt for the rest of the population, and add `error_block` as a
+primary classification value.
+
+- New `data/error-blocks/error_blocks.csv` is simultaneously the rich evidence
+  dataset and the exact-key exclusion gate: one committed consolidated file
+  (33 rows) supersedes and removes the former `data/stale_block_exclusions.csv`
+  overlay. Every row carries `classification=error_block` and a named,
+  mechanically re-checkable `rejection_reason`; the gate keys off that value
+  directly (no `exclusion_scope` column) via the renamed
+  `src/stale_blocks_analysis/error_blocks.py` loader. A committed
+  `data/error-blocks/mtp_context.csv` sidecar carries the canonical parent's
+  median-time-past for the `time_below_mtp` row.
+- `error_block` is added to the primary `classification` vocabulary alongside
+  `canonical`/`stale`/`unknown`/`stale_descendant`/`near`: a consensus-invalid
+  full-PoW block witnessed via merge mining that was never a stale/orphan
+  contender. This is a **breaking vocabulary change for the
+  merge-mining-monitor importer** and its ported relevance classifier; renames
+  and additions must land in lockstep with the monitor (documented in
+  `docs/data-reference.md` and `docs/upstreaming.md`). Blocks that merely fail
+  the PoW target are not error blocks; they remain `near`.
+- New builder `scripts/prep/build_error_blocks.py` assembles the dataset from
+  reachable archives, and new offline validator
+  `scripts/analysis/validate_error_blocks.py` re-derives every row's full PoW
+  and named violation from committed bytes in CI (fail-closed; no row enters on
+  an old label).
+- Four sweeps under `scripts/analysis/` sharing `scripts/analysis/_sweep_common.py`
+  hunted for new members, each with a dated report under
+  `results/analysis/error-blocks/`. The rejected-row sweep found and promoted
+  height 717,696 (`nbits_retarget_not_applied`, witnessed by emercoin and
+  syscoin); height 946,213 (`time_below_mtp`) was added from merge-mining-monitor
+  live evidence. The time-rule sweep found 0 `time_below_mtp` violations and
+  resolved all 15 `time_beyond_future_limit` flags as late-mined (0 violations),
+  establishing that the future-limit rule is not mechanically re-checkable
+  offline. The version/BIP and coinbase-form sweeps found 0 new error blocks
+  (no accepted VALID stale is an error block; the single
+  `coinbase_scriptsig_length_above_100` member is real).
+- Deliberate scope expansion (operator-approved): the former overlay's
+  `direct_stale_only` row at height 656,478 is removed from the overlay-guard
+  model entirely. It is a valid `stale_descendant` that was double-catalogued
+  and now lives in exactly one place (`data/stale_descendants.csv`) with no
+  exclusion guard. No other validated-stales baseline is touched.
+- New `scripts/reports/report_error_blocks_by_chain.py` generates per-chain
+  observation views under `results/analysis/error-blocks/by-chain/` as
+  diagnostics (not committed loader inputs), via `just error-blocks-report`.
 
 Recover node-verified child block identity for the six live-lifecycle chains
 (Namecoin, RSK, Syscoin, Hathor, Elastos, Fractal) and publish it through the

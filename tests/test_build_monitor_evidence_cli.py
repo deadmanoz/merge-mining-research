@@ -495,7 +495,7 @@ def test_full_inventory_cannot_replace_baseline_canonical_identity(
         f"{unrelated_stale_hash},stale,VALID\n"
     )
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
     )
     archive_dir = tmp_path / "archive"
     inventory = (
@@ -544,7 +544,7 @@ def test_full_inventory_allows_canonical_reclassification_to_valid_stale(
         f"2,{'22' * 32},stale,VALID\n"
     )
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
     )
     (data_dir / "stale_block_exclusions.csv").write_text(
         "height,hash,exclusion_scope\n"
@@ -582,6 +582,11 @@ def test_full_inventory_allows_canonical_reclassification_to_valid_stale(
 def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     tmp_path: Path,
 ) -> None:
+    # A baseline-canonical header corrected into a stale descendant is admitted
+    # in its final category. Post error-blocks, the correction is expressed by
+    # reclassifying the source row to stale_descendant (the former
+    # direct_stale_only exclusion scope is abolished; the gate no longer
+    # distinguishes scopes), not by an exclusion-overlay carve-out.
     module = _load_module()
     descendant_hash = "22" * 32
     data_dir = tmp_path / "data"
@@ -589,11 +594,55 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     validated.parent.mkdir(parents=True)
     validated.write_text("classification,validation_status\n")
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
-        f"stale_descendant,VALID_STALE_DESCENDANT,{descendant_hash},namecoin:2\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,2,{descendant_hash},namecoin:2\n"
     )
-    (data_dir / "stale_block_exclusions.csv").write_text(
-        f"height,hash,exclusion_scope\n2,{descendant_hash},direct_stale_only\n"
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+        f"1,{'11' * 32},canonical,\n"
+        f"2,{descendant_hash},stale_descendant,VALID_STALE_DESCENDANT\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=2,
+        source_rows=2,
+    )
+    (baseline_dir / "namecoin_monitor_evidence.csv").write_text(
+        "chain,btc_header_hash,classification,btc_stale_relevance\n"
+        f"namecoin,{'11' * 32},canonical,\n"
+        f"namecoin,{descendant_hash},canonical,\n"
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_full_inventory_rejects_descendant_sidecar_height_mismatch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A sidecar observation with the right chain/hash but a different Bitcoin
+    # height must not reclassify or count the archive stale. Otherwise a bad
+    # archive height could enter the monitor payload and make preflight coverage
+    # appear complete.
+    module = _load_module()
+    descendant_hash = "22" * 32
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    (data_dir / "stale_descendants.csv").write_text(
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,1,{descendant_hash},namecoin:2\n"
     )
     archive_dir = tmp_path / "archive"
     inventory = (
@@ -622,12 +671,23 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
         module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
     )
 
-    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert (
+        "accepted canonical/stale/descendant evidence is below"
+        in capsys.readouterr().err
+    )
 
 
-def test_full_inventory_rejects_stale_descendant_without_correction_overlay(
+def test_full_inventory_rejects_stale_descendant_that_is_an_error_block(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # The consensus-invalid gate is preserved for the direct-stale path: a
+    # stale source row whose exact key the error-blocks dataset records as an
+    # error block is NOT admitted as a stale descendant, even when the sidecar
+    # names the observation. The preflight therefore reports the descendant
+    # coverage shortfall.
     module = _load_module()
     descendant_hash = "22" * 32
     data_dir = tmp_path / "data"
@@ -635,11 +695,13 @@ def test_full_inventory_rejects_stale_descendant_without_correction_overlay(
     validated.parent.mkdir(parents=True)
     validated.write_text("classification,validation_status\n")
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
-        f"stale_descendant,VALID_STALE_DESCENDANT,{descendant_hash},namecoin:2\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,2,{descendant_hash},namecoin:2\n"
     )
-    (data_dir / "stale_block_exclusions.csv").write_text(
-        "height,hash,exclusion_scope\n"
+    error_blocks = data_dir / "error-blocks" / "error_blocks.csv"
+    error_blocks.parent.mkdir(parents=True)
+    error_blocks.write_text(
+        f"height,hash,classification\n2,{descendant_hash},error_block\n"
     )
     archive_dir = tmp_path / "archive"
     inventory = (
@@ -691,8 +753,8 @@ def test_full_inventory_does_not_double_count_transitional_stale_descendant(
         f"2,{descendant_hash},stale,VALID\n"
     )
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
-        f"stale_descendant,VALID_STALE_DESCENDANT,{descendant_hash},namecoin:2\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,2,{descendant_hash},namecoin:2\n"
     )
     (data_dir / "stale_block_exclusions.csv").write_text(
         f"height,hash,exclusion_scope\n2,{descendant_hash},direct_stale_only\n"
@@ -739,8 +801,8 @@ def test_full_inventory_cannot_use_unrepresented_descendant_to_hide_loss(
     validated.parent.mkdir(parents=True)
     validated.write_text("classification,validation_status\n")
     (data_dir / "stale_descendants.csv").write_text(
-        "classification,validation_status,btc_header_hash,source_rows\n"
-        f"stale_descendant,VALID_STALE_DESCENDANT,{'33' * 32},namecoin:99\n"
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,99,{'33' * 32},namecoin:99\n"
     )
     (data_dir / "stale_block_exclusions.csv").write_text(
         "height,hash,exclusion_scope\n"

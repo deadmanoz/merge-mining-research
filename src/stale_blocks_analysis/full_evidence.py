@@ -32,7 +32,7 @@ from .config import (
     RELEVANCE_STRICT_BTC_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN,
 )
-from .stale_exclusions import (
+from .error_blocks import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
@@ -845,18 +845,20 @@ def collect_source_rows(
     source: EvidenceSource,
     *,
     exclude_classifications: frozenset[str] = frozenset(),
-    stale_descendant_observations: frozenset[tuple[str, str]] = frozenset(),
+    stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
     Every normalized row is kept except requested source classifications and
-    exact identities in the public consensus-invalid overlay. The stats record
+    exact identities in the committed error-blocks dataset. The stats record
     error labels rather than dropping malformed rows; classification tallies,
     rejection counts, and missing-evidence counts feed the counts/manifest
     artifacts. A source row formerly published as a direct stale is projected
-    into its accepted ``stale_descendant`` state only when both its exact
-    chain/hash observation appears in the descendant sidecar and its exact
-    height/hash appears in the correction overlay.
+    into its accepted ``stale_descendant`` state whenever its exact chain,
+    height, and hash observation appears in the descendant sidecar. A stale
+    descendant is never an error block, so that projection does not consult the
+    error-blocks dataset; the consensus-invalid gate below still filters any
+    exact key the dataset records as an error block.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []
@@ -876,15 +878,12 @@ def collect_source_rows(
             )
         except (TypeError, ValueError):
             key = None
-        observation_key = (
-            source.chain,
-            normalize_hash(normalized.get("btc_header_hash")),
-        )
+        observation_key = None
+        if key is not None:
+            observation_key = (source.chain, key[0], key[1])
         if (
             classification == "stale"
             and observation_key in stale_descendant_observations
-            and key in excluded
-            and key not in consensus_invalid
         ):
             normalized = {
                 **normalized,
@@ -1584,7 +1583,7 @@ def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, tuple[str, st
 def monitor_verdict(
     row: dict[str, str],
     orphan_verdicts: dict[str, tuple[str, str]],
-    descendant_observations: frozenset[tuple[str, str]] = frozenset(),
+    descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
 ) -> tuple[str, str] | None:
     """Final-category verdict for a normalized evidence row; None drops it.
 
@@ -1617,8 +1616,10 @@ def monitor_verdict(
             return None
         return "", "valid_stale_descendant"
     if classification == "unknown":
+        height = int_or_none(row.get("btc_height"))
         observation_key = (
             str(row.get("chain", "")),
+            height,
             normalize_hash(row.get("btc_header_hash")),
         )
         if observation_key in descendant_observations:
@@ -1632,7 +1633,7 @@ def _monitor_rows_and_counts(
     orphan_verdicts: dict[str, tuple[str, str]],
     *,
     include_canonical: bool = True,
-    descendant_observations: frozenset[tuple[str, str]] = frozenset(),
+    descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
 ) -> tuple[list[dict[str, str]], Counter[str]]:
     """Filter normalized rows to the monitor-facing set and tally categories.
 
@@ -1743,7 +1744,7 @@ def build_monitor_evidence_exports(
     descendant_observations = load_stale_descendant_observation_keys(
         data_dir / "stale_descendants.csv"
     )
-    represented_descendant_observations: set[tuple[str, str]] = set()
+    represented_descendant_observations: set[tuple[str, int, str]] = set()
     inventory_available = bool(orphan_verdicts) or (
         relevance_inventory is not None and relevance_inventory.exists()
     )
@@ -1830,8 +1831,10 @@ def build_monitor_evidence_exports(
                     or not row.get("child_block_time")
                 ):
                     continue
+                height = int_or_none(row.get("btc_height"))
                 observation_key = (
                     source.chain,
+                    height,
                     normalize_hash(row.get("btc_header_hash")),
                 )
                 if observation_key in descendant_observations:
@@ -1955,8 +1958,8 @@ def build_monitor_evidence_exports(
         )
     if fail_on_missing_child_identity and missing_descendant_observations:
         preview = ", ".join(
-            f"{chain}:{block_hash}"
-            for chain, block_hash in sorted(missing_descendant_observations)[:5]
+            f"{chain}:{height}:{block_hash}"
+            for chain, height, block_hash in sorted(missing_descendant_observations)[:5]
         )
         raise ValueError(
             "accepted stale-descendant source observations are absent from the "

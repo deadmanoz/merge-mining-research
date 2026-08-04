@@ -70,27 +70,46 @@ is populated for 1,397 of 1,625 rows and empty where the loader snapshot did
 not preserve the header; the monitor export supplies verified hydration), and
 coiledcoin's `eligius_attack_window`.
 
-## Publication exclusion overlay: `data/stale_block_exclusions.csv`
+## Error blocks: `data/error-blocks/error_blocks.csv`
 
-Exact `(height, hash)` keys that must be removed from publication surfaces
-according to `exclusion_scope`. The current 32 rows comprise 31
-`consensus_invalid` keys and one `direct_stale_only` key. For auditability,
-every row must carry one of those scopes explicitly; blank
-or unknown scopes fail closed when the overlay is loaded.
-Of the invalid keys, 21 fail the applicable BIP34 coinbase-height rule, three
-fail BIP66's minimum version 3 rule, five fail BIP65's minimum version 4 rule,
-one violates median-time-past, and one carries a 103-byte coinbase scriptSig
-above Bitcoin's 100-byte limit. The direct-only key at Bitcoin height 656,478
-extends a known stale predecessor rather than an active-chain block, so it is
-removed from per-chain direct-stale inputs but retained as an accepted
-stale-descendant observation. General upstream membership applies only the
-`consensus_invalid` scope, so this direct-only key remains in the upstream
-catalogue. The overlay retains the signed header version,
-child-chain provenance, raw coinbase scriptSig, rejection reason, and scope. It
-is a compact audit record rather than a self-contained AuxPoW proof. It is
-applied by public loaders, upstream novelty calculations, the upstream sidecar
-builder, full-evidence and relevance exports, and unknown-ancestry
-reconciliation.
+Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
+blocks that must be removed from publication surfaces. This dataset supersedes
+the former `data/stale_block_exclusions.csv` overlay. The current 33 rows
+comprise 31 carried-over consensus-invalid keys, the 946,213
+`time_below_mtp` row recovered from merge-mining-monitor live evidence, and
+the 717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
+(witnessed independently by emercoin and syscoin). The
+former `exclusion_scope` column is gone: the gate keys off
+`classification == "error_block"`, and blank or unknown classifications fail
+closed when the dataset is loaded. The single former `direct_stale_only` key
+at Bitcoin height 656,478 extends a known stale predecessor rather than an
+active-chain block; it is now handled as a stale-descendant single-home with
+no exclusion guard, so it remains in the upstream catalogue and in
+`data/stale_descendants.csv`. Of the invalid keys, 21 fail the applicable
+BIP34 coinbase-height rule, three fail BIP66's minimum version 3 rule, five
+fail BIP65's minimum version 4 rule, one violates median-time-past, one is
+time-too-old against median-time-past, one carries a 103-byte coinbase
+scriptSig above Bitcoin's 100-byte limit, and one failed to apply the
+difficulty retarget at an epoch boundary. The dataset retains the signed
+header version, child-chain provenance, raw coinbase scriptSig, rejection
+reason, and the named rules violated. It is a compact audit record rather
+than a self-contained AuxPoW proof. It is applied by public loaders, upstream
+novelty calculations, the upstream sidecar builder, full-evidence and
+relevance exports, and unknown-ancestry reconciliation.
+
+The `rejection_reason` / `rules_violated` token `nbits_retarget_not_applied`
+means the block sits at a retarget-boundary height (`height % 2016 == 0`, an
+epoch start) but carries the PREVIOUS epoch's `nBits` instead of the
+newly-retargeted value the epoch start must use: the miner failed to apply
+the difficulty retarget, a hard consensus violation. It is offline
+re-checkable against the committed
+`data/bitcoin-epoch-reference/btc_nbits_by_epoch.json` table: the row's
+`btc_bits` must differ from the table value at its height and equal the table
+value at `height - 2016`. This is distinct from a plain `nBits mismatch`
+rejection at a non-boundary height, which is the contamination gate's target
+class (a share/near row), not an error block: the error-block case is
+specifically the retarget-not-applied at an epoch boundary where the header
+still meets full proof of work.
 
 ## RSK: `data/validated-stales/rsk_validated_stales.csv`
 
@@ -436,7 +455,18 @@ known to the active chain; stays `unknown` on this axis - legacy artifacts
 wrote `orphan`, and readers accept both), `stale_descendant`
 (a stale-fork continuation chaining back to a known stale root), `near` (the
 header fails Bitcoin's PoW target - a child-chain artifact that was never a
-Bitcoin block; permanently out of scope, never reclassified).
+Bitcoin block; permanently out of scope, never reclassified), `error_block`
+(a consensus-invalid full-proof-of-work Bitcoin block witnessed via
+merge-mining evidence: the header hash meets the Bitcoin target in force at
+the claimed position and the AuxPoW commitments are real, but the block
+violates at least one named, mechanically re-checkable consensus rule, so it
+was never a stale/orphan contender). Error blocks are catalogued in
+`data/error-blocks/error_blocks.csv`, which supersedes the former
+`data/stale_block_exclusions.csv` overlay. Blocks that merely fail the PoW
+target are not error blocks; they remain `near`. Adding `error_block` is a
+breaking vocabulary change for the merge-mining-monitor importer and its
+ported relevance classifier: renames and additions must land in lockstep with
+the monitor.
 
 **`btc_stale_relevance`** (derived refinement of unknown rows, emitted by
 `scripts/analysis/classify_btc_stale_relevance.py`; constants in
