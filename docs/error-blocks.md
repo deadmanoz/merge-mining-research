@@ -190,6 +190,15 @@ required private input is absent, requiring `--allow-partial` plus a
 disposable output directory for any diagnostic run — the same contract as the
 ancestry reconciliation and `just monitor-evidence`.
 
+The offline validator deliberately does NOT verify active-parent placement:
+it does not check that a row's claimed parent (`btc_prev_hash`) is a
+canonical/active Bitcoin block. That check requires canonical chain context
+(a live RPC view of the active chain) and is enforced by the online
+classification pipeline at classification time, not by the offline
+re-derivation. The offline validator's job is to prove the named consensus
+violation from the committed bytes; active-parent/canonical placement is a
+separate, online gate.
+
 ## The sweeps
 
 Four sweeps under `scripts/analysis/`, sharing `scripts/analysis/_sweep_common.py`,

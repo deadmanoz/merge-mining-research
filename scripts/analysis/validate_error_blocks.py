@@ -81,6 +81,14 @@ a non-boundary height, which is the contamination gate's target class (a
 share/near row), not an error block: the error-block case is specifically the
 retarget-not-applied at an epoch boundary where the header still meets full
 proof of work.
+
+Scope note: this validator does NOT verify active-parent placement — it does
+not check that the claimed parent (``btc_prev_hash``) is a canonical/active
+Bitcoin block. That check needs canonical chain context (a live RPC view of
+the active chain) and is enforced by the online classification pipeline at
+classification time, not by this offline re-derivation. The offline validator
+proves the named consensus violation from the committed bytes;
+active-parent/canonical placement is a separate, online gate.
 """
 
 from __future__ import annotations
