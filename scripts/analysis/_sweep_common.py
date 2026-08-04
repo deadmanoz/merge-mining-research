@@ -51,7 +51,6 @@ import is not available. The sweeps follow the established
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import os
@@ -66,6 +65,7 @@ from stale_blocks_analysis.config import (
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_DIR,
 )
+from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
 
 # Private chain-archive host alias, redacted from the tracked tree per the
 # repo's leak-redaction guidance. Operators set ERROR_BLOCKS_ARCHIVE_HOST to
@@ -132,20 +132,15 @@ InventoryReader = Callable[[str, str], str]
 def load_dataset_keys(path: Path = ERROR_BLOCKS_CSV) -> set[tuple[int, str]]:
     """Load the committed error-blocks dataset keys as (height, hash).
 
-    Fails closed on an empty dataset (an empty or header-only CSV): the
-    sweeps treat any rediscovered catalogued row absent from this key set as
-    NEW, so an empty key set would make every sweep report every catalogued
-    error block as a NEW finding. This mirrors the fail-closed empty-dataset
-    checks in the gate loader (``stale_blocks_analysis.error_blocks``), the
-    builder, and the validator.
+    Applies the same fail-closed validation as the publication gate loader
+    (``stale_blocks_analysis.error_blocks._load_keys``, reached via
+    ``load_stale_exclusion_keys``): a blank/non-``error_block`` classification,
+    a malformed height or hash, a duplicate key, or an empty/header-only
+    dataset all raise. The sweeps treat any rediscovered catalogued row absent
+    from this key set as NEW, so a silently tolerated bad row (or an empty key
+    set) would make a sweep mis-report catalogued error blocks as NEW findings.
     """
-    keys: set[tuple[int, str]] = set()
-    with path.open(newline="") as f:
-        for row in csv.DictReader(f):
-            keys.add((int(row["height"]), row["hash"].strip().lower()))
-    if not keys:
-        raise ValueError(f"no error block rows in {path}")
-    return keys
+    return load_stale_exclusion_keys(path)
 
 
 def ssh_inventory_reader(chain: str, path: str) -> str:

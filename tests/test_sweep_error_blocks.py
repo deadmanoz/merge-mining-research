@@ -701,6 +701,54 @@ def test_load_dataset_keys_fails_closed_on_empty_dataset(tmp_path: Path) -> None
             sweep.load_dataset_keys(path)
 
 
+@pytest.mark.parametrize(
+    ("name", "text", "match"),
+    [
+        # A blank classification (not the error_block token).
+        (
+            "blank_classification.csv",
+            "height,hash,classification\n225013," + "ab" * 32 + ",\n",
+            "invalid error block row",
+        ),
+        # A non-error_block classification.
+        (
+            "wrong_classification.csv",
+            "height,hash,classification\n225013," + "ab" * 32 + ",stale\n",
+            "invalid error block row",
+        ),
+        # A malformed hash (not 32 bytes of hex).
+        (
+            "malformed_hash.csv",
+            "height,hash,classification\n225013,zz,error_block\n",
+            "invalid error block row",
+        ),
+        # A duplicate (height, hash) key.
+        (
+            "duplicate_key.csv",
+            "height,hash,classification\n"
+            + "225013,"
+            + "ab" * 32
+            + ",error_block\n"
+            + "225013,"
+            + "ab" * 32
+            + ",error_block\n",
+            "duplicate error block key",
+        ),
+    ],
+    ids=["blank-classification", "wrong-classification", "malformed-hash", "duplicate-key"],
+)
+def test_load_dataset_keys_fails_closed_on_invalid_catalog_row(
+    tmp_path: Path, name: str, text: str, match: str
+) -> None:
+    # Regression: the sweep loader applies the same fail-closed validation as
+    # the publication gate loader — a blank/wrong classification, a malformed
+    # height/hash, or a duplicate key must raise, not be silently tolerated.
+    path = tmp_path / name
+    path.write_text(text)
+    with pytest.raises(ValueError, match=match):
+        sweep.load_dataset_keys(path)
+
+
 def test_load_dataset_keys_loads_committed_dataset() -> None:
     # The committed 33-row dataset loads fine.
     assert len(sweep.load_dataset_keys()) == 33
