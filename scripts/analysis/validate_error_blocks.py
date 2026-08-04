@@ -756,6 +756,8 @@ def validate_dataset(path: Path = ERROR_BLOCKS_CSV) -> list[str]:
         for row in csv.DictReader(f):
             row_count += 1
             row_id = f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
+            if (row.get("classification") or "").strip() != "error_block":
+                failures.append(f"{row_id}: classification must be error_block")
             try:
                 key = (int(row["height"]), row["hash"].strip().lower())
                 if key[0] < 0 or len(key[1]) != 64:

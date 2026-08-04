@@ -32,6 +32,7 @@ from .config import (
     MIN_HEIGHT,
     RSK_CSV,
     STALE_CSV,
+    STALE_DESCENDANT_CORRECTIONS_CSV,
     STALE_DESCENDANTS_CSV,
 )
 from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
@@ -902,3 +903,63 @@ def load_stale_descendant_observation_keys(
                     )
                 observations.add((chain, height, block_hash))
     return frozenset(observations)
+
+
+def load_stale_descendant_correction_keys(
+    path: Path = STALE_DESCENDANT_CORRECTIONS_CSV,
+) -> frozenset[tuple[int, str]]:
+    """Return exact keys explicitly corrected from direct stales.
+
+    The compact correction overlay is distinct from the accepted descendant
+    sidecar. A source row must match both this exact Bitcoin identity and its
+    chain-specific sidecar observation before the monitor export projects it as
+    a descendant.
+    """
+    if not path.exists():
+        return frozenset()
+
+    correction_keys: set[tuple[int, str]] = set()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {
+            "btc_height",
+            "btc_header_hash",
+            "correction_reason",
+        }
+        missing = required.difference(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{path}: missing stale-descendant correction columns: "
+                + ", ".join(sorted(missing))
+            )
+        for row_number, row in enumerate(reader, start=2):
+            if row["correction_reason"] != "reclassified_from_direct_stale":
+                raise ValueError(f"{path}:{row_number}: unsupported correction_reason")
+            try:
+                height = int(row["btc_height"])
+            except (KeyError, ValueError) as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_height must be an integer"
+                ) from exc
+            if height < 0:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_height must be non-negative"
+                )
+            block_hash = row["btc_header_hash"].strip().lower()
+            if len(block_hash) != 64:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_header_hash must be 32 bytes"
+                )
+            try:
+                bytes.fromhex(block_hash)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: btc_header_hash must be hexadecimal"
+                ) from exc
+            key = (height, block_hash)
+            if key in correction_keys:
+                raise ValueError(
+                    f"{path}:{row_number}: duplicate stale-descendant correction key"
+                )
+            correction_keys.add(key)
+    return frozenset(correction_keys)

@@ -36,7 +36,10 @@ from .error_blocks import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
-from .stale_blocks import load_stale_descendant_observation_keys
+from .stale_blocks import (
+    load_stale_descendant_correction_keys,
+    load_stale_descendant_observation_keys,
+)
 
 DEFAULT_OUTPUT_DIR = RESULTS_DIR / "full-evidence"
 MONITOR_OUTPUT_DIR = RESULTS_DIR / "monitor-evidence"
@@ -846,6 +849,7 @@ def collect_source_rows(
     *,
     exclude_classifications: frozenset[str] = frozenset(),
     stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
+    stale_descendant_correction_keys: frozenset[tuple[int, str]] = frozenset(),
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
@@ -854,11 +858,11 @@ def collect_source_rows(
     error labels rather than dropping malformed rows; classification tallies,
     rejection counts, and missing-evidence counts feed the counts/manifest
     artifacts. A source row formerly published as a direct stale is projected
-    into its accepted ``stale_descendant`` state whenever its exact chain,
-    height, and hash observation appears in the descendant sidecar. A stale
-    descendant is never an error block, so that projection does not consult the
-    error-blocks dataset; the consensus-invalid gate below still filters any
-    exact key the dataset records as an error block.
+    into its accepted ``stale_descendant`` state only when the descendant
+    sidecar supplies both its exact chain/height/hash observation and the
+    compact exact-key correction overlay. A stale descendant is never an error
+    block, but the consensus-invalid gate below still filters any exact key the
+    dataset records as an error block.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []
@@ -884,6 +888,7 @@ def collect_source_rows(
         if (
             classification == "stale"
             and observation_key in stale_descendant_observations
+            and key in stale_descendant_correction_keys
         ):
             normalized = {
                 **normalized,
@@ -1744,6 +1749,9 @@ def build_monitor_evidence_exports(
     descendant_observations = load_stale_descendant_observation_keys(
         data_dir / "stale_descendants.csv"
     )
+    descendant_correction_keys = load_stale_descendant_correction_keys(
+        data_dir / "stale_descendant_corrections.csv"
+    )
     represented_descendant_observations: set[tuple[str, int, str]] = set()
     inventory_available = bool(orphan_verdicts) or (
         relevance_inventory is not None and relevance_inventory.exists()
@@ -1783,6 +1791,7 @@ def build_monitor_evidence_exports(
                 source,
                 exclude_classifications=frozenset({"stale"}),
                 stale_descendant_observations=descendant_observations,
+                stale_descendant_correction_keys=descendant_correction_keys,
             )
             validated_rows, validated_stats = collect_source_rows(validated)
             rows.extend(validated_rows)
@@ -1791,6 +1800,7 @@ def build_monitor_evidence_exports(
             rows, stats = collect_source_rows(
                 source,
                 stale_descendant_observations=descendant_observations,
+                stale_descendant_correction_keys=descendant_correction_keys,
             )
         if unknown_companion is not None:
             enforce_unknown_split_contract(source, stats, unknown_companion)

@@ -83,9 +83,12 @@ former `exclusion_scope` column is gone: the gate keys off
 `classification == "error_block"`, and blank or unknown classifications fail
 closed when the dataset is loaded. The single former `direct_stale_only` key
 at Bitcoin height 656,478 extends a known stale predecessor rather than an
-active-chain block; it is now handled as a stale-descendant single-home with
-no exclusion guard, so it remains in the upstream catalogue and in
-`data/stale_descendants.csv`. Of the invalid keys, 21 fail the applicable
+active-chain block; it is now handled as a stale-descendant single-home, so it
+remains in the upstream catalogue and in `data/stale_descendants.csv`. It is
+not an error-block exclusion: projection of a raw source row still requires
+the accepted sidecar's chain-specific observation and the compact
+`data/stale_descendant_corrections.csv` exact-key correction overlay. Of the
+invalid keys, 21 fail the applicable
 BIP34 coinbase-height rule, three fail BIP66's minimum version 3 rule, five
 fail BIP65's minimum version 4 rule, one violates median-time-past, one is
 time-too-old against median-time-past, one carries a 103-byte coinbase
@@ -110,6 +113,16 @@ rejection at a non-boundary height, which is the contamination gate's target
 class (a share/near row), not an error block: the error-block case is
 specifically the retarget-not-applied at an epoch boundary where the header
 still meets full proof of work.
+
+## Direct-stale corrections: `data/stale_descendant_corrections.csv`
+
+This compact exact-key overlay records source rows originally labelled as
+direct stales that are instead accepted stale descendants. Each row carries a
+Bitcoin height, header hash, and the fixed
+`reclassified_from_direct_stale` reason. It is deliberately separate from the
+descendant sidecar: monitor projection requires both the overlay key and the
+sidecar's accepted chain-specific observation, so an unrelated sidecar entry
+cannot rewrite a raw direct-stale source row.
 
 ## RSK: `data/validated-stales/rsk_validated_stales.csv`
 
@@ -340,7 +353,8 @@ corresponding source-chain rows are admitted to the monitor payloads through
 unknown rows preserve that source classification and carry the sidecar's
 `validation_status=VALID_STALE_DESCENDANT` verdict. The Namecoin and RSK
 observations corrected from direct stales are projected as `stale_descendant`
-with the same validation verdict, matching the exact-key correction overlay.
+with the same validation verdict only when the direct-stale correction overlay
+and the sidecar agree on the source chain, Bitcoin height, and header hash.
 The six historical observations carry complete authenticated child
 headers; live-chain observations use the independently verified identities in
 `data/child-identity/`. A publication build fails closed if any accepted

@@ -27,7 +27,10 @@ from stale_blocks_analysis.error_blocks import (
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
 )
-from stale_blocks_analysis.stale_blocks import load_stale_descendant_observation_keys
+from stale_blocks_analysis.stale_blocks import (
+    load_stale_descendant_correction_keys,
+    load_stale_descendant_observation_keys,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
@@ -251,6 +254,39 @@ def test_656478_remains_in_stale_descendants() -> None:
     with (REPO / "data" / "stale_descendants.csv").open(newline="") as f:
         hashes = {r["btc_header_hash"].lower() for r in csv.DictReader(f)}
     assert target in hashes
+
+
+def test_656478_has_an_explicit_direct_stale_correction_key() -> None:
+    target = "00000000000000000005f8f74e57aa4584aacfed509b8a6feb20bc22e7d60a34"
+    assert (656478, target) in load_stale_descendant_correction_keys()
+
+
+def test_error_block_builder_writes_lf_terminated_csvs(tmp_path: Path) -> None:
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_lf_terminators_under_test",
+    )
+    output = tmp_path / "error_blocks.csv"
+    row = {field: "" for field in module.COLUMNS}
+    row.update(
+        height="1",
+        hash="00" * 32,
+        classification="error_block",
+    )
+    module.write_csv([row], output)
+    assert b"\r\n" not in output.read_bytes()
+
+    mtp_context = tmp_path / "error_blocks_mtp_context.csv"
+    module.update_mtp_context(
+        {
+            "height": "1",
+            "hash": "00" * 32,
+            "provenance": "monitor-live-capture:test",
+            "_parent_median_time_past": "1",
+        },
+        mtp_context,
+    )
+    assert b"\r\n" not in mtp_context.read_bytes()
 
 
 def _load_script(relative_path: str, name: str):

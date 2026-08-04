@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Preserve LF line endings in both error-block CSV writers and make the offline
+error-block validator reject every row whose `classification` is not exactly
+`error_block`. Project a source row originally labelled `stale` to
+`stale_descendant` only when its accepted sidecar observation matches both the
+source chain identity and the compact exact-key direct-stale correction
+overlay; ordinary unknown-row descendant observations continue to preserve
+their original source classification.
+
 Project the accepted stale-descendant sidecar's `VALID_STALE_DESCENDANT`
 verdict onto every corresponding monitor source observation while preserving
 its original source classification as provenance. Regenerate the complete

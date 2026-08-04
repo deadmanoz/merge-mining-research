@@ -257,6 +257,9 @@ HATHOR_CSV = VALIDATED_STALES_DIR / "hathor_validated_stales.csv"
 # promoting only entries whose backward header walk reaches a known stale and
 # whose validation_status is VALID_STALE_DESCENDANT.
 STALE_DESCENDANTS_CSV = DATA_DIR / "stale_descendants.csv"
+# Compact exact-key correction overlay for source rows that were formerly
+# classified as direct stales but belong to the stale-descendant sidecar.
+STALE_DESCENDANT_CORRECTIONS_CSV = DATA_DIR / "stale_descendant_corrections.csv"
 
 # AuxPoW-recovered stale blocks (Emercoin merged mining side channel).
 # Hybrid PoW/PoS chain in the Peercoin lineage — only PoW blocks carry
