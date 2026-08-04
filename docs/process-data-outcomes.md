@@ -22,7 +22,10 @@ first-class error-blocks dataset (`data/error-blocks/error_blocks.csv`, 33
 rows), which supersedes the former 32-key exclusion overlay: it carries the 31
 consensus-invalid keys plus the 946,213 `time_below_mtp` row and the 717,696
 `nbits_retarget_not_applied` row, and the former direct-stale-only correction
-(656,478) is now a stale-descendant single-home with no exclusion guard.
+(656,478) is now a stale-descendant single-home. It is not an error-block
+exclusion, but raw source projection requires the compact
+`data/stale_descendant_corrections.csv` exact-key correction overlay and
+matching sidecar chain observation.
 Twenty-eight of
 the invalid keys belonged to the 1,089-row addition, leaving 1,061 accepted
 direct additions; the other three invalid keys already existed upstream. The

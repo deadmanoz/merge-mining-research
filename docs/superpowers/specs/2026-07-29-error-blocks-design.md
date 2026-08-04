@@ -104,7 +104,11 @@ home) and in a per-chain direct-stale validated CSV (its original, pre-
 reclassification home). The old overlay row existed only to subtract it from the
 direct-stale view. This change instead **removes 656478 from its per-chain
 validated-stales CSV**, so a `stale_descendant` lives in exactly one place and
-no `direct_stale_only` exclusion guard is needed at all. (This is a deliberate,
+no `direct_stale_only` *error-block* exclusion guard is needed. The monitor
+projection retains a separate exact-key correction guard: it accepts a raw
+direct-stale source row only when the compact direct-stale correction overlay
+and the accepted sidecar source observation match.
+(This is a deliberate,
 documented expansion beyond the brief's "do not change validated-stales
 baselines" boundary — see §5.)
 
@@ -127,7 +131,10 @@ Four pieces, each with one job:
   `scripts/classify/classify_rsk_stales.py` — are updated to the new import.
   Because 656478 is removed from its validated-stales CSV at the source, the
   `direct_stale_only` scope and its special-casing in the descendant loader path
-  are deleted; the gate no longer distinguishes scopes.
+  are deleted; the error-block gate no longer distinguishes scopes. The monitor
+  export separately requires the compact direct-stale exact-key correction
+  overlay before it projects a raw direct-stale source row into the final
+  descendant category.
 
 - **`scripts/prep/build_error_blocks.py`** — the builder. Harvests evidence for
   seed rows and sweep candidates from the reachable sources (the chain archive
@@ -184,8 +191,9 @@ Evidence-first rules (the brief's hard constraint):
   unchanged by the migration). Separately, a test asserts that height 656478 no
   longer appears in any per-chain direct-stale validated CSV and still appears
   in `data/stale_descendants.csv`, so the net loader output is provably
-  equivalent to the old overlay's behavior — with the `direct_stale_only`
-  band-aid removed at the source rather than via an exclusion row.
+  equivalent to the old overlay's behavior, while raw source projection relies
+  on the compact direct-stale exact-key correction overlay rather than an
+  error-block exclusion row.
 
 Testing:
 
@@ -262,7 +270,9 @@ Scope boundaries (what this change does NOT do):
   row passing the offline re-derivation validator in CI. No `exclusion_scope`
   column; the gate keys off `classification == "error_block"`.
 - Height 656478 is removed from its per-chain validated-stales CSV and remains
-  in `data/stale_descendants.csv`; the `direct_stale_only` guard is gone.
+  in `data/stale_descendants.csv`; the `direct_stale_only` error-block guard is
+  gone, but raw direct-stale projection requires the compact exact-key
+  correction overlay.
 - Every sweep has a written report (members found, rows examined, negative
   results included).
 - One source of truth between the dataset and the exclusion gate; net loader

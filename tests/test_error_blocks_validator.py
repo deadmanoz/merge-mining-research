@@ -51,6 +51,27 @@ def test_duplicate_dataset_key_fails_offline_validation(tmp_path: Path) -> None:
     assert any("duplicate error-block key" in failure for failure in failures)
 
 
+def test_non_error_block_classification_fails_offline_validation(
+    tmp_path: Path,
+) -> None:
+    """The offline validator matches the gate loader's classification check."""
+    mod = _load_validator()
+    with ERROR_BLOCKS_CSV.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        row = next(reader)
+    assert fieldnames is not None
+    path = tmp_path / "wrong_classification.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(dict(row, classification="stale"))
+
+    failures = mod.validate_dataset(path)
+
+    assert any("classification must be error_block" in failure for failure in failures)
+
+
 def test_946213_time_below_mtp_revalidates() -> None:
     import csv as _csv
 

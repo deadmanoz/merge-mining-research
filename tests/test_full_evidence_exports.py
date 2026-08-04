@@ -1217,10 +1217,6 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     }
     _write_csv(data_dir / "namecoin_stale_blocks.csv", [source_row])
     _write_csv(
-        data_dir / "validated-stales" / "namecoin_validated_stales.csv",
-        [source_row],
-    )
-    _write_csv(
         data_dir / "stale_descendants.csv",
         [
             {
@@ -1237,6 +1233,16 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
         ],
     )
     _write_csv(
+        data_dir / "stale_descendant_corrections.csv",
+        [
+            {
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "correction_reason": "reclassified_from_direct_stale",
+            }
+        ],
+    )
+    _write_csv(
         data_dir / "child-identity" / "namecoin_child_identity.csv",
         [
             {
@@ -1249,12 +1255,6 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
             }
         ],
     )
-    monkeypatch.setattr(
-        full_evidence,
-        "load_stale_exclusion_keys",
-        lambda: {(656478, header_hash)},
-    )
-
     full_evidence.build_monitor_evidence_exports(
         data_dir=data_dir,
         output_dir=output_dir,
@@ -1277,14 +1277,12 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     assert "reclassified_stale_descendant_observations=1" in namecoin["notes"]
 
 
-def test_monitor_export_reclassifies_stale_on_sidecar_observation_alone(
+def test_monitor_export_does_not_reclassify_stale_without_exact_correction_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Post error-blocks, a stale descendant is never an error block, so the
-    # projection turns on the exact sidecar observation alone — the error-block
-    # exclusion set (which no longer carries a direct_stale_only scope) is not
-    # consulted. An empty exclusion set must not block the reclassification.
+    # A descendant sidecar observation alone must not reclassify a direct stale.
+    # The compact exact-key correction overlay must also contain the key.
     import stale_blocks_analysis.full_evidence as full_evidence
 
     data_dir = tmp_path / "data"
@@ -1312,12 +1310,13 @@ def test_monitor_export_reclassifies_stale_on_sidecar_observation_alone(
     rows, stats = full_evidence.collect_source_rows(
         source,
         stale_descendant_observations=frozenset({("namecoin", 656478, header_hash)}),
+        stale_descendant_correction_keys=frozenset(),
     )
 
-    assert [row["classification"] for row in rows] == ["stale_descendant"]
-    assert rows[0]["validation_status"] == "VALID_STALE_DESCENDANT"
-    assert stats.classifications["stale_descendant"] == 1
-    assert "reclassified_stale_descendant_observations=1" in stats.notes
+    assert [row["classification"] for row in rows] == ["stale"]
+    assert rows[0]["validation_status"] == "VALID"
+    assert stats.classifications["stale"] == 1
+    assert "reclassified_stale_descendant_observations=1" not in stats.notes
 
 
 def test_monitor_export_does_not_reclassify_stale_with_sidecar_height_mismatch(

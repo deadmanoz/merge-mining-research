@@ -39,6 +39,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
+    load_stale_descendant_correction_keys,
     load_stale_descendant_observation_keys,
 )
 from stale_blocks_analysis.error_blocks import (  # noqa: E402
@@ -350,6 +351,7 @@ def _accepted_descendant_count(path: Path) -> int:
 def _projected_stale_descendant_count(
     source: EvidenceSource,
     descendant_observations: frozenset[tuple[str, int, str]],
+    descendant_correction_keys: frozenset[tuple[int, str]],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> int:
@@ -370,14 +372,15 @@ def _projected_stale_descendant_count(
                 key = (int(normalized["btc_height"]), block_hash)
             except ValueError:
                 continue
-            # A stale descendant is never an error block, so the projection
-            # turns on the sidecar observation alone; the consensus-invalid
-            # gate still excludes any exact key recorded as an error block.
+            # A direct-stale correction must match the sidecar's source
+            # observation and the compact exact-key correction overlay.
             if (
                 source.chain,
                 key[0],
                 block_hash,
-            ) in descendant_observations and key not in consensus_invalid_keys:
+            ) in descendant_observations and (
+                key in descendant_correction_keys and key not in consensus_invalid_keys
+            ):
                 count += 1
     return count
 
@@ -385,6 +388,7 @@ def _projected_stale_descendant_count(
 def _accepted_descendant_observations(
     sources: list[EvidenceSource],
     descendant_observations: frozenset[tuple[str, int, str]],
+    descendant_correction_keys: frozenset[tuple[int, str]],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> set[tuple[str, int, str]]:
@@ -421,10 +425,8 @@ def _accepted_descendant_observations(
                     continue
                 if classification != "stale":
                     continue
-                # A stale descendant is never an error block, so the sidecar
-                # observation alone admits the row; the consensus-invalid gate
-                # above has already excluded any exact error-block key.
-                accepted.add(observation_key)
+                if key in descendant_correction_keys:
+                    accepted.add(observation_key)
     return accepted
 
 
@@ -502,6 +504,9 @@ def validate_publication_inputs(
         descendants_path = args.data_dir / "stale_descendants.csv"
         descendant_observations = load_stale_descendant_observation_keys(
             descendants_path
+        )
+        descendant_correction_keys = load_stale_descendant_correction_keys(
+            args.data_dir / "stale_descendant_corrections.csv"
         )
         descendant_counts = Counter(
             chain for chain, _height, _block_hash in descendant_observations
@@ -633,6 +638,7 @@ def validate_publication_inputs(
                 accepted_descendants = _accepted_descendant_observations(
                     descendant_sources,
                     descendant_observations,
+                    descendant_correction_keys,
                     excluded_keys,
                     consensus_invalid_keys,
                 )
@@ -689,6 +695,7 @@ def validate_publication_inputs(
                     coverage += _projected_stale_descendant_count(
                         source,
                         descendant_observations,
+                        descendant_correction_keys,
                         excluded_keys,
                         consensus_invalid_keys,
                     )

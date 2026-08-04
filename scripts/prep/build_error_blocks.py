@@ -580,7 +580,12 @@ def build_rows(
 def write_csv(rows: list[dict[str, str]], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        writer = csv.DictWriter(
+            f,
+            fieldnames=COLUMNS,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -649,7 +654,11 @@ def update_mtp_context(
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=MTP_CONTEXT_COLUMNS)
+        writer = csv.DictWriter(
+            f,
+            fieldnames=MTP_CONTEXT_COLUMNS,
+            lineterminator="\n",
+        )
         writer.writeheader()
         for key in sorted(entries, key=lambda k: (int(k[0]), k[1])):
             writer.writerow(entries[key])

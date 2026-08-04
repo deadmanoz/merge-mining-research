@@ -30,7 +30,12 @@ analysis package:
   `stale_block_exclusions.csv` overlay: its rows are removed from all public
   stale sets by exact `(height, hash)` key. The former `direct_stale_only`
   row (656478) is not here - it is a `stale_descendant` single-home in
-  `stale_descendants.csv` with no exclusion guard.
+  `stale_descendants.csv`; raw source projection requires its separate
+  exact-key correction overlay.
+- `stale_descendant_corrections.csv` - the compact exact-key correction
+  overlay for raw source rows originally labelled direct stales. A projection
+  requires agreement between this overlay and the accepted stale-descendant
+  sidecar observation.
 - `error-blocks/mtp_context.csv` - the median-time-past sidecar: the
   canonical parent's median-time-past for each time-rule error block, keyed
   by `(height, hash)`, so the offline validator can re-derive time-rule

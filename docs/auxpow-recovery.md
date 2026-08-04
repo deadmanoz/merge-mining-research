@@ -113,8 +113,10 @@ block (found by the rejected-row sweep). The former overlay's 32nd key, a
 direct-stale-only correction at Bitcoin
 height 656,478, is not an error block: its predecessor is a known stale rather
 than an active-chain block, so it now lives only in the accepted
-stale-descendant sidecar with no exclusion guard. Loaders and upstream-derived
-reports apply the
+stale-descendant sidecar. It is not part of the error-block gate, but projection
+of a raw direct-stale source row additionally requires the compact
+`data/stale_descendant_corrections.csv` exact-key correction overlay and its
+matching chain-specific sidecar observation. Loaders and upstream-derived reports apply the
 gate by exact `(height, hash)` key, keying off `classification == "error_block"`.
 
 A separate generated evidence layer serves downstream consumers that need more
