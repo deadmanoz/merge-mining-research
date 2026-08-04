@@ -70,14 +70,17 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_load_keys_from_committed_dataset() -> None:
     keys = load_stale_exclusion_keys(ERROR_BLOCKS_CSV)
-    assert (363967, "00000000000000000954ed93eda1e79e8261137548fa9ccf4d516bb384a3660b") in keys
+    assert (
+        363967,
+        "00000000000000000954ed93eda1e79e8261137548fa9ccf4d516bb384a3660b",
+    ) in keys
 
 
 def test_consensus_invalid_subset_equals_all_rows() -> None:
     # Every dataset row is an error block, so the two key sets are identical.
-    assert load_stale_exclusion_keys(ERROR_BLOCKS_CSV) == load_consensus_invalid_stale_keys(
+    assert load_stale_exclusion_keys(
         ERROR_BLOCKS_CSV
-    )
+    ) == load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)
 
 
 def test_missing_file_fails_closed(tmp_path: Path) -> None:
@@ -87,17 +90,17 @@ def test_missing_file_fails_closed(tmp_path: Path) -> None:
 
 def test_blank_classification_fails_closed(tmp_path: Path) -> None:
     p = tmp_path / "error_blocks.csv"
-    p.write_text(
-        "height,hash,classification\n"
-        "1," + "00" * 32 + ",\n"
-    )
+    p.write_text("height,hash,classification\n1," + "00" * 32 + ",\n")
     with pytest.raises(ValueError):
         load_stale_exclusion_keys(p)
 
 
 def test_exclude_rows_filters_exact_key() -> None:
     rows = [
-        {"height": "363967", "hash": "00000000000000000954ed93eda1e79e8261137548fa9ccf4d516bb384a3660b"},
+        {
+            "height": "363967",
+            "hash": "00000000000000000954ed93eda1e79e8261137548fa9ccf4d516bb384a3660b",
+        },
         {"height": "1", "hash": "11" * 32},
     ]
     kept = exclude_consensus_invalid_rows(rows, path=ERROR_BLOCKS_CSV)
@@ -236,11 +239,23 @@ import csv
 
 
 EXPECTED_COLUMNS = [
-    "height", "hash", "btc_prev_hash", "btc_header_version", "btc_time",
-    "btc_bits", "expected_nbits", "btc_header_hex", "coinbase_height",
-    "coinbase_scriptsig_hex", "source_chains", "source_child_observations",
-    "classification", "rejection_reason", "rules_violated",
-    "first_observed_child_time", "provenance",
+    "height",
+    "hash",
+    "btc_prev_hash",
+    "btc_header_version",
+    "btc_time",
+    "btc_bits",
+    "expected_nbits",
+    "btc_header_hex",
+    "coinbase_height",
+    "coinbase_scriptsig_hex",
+    "source_chains",
+    "source_child_observations",
+    "classification",
+    "rejection_reason",
+    "rules_violated",
+    "first_observed_child_time",
+    "provenance",
 ]
 
 
@@ -286,11 +301,23 @@ from pathlib import Path
 from stale_blocks_analysis.config import ERROR_BLOCKS_CSV, STALE_EXCLUSIONS_CSV
 
 COLUMNS = [
-    "height", "hash", "btc_prev_hash", "btc_header_version", "btc_time",
-    "btc_bits", "expected_nbits", "btc_header_hex", "coinbase_height",
-    "coinbase_scriptsig_hex", "source_chains", "source_child_observations",
-    "classification", "rejection_reason", "rules_violated",
-    "first_observed_child_time", "provenance",
+    "height",
+    "hash",
+    "btc_prev_hash",
+    "btc_header_version",
+    "btc_time",
+    "btc_bits",
+    "expected_nbits",
+    "btc_header_hex",
+    "coinbase_height",
+    "coinbase_scriptsig_hex",
+    "source_chains",
+    "source_child_observations",
+    "classification",
+    "rejection_reason",
+    "rules_violated",
+    "first_observed_child_time",
+    "provenance",
 ]
 
 
@@ -383,7 +410,9 @@ def _load_validator():
     spec = importlib.util.spec_from_file_location(
         "validate_error_blocks",
         Path(__file__).resolve().parents[1]
-        / "scripts" / "analysis" / "validate_error_blocks.py",
+        / "scripts"
+        / "analysis"
+        / "validate_error_blocks.py",
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -475,9 +504,7 @@ def validate_row(row: dict[str, str]) -> list[str]:
     for rule in row["rules_violated"].split("|"):
         rule = rule.strip()
         if rule in HEADER_VERSION_RULES:
-            err = block_version_error(
-                {"btc_header_hex": header_hex}, height
-            )
+            err = block_version_error({"btc_header_hex": header_hex}, height)
             if err is None:
                 failures.append(f"rule {rule} did not re-derive")
         elif rule in COINBASE_LENGTH_RULES:
@@ -493,7 +520,11 @@ def validate_row(row: dict[str, str]) -> list[str]:
     nbits = _load_nbits_table()
     epoch_start = (height // 2016) * 2016
     expected = nbits.get(epoch_start)
-    if expected is not None and row.get("expected_nbits") and row["expected_nbits"] != expected:
+    if (
+        expected is not None
+        and row.get("expected_nbits")
+        and row["expected_nbits"] != expected
+    ):
         failures.append(
             f"expected_nbits {row['expected_nbits']} != epoch reference {expected}"
         )
@@ -570,7 +601,9 @@ Fold the relevant pins from `tests/test_stale_exclusions.py` into `tests/test_er
 def test_656478_absent_from_direct_stale_catalogues() -> None:
     # 656478 is a stale_descendant; it must not appear in any direct-stale CSV.
     target = "00000000000000000005f8f74e57aa4584aacfed509b8a6feb20bc22e7d60a34"
-    for path in sorted((REPO / "data" / "validated-stales").glob("*_validated_stales.csv")):
+    for path in sorted(
+        (REPO / "data" / "validated-stales").glob("*_validated_stales.csv")
+    ):
         with path.open(newline="") as f:
             for row in csv.DictReader(f):
                 assert row.get("btc_header_hash", "").lower() != target, path
@@ -620,6 +653,7 @@ def test_946213_time_below_mtp_revalidates() -> None:
     mod = _load_validator()
     import csv as _csv
     from stale_blocks_analysis.config import ERROR_BLOCKS_CSV as _p
+
     with _p.open(newline="") as f:
         row = next(r for r in _csv.DictReader(f) if r["height"] == "946213")
     assert "time_below_mtp" in row["rules_violated"]

@@ -2062,9 +2062,16 @@ def test_published_monitor_represents_every_stale_descendant_observation() -> No
             for row in csv.DictReader(handle):
                 if row.get("relevance_reason") != "valid_stale_descendant":
                     continue
+                height = row.get("btc_height", "")
+                if not height:
+                    # Legacy committed monitor exports predate the exact
+                    # chain/height/hash join. A source row without its Bitcoin
+                    # height cannot represent a sidecar observation; a fresh
+                    # export now omits it rather than matching on hash alone.
+                    continue
                 observation_key = (
                     row["chain"],
-                    int(row["btc_height"]),
+                    int(height),
                     row["btc_header_hash"].lower(),
                 )
                 if observation_key in expected:
