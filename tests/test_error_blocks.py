@@ -902,16 +902,20 @@ def _witnessing_export() -> dict[str, object]:
         ("namecoin", "syscoin:1"),
         # An observation without the chain:child_height form.
         ("namecoin", "namecoin"),
+        # The same chain observed twice while the other source chain is
+        # unobserved (a one-to-one mapping is required).
+        ("namecoin|rsk", "namecoin:1|namecoin:2"),
     ],
-    ids=["count-mismatch", "unknown-chain", "missing-child-height"],
+    ids=["count-mismatch", "unknown-chain", "missing-child-height", "chain-twice"],
 )
 def test_self_contained_row_rejects_mismatched_child_observations(
     source_chains: str, source_child_observations: str
 ) -> None:
     # Regression: the child observations must correspond to the source chains —
     # exactly one chain:child_height observation per source chain, each naming
-    # one of those chains. A count mismatch or an observation naming a chain
-    # outside source_chains fails closed at ingest.
+    # one of those chains, with no chain observed twice or left unobserved. A
+    # count mismatch, an observation naming a chain outside source_chains, or a
+    # duplicated/unobserved chain fails closed at ingest.
     module = _load_script(
         "scripts/prep/build_error_blocks.py",
         "build_error_blocks_observation_mismatch_under_test",
@@ -924,21 +928,31 @@ def test_self_contained_row_rejects_mismatched_child_observations(
         module._self_contained_row(export)
 
 
-def test_self_contained_row_accepts_matching_child_observations() -> None:
-    # A matching set — one chain:child_height observation per source chain,
-    # each naming a source chain — is accepted.
+@pytest.mark.parametrize(
+    ("source_chains", "source_child_observations"),
+    [
+        ("namecoin|syscoin", "namecoin:1|syscoin:2"),
+        ("namecoin|rsk", "namecoin:1|rsk:2"),
+    ],
+    ids=["namecoin-syscoin", "namecoin-rsk"],
+)
+def test_self_contained_row_accepts_matching_child_observations(
+    source_chains: str, source_child_observations: str
+) -> None:
+    # A matching one-to-one set — one chain:child_height observation per source
+    # chain, each naming a distinct source chain — is accepted.
     module = _load_script(
         "scripts/prep/build_error_blocks.py",
         "build_error_blocks_observation_match_under_test",
     )
     export = _witnessing_export()
-    export["source_chains"] = "namecoin|syscoin"
-    export["source_child_observations"] = "namecoin:1|syscoin:2"
+    export["source_chains"] = source_chains
+    export["source_child_observations"] = source_child_observations
 
     row = module._self_contained_row(export)
 
-    assert row["source_chains"] == "namecoin|syscoin"
-    assert row["source_child_observations"] == "namecoin:1|syscoin:2"
+    assert row["source_chains"] == source_chains
+    assert row["source_child_observations"] == source_child_observations
 
 
 def test_builder_self_contained_validation_without_private_archives(
