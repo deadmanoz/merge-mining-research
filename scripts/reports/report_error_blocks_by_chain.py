@@ -64,6 +64,30 @@ def _split_pipe(value: str) -> list[str]:
     return [part.strip() for part in value.split("|") if part.strip()]
 
 
+def _validate_chain_name(chain: str) -> str:
+    """Return ``chain`` unchanged if it is a safe output filename stem.
+
+    The chain name comes from the dataset's ``source_chains`` column and is
+    joined onto the staging directory to build each ``*_error_blocks.csv``
+    view path. A value that is absolute, contains ``..``, or contains a path
+    separator would escape the staging directory and write/overwrite a file
+    outside it, so reject those outright (fail closed) rather than sanitize
+    them into a silently different name.
+    """
+    if (
+        not chain
+        or Path(chain).is_absolute()
+        or ".." in chain
+        or "/" in chain
+        or "\\" in chain
+    ):
+        raise ValueError(
+            f"unsafe chain name in source_chains: {chain!r} (must be a plain "
+            "filename stem: not absolute, no '..', no path separators)"
+        )
+    return chain
+
+
 def _chain_observation(row: dict[str, str], chain: str) -> str:
     """Return this chain's ``<chain>:<child_height>`` observation entry."""
     for entry in _split_pipe(row.get("source_child_observations", "")):
@@ -95,6 +119,7 @@ def build_by_chain_views(
     per_chain: dict[str, list[dict[str, str]]] = {}
     for row in rows:
         for chain in _split_pipe(row.get("source_chains", "")):
+            chain = _validate_chain_name(chain)
             view_row = dict(row)
             view_row[CHAIN_OBSERVATION_FIELD] = _chain_observation(row, chain)
             per_chain.setdefault(chain, []).append(view_row)

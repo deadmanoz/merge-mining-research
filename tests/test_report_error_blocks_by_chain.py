@@ -203,3 +203,32 @@ def test_default_output_dir_is_guarded_too(tmp_path: Path, monkeypatch) -> None:
     assert rc == 0
     assert (default_dir / "namecoin_error_blocks.csv").exists()
     assert not (default_dir / "stale_chain_error_blocks.csv").exists()
+
+
+def test_malicious_source_chains_is_refused_no_escape(tmp_path: Path) -> None:
+    import pytest
+
+    # Regression: a source_chains value that is absolute or contains path
+    # separators / ".." would be joined onto the staging dir and escape it,
+    # writing/overwriting a *_error_blocks.csv outside the output dir. Such a
+    # chain name must be refused (fail closed), and no file may be written
+    # outside the output dir.
+    out_dir = tmp_path / "by-chain"
+    for malicious in ("../../etc", "/abs", "a/b", "a\\b", ".."):
+        dataset = tmp_path / "error_blocks.csv"
+        _dataset(
+            dataset,
+            [_row("100", "aa" * 32, malicious, f"{malicious}:50")],
+        )
+        with pytest.raises(ValueError, match="unsafe chain name"):
+            report.build_by_chain_views(dataset, out_dir)
+        # No view file was written anywhere outside the (never-created) output
+        # dir, and no staging temp dir leaked into the parent.
+        assert not out_dir.exists()
+        assert not any(
+            p.name.startswith(f".{out_dir.name}.tmp-")
+            for p in tmp_path.iterdir()
+        )
+        # Nothing escaped into the parent of the output dir either.
+        assert not (tmp_path / "etc").exists()
+        assert not (tmp_path / "abs").exists()
