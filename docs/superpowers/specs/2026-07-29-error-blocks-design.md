@@ -131,7 +131,7 @@ Four pieces, each with one job:
 
 - **`scripts/prep/build_error_blocks.py`** — the builder. Harvests evidence for
   seed rows and sweep candidates from the reachable sources (the chain archive
-  on bitcoin-02 `staging/chains/<chain>/classified/`, the sibling
+  on `<archival-host>` `staging/chains/<chain>/classified/`, the sibling
   `stale-blocks-research/results/full-evidence/`, and the monitor export for
   946213), assembles rows, and writes `error_blocks.csv`. Read-only against all
   sources; fails closed with a clear message when a required private input is
@@ -245,7 +245,7 @@ Scope boundaries (what this change does NOT do):
 
 ## Evidence sources (confirmed reachable)
 
-- **Chain archive (bitcoin-02):**
+- **Chain archive (`<archival-host>`):**
   `~/mmr-child-header-regen-20260729/staging/chains/<chain>/classified/<chain>_stale_blocks.csv`
   — full classifier inventories carrying `validation_status` (`REJECTED: ...`
   reasons), `expected_nbits`, `btc_header_hex`, `coinbase_scriptsig_hex`,

@@ -14,7 +14,7 @@
 
 ## Grounding facts the implementer must know
 
-- **Worktree:** all paths below are under `/Users/anthonymilton/dev/bitcoin/merge-mining-research-error-blocks`. Branch `feat/error-blocks`. Never commit to `main`.
+- **Worktree:** all paths below are under `<repo-worktree>` (the `merge-mining-research-error-blocks` worktree). Branch `feat/error-blocks`. Never commit to `main`.
 - **Current overlay:** `data/stale_block_exclusions.csv` — 32 rows. Header: `height,hash,btc_prev_hash,btc_header_version,coinbase_height,coinbase_scriptsig_hex,source_chains,source_child_observations,rejection_reason,exclusion_scope`. 31 `consensus_invalid` + 1 `direct_stale_only` (height 656478).
 - **656478 is NOT in any per-chain validated-stales CSV** (verified: its hash `00000000000000000005f8f74e57aa4584aacfed509b8a6feb20bc22e7d60a34` appears only in `data/stale_block_exclusions.csv` and `data/stale_descendants.csv`). So removing the `direct_stale_only` guard needs **no CSV mutation** — only deleting scope handling and adding an absence test. This does NOT cross the brief's validated-stales boundary.
 - **Loader module:** `src/stale_blocks_analysis/stale_exclusions.py` exposes `load_stale_exclusion_keys`, `load_consensus_invalid_stale_keys`, `exclude_stale_rows`, `exclude_consensus_invalid_rows`, all taking `path: Path = STALE_EXCLUSIONS_CSV`. Matching is exact `(int(row["height"]), str(row["hash"]).lower())`.
@@ -23,7 +23,7 @@
 - **PoW helper:** `auxpow_parse.hash_meets_btc_difficulty(header_hash_internal: bytes, bits: int) -> bool` at `auxpow_parse.py:256` — internal (LE) 32-byte sha256d vs target. `nbits_to_target(bits)` at :240.
 - **Gate functions (reuse in validator):** `btc_stale_validation.block_version_error(row, expected_height, *, header_hex_key)`, `median_time_past_error(row, parent_median_time_past, *, time_key)`, `coinbase_scriptsig_length_error(row, *, scriptsig_key)`, `bip34_height_error(row, expected_height, *, bip34_key, scriptsig_key, header_hex_key)`. Each returns `None` (pass) or a `"REJECTED: ..."`/`"UNKNOWN: ..."` string.
 - **Epoch nBits reference:** `data/bitcoin-epoch-reference/btc_nbits_by_epoch.json` is `{ "<height>": "<hexbits>", ... }` (e.g. `"0": "1d00ffff"`). Used offline for `expected_nbits` cross-checks.
-- **Evidence sources (reachable, read-only):** bitcoin-02 chain archive `~/mmr-child-header-regen-20260729/staging/chains/<chain>/classified/<chain>_stale_blocks.csv` (has `validation_status` REJECTED reasons + `btc_header_hex`/`coinbase_scriptsig_hex`/`btc_time`/`btc_bits`/`expected_nbits`); sibling `~/dev/bitcoin/stale-blocks-research/results/full-evidence/<chain>_evidence.csv` (43-col provenance). 946213 comes from a monitor export (operator-coordinated).
+- **Evidence sources (reachable, read-only):** `<archival-host>` chain archive `~/mmr-child-header-regen-20260729/staging/chains/<chain>/classified/<chain>_stale_blocks.csv` (has `validation_status` REJECTED reasons + `btc_header_hex`/`coinbase_scriptsig_hex`/`btc_time`/`btc_bits`/`expected_nbits`); sibling `~/dev/bitcoin/stale-blocks-research/results/full-evidence/<chain>_evidence.csv` (43-col provenance). 946213 comes from a monitor export (operator-coordinated).
 - **Hash byte order:** use `stale_blocks_analysis.auxpow_chainid` helpers; never guess display vs internal order.
 
 ---
@@ -264,7 +264,7 @@ Expected: FAIL with `FileNotFoundError` (ERROR_BLOCKS_CSV does not exist yet)
 
 - [ ] **Step 3: Implement the builder**
 
-Create `scripts/prep/build_error_blocks.py`. It reads the old overlay for the seed key list, joins each key to its evidence row in the reachable archives (bitcoin-02 classified inventories via a mount/ssh-fetch, or the sibling full-evidence exports), derives the audit columns from `btc_header_hex`, and writes the CSV. It must fail closed (exit non-zero, no write) if any seed key's evidence cannot be located, unless `--allow-partial --output-dir <dir>` is given.
+Create `scripts/prep/build_error_blocks.py`. It reads the old overlay for the seed key list, joins each key to its evidence row in the reachable archives (`<archival-host>` classified inventories via a mount/ssh-fetch, or the sibling full-evidence exports), derives the audit columns from `btc_header_hex`, and writes the CSV. It must fail closed (exit non-zero, no write) if any seed key's evidence cannot be located, unless `--allow-partial --output-dir <dir>` is given.
 
 Structure (implement fully; this is the skeleton with the load-bearing parts shown):
 
