@@ -44,7 +44,8 @@ from the committed bytes, with no live RPC:
    ``nbits_retarget_not_applied`` rule is the deliberate exception (its
    embedded bits are the previous epoch's by design).
 4. The audit columns derived from the committed bytes must agree with those
-   bytes: ``hash`` (the header digest), ``btc_header_version`` (header bytes
+   bytes: ``hash`` (the header digest), ``btc_prev_hash`` (header bytes 4-36,
+   reversed to display order), ``btc_header_version`` (header bytes
    0-4 LE signed), ``btc_time`` (header bytes 68-72 LE), ``btc_bits`` (header
    bytes 72-76 LE), and ``coinbase_height`` (the BIP34 height prefix decoded
    from ``coinbase_scriptsig_hex``). A tampered audit column that disagrees
@@ -92,6 +93,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from stale_blocks_analysis.auxpow_chainid import hash_to_display_hex
 from stale_blocks_analysis.auxpow_parse import (
     hash_meets_btc_difficulty,
     parse_coinbase_height,
@@ -416,14 +418,21 @@ def validate_row(
                 failures.append(
                     "header hash does not meet its own target (not full PoW)"
                 )
-            # The hash, btc_header_version, btc_time, and btc_bits columns
-            # are derived values: they must agree with the committed header
-            # bytes, or the row's (height, hash) exclusion key, version-rule,
-            # time-rule, and PoW claims describe a different block than the
-            # header does.
+            # The hash, btc_prev_hash, btc_header_version, btc_time, and
+            # btc_bits columns are derived values: they must agree with the
+            # committed header bytes, or the row's (height, hash) exclusion
+            # key, parent-placement, version-rule, time-rule, and PoW claims
+            # describe a different block than the header does.
             derived_hash = digest[::-1].hex()
             if str(row.get("hash", "") or "").strip().lower() != derived_hash:
                 failures.append("hash column does not match btc_header_hex digest")
+            derived_prev_hash = hash_to_display_hex(header[4:36])
+            prev_hash_text = str(row.get("btc_prev_hash", "") or "").strip().lower()
+            if prev_hash_text != derived_prev_hash:
+                failures.append(
+                    "btc_prev_hash column does not match the header's embedded "
+                    "previous-block hash"
+                )
             derived_version = int.from_bytes(header[0:4], "little", signed=True)
             version_text = str(row.get("btc_header_version", "") or "").strip()
             try:

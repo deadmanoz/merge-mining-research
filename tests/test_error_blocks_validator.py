@@ -359,9 +359,9 @@ def test_embedded_bits_check_not_applied_to_retarget_row() -> None:
 def _full_pow_row() -> dict[str, str]:
     """A minimal row whose header meets its own (trivial) embedded target.
 
-    The audit columns (btc_header_version, btc_time, coinbase_height) agree
-    with the committed bytes so the derived-column cross-checks pass; the
-    scriptSig decodes to BIP34 height 0.
+    The audit columns (btc_prev_hash, btc_header_version, btc_time,
+    coinbase_height) agree with the committed bytes so the derived-column
+    cross-checks pass; the scriptSig decodes to BIP34 height 0.
     """
     header = (
         (2).to_bytes(4, "little")
@@ -376,6 +376,7 @@ def _full_pow_row() -> dict[str, str]:
     return {
         "height": "100000",
         "hash": digest[::-1].hex(),
+        "btc_prev_hash": "11" * 32,
         "btc_header_version": "2",
         "btc_time": "1400000000",
         "btc_bits": "2100ffff",
@@ -395,6 +396,21 @@ def test_hash_column_must_match_header_digest() -> None:
     )
     row["hash"] = "ff" * 32
     assert any("hash column does not match" in f for f in mod.validate_row(row))
+
+
+def test_btc_prev_hash_column_must_match_header_prev_hash() -> None:
+    mod = _load_validator()
+    row = _full_pow_row()
+    # Control: the consistent column is NOT flagged.
+    assert not any("btc_prev_hash" in f for f in mod.validate_row(row))
+    # A tampered column that disagrees with the header's embedded
+    # previous-block hash (bytes 4-36, reversed to display order) is flagged:
+    # the parent-placement claim would otherwise describe a different parent
+    # than the committed header does.
+    row["btc_prev_hash"] = "ff" * 32
+    assert any(
+        "btc_prev_hash column does not match" in f for f in mod.validate_row(row)
+    )
 
 
 def test_btc_bits_column_must_match_header_bits() -> None:
@@ -489,10 +505,11 @@ def _version_row(height: str, version: int, scriptsig_hex: str) -> dict[str, str
     Both btc_bits and expected_nbits use the trivially-met 2100ffff target so
     the own-target and canonical-target PoW checks pass; section (c) may still
     flag an epoch-table mismatch, which is not under test here. The audit
-    columns (btc_header_version, btc_time, coinbase_height) agree with the
-    committed bytes so the derived-column cross-checks pass; coinbase_height
-    is decoded from the scriptSig's BIP34 prefix (absent when the scriptSig
-    carries no decodable push, in which case the cross-check is skipped).
+    columns (btc_prev_hash, btc_header_version, btc_time, coinbase_height)
+    agree with the committed bytes so the derived-column cross-checks pass;
+    coinbase_height is decoded from the scriptSig's BIP34 prefix (absent when
+    the scriptSig carries no decodable push, in which case the cross-check is
+    skipped).
     """
     header = (
         version.to_bytes(4, "little", signed=True)
@@ -510,6 +527,7 @@ def _version_row(height: str, version: int, scriptsig_hex: str) -> dict[str, str
     return {
         "height": height,
         "hash": digest[::-1].hex(),
+        "btc_prev_hash": "11" * 32,
         "btc_header_version": str(version),
         "btc_time": "1400000000",
         "btc_bits": "2100ffff",
