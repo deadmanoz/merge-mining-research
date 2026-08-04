@@ -470,6 +470,15 @@ def validate_row(
         scriptsig = bytes.fromhex(scriptsig_text)
     except ValueError:
         scriptsig = b""
+        # A malformed NONEMPTY scriptSig is not missing evidence: the row
+        # claims to carry parent-coinbase bytes but they cannot be parsed, so
+        # no coinbase-dependent check (the BIP34-prefix cross-check here, the
+        # length gate, the BIP34 height gate) can evaluate them. Fail closed
+        # rather than silently treating the evidence as absent. (An EMPTY
+        # scriptSig stays missing evidence: the row may simply not expose the
+        # parent coinbase.)
+        if scriptsig_text:
+            failures.append("malformed nonempty coinbase_scriptsig_hex")
     derived_coinbase_height = parse_coinbase_height(scriptsig) if scriptsig else None
     if derived_coinbase_height is not None:
         coinbase_height_text = str(row.get("coinbase_height", "") or "").strip()

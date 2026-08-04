@@ -499,6 +499,24 @@ def test_coinbase_scriptsig_length_below_2_rederives() -> None:
     )
 
 
+def test_malformed_nonempty_coinbase_scriptsig_fails_closed() -> None:
+    mod = _load_validator()
+    # A VERSION-rule row (whose rule does not require the coinbase) carrying a
+    # malformed NONEMPTY scriptSig: the evidence cannot be parsed, so it must
+    # be flagged, not silently treated as missing evidence (which would let
+    # the row pass on its version rule alone).
+    row = _version_row("400000", 2, "02" + "00" * 30)  # BIP65-era (>= 388381)
+    row["rules_violated"] = "bip65_block_version_below_4"
+    row["coinbase_scriptsig_hex"] = "zz"  # nonempty but not hex
+    failures = mod.validate_row(row)
+    assert any("malformed nonempty coinbase_scriptsig_hex" in f for f in failures)
+    # An EMPTY scriptSig stays missing evidence: not flagged by this check.
+    row["coinbase_scriptsig_hex"] = ""
+    assert not any(
+        "malformed nonempty coinbase_scriptsig_hex" in f for f in mod.validate_row(row)
+    )
+
+
 def _version_row(height: str, version: int, scriptsig_hex: str) -> dict[str, str]:
     """A full-PoW row at ``height`` with the given header version.
 
