@@ -1217,10 +1217,6 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     }
     _write_csv(data_dir / "namecoin_stale_blocks.csv", [source_row])
     _write_csv(
-        data_dir / "validated-stales" / "namecoin_validated_stales.csv",
-        [source_row],
-    )
-    _write_csv(
         data_dir / "stale_descendants.csv",
         [
             {
