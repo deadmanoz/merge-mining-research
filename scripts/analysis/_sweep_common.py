@@ -130,11 +130,21 @@ InventoryReader = Callable[[str, str], str]
 
 
 def load_dataset_keys(path: Path = ERROR_BLOCKS_CSV) -> set[tuple[int, str]]:
-    """Load the committed error-blocks dataset keys as (height, hash)."""
+    """Load the committed error-blocks dataset keys as (height, hash).
+
+    Fails closed on an empty dataset (an empty or header-only CSV): the
+    sweeps treat any rediscovered catalogued row absent from this key set as
+    NEW, so an empty key set would make every sweep report every catalogued
+    error block as a NEW finding. This mirrors the fail-closed empty-dataset
+    checks in the gate loader (``stale_blocks_analysis.error_blocks``), the
+    builder, and the validator.
+    """
     keys: set[tuple[int, str]] = set()
     with path.open(newline="") as f:
         for row in csv.DictReader(f):
             keys.add((int(row["height"]), row["hash"].strip().lower()))
+    if not keys:
+        raise ValueError(f"no error block rows in {path}")
     return keys
 
 

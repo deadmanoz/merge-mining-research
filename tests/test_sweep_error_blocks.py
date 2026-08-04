@@ -685,6 +685,27 @@ def test_main_writes_report_with_negative_results(
     assert "every target-class rejection failed the canonical" in report
 
 
+def test_load_dataset_keys_fails_closed_on_empty_dataset(tmp_path: Path) -> None:
+    # Regression: an empty or header-only committed dataset must fail closed.
+    # The sweeps treat any rediscovered catalogued row absent from the key set
+    # as NEW, so an empty key set would make every sweep report every
+    # catalogued error block as a NEW finding (fail-open). This mirrors the
+    # gate loader / builder / validator empty-dataset checks.
+    for name, text in (
+        ("header_only.csv", "height,hash,classification\n"),
+        ("empty.csv", ""),
+    ):
+        path = tmp_path / name
+        path.write_text(text)
+        with pytest.raises(ValueError, match="no error block rows"):
+            sweep.load_dataset_keys(path)
+
+
+def test_load_dataset_keys_loads_committed_dataset() -> None:
+    # The committed 33-row dataset loads fine.
+    assert len(sweep.load_dataset_keys()) == 33
+
+
 def test_main_refuses_partial_write_to_committed_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
