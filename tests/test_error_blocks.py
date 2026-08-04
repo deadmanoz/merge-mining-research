@@ -1445,6 +1445,35 @@ def test_builder_refuses_partial_output_dir_in_committed_dataset_dir(
     assert not (output_dir / "nested" / "mtp_context.csv").exists()
 
 
+def test_builder_refuses_nonpartial_output_to_committed_sidecar(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: a non-partial scratch --output that resolves to a committed
+    # artifact under data/error-blocks/ other than the dataset itself (e.g.
+    # --output data/error-blocks/mtp_context.csv) must be refused, not written
+    # — otherwise the committed MTP sidecar is overwritten with an error-block
+    # CSV. The committed dataset path and sidecar are redirected to tmp_path so
+    # the real committed files are untouched.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_nonpartial_sidecar_output_under_test",
+    )
+    committed_dir = tmp_path / "error-blocks"
+    committed_dir.mkdir()
+    committed_copy = committed_dir / "error_blocks.csv"
+    committed_copy.write_bytes(_FIXTURE_SEED.read_bytes())
+    sidecar_copy = committed_dir / "mtp_context.csv"
+    sidecar_copy.write_text("height,parent_median_time_past\n")
+    monkeypatch.setattr(module, "ERROR_BLOCKS_CSV", committed_copy)
+
+    rc = module.main([*_fixture_source_args(), "--output", str(sidecar_copy)])
+
+    assert rc == 2
+    assert "committed artifact" in capsys.readouterr().err
+    # Refused before writing: the sidecar is byte-identical.
+    assert sidecar_copy.read_text() == "height,parent_median_time_past\n"
+
+
 @pytest.mark.skipif(
     not all(path.exists() for path in _BUILDER_PRIVATE_INPUTS),
     reason="private evidence archives required by the builder are not staged",

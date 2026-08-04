@@ -762,6 +762,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning (partial build): {error}", file=sys.stderr)
 
     output = args.output
+    if not args.allow_partial:
+        # A non-partial scratch --output must never overwrite a committed
+        # artifact other than the dataset itself. The committed-dataset write
+        # (output == error_blocks.csv) is handled below; any OTHER path inside
+        # the committed dataset directory (e.g. --output
+        # data/error-blocks/mtp_context.csv) would replace a committed artifact
+        # such as the MTP sidecar with an error-block CSV. Refuse it.
+        resolved_output = output.resolve()
+        committed_dir = ERROR_BLOCKS_CSV.parent.resolve()
+        if (
+            resolved_output != ERROR_BLOCKS_CSV.resolve()
+            and resolved_output.is_relative_to(committed_dir)
+        ):
+            print(
+                "refusing to write non-partial output to a committed artifact "
+                f"path: {resolved_output} is inside the committed "
+                f"{ERROR_BLOCKS_CSV.parent} (only {ERROR_BLOCKS_CSV.name} is a "
+                "valid non-partial committed write); pass --allow-partial with "
+                "a disposable --output-dir for a scratch build",
+                file=sys.stderr,
+            )
+            return 2
     if args.allow_partial:
         # A partial build's --output-dir must be a genuinely disposable
         # location: pointing it at (or inside) the committed dataset directory
