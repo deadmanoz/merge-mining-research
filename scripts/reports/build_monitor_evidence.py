@@ -370,9 +370,11 @@ def _projected_stale_descendant_count(
                 key = (int(normalized["btc_height"]), block_hash)
             except ValueError:
                 continue
+            # A stale descendant is never an error block, so the projection
+            # turns on the sidecar observation alone; the consensus-invalid
+            # gate still excludes any exact key recorded as an error block.
             if (
                 (source.chain, block_hash) in descendant_observations
-                and key in excluded_keys
                 and key not in consensus_invalid_keys
             ):
                 count += 1
@@ -417,8 +419,10 @@ def _accepted_descendant_observations(
                     continue
                 if classification != "stale":
                     continue
-                if key in excluded_keys and key not in consensus_invalid_keys:
-                    accepted.add((source.chain, block_hash))
+                # A stale descendant is never an error block, so the sidecar
+                # observation alone admits the row; the consensus-invalid gate
+                # above has already excluded any exact error-block key.
+                accepted.add((source.chain, block_hash))
     return accepted
 
 

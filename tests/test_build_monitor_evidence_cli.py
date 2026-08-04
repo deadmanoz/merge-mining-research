@@ -627,9 +627,14 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
 
-def test_full_inventory_rejects_stale_descendant_without_correction_overlay(
+def test_full_inventory_rejects_stale_descendant_that_is_an_error_block(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # The consensus-invalid gate is preserved for the direct-stale path: a
+    # stale source row whose exact key the error-blocks dataset records as an
+    # error block is NOT admitted as a stale descendant, even when the sidecar
+    # names the observation. The preflight therefore reports the descendant
+    # coverage shortfall.
     module = _load_module()
     descendant_hash = "22" * 32
     data_dir = tmp_path / "data"
@@ -640,8 +645,11 @@ def test_full_inventory_rejects_stale_descendant_without_correction_overlay(
         "classification,validation_status,btc_header_hash,source_rows\n"
         f"stale_descendant,VALID_STALE_DESCENDANT,{descendant_hash},namecoin:2\n"
     )
-    (data_dir / "stale_block_exclusions.csv").write_text(
-        "height,hash,exclusion_scope\n"
+    error_blocks = data_dir / "error-blocks" / "error_blocks.csv"
+    error_blocks.parent.mkdir(parents=True)
+    error_blocks.write_text(
+        "height,hash,classification\n"
+        f"2,{descendant_hash},error_block\n"
     )
     archive_dir = tmp_path / "archive"
     inventory = (

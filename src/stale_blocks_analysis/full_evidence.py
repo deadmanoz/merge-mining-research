@@ -854,10 +854,11 @@ def collect_source_rows(
     error labels rather than dropping malformed rows; classification tallies,
     rejection counts, and missing-evidence counts feed the counts/manifest
     artifacts. A source row formerly published as a direct stale is projected
-    into its accepted ``stale_descendant`` state only when both its exact
-    chain/hash observation appears in the descendant sidecar and its exact
-    height/hash appears in the error-blocks dataset without being
-    consensus-invalid.
+    into its accepted ``stale_descendant`` state whenever its exact chain/hash
+    observation appears in the descendant sidecar. A stale descendant is never
+    an error block, so that projection does not consult the error-blocks
+    dataset; the consensus-invalid gate below still filters any exact key the
+    dataset records as an error block.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []
@@ -884,8 +885,6 @@ def collect_source_rows(
         if (
             classification == "stale"
             and observation_key in stale_descendant_observations
-            and key in excluded
-            and key not in consensus_invalid
         ):
             normalized = {
                 **normalized,
