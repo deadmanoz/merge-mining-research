@@ -28,9 +28,13 @@ never reimplemented; each returns None (pass) or a REJECTED/UNKNOWN string):
   proof does not expose the real parent coinbase" (missing evidence — RSK,
   and unrecovered rows), not "the coinbase scriptSig was zero bytes". A true
   zero-byte scriptSig (a below-2 violation) cannot be distinguished from
-  missing evidence in these inventories, so the below-2 rule is only
-  checkable where a non-empty scriptSig is present; empty rows are skipped
-  as unusable, never flagged as below-2 violations.
+  missing evidence by the value alone in these inventories, so the below-2
+  rule is only checkable where a non-empty scriptSig is present; empty rows
+  are skipped as unusable, never flagged as below-2 violations (which would
+  false-positive on RSK). A zero-byte scriptSig on a coinbase-bearing chain
+  WOULD be a below-2 violation, but this sweep cannot tell it apart from an
+  RSK-style not-exposed placeholder by the value alone, so it stays
+  undetectable here.
 - BIP34 height serialization (``bip34_height_error``): from
   ``BIP34_HEIGHT`` the coinbase scriptSig must start with the exact
   serialized height push. The version/BIP sweep already covered BIP34
@@ -352,10 +356,14 @@ def sweep_inventory(
             # expose the real parent coinbase" (missing evidence — RSK, and
             # unrecovered rows), NOT "the coinbase scriptSig was zero bytes":
             # a true zero-byte scriptSig (a below-2 violation) cannot be
-            # distinguished from missing evidence in these inventories, so
-            # the below-2 rule is only checkable where a non-empty scriptSig
-            # is present. Treating empty as a below-2 violation would produce
-            # false positives on RSK rows.
+            # distinguished from missing evidence by the value alone in these
+            # inventories, so the below-2 rule is only checkable where a
+            # non-empty scriptSig is present. Treating empty as a below-2
+            # violation would produce false positives on RSK rows. A zero-byte
+            # scriptSig on a coinbase-bearing chain WOULD be a violation, but
+            # it is indistinguishable from an RSK-style placeholder here, so
+            # it stays undetectable (a structural limitation, not a choice
+            # made per row).
             continue
         usable_rows += 1
         meets_pow = reverify_full_pow(header_hex)
@@ -553,6 +561,17 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
         "  HEIGHT-INDEPENDENT: the bound held at every height, so it applies",
         "  to every source, including the canonical-fill-scratch",
         "  inventories whose claimed height is untrustworthy.",
+        "  Evidence caveat: an EMPTY `coinbase_scriptsig_hex` is treated as",
+        "  MISSING evidence (\u201cthis chain's proof does not expose the real",
+        "  parent coinbase\u201d — RSK, and unrecovered rows), NOT as a",
+        "  zero-byte scriptSig. A genuine zero-byte scriptSig (a below-2",
+        "  violation) cannot be distinguished from missing evidence by the",
+        "  value alone in these inventories, so empty rows are skipped as",
+        "  unusable and NEVER flagged as below-2 violations (which would",
+        "  false-positive on RSK). The below-2 rule is therefore only",
+        "  enforceable where a NON-EMPTY scriptSig is present; a zero-byte",
+        "  scriptSig on a coinbase-bearing chain WOULD be a violation, but",
+        "  this sweep cannot detect it from these inventories.",
         f"- BIP34 height serialization (`bip34_height_error`): from",
         f"  `BIP34_HEIGHT = {BIP34_HEIGHT}` the coinbase scriptSig must",
         "  start with the exact serialized height push",
