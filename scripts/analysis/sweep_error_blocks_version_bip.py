@@ -212,6 +212,10 @@ class ChainReport:
     # observation tally above overcounts distinct blocks.
     in_dataset_keys: set[tuple[int, str]] = field(default_factory=set)
     new_findings: list[Candidate] = field(default_factory=list)
+    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
+    # can be witnessed in several sibling-chain inventories, so the
+    # new_findings observation list overcounts distinct blocks.
+    new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
 
 
 def parse_header_version(header_hex: str) -> int | None:
@@ -377,6 +381,7 @@ def sweep_inventory(
             report.in_dataset_keys.add((cand.height, cand.block_hash))
         elif cand.is_new_finding:
             report.new_findings.append(cand)
+            report.new_finding_keys.add((cand.height, cand.block_hash))
     if report.total_rows > 0 and usable_rows == 0:
         report.no_usable_rows = True
     return report
@@ -398,6 +403,7 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
     total_in_dataset = sum(r.already_in_dataset for r in reachable)
     distinct_in_dataset = len({key for r in reachable for key in r.in_dataset_keys})
     total_new = sum(len(r.new_findings) for r in reachable)
+    distinct_new = len({key for r in reachable for key in r.new_finding_keys})
 
     lines = [
         "# Error-blocks version/BIP sweep",
@@ -486,7 +492,10 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
         f"observations across {distinct_in_dataset} distinct (height, hash) "
         "blocks (the same BTC error block is recorded by several sibling "
         "chains)",
-        f"- NEW confirmed error blocks: {total_new}",
+        f"- NEW confirmed error blocks: {total_new} "
+        f"observations across {distinct_new} distinct (height, hash) "
+        "blocks (the same new BTC error block can be witnessed in several "
+        "sibling-chain inventories)",
         "",
     ]
     if unreachable:

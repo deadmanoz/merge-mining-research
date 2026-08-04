@@ -484,6 +484,33 @@ def test_sweep_unreachable_inventory_fails_soft() -> None:
     assert report.error
 
 
+def test_new_findings_dedupe_across_chains_to_distinct_blocks() -> None:
+    # Regression: the same new Bitcoin error block witnessed in two sibling-chain
+    # inventories must be reported as 2 observations across 1 distinct
+    # (height, hash) block, not 2 distinct blocks.
+    row = _row(BIP65_ERA_HEIGHT, 3, EASY_BITS, scriptsig_height=BIP65_ERA_HEIGHT)
+    nbits = _synthetic_nbits_by_epoch([row])
+
+    def sweep_chain(chain: str):
+        return sweep.sweep_inventory(
+            chain,
+            "stale",
+            f"/fake/{chain}_stale_blocks.csv",
+            True,
+            _reader({f"/fake/{chain}_stale_blocks.csv": _inventory([row])}),
+            set(),
+            nbits,
+        )
+
+    reports = [sweep_chain("devcoin"), sweep_chain("ixcoin")]
+    # Each chain appends its own candidate: 2 observations, 1 distinct block.
+    assert sum(len(r.new_findings) for r in reports) == 2
+    assert len({key for r in reports for key in r.new_finding_keys}) == 1
+
+    report_text = sweep.render_report(reports, "2026-01-01 00:00 UTC")
+    assert "NEW confirmed error blocks: 2 observations across 1 distinct" in report_text
+
+
 # ---------------------------------------------------------------------------
 # main() fail-closed behavior
 # ---------------------------------------------------------------------------

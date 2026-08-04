@@ -216,6 +216,10 @@ class ChainReport:
     canonical_target_fail: int = 0
     already_in_dataset: int = 0
     new_findings: list[Candidate] = field(default_factory=list)
+    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
+    # can be witnessed in several sibling-chain inventories, so the
+    # new_findings observation list overcounts distinct blocks.
+    new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
     # time_beyond_future_limit rows (approximate reference, deferred in the
     # validator): manual-review flags, kept separate from promotable findings.
     future_limit_flags: list[Candidate] = field(default_factory=list)
@@ -596,6 +600,7 @@ def evaluate_candidate(
             report.already_in_dataset += 1
         elif cand.is_new_finding:
             report.new_findings.append(cand)
+            report.new_finding_keys.add((cand.height, cand.block_hash))
     else:
         # time_beyond_future_limit: approximate reference and a rule deferred
         # in the validator, so flag for manual review, never auto-promote.
@@ -642,6 +647,7 @@ def render_report(
     total_canonical_fail = sum(r.canonical_target_fail for r in reachable)
     total_in_dataset = sum(r.already_in_dataset for r in reachable)
     total_new = sum(len(r.new_findings) for r in reachable)
+    distinct_new = len({key for r in reachable for key in r.new_finding_keys})
     total_untrustworthy = sum(r.untrustworthy_height for r in reachable)
 
     lines = [
@@ -711,7 +717,10 @@ def render_report(
         f"expected-nBits target (share/contamination, not confirmed): "
         f"{total_canonical_fail}",
         f"- Already catalogued in the dataset: {total_in_dataset}",
-        f"- NEW confirmed error blocks: {total_new}",
+        f"- NEW confirmed error blocks: {total_new} "
+        f"observations across {distinct_new} distinct (height, hash) "
+        "blocks (the same new BTC error block can be witnessed in several "
+        "sibling-chain inventories)",
         "",
     ]
     if unreachable:

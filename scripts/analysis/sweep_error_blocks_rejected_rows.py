@@ -258,6 +258,10 @@ class ChainReport:
     untrustworthy_height: int = 0
     already_in_dataset: int = 0
     new_findings: list[RejectedRow] = field(default_factory=list)
+    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
+    # can be witnessed in several sibling-chain inventories, so the
+    # new_findings observation list overcounts distinct blocks.
+    new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
     target_anomalies: list[RejectedRow] = field(default_factory=list)
 
 
@@ -458,6 +462,7 @@ def sweep_chain(
                 report.already_in_dataset += 1
             else:
                 report.new_findings.append(rejected)
+                report.new_finding_keys.add((rejected.height, rejected.block_hash))
         if rejected.is_pow_passing_target_anomaly:
             report.target_anomalies.append(rejected)
     return report
@@ -475,6 +480,7 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
     total_canonical_fail = sum(r.contextual_canonical_target_fail for r in reachable)
     total_untrustworthy = sum(r.untrustworthy_height for r in reachable)
     total_new = sum(len(r.new_findings) for r in reachable)
+    distinct_new = len({key for r in reachable for key in r.new_finding_keys})
     total_anomalies = sum(len(r.target_anomalies) for r in reachable)
     total_anomalies_in_dataset = sum(
         1 for r in reachable for row in r.target_anomalies if row.in_dataset
@@ -511,7 +517,10 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
         f"- Contextual-class rejections: {total_contextual}",
         f"- Target-class rejections: {total_target}",
         f"- NEW confirmed error blocks (full PoW + canonical target + "
-        f"contextual re-derived, not in dataset): {total_new}",
+        f"contextual re-derived, not in dataset): {total_new} "
+        f"observations across {distinct_new} distinct (height, hash) "
+        "blocks (the same new BTC error block can be witnessed in several "
+        "sibling-chain inventories)",
         f"- Full-PoW contextual rows whose named failure did NOT re-derive "
         f"(not confirmed): {total_not_rederived}",
         f"- Full-PoW median-time-past rows (named failure needs canonical "
