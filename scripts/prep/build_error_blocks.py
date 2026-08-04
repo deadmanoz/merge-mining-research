@@ -625,6 +625,20 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"error: invalid seed rows: {exc}", file=sys.stderr)
         return 1
+    if not seeds:
+        # Fail closed: an empty seed set (a header-only or empty CSV) yields an
+        # empty gate, which is never valid for this committed dataset — the
+        # default non-partial path would otherwise overwrite the committed
+        # dataset with a header-only file, silently letting every known error
+        # block re-enter publication loaders. This mirrors the gate loader's
+        # fail-closed empty-dataset check in
+        # ``stale_blocks_analysis.error_blocks``.
+        print(
+            f"error: no error block seed rows in {args.seed} "
+            "(refusing to write an empty dataset)",
+            file=sys.stderr,
+        )
+        return 1
     # Every self-contained row merged this run (monitor export + extra rows):
     # any of them may carry a ``_parent_median_time_past`` whose MTP context
     # must reach the committed sidecar when this run writes the committed

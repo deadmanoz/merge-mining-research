@@ -699,6 +699,47 @@ def test_builder_fails_closed_on_malformed_seed_classification(
     assert not out.exists()
 
 
+def test_builder_fails_closed_on_empty_seed_set(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression: a header-only (or empty) seed CSV yields zero valid
+    # error_block seed rows. The default non-partial path must fail closed
+    # (non-zero, no write) rather than overwrite the committed dataset with a
+    # header-only file, which would silently destroy the exclusion gate and let
+    # every known error block re-enter publication loaders. This mirrors the
+    # gate loader's fail-closed empty-dataset check. Runs without the private
+    # archives.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_empty_seed_under_test",
+    )
+    for name, text in (
+        ("header_only.csv", _FIXTURE_SEED.read_text().splitlines(keepends=True)[0]),
+        ("empty.csv", ""),
+    ):
+        seed = tmp_path / name
+        seed.write_text(text)
+        out = tmp_path / f"out_{name}"
+        rc = module.main(
+            [
+                "--seed",
+                str(seed),
+                "--full-evidence-dir",
+                str(_FIXTURE_DIR),
+                "--upstream-stale-blocks",
+                str(_FIXTURE_DIR / "stale-blocks.csv"),
+                "--recovered-headers",
+                str(_FIXTURE_DIR / "recovered_seed_headers.json"),
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 1, name
+        assert not out.exists(), name
+    err = capsys.readouterr().err
+    assert "no error block seed rows" in err
+
+
 def test_builder_fails_closed_on_missing_fixture_evidence(tmp_path: Path) -> None:
     # Core fail-closed coverage for CI: a seed row whose evidence is absent
     # from the pointed-at sources fails the build (non-zero, no write). Point
