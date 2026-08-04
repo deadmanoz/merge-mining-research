@@ -242,6 +242,13 @@ def _self_contained_row(export: dict) -> dict[str, str]:
         "first_observed_child_time": text("first_observed_child_time"),
         "provenance": text("provenance"),
     }
+    # A row with no witnessing chain is not merge-mining evidence: fail closed
+    # on empty source fields (``text`` above rejects only a missing key).
+    for evidence_key in ("source_chains", "source_child_observations"):
+        if not row[evidence_key].strip():
+            raise ValueError(
+                f"row has empty {evidence_key!r}: a witnessing chain is required"
+            )
     # Fail closed on an unrecognized provenance prefix. The ``_self_contained``
     # ingest tag set below is NOT a dataset column, so a plain rebuild
     # recognizes a committed self-contained row only by its provenance prefix

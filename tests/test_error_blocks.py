@@ -840,6 +840,40 @@ def test_merge_self_contained_row_canonicalizes_dedup_key() -> None:
     assert len(merged) == 3
 
 
+@pytest.mark.parametrize("empty_key", ["source_chains", "source_child_observations"])
+def test_self_contained_row_rejects_empty_witnessing_chain_fields(
+    empty_key: str,
+) -> None:
+    # Regression: a self-contained import (monitor export or extra row) whose
+    # source_chains / source_child_observations is present but EMPTY (or
+    # whitespace-only) must fail closed at ingest. A row with no witnessing
+    # chain is not merge-mining evidence; the text-field check rejects only a
+    # missing key, so the empty string must be rejected explicitly.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_empty_source_fields_under_test",
+    )
+    header_hex, block_hash = _self_consistent_header()
+    export = {
+        "height": 999999,
+        "hash": block_hash,
+        "btc_prev_hash": "11" * 32,
+        "btc_header_hex": header_hex,
+        "expected_nbits": "17021369",
+        "coinbase_height": 999999,
+        "coinbase_scriptsig_hex": "03" + (999999).to_bytes(3, "little").hex() + "00",
+        "source_chains": "namecoin",
+        "source_child_observations": "namecoin:1",
+        "rejection_reason": "bip65_block_version_below_4",
+        "first_observed_child_time": 1700000100,
+        "provenance": "monitor-live-capture:namecoin:1",
+    }
+    export[empty_key] = "   "
+
+    with pytest.raises(ValueError, match=f"empty {empty_key!r}"):
+        module._self_contained_row(export)
+
+
 def test_builder_self_contained_validation_without_private_archives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
