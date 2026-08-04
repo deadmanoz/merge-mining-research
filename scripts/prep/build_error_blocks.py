@@ -249,6 +249,29 @@ def _self_contained_row(export: dict) -> dict[str, str]:
             raise ValueError(
                 f"row has empty {evidence_key!r}: a witnessing chain is required"
             )
+    # The child observations must correspond to the source chains: exactly one
+    # pipe-joined ``chain:child_height`` observation per pipe-joined source
+    # chain, each naming one of those chains. A count mismatch (e.g. two
+    # chains but one observation), an observation without the
+    # ``chain:child_height`` form, or one naming a chain outside
+    # ``source_chains`` means the witnessing evidence does not match the
+    # declared sources; fail closed.
+    source_chains = [chain.strip() for chain in row["source_chains"].split("|")]
+    observations = [
+        observation.strip()
+        for observation in row["source_child_observations"].split("|")
+    ]
+    if len(observations) != len(source_chains) or any(
+        ":" not in observation
+        or observation.split(":", 1)[0] not in source_chains
+        or not observation.split(":", 1)[1]
+        for observation in observations
+    ):
+        raise ValueError(
+            f"source_child_observations {row['source_child_observations']!r} "
+            f"does not match source_chains {row['source_chains']!r}: each "
+            "source chain must have exactly one chain:child_height observation"
+        )
     # Fail closed on an unrecognized provenance prefix. The ``_self_contained``
     # ingest tag set below is NOT a dataset column, so a plain rebuild
     # recognizes a committed self-contained row only by its provenance prefix

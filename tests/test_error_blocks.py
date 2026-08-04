@@ -874,6 +874,73 @@ def test_self_contained_row_rejects_empty_witnessing_chain_fields(
         module._self_contained_row(export)
 
 
+def _witnessing_export() -> dict[str, object]:
+    """A minimal self-contained export with matching source chain fields."""
+    header_hex, block_hash = _self_consistent_header()
+    return {
+        "height": 999999,
+        "hash": block_hash,
+        "btc_prev_hash": "11" * 32,
+        "btc_header_hex": header_hex,
+        "expected_nbits": "17021369",
+        "coinbase_height": 999999,
+        "coinbase_scriptsig_hex": "03" + (999999).to_bytes(3, "little").hex() + "00",
+        "source_chains": "namecoin",
+        "source_child_observations": "namecoin:1",
+        "rejection_reason": "bip65_block_version_below_4",
+        "first_observed_child_time": 1700000100,
+        "provenance": "monitor-live-capture:namecoin:1",
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_chains", "source_child_observations"),
+    [
+        # Two source chains but only one observation.
+        ("namecoin|syscoin", "namecoin:1"),
+        # An observation naming a chain outside source_chains.
+        ("namecoin", "syscoin:1"),
+        # An observation without the chain:child_height form.
+        ("namecoin", "namecoin"),
+    ],
+    ids=["count-mismatch", "unknown-chain", "missing-child-height"],
+)
+def test_self_contained_row_rejects_mismatched_child_observations(
+    source_chains: str, source_child_observations: str
+) -> None:
+    # Regression: the child observations must correspond to the source chains —
+    # exactly one chain:child_height observation per source chain, each naming
+    # one of those chains. A count mismatch or an observation naming a chain
+    # outside source_chains fails closed at ingest.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_observation_mismatch_under_test",
+    )
+    export = _witnessing_export()
+    export["source_chains"] = source_chains
+    export["source_child_observations"] = source_child_observations
+
+    with pytest.raises(ValueError, match="does not match source_chains"):
+        module._self_contained_row(export)
+
+
+def test_self_contained_row_accepts_matching_child_observations() -> None:
+    # A matching set — one chain:child_height observation per source chain,
+    # each naming a source chain — is accepted.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_observation_match_under_test",
+    )
+    export = _witnessing_export()
+    export["source_chains"] = "namecoin|syscoin"
+    export["source_child_observations"] = "namecoin:1|syscoin:2"
+
+    row = module._self_contained_row(export)
+
+    assert row["source_chains"] == "namecoin|syscoin"
+    assert row["source_child_observations"] == "namecoin:1|syscoin:2"
+
+
 def test_builder_self_contained_validation_without_private_archives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
