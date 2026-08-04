@@ -291,13 +291,25 @@ def load_extra_rows(path: Path) -> list[dict[str, str]]:
     return [_self_contained_row(item) for item in payload]
 
 
+def _dedup_key(row: dict[str, str]) -> tuple[int, str]:
+    """Return the canonical (height, hash) dedup key for a seed/import row.
+
+    Height is parsed as an int and the hash is lowercased/stripped, so a
+    monitor/extra-row import that identifies an existing block with a
+    noncanonical height string (``"0946213"``) or a mixed-case hash dedups
+    against the seed's canonical ``"946213"`` / lowercase form instead of
+    writing a duplicate row.
+    """
+    return (int(row["height"]), row["hash"].strip().lower())
+
+
 def merge_self_contained_row(
     seeds: list[dict[str, str]], row: dict[str, str]
 ) -> list[dict[str, str]]:
     """Merge a self-contained row (monitor export or extra row) into the
-    seed set, deduping by (height, hash)."""
-    key = (row["height"], row["hash"])
-    merged = [seed for seed in seeds if (seed["height"], seed["hash"]) != key]
+    seed set, deduping by the canonical (height, hash) key."""
+    key = _dedup_key(row)
+    merged = [seed for seed in seeds if _dedup_key(seed) != key]
     merged.append(row)
     return merged
 

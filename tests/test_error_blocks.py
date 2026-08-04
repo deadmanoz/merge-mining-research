@@ -813,6 +813,33 @@ def test_builder_fails_closed_on_prev_hash_mismatch_without_private_archives(
     assert committed_copy.read_bytes() == _FIXTURE_SEED.read_bytes()
 
 
+def test_merge_self_contained_row_canonicalizes_dedup_key() -> None:
+    # Regression: an import that identifies an existing block with a
+    # noncanonical height string ("0946213") or a mixed-case hash must dedup
+    # against the seed's canonical "946213" / lowercase form, not write a
+    # duplicate row. The merge canonicalizes the (height, hash) key (height as
+    # int, hash lowercased) before comparing.
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_merge_canonical_key_under_test",
+    )
+    seed = {"height": "946213", "hash": "ab" * 32}
+    seeds = [seed, {"height": "225013", "hash": "cd" * 32}]
+
+    # Noncanonical height string + uppercase hash: same block, one row out.
+    imported = {"height": "0946213", "hash": ("ab" * 32).upper()}
+    merged = module.merge_self_contained_row(seeds, imported)
+    assert len(merged) == 2
+    # The imported row replaced the matching seed (deduped, not duplicated).
+    assert merged[-1] is imported
+    assert sum(1 for r in merged if module._dedup_key(r) == (946213, "ab" * 32)) == 1
+
+    # A genuinely different block is appended, not deduped away.
+    other = {"height": "999999", "hash": "ef" * 32}
+    merged = module.merge_self_contained_row(seeds, other)
+    assert len(merged) == 3
+
+
 def test_builder_self_contained_validation_without_private_archives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
