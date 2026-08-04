@@ -750,11 +750,28 @@ def validate_dataset(path: Path = ERROR_BLOCKS_CSV) -> list[str]:
     nbits_by_epoch = _load_nbits_by_epoch()
     mtp_context = _load_mtp_context()
     failures: list[str] = []
+    seen_keys: set[tuple[int, str]] = set()
     row_count = 0
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
             row_count += 1
             row_id = f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
+            try:
+                key = (int(row["height"]), row["hash"].strip().lower())
+                if key[0] < 0 or len(key[1]) != 64:
+                    raise ValueError
+                bytes.fromhex(key[1])
+            except (KeyError, ValueError):
+                # ``validate_row`` emits the detailed audit failure for a
+                # malformed key. Duplicate detection applies only when the
+                # identity itself is parseable, matching the gate loader.
+                key = None
+            if key is not None:
+                if key in seen_keys:
+                    failures.append(
+                        f"{row_id}: duplicate error-block key {key} in {path}"
+                    )
+                seen_keys.add(key)
             for failure in validate_row(
                 row, nbits_by_epoch=nbits_by_epoch, mtp_context=mtp_context
             ):

@@ -13,6 +13,14 @@ Publish the exact BIP34 child height for 19,610 Xaya canonical observations
 that still carried legacy block-file positions in the prior monitor
 projection.
 
+Require a stale-descendant projection to match the source chain, Bitcoin
+height, and header hash, so a mistyped source height cannot enter monitor
+evidence or satisfy its publication preflight. Make the error-block builder
+reject duplicate witnessing-chain declarations, make its offline validator
+reject duplicate canonical keys, and require every committed error-block
+sweep inventory to meet its recorded minimum row baseline before replacing a
+publication report. Add Elastos to the rejected-row sweep coverage map.
+
 Reclassify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
 and correct 44 side-chain headers previously retained as canonical into valid
 direct stales. Add the shared Elastos/Syscoin stale descendant, recover child

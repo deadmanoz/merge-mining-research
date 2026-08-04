@@ -252,11 +252,12 @@ def _self_contained_row(export: dict) -> dict[str, str]:
     # The child observations must correspond to the source chains: exactly one
     # pipe-joined ``chain:child_height`` observation per pipe-joined source
     # chain, each naming one of those chains, with the mapping one-to-one (no
-    # chain observed twice, no chain left unobserved). A count mismatch (e.g.
-    # two chains but one observation), an observation without the
-    # ``chain:child_height`` form, one naming a chain outside ``source_chains``,
-    # or a chain observed twice while another is unobserved means the
-    # witnessing evidence does not match the declared sources; fail closed.
+    # empty or duplicate source chain, no chain observed twice, and no chain
+    # left unobserved). A count mismatch (e.g. two chains but one observation),
+    # an observation without the ``chain:child_height`` form, one naming a
+    # chain outside ``source_chains``, or a duplicate source/observation chain
+    # means the witnessing evidence does not match the declared sources; fail
+    # closed.
     source_chains = [chain.strip() for chain in row["source_chains"].split("|")]
     observations = [
         observation.strip()
@@ -267,7 +268,9 @@ def _self_contained_row(export: dict) -> dict[str, str]:
         for observation in observations
     ]
     if (
-        len(observations) != len(source_chains)
+        any(not chain for chain in source_chains)
+        or len(set(source_chains)) != len(source_chains)
+        or len(observations) != len(source_chains)
         or any(
             ":" not in observation
             or observation.split(":", 1)[0] not in source_chains

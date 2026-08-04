@@ -208,7 +208,7 @@ proof of work per row and writes a dated report to
 
 - **Rejected-row sweep** (`sweep_error_blocks_rejected_rows.py`;
   [report](../results/analysis/error-blocks/rejected-rows-report.md)):
-  re-examined all 44 `REJECTED:` rows across 7 reachable classified
+  re-examined all 45 `REJECTED:` rows across 8 reachable classified
   inventories. Found the 717,696 block — rejected for an `nBits` mismatch, yet
   meeting the canonical expected target at a retarget boundary — which was
   promoted into the dataset as `nbits_retarget_not_applied`. No other new

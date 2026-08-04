@@ -226,8 +226,7 @@ def test_malicious_source_chains_is_refused_no_escape(tmp_path: Path) -> None:
         # dir, and no staging temp dir leaked into the parent.
         assert not out_dir.exists()
         assert not any(
-            p.name.startswith(f".{out_dir.name}.tmp-")
-            for p in tmp_path.iterdir()
+            p.name.startswith(f".{out_dir.name}.tmp-") for p in tmp_path.iterdir()
         )
         # Nothing escaped into the parent of the output dir either.
         assert not (tmp_path / "etc").exists()

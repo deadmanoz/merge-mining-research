@@ -56,7 +56,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty
@@ -110,6 +110,82 @@ STALE_INVENTORIES: dict[str, str] = {
     "syscoin": "~/canonical-fill-scratch/syscoin/syscoin_stale_blocks.csv",
     "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
     "fractal": "~/canonical-fill-scratch/fractal/fractal_stale_blocks.csv",
+}
+
+# Minimum row counts from the complete 2026-07-30 error-block sweep inputs.
+# A completed publication sweep may grow beyond these values, but it may not
+# silently replace a committed report with fewer rows: that would make an
+# empty/header-only or truncated inventory look like a clean negative result.
+# Zero is an intentional baseline only for Geistgeld's stale and several
+# header-only validated-stale inputs, where no candidate rows are expected.
+STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
+    "argentum": 2,
+    "bitmark": 1,
+    "coiledcoin": 27,
+    "crown": 23,
+    "devcoin": 484,
+    "elcash": 3,
+    "emercoin": 97,
+    "geistgeld": 0,
+    "groupcoin": 32,
+    "huntercoin": 13,
+    "i0coin": 176,
+    "ixcoin": 478,
+    "myriadcoin": 40,
+    "terracoin": 35,
+    "unobtanium": 44,
+    "xaya": 40,
+    "syscoin": 18_360,
+    "elastos": 9_156,
+    "fractal": 524,
+}
+
+UNKNOWN_INVENTORY_BASELINE_ROWS: dict[str, int] = {
+    "argentum": 634_277,
+    "bitmark": 81_921,
+    "coiledcoin": 13_308,
+    "crown": 383_622,
+    "devcoin": 75_141,
+    "elcash": 2_711,
+    "emercoin": 16_545,
+    "geistgeld": 2_290,
+    "groupcoin": 2_713,
+    "huntercoin": 29,
+    "i0coin": 86_249,
+    "ixcoin": 253_974,
+    "myriadcoin": 166_844,
+    "terracoin": 523_315,
+    "unobtanium": 430_931,
+    "xaya": 17_642,
+}
+
+VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
+    "argentum": 2,
+    "bitcoin-vault": 9,
+    "bitmark": 1,
+    "coiledcoin": 27,
+    "crown": 23,
+    "devcoin": 468,
+    "doichain": 0,
+    "elastos": 153,
+    "elcash": 3,
+    "emercoin": 96,
+    "fractal": 31,
+    "geistgeld": 0,
+    "groupcoin": 30,
+    "hathor": 6,
+    "huntercoin": 13,
+    "i0coin": 166,
+    "ixcoin": 465,
+    "lyncoin": 0,
+    "myriadcoin": 40,
+    "namecoin": 1_625,
+    "rsk": 298,
+    "sixeleven": 0,
+    "syscoin": 78,
+    "terracoin": 35,
+    "unobtanium": 43,
+    "xaya": 40,
 }
 
 # The scratch stale inventories carry a btc_height that is NOT verified
@@ -353,21 +429,61 @@ def _report_label(report: object) -> str:
     return f"{chain} ({source})" if source else str(chain)
 
 
-def require_full_coverage_for_committed(args: object, reports: list[object]) -> int:
+def require_full_coverage_for_committed(
+    args: object,
+    reports: list[object],
+    *,
+    expected_inventory_rows: Mapping[str, int] | None = None,
+    inventory_row_counts: Callable[[object], Mapping[str, int]] | None = None,
+) -> int:
     """Fail closed when a partial sweep would overwrite the committed report.
 
     The committed default report must only ever present a COMPLETE sweep:
     writing it requires every inventory to be reachable. A partially-available
-    sweep (some inventories reachable, others not) must NOT overwrite the
-    committed report without ``--allow-partial``. Returns 0 when the write may
-    proceed (``--allow-partial``, or every report reachable); returns 1 after
-    printing the unreachable inventories when it must fail closed.
+    sweep (some inventories unreachable, empty, or below its published row
+    baseline) must NOT overwrite the committed report without
+    ``--allow-partial``. Returns 0 when the write may proceed
+    (``--allow-partial``, or every inventory is complete); returns 1 after
+    printing the incomplete inventories when it must fail closed.
     """
     if getattr(args, "allow_partial", False):
         return 0
     unreachable = [r for r in reports if not getattr(r, "reachable", True)]
     if not unreachable:
-        return 0
+        if expected_inventory_rows is None or inventory_row_counts is None:
+            return 0
+        actual_rows: dict[str, int] = {}
+        for report in reports:
+            for inventory, rows in inventory_row_counts(report).items():
+                if inventory in actual_rows:
+                    raise ValueError(
+                        f"duplicate sweep inventory coverage key: {inventory}"
+                    )
+                actual_rows[inventory] = rows
+        incomplete = []
+        for inventory, expected_rows in expected_inventory_rows.items():
+            actual = actual_rows.pop(inventory, None)
+            if actual is None:
+                incomplete.append(f"{inventory} missing from the sweep")
+            elif actual < expected_rows:
+                incomplete.append(
+                    f"{inventory} has {actual} rows, expected at least {expected_rows}"
+                )
+        incomplete.extend(
+            f"{inventory} has no published row baseline" for inventory in actual_rows
+        )
+        if not incomplete:
+            return 0
+        for detail in incomplete:
+            print(f"error: incomplete inventory: {detail}", file=sys.stderr)
+        print(
+            "sweep failed: refusing to write the committed report from an "
+            "incomplete inventory sweep; re-run with --allow-partial "
+            "--output-dir <dir> for a diagnostic partial report",
+            file=sys.stderr,
+        )
+        return 1
+
     for r in unreachable:
         print(
             f"error: {_report_label(r)}: {getattr(r, 'error', '')}",

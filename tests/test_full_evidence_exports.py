@@ -1311,13 +1311,50 @@ def test_monitor_export_reclassifies_stale_on_sidecar_observation_alone(
 
     rows, stats = full_evidence.collect_source_rows(
         source,
-        stale_descendant_observations=frozenset({("namecoin", header_hash)}),
+        stale_descendant_observations=frozenset({("namecoin", 656478, header_hash)}),
     )
 
     assert [row["classification"] for row in rows] == ["stale_descendant"]
     assert rows[0]["validation_status"] == "VALID_STALE_DESCENDANT"
     assert stats.classifications["stale_descendant"] == 1
     assert "reclassified_stale_descendant_observations=1" in stats.notes
+
+
+def test_monitor_export_does_not_reclassify_stale_with_sidecar_height_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A matching hash at another Bitcoin height is not the same observation."""
+    import stale_blocks_analysis.full_evidence as full_evidence
+
+    data_dir = tmp_path / "data"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "namecoin_stale_blocks.csv",
+        [
+            {
+                "btc_height": "656479",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    monkeypatch.setattr(full_evidence, "load_stale_exclusion_keys", set)
+    monkeypatch.setattr(full_evidence, "load_consensus_invalid_stale_keys", set)
+    source = full_evidence.discover_evidence_sources(data_dir)["namecoin"]
+
+    rows, stats = full_evidence.collect_source_rows(
+        source,
+        stale_descendant_observations=frozenset({("namecoin", 656478, header_hash)}),
+    )
+
+    assert [row["classification"] for row in rows] == ["stale"]
+    assert stats.classifications["stale"] == 1
+    assert "reclassified_stale_descendant_observations=1" not in stats.notes
 
 
 def test_monitor_export_does_not_reclassify_stale_without_sidecar_observation(

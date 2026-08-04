@@ -735,7 +735,12 @@ def test_load_dataset_keys_fails_closed_on_empty_dataset(tmp_path: Path) -> None
             "duplicate error block key",
         ),
     ],
-    ids=["blank-classification", "wrong-classification", "malformed-hash", "duplicate-key"],
+    ids=[
+        "blank-classification",
+        "wrong-classification",
+        "malformed-hash",
+        "duplicate-key",
+    ],
 )
 def test_load_dataset_keys_fails_closed_on_invalid_catalog_row(
     tmp_path: Path, name: str, text: str, match: str
@@ -770,6 +775,33 @@ def test_main_refuses_partial_write_to_committed_path(
         ],
     )
     assert sweep.main() == 2
+
+
+def test_main_refuses_header_only_inventory_below_published_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A reader can successfully return a header-only CSV, so reachability alone
+    # is insufficient: a normal publication sweep must reject it as incomplete
+    # when the inventory's recorded baseline requires rows. --allow-partial is
+    # deliberately absent here, so the committed-style output is not written.
+    mapping = {
+        inventory: _inventory([]) for inventory in sweep.CHAIN_INVENTORIES.values()
+    }
+    monkeypatch.setattr(sweep, "ssh_inventory_reader", _reader(mapping))
+    monkeypatch.setattr(
+        sweep,
+        "REJECTED_INVENTORY_BASELINE_ROWS",
+        {chain: int(chain == "devcoin") for chain in sweep.CHAIN_INVENTORIES},
+    )
+    output = tmp_path / "rejected-rows-report.md"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["sweep_error_blocks_rejected_rows.py", "--output", str(output)],
+    )
+
+    assert sweep.main() == 1
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(

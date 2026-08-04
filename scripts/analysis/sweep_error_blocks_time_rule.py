@@ -92,6 +92,8 @@ from _sweep_common import (  # noqa: E402
     InventoryReader,
     MAX_PLAUSIBLE_HEIGHT,
     STALE_INVENTORIES,
+    STALE_INVENTORY_BASELINE_ROWS,
+    UNKNOWN_INVENTORY_BASELINE_ROWS,
     _REGEN_CHAINS,
     _REGEN_STAGING,
     header_display_hash,
@@ -125,6 +127,14 @@ UNKNOWN_INVENTORY_GLOB: dict[str, str] = {
 
 DEFAULT_REPORT = Path("results/analysis/error-blocks/time-rule-report.md")
 DEFAULT_MTP_CACHE = Path("cache/time_sweep_mtp.json")
+
+INVENTORY_BASELINE_ROWS = {
+    **{f"{chain}:stale": rows for chain, rows in STALE_INVENTORY_BASELINE_ROWS.items()},
+    **{
+        f"{chain}:unknown": rows
+        for chain, rows in UNKNOWN_INVENTORY_BASELINE_ROWS.items()
+    },
+}
 
 # Heading prefix of the manually-written follow-up investigation section that
 # resolves the future-limit flags (the child-chain commit-time evidence). The
@@ -927,7 +937,19 @@ def main(argv: list[str] | None = None) -> int:
 
     # A partial sweep (some inventories unreachable) must not overwrite the
     # committed report without --allow-partial.
-    if require_full_coverage_for_committed(args, reports):
+    if require_full_coverage_for_committed(
+        args,
+        reports,
+        expected_inventory_rows=INVENTORY_BASELINE_ROWS,
+        inventory_row_counts=lambda report: {
+            f"{report.chain}:stale": report.stale_rows,
+            **(
+                {f"{report.chain}:unknown": report.unknown_rows}
+                if report.unknown_inventory
+                else {}
+            ),
+        },
+    ):
         return 1
 
     # Batch-fetch the canonical parent context once for all distinct claimed

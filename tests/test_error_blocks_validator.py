@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -27,6 +28,27 @@ def test_every_committed_row_revalidates() -> None:
     mod = _load_validator()
     failures = mod.validate_dataset(ERROR_BLOCKS_CSV)
     assert failures == [], f"rows failed re-derivation: {failures}"
+
+
+def test_duplicate_dataset_key_fails_offline_validation(tmp_path: Path) -> None:
+    """The offline validator enforces the gate loader's exact-key uniqueness."""
+    mod = _load_validator()
+    with ERROR_BLOCKS_CSV.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        row = next(reader)
+    assert fieldnames is not None
+    duplicate = dict(row, height=f"0{row['height']}", hash=row["hash"].upper())
+    path = tmp_path / "duplicate_error_blocks.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(row)
+        writer.writerow(duplicate)
+
+    failures = mod.validate_dataset(path)
+
+    assert any("duplicate error-block key" in failure for failure in failures)
 
 
 def test_946213_time_below_mtp_revalidates() -> None:

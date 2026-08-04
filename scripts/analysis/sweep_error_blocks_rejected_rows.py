@@ -96,6 +96,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from _sweep_common import (  # noqa: E402
     ARCHIVE_HOST,
     InventoryReader,
+    STALE_INVENTORY_BASELINE_ROWS,
     _SCRATCH_CHAINS,
     header_display_hash,
     load_dataset_keys,
@@ -116,8 +117,8 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
 )
 
 # Authoritative per-chain classified inventories on the chain archive host.
-# (chain, absolute path on ARCHIVE_HOST). Verified 2026-07-30: 44 REJECTED
-# rows across these 7 inventories. This 7-chain REJECTED-row coverage map is
+# (chain, absolute path on ARCHIVE_HOST). Verified 2026-07-30: 45 REJECTED
+# rows across these 8 inventories. This 8-chain REJECTED-row coverage map is
 # deliberately NOT the shared 19-chain STALE_INVENTORIES map in
 # _sweep_common.
 CHAIN_INVENTORIES: dict[str, str] = {
@@ -128,6 +129,11 @@ CHAIN_INVENTORIES: dict[str, str] = {
     "emercoin": "~/mmr-child-header-regen-20260729/staging/chains/emercoin/classified/emercoin_stale_blocks.csv",
     "unobtanium": "~/mmr-child-header-regen-20260729/staging/chains/unobtanium/classified/unobtanium_stale_blocks.csv",
     "syscoin": "~/canonical-fill-scratch/syscoin/syscoin_stale_blocks.csv",
+    "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
+}
+
+REJECTED_INVENTORY_BASELINE_ROWS = {
+    chain: STALE_INVENTORY_BASELINE_ROWS[chain] for chain in CHAIN_INVENTORIES
 }
 
 # Rejection-reason classes, matched on the text after "REJECTED: ".
@@ -734,7 +740,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # A partial sweep (some inventories unreachable) must not overwrite the
     # committed report without --allow-partial.
-    if require_full_coverage_for_committed(args, reports):
+    if require_full_coverage_for_committed(
+        args,
+        reports,
+        expected_inventory_rows=REJECTED_INVENTORY_BASELINE_ROWS,
+        inventory_row_counts=lambda report: {report.chain: report.total_rows},
+    ):
         return 1
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

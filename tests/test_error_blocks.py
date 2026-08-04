@@ -905,17 +905,26 @@ def _witnessing_export() -> dict[str, object]:
         # The same chain observed twice while the other source chain is
         # unobserved (a one-to-one mapping is required).
         ("namecoin|rsk", "namecoin:1|namecoin:2"),
+        # The source declaration itself must be a set: two namecoin entries
+        # could otherwise pass the equal-count/sorted-observations checks.
+        ("namecoin|namecoin", "namecoin:1|namecoin:2"),
     ],
-    ids=["count-mismatch", "unknown-chain", "missing-child-height", "chain-twice"],
+    ids=[
+        "count-mismatch",
+        "unknown-chain",
+        "missing-child-height",
+        "chain-twice",
+        "duplicate-source-chain",
+    ],
 )
 def test_self_contained_row_rejects_mismatched_child_observations(
     source_chains: str, source_child_observations: str
 ) -> None:
     # Regression: the child observations must correspond to the source chains —
     # exactly one chain:child_height observation per source chain, each naming
-    # one of those chains, with no chain observed twice or left unobserved. A
-    # count mismatch, an observation naming a chain outside source_chains, or a
-    # duplicated/unobserved chain fails closed at ingest.
+    # one of those chains, with no duplicate source/observation chain and no
+    # chain left unobserved. A count mismatch, an observation naming a chain
+    # outside source_chains, or a duplicated chain fails closed at ingest.
     module = _load_script(
         "scripts/prep/build_error_blocks.py",
         "build_error_blocks_observation_mismatch_under_test",
@@ -2034,7 +2043,6 @@ def test_builder_replaces_mtp_sidecar_before_dataset(
             tmp.unlink(missing_ok=True)
 
 
-
 # ── Migrated from tests/test_stale_exclusions.py ─────────────────────────────
 # The stale-exclusions overlay is gone (replaced by this error-blocks dataset),
 # so its pinning test file was deleted. The tests below are NOT overlay-owned:
@@ -2046,7 +2054,7 @@ def test_builder_replaces_mtp_sidecar_before_dataset(
 @pytest.mark.dataset
 def test_published_monitor_represents_every_stale_descendant_observation() -> None:
     expected = load_stale_descendant_observation_keys()
-    represented: set[tuple[str, str]] = set()
+    represented: set[tuple[str, int, str]] = set()
     for path in sorted(
         (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
     ):
@@ -2054,7 +2062,11 @@ def test_published_monitor_represents_every_stale_descendant_observation() -> No
             for row in csv.DictReader(handle):
                 if row.get("relevance_reason") != "valid_stale_descendant":
                     continue
-                observation_key = (row["chain"], row["btc_header_hash"].lower())
+                observation_key = (
+                    row["chain"],
+                    int(row["btc_height"]),
+                    row["btc_header_hash"].lower(),
+                )
                 if observation_key in expected:
                     assert row["validation_status"] == "VALID_STALE_DESCENDANT", (
                         path,

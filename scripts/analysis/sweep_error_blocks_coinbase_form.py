@@ -110,6 +110,8 @@ from _sweep_common import (  # noqa: E402
     ARCHIVE_HOST,
     InventoryReader,
     STALE_INVENTORIES,
+    STALE_INVENTORY_BASELINE_ROWS,
+    VALIDATED_STALE_INVENTORY_BASELINE_ROWS,
     VALIDATED_STALES_GLOB,
     _REGEN_CHAINS,
     claimed_height,
@@ -135,6 +137,14 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
 from stale_blocks_analysis.config import BIP34_HEIGHT, BIP34_VERSION_2_HEIGHT  # noqa: E402,F401
 
 DEFAULT_REPORT = Path("results/analysis/error-blocks/coinbase-form-report.md")
+
+INVENTORY_BASELINE_ROWS = {
+    **{f"{chain}:stale": rows for chain, rows in STALE_INVENTORY_BASELINE_ROWS.items()},
+    **{
+        f"{chain}:validated": rows
+        for chain, rows in VALIDATED_STALE_INVENTORY_BASELINE_ROWS.items()
+    },
+}
 
 # Gate tokens, keyed to the offline validator's RULE_GATES entries. The
 # length gate enforces the full 2..100 bound; the sweep distinguishes the
@@ -889,7 +899,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # A partial sweep (some inventories unreachable) must not overwrite the
     # committed report without --allow-partial.
-    if require_full_coverage_for_committed(args, reports):
+    if require_full_coverage_for_committed(
+        args,
+        reports,
+        expected_inventory_rows=INVENTORY_BASELINE_ROWS,
+        inventory_row_counts=lambda report: {
+            f"{report.chain}:{report.source}": report.total_rows
+        },
+    ):
         return 1
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

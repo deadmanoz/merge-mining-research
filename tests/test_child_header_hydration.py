@@ -696,6 +696,7 @@ def test_coverage_report_loads_each_accepted_descendant_source_observation(
     fields = [
         "classification",
         "validation_status",
+        "btc_height",
         "btc_header_hash",
         "source_rows",
     ]
@@ -706,6 +707,7 @@ def test_coverage_report_loads_each_accepted_descendant_source_observation(
             {
                 "classification": "stale_descendant",
                 "validation_status": "VALID_STALE_DESCENDANT",
+                "btc_height": "1",
                 "btc_header_hash": "33" * 32,
                 "source_rows": "devcoin:first:1|devcoin:second:2|ixcoin:third:3",
             }
@@ -714,6 +716,7 @@ def test_coverage_report_loads_each_accepted_descendant_source_observation(
             {
                 "classification": "stale_descendant",
                 "validation_status": "REJECTED_bip34_height_mismatch",
+                "btc_height": "2",
                 "btc_header_hash": "44" * 32,
                 "source_rows": "devcoin:rejected:4",
             }

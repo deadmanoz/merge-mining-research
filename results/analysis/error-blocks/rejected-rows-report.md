@@ -1,6 +1,6 @@
 # Error-blocks rejected-row mining sweep
 
-Generated: 2026-07-30 21:47 UTC
+Generated: 2026-07-30 21:47 UTC (amended 2026-08-04 to include Elastos)
 
 Re-examination of every `REJECTED:` row across the reachable per-chain
 classified inventories on the chain archive host. A row is an error
@@ -22,16 +22,16 @@ never the `btc_header_hash` column.
 
 ## Summary
 
-- Inventories reachable: 7/7
-- REJECTED rows examined: 44
+- Inventories reachable: 8/8
+- REJECTED rows examined: 45
 - Contextual-class rejections: 32
-- Target-class rejections: 12
+- Target-class rejections: 13
 - NEW confirmed error blocks (full PoW + canonical target + contextual re-derived, not in dataset): 0
 - Full-PoW contextual rows whose named failure did NOT re-derive (not confirmed): 0
 - Full-PoW median-time-past rows (named failure needs canonical parent context, not re-derivable offline, not confirmed): 0
 - Full-PoW contextual rows re-deriving their named failure but failing the canonical expected-nBits target (share/contamination, not confirmed): 0
 - Full-PoW contextual rows from a canonical-fill-scratch inventory (unverified btc_height, not promoted): 0
-- Target-class rows meeting the canonical expected target despite the nBits label (error-block candidates, manual review, not auto-promoted): 2 (0 un-promoted, 2 already in the dataset)
+- Target-class rows meeting the canonical expected target despite the nBits label (error-block candidates, manual review, not auto-promoted): 3 (0 un-promoted, 3 already in the dataset)
 
 ## Per-chain results
 
@@ -44,6 +44,7 @@ never the `btc_header_hash` column.
 | emercoin | 97 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
 | unobtanium | 44 | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 |
 | syscoin | 18360 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| elastos | 9156 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 |
 
 ## Negative results
 
@@ -68,6 +69,7 @@ candidate.
 
 - emercoin height 717696 hash `0000000000000000000045c5040bf46b4cd6c6f8f4004c149cd602e4e356e71c` — nBits mismatch with canonical BTC height (got 170b98ab, expected 170b8c8b) — ALREADY IN THE DATASET (catalogued/promoted)
 - syscoin height 717696 hash `0000000000000000000045c5040bf46b4cd6c6f8f4004c149cd602e4e356e71c` — nBits mismatch with canonical BTC height (got 170b98ab, expected 170b8c8b) — ALREADY IN THE DATASET (catalogued/promoted)
+- elastos height 717696 hash `0000000000000000000045c5040bf46b4cd6c6f8f4004c149cd602e4e356e71c` — nBits mismatch with canonical BTC height (got 170b98ab, expected 170b8c8b) — ALREADY IN THE DATASET (catalogued/promoted)
 
 ## Rejection-reason detail
 
@@ -84,6 +86,8 @@ candidate.
 ### unobtanium (`~/mmr-child-header-regen-20260729/staging/chains/unobtanium/classified/unobtanium_stale_blocks.csv`)
 
 ### syscoin (`~/canonical-fill-scratch/syscoin/syscoin_stale_blocks.csv`)
+
+### elastos (`~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv`)
 
 Row-level rejection detail remains in the authoritative inventories on
 the chain archive host; this report is the compact committed summary.
