@@ -375,3 +375,27 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
     assert promoted.is_file()
     assert promoted.read_text().count("\n") == 1
     assert (results / module.OUTPUT_SUMMARY).is_file()
+
+
+def test_descendant_consensus_rules_needs_judgeable_evidence():
+    """A descendant is promoted to error block only on sound evidence.
+
+    The height is the root's confirmed height plus a fork depth, so it is
+    trustworthy only when the path was verified, the work meets its target,
+    and the bits are Bitcoin's canonical value there. Any of those missing and
+    a coinbase-height mismatch is equally consistent with a wrong height, so
+    no rule is derived and the row stays a rejected descendant.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+
+    assert module.descendant_consensus_rules(header_hex, scriptsig, 400001, []) == [
+        "bip34_coinbase_height_mismatch"
+    ]
+    assert module.descendant_consensus_rules(header_hex, scriptsig, None, []) == []
+    for failure in sorted(module.DESCENDANT_UNJUDGEABLE_FAILURES):
+        assert (
+            module.descendant_consensus_rules(header_hex, scriptsig, 400001, [failure])
+            == []
+        )

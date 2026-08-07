@@ -26,6 +26,7 @@ from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     bip34_height_error,
     block_version_error,
+    consensus_violations,
 )
 from stale_blocks_analysis.config import (  # noqa: E402
     BIP34_HEIGHT,
@@ -208,6 +209,52 @@ def parse_header_fields(header_hex: str) -> dict[str, str]:
         "time": str(int.from_bytes(raw[68:72], "little")),
         "bits": raw[72:76][::-1].hex(),
     }
+
+
+DESCENDANT_UNJUDGEABLE_FAILURES = frozenset(
+    {
+        "prev_hash_path_mismatch",
+        "pow_target_mismatch",
+        "nbits_epoch_mismatch",
+    }
+)
+
+
+def descendant_consensus_rules(
+    header_hex: str,
+    scriptsig_hex: str,
+    inferred_height: int | None,
+    validation_failures: list[str],
+) -> list[str]:
+    """Return the consensus rules a descendant candidate's bytes prove broken.
+
+    A candidate with a non-empty result is not a rejected descendant, it is an
+    error block: a Bitcoin block carrying full proof of work that breaks a
+    rule. It uses the same shared derivation the classifier uses, so that a
+    rejection means the same thing wherever it is produced.
+
+    The inferred height is sound enough to judge against, provided none of
+    ``DESCENDANT_UNJUDGEABLE_FAILURES`` fired. It is the root's confirmed
+    height plus the fork depth, walked along links this run already verified
+    (``prev_hash_path_mismatch`` would be recorded otherwise), and an
+    ``nbits_epoch_mismatch`` would have fired if the header's difficulty were
+    not Bitcoin's at that height -- which also rules out a share at the
+    canonical target and another chain's header. Without all three the
+    evidence is too weak to call: a coinbase-height mismatch would be equally
+    consistent with a wrong height, so no rule is derived.
+
+    ``nbits_by_epoch`` is deliberately not supplied. The absent
+    ``nbits_epoch_mismatch`` already proves the bits equal the canonical
+    value, so the unapplied-retarget rule cannot apply.
+    """
+    if inferred_height is None:
+        return []
+    if DESCENDANT_UNJUDGEABLE_FAILURES & set(validation_failures):
+        return []
+    return consensus_violations(
+        {"btc_header_hex": header_hex, "coinbase_scriptsig_hex": scriptsig_hex},
+        inferred_height,
+    )
 
 
 def descendant_bip34_verdict(
@@ -1841,11 +1888,16 @@ def main(argv: list[str] | None = None) -> None:
             if not validation_failures
             else "REJECTED_" + "|".join(validation_failures)
         )
+        consensus_rules = descendant_consensus_rules(
+            header_hex, scriptsig_hex, inferred_height, validation_failures
+        )
         sources, chains, heights, times, bits = stale_sources(stale_by_hash[stale_hash])
 
         promoted_rows.append(
             {
-                "classification": "stale_descendant",
+                "classification": (
+                    "error_block" if consensus_rules else "stale_descendant"
+                ),
                 "promotion_subclass": result.category,
                 "validation_status": validation_status,
                 "btc_height": "" if inferred_height is None else inferred_height,
