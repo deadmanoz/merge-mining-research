@@ -244,10 +244,17 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
     assert validated[0]["child_block_hash"] == rows[1]["child_block_hash"]
     assert validated[0]["child_block_time"] == str(1_600_000_011)
 
+    # The nBits rejection is contamination, not a verdict on a Bitcoin block,
+    # so routing re-classifies it as unknown. It stays in the rejection log
+    # (nothing else in this mode would carry it) with the blanked diagnostics
+    # every unknown row gets; the reason survives in the classified inventory.
     assert [row["btc_header_hash"] for row in rejected] == [stale_rejected]
+    assert rejected[0]["classification"] == "unknown"
     assert rejected[0]["btc_prev_hash"] == rejected_parent
-    assert rejected[0]["expected_nbits"] == "1d00ffff"
-    assert "likely BCH/BSV block" in rejected[0]["validation_status"]
+    assert rejected[0]["expected_nbits"] == ""
+    assert rejected[0]["validation_status"] == ""
+    with (tmp_path / "validated_error_blocks.csv").open(newline="") as f:
+        assert list(csv.DictReader(f)) == []
 
     assert [row["btc_hash"] for row in evidence] == [canonical, stale_valid]
     canonical_evidence, stale_evidence = evidence
@@ -277,14 +284,17 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         "canonical",
         "stale",
         "unknown",
-        "stale",
+        "unknown",
     ]
     assert classified[0]["extraction_note"] == "preserved"
     assert classified[1]["validation_status"].startswith("VALID")
     assert classified[2]["validation_status"] == (
         "UNKNOWN: parent is not on the active Bitcoin chain"
     )
-    assert "nBits mismatch" in classified[3]["validation_status"]
+    assert classified[3]["validation_status"] == (
+        "REJECTED: nBits mismatch with canonical BTC height "
+        "(got 207fffff, expected 1d00ffff); likely BCH/BSV block"
+    )
 
     with publication_path.open(newline="") as f:
         publication_stales = list(csv.DictReader(f))
@@ -292,12 +302,17 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         publication_canonical = list(csv.DictReader(f))
     with (tmp_path / "i0coin_unknown_blocks.csv").open(newline="") as f:
         publication_unknown = list(csv.DictReader(f))
+    with (tmp_path / "i0coin_error_blocks.csv").open(newline="") as f:
+        publication_error_blocks = list(csv.DictReader(f))
     assert [row["btc_header_hash"] for row in publication_canonical] == [canonical]
-    assert [row["btc_header_hash"] for row in publication_stales] == [
-        stale_valid,
+    assert [row["btc_header_hash"] for row in publication_stales] == [stale_valid]
+    # The Phase 2 unknown (no height) sorts ahead of the re-routed nBits row,
+    # which keeps the height its canonical parent implied.
+    assert [row["btc_header_hash"] for row in publication_unknown] == [
+        unknown,
         stale_rejected,
     ]
-    assert [row["btc_header_hash"] for row in publication_unknown] == [unknown]
+    assert publication_error_blocks == []
     assert all(
         list(row) == mod.OUTPUT_FIELDS
         for row in [
@@ -331,14 +346,23 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         publication_csv=publication_only_path,
     )
     with publication_only_path.open(newline="") as f:
-        assert len(list(csv.DictReader(f))) == 2
+        assert len(list(csv.DictReader(f))) == 1
     with (tmp_path / "publication_only_canonical_blocks.csv").open(newline="") as f:
         assert len(list(csv.DictReader(f))) == 1
     with (tmp_path / "publication_only_unknown_blocks.csv").open(newline="") as f:
-        assert len(list(csv.DictReader(f))) == 1
+        assert len(list(csv.DictReader(f))) == 2
+    with (tmp_path / "publication_only_error_blocks.csv").open(newline="") as f:
+        assert len(list(csv.DictReader(f))) == 0
 
 
-def test_classifier_rejects_bip34_height_mismatch_even_when_nbits_match(tmp_path):
+def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp_path):
+    """A full-PoW header whose coinbase commits the wrong height is invalid.
+
+    The nBits match, so nothing here is contamination: the bytes themselves
+    prove a broken consensus rule, which makes the row an error block rather
+    than a rejected stale. It leaves the rejection log entirely and lands in
+    the _error_blocks sibling with its verdict intact.
+    """
     mod = _load_classifier()
     parent = "31" * 32
     canonical_at_height = "32" * 32
@@ -392,10 +416,14 @@ def test_classifier_rejects_bip34_height_mismatch_even_when_nbits_match(tmp_path
     with output_path.open(newline="") as f:
         assert list(csv.DictReader(f)) == []
     with rejected_path.open(newline="") as f:
-        rejected = list(csv.DictReader(f))
-    assert len(rejected) == 1
-    assert rejected[0]["expected_nbits"] == "207fffff"
-    assert rejected[0]["validation_status"] == (
+        assert list(csv.DictReader(f)) == []
+    with (tmp_path / "validated_error_blocks.csv").open(newline="") as f:
+        error_blocks = list(csv.DictReader(f))
+    assert len(error_blocks) == 1
+    assert error_blocks[0]["classification"] == "error_block"
+    assert error_blocks[0]["btc_height"] == "478559"
+    assert error_blocks[0]["expected_nbits"] == "207fffff"
+    assert error_blocks[0]["validation_status"] == (
         "REJECTED: BIP34 coinbase height mismatch (got 478560, expected 478559)"
     )
     with evidence_path.open(newline="") as f:
