@@ -49,6 +49,7 @@ data/*_stale_blocks.csv
 data/*_canonical_blocks.csv
 data/*_unknown_blocks.csv
 data/*_near_blocks.csv
+data/*_error_blocks.csv
 data/*_auxpow_chainid_sidecar.csv
 data/coinbase_mergemining_v1.db*
 data/coinbase_mergemining_v1.parquet
