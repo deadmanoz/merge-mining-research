@@ -1014,6 +1014,39 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
     }
 
 
+@pytest.mark.parametrize("classification", ["error_block", "near", "", None])
+def test_write_classifier_outputs_rejects_unrecognised_classification(
+    tmp_path, classification
+):
+    """An unbucketable row must abort the write, never be dropped silently.
+
+    Dropping it would lose the row from all four files *and* from the returned
+    counts, so a partial run would be indistinguishable from a complete one.
+    """
+    cols = output_columns("ixc_height")
+    row = _cls_row("stale", 500, status="VALID")
+    if classification is None:
+        row.pop("classification")
+    else:
+        row["classification"] = classification
+    paths = {
+        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+    }
+
+    with pytest.raises(ValueError, match="unrecognised classification"):
+        write_classifier_outputs(
+            [_cls_row("canonical", 1000), row],
+            columns=cols,
+            canonical_path=str(paths["canonical"]),
+            stale_path=str(paths["stale"]),
+            unknown_path=str(paths["unknown"]),
+            validated_path=str(paths["validated"]),
+        )
+
+    # Fails before any file is written, so a failed run leaves no partial output.
+    assert not any(p.exists() for p in paths.values())
+
+
 def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
     cols = output_columns("ixc_height")
     paths = {

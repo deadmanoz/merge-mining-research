@@ -454,17 +454,30 @@ def write_classifier_outputs(
     the committed loader input the ``stale_blocks.py`` loaders read. Each file
     is sorted by ``btc_height`` and its header is always written, even when the
     bucket is empty. Returns bucket counts for the caller's summary.
+
+    Every row must carry one of the three bucket classifications. A row whose
+    ``classification`` is missing or unrecognised raises ``ValueError`` rather
+    than being dropped: silently discarding it would lose the row from all four
+    files *and* from the returned counts, so an incomplete run would report as a
+    complete one. ``near`` rows never reach here -- they are separated before
+    Phase 2 and written by their own path.
     """
     buckets: dict[str, list[dict]] = {"canonical": [], "stale": [], "unknown": []}
-    for row in all_results:
-        bucket = buckets.get(row.get("classification"))
-        if bucket is not None:
-            output_row = dict(row)
-            if row.get("classification") in ("canonical", "unknown"):
-                output_row["validation_status"] = ""
-                output_row["expected_nbits"] = ""
-                output_row["rejection_reason"] = ""
-            bucket.append(output_row)
+    for row_number, row in enumerate(all_results, start=1):
+        classification = row.get("classification")
+        bucket = buckets.get(classification)
+        if bucket is None:
+            raise ValueError(
+                f"row {row_number} has unrecognised classification "
+                f"{classification!r} (expected one of {sorted(buckets)}); "
+                f"btc_header_hash={row.get('btc_header_hash', '')!r}"
+            )
+        output_row = dict(row)
+        if classification in ("canonical", "unknown"):
+            output_row["validation_status"] = ""
+            output_row["expected_nbits"] = ""
+            output_row["rejection_reason"] = ""
+        bucket.append(output_row)
     validated = [s for s in buckets["stale"] if s.get("validation_status") == "VALID"]
 
     _write_split_file(canonical_path, buckets["canonical"], columns=columns)
