@@ -29,9 +29,12 @@ Not shared (left per-sweep deliberately):
   ``(height, why)`` and corroborates against the decoded BIP34 coinbase
   height. The shared ``claimed_height`` below is the simpler
   ``int | None`` variant used by the version/BIP and coinbase-form sweeps.
-- The rejected-rows sweep's ``CHAIN_INVENTORIES``: a different 7-chain
+- The rejected-rows sweep's ``CHAIN_INVENTORIES``: a different, smaller
   inventory map (REJECTED-row coverage), not the 19-chain
-  ``STALE_INVENTORIES`` map shared by the other sweeps.
+  ``STALE_INVENTORIES`` map shared by the other sweeps. It also covers
+  namecoin, which is not one of the regen-staging chains, so its row
+  baseline is stated in the sweep rather than taken from
+  ``STALE_INVENTORY_BASELINE_ROWS``.
 - The time-rule sweep's MTP-fetch machinery (``_REMOTE_MTP_HELPER``,
   ``ssh_mtp_fetcher``, the cache helpers) and ``UNKNOWN_INVENTORY_GLOB``.
 
@@ -52,7 +55,6 @@ import is not available. The sweeps follow the established
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import subprocess
 import sys
@@ -60,6 +62,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty
+from stale_blocks_analysis.bitcoin_epoch_reference import (
+    load_nbits_by_epoch as package_load_nbits_by_epoch,
+)
 from stale_blocks_analysis.config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
     ERROR_BLOCKS_CSV,
@@ -199,7 +204,6 @@ _SCRATCH_CHAINS = ("syscoin", "elastos", "fractal")
 VALIDATED_STALES_GLOB = "data/validated-stales/*_validated_stales.csv"
 
 EPOCH_LENGTH = 2016
-NBITS_BY_EPOCH_JSON = BITCOIN_EPOCH_REFERENCE_DIR / "btc_nbits_by_epoch.json"
 
 # Callable that returns the inventory CSV text for (chain, path), or raises.
 InventoryReader = Callable[[str, str], str]
@@ -310,12 +314,13 @@ def reverify_full_pow(header_hex: str) -> bool | None:
 
 
 def load_nbits_by_epoch() -> dict[int, int]:
-    """Load the committed retarget-epoch reference table (epoch start -> bits)."""
-    with open(NBITS_BY_EPOCH_JSON) as f:
-        table = json.load(f)
-    return {
-        int(epoch_start): int(hexbits, 16) for epoch_start, hexbits in table.items()
-    }
+    """Load the committed retarget-epoch reference table (epoch start -> bits).
+
+    Zero-argument sweep-facing wrapper: the four sweeps always read the one
+    committed reference directory, so the parsing itself is delegated to the
+    package loader rather than duplicated here.
+    """
+    return package_load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
 
 
 def reverify_against_canonical_target(
