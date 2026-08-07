@@ -603,6 +603,11 @@ def validate_stale_header_context(
         if not isinstance(parent_mtp, int) or isinstance(parent_mtp, bool):
             _set_parent_context_unknown(stale, status_key)
             continue
+        # Retain the parent's median-time-past on the row. It is not a column
+        # and cannot be recovered later without the node, but the caller needs
+        # it to re-derive which consensus rules the row broke. The leading
+        # underscore keeps it out of every CSV writer.
+        stale["_parent_median_time_past"] = parent_mtp
 
         error = stale_header_context_error(
             stale,

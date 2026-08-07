@@ -50,8 +50,18 @@ from .auxpow_parse import (
     validate_child_header_fields,
 )
 from .btc_rpc import BtcRpc, get_btc_auth
-from .btc_stale_validation import PLACEMENT_REJECTION, validate_stale_header_context
-from .config import HISTORICAL_CHILD_HEADER_CHAINS, ChainSpec
+from .bitcoin_epoch_reference import load_nbits_by_epoch
+from .btc_nbits_validation import NBITS_MISMATCH_PREFIX
+from .btc_stale_validation import (
+    PLACEMENT_REJECTION,
+    consensus_violations,
+    validate_stale_header_context,
+)
+from .config import (
+    BITCOIN_EPOCH_REFERENCE_DIR,
+    HISTORICAL_CHILD_HEADER_CHAINS,
+    ChainSpec,
+)
 
 # Default RPC batch size, matching the inline copies.
 BATCH_SIZE = 200
@@ -442,8 +452,9 @@ def write_classifier_outputs(
     stale_path: str,
     unknown_path: str,
     validated_path: str,
+    error_block_path: str,
 ) -> dict[str, int]:
-    """Partition classified rows by ``classification`` and write the four
+    """Partition classified rows by ``classification`` and write the five
     bucket-split output files, each on the same ``columns`` schema.
 
     ``canonical`` / ``stale`` / ``unknown`` are partitioned on the primary
@@ -455,14 +466,19 @@ def write_classifier_outputs(
     is sorted by ``btc_height`` and its header is always written, even when the
     bucket is empty. Returns bucket counts for the caller's summary.
 
-    Every row must carry one of the three bucket classifications. A row whose
+    Every row must carry one of the four bucket classifications. A row whose
     ``classification`` is missing or unrecognised raises ``ValueError`` rather
     than being dropped: silently discarding it would lose the row from all four
     files *and* from the returned counts, so an incomplete run would report as a
     complete one. ``near`` rows never reach here -- they are separated before
     Phase 2 and written by their own path.
     """
-    buckets: dict[str, list[dict]] = {"canonical": [], "stale": [], "unknown": []}
+    buckets: dict[str, list[dict]] = {
+        "canonical": [],
+        "stale": [],
+        "unknown": [],
+        "error_block": [],
+    }
     for row_number, row in enumerate(all_results, start=1):
         classification = row.get("classification")
         bucket = buckets.get(classification)
@@ -484,11 +500,13 @@ def write_classifier_outputs(
     _write_split_file(stale_path, buckets["stale"], columns=columns)
     _write_split_file(unknown_path, buckets["unknown"], columns=columns)
     _write_split_file(validated_path, validated, columns=columns)
+    _write_split_file(error_block_path, buckets["error_block"], columns=columns)
 
     return {
         "canonical": len(buckets["canonical"]),
         "stale": len(buckets["stale"]),
         "unknown": len(buckets["unknown"]),
+        "error_block": len(buckets["error_block"]),
         "valid": len(validated),
         "rejected": sum(
             1
@@ -511,6 +529,7 @@ def run_classifier(
     validated_output_path: Optional[str] = None,
     canonical_output_path: Optional[str] = None,
     unknown_output_path: Optional[str] = None,
+    error_block_output_path: Optional[str] = None,
     keep_near: bool = False,
     near_output_path: Optional[str] = None,
     all_valid: bool = False,
@@ -577,6 +596,9 @@ def run_classifier(
         canonical_output_path = default_canonical
     if unknown_output_path is None:
         unknown_output_path = default_unknown
+    error_block_path = error_block_output_path or _derive_tag_path(
+        out_path, "_error_blocks"
+    )
     height_col = spec.height_column
 
     if rpc is None:
@@ -694,26 +716,46 @@ def run_classifier(
         expected_key="expected_nbits",
     )
 
-    # --- Routing: a placement rejection is not a verdict on the block ---
-    # Phase 2 called the row stale because its predecessor resolved as an
-    # active-chain header. The gate re-checks that parent and can find it is
-    # not on the active chain after all -- typically because the parent is
-    # itself stale, i.e. this row continues a fork. That makes the row an
-    # unknown, exactly what Phase 2 assigns when a parent does not resolve;
-    # the gate is only discovering it later with a stricter check. Leaving it
-    # as a stale that failed strands it: the ancestry reconciliation walks
-    # unknown rows back to a stale root and promotes the ones that reach one
-    # into stale descendants, and it never sees a row still labelled stale.
-    misplaced = [
+    # --- Routing: sort the rejected rows by what the rejection means ---
+    # The REJECTED prefix covers three unrelated situations and only one of
+    # them is a verdict on the block:
+    #
+    #   * a consensus rule was broken -> the block is invalid despite carrying
+    #     full proof of work, which is an error block;
+    #   * the predecessor is not on the active chain -> the row is not a direct
+    #     stale at all. That is what `unknown` means, and it is what Phase 2
+    #     would have assigned had the parent not resolved. Only unknown rows
+    #     are walked back to a stale root by the ancestry reconciliation, so
+    #     leaving it stale strands a fork continuation outside that path;
+    #   * the difficulty is not Bitcoin's at this height -> a header from
+    #     another SHA-256 chain, which we cannot place on Bitcoin, so likewise
+    #     unknown.
+    #
+    # Rules are re-derived from the bytes rather than read back out of the
+    # verdict string, so a rejection whose evidence was merely unusable
+    # produces no rules and stays put. (Those normally surface as UNKNOWN and
+    # abort below; this keeps the classification honest if one ever does not.)
+    rejected = [
         row
         for row in stales
-        if str(row.get("validation_status", "")) == PLACEMENT_REJECTION
+        if str(row.get("validation_status", "")).startswith("REJECTED:")
     ]
-    if misplaced:
-        for row in misplaced:
-            row["classification"] = "unknown"
-        # The writer clears the gate annotations on unknown rows, so these
-        # land in the unknown file indistinguishable from a Phase 2 unknown.
+    if rejected:
+        nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
+        for row in rejected:
+            rules = consensus_violations(
+                row,
+                int(row["btc_height"]),
+                parent_median_time_past=row.get("_parent_median_time_past"),
+                nbits_by_epoch=nbits_by_epoch,
+            )
+            status = str(row.get("validation_status", ""))
+            if rules:
+                row["classification"] = "error_block"
+            elif status == PLACEMENT_REJECTION or status.startswith(
+                NBITS_MISMATCH_PREFIX
+            ):
+                row["classification"] = "unknown"
         stales = [row for row in stales if row["classification"] == "stale"]
 
     validation_unknown = [
@@ -734,6 +776,7 @@ def run_classifier(
         canonical_path=canonical_output_path,
         stale_path=out_path,
         unknown_path=unknown_output_path,
+        error_block_path=error_block_path,
         validated_path=validated_path,
     )
 
@@ -753,12 +796,14 @@ def run_classifier(
         "canonical": counts["canonical"],
         "stale": counts["stale"],
         "unknown": counts["unknown"],
+        "error_block": counts["error_block"],
         "valid": counts["valid"],
         "rejected": counts["rejected"],
         "validation_unknown": counts["validation_unknown"],
         "near": len(near_headers) if keep_near else 0,
         "output_path": out_path,
         "unknown_output_path": unknown_output_path,
+        "error_block_output_path": error_block_path,
         "validated_output_path": validated_path,
         "canonical_output_path": canonical_output_path,
         "near_output_path": near_path_out,

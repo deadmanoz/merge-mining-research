@@ -419,20 +419,23 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert summary["total"] == 5
     assert summary["btc_valid"] == 4  # fail_hex dropped
     assert summary["canonical"] == 1
-    assert summary["stale"] == 2
-    assert summary["unknown"] == 1
+    # The nBits-mismatched candidate is a foreign chain's header, not an
+    # invalid Bitcoin block, so it routes to unknown rather than staying a
+    # stale that failed.
+    assert summary["stale"] == 1
+    assert summary["unknown"] == 2
+    assert summary["error_block"] == 0
     assert summary["valid"] == 1
-    assert summary["rejected"] == 1
+    assert summary["rejected"] == 0
     assert summary["validation_unknown"] == 0
 
-    # Stale file: stale rows only now (2), sorted ascending; unknown is split
-    # into its own file and canonical into the canonical artifact.
+    # Stale file: the surviving VALID stale only.
     with open(out_path, newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == output_columns("ixc_height")
         out_rows = list(reader)
 
-    assert len(out_rows) == 2
+    assert len(out_rows) == 1
     assert all(r["classification"] == "stale" for r in out_rows)
     heights = [int(r["btc_height"]) for r in out_rows]
     assert heights == sorted(heights)
@@ -445,17 +448,19 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
         stale_rows[stale_valid_hash]["child_header_hex"] == rows[1]["child_header_hex"]
     )
     assert stale_rows[stale_valid_hash]["child_nbits"] == "1d00ffff"
-    assert stale_rows[stale_rej_hash]["validation_status"].startswith("REJECTED")
 
-    # Unknown file: the single unknown row, split out of the stale inventory.
+    # Unknown file: the Phase 2 unknown plus the rerouted nBits mismatch.
     with open(summary["unknown_output_path"], newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == output_columns("ixc_height")
         unknown_rows = list(reader)
-    assert len(unknown_rows) == 1
-    assert unknown_rows[0]["btc_header_hash"] == unknown_hash
-    assert unknown_rows[0]["classification"] == "unknown"
-    assert unknown_rows[0]["child_header_hex"] == rows[3]["child_header_hex"]
+    assert len(unknown_rows) == 2
+    by_hash = {r["btc_header_hash"]: r for r in unknown_rows}
+    assert set(by_hash) == {unknown_hash, stale_rej_hash}
+    assert all(r["classification"] == "unknown" for r in unknown_rows)
+    # Indistinguishable from a Phase 2 unknown once rerouted.
+    assert by_hash[stale_rej_hash]["validation_status"] == ""
+    assert by_hash[unknown_hash]["child_header_hex"] == rows[3]["child_header_hex"]
 
     # Canonical artifact: canonical rows with Core's height authoritative.
     with open(summary["canonical_output_path"], newline="") as f:
@@ -659,7 +664,13 @@ def test_run_classifier_nbits_gate_is_not_skippable(tmp_path):
     assert any(c["method"] == "getblockhash" for c in rpc.calls)
 
 
-def test_run_classifier_bip34_gate_excludes_mismatched_stale(tmp_path):
+def test_run_classifier_labels_a_bip34_mismatch_as_an_error_block(tmp_path):
+    """A full-PoW block whose coinbase height is wrong is invalid, not stale.
+
+    This used to stay in the stale inventory carrying a REJECTED verdict,
+    where only a hand-run sweep over the private archive would ever find it.
+    The pass now labels it during the run, from the same bytes.
+    """
     prev_known = "af" * 32
     stale_hex, stale_hash = _passing_header(prev_known)
     row = _candidate(
@@ -693,17 +704,27 @@ def test_run_classifier_bip34_gate_excludes_mismatched_stale(tmp_path):
 
     summary = run_classifier(_spec(tmp_path, in_path, out_path), rpc=rpc)
 
-    assert summary["stale"] == 1
+    assert summary["stale"] == 0
+    assert summary["error_block"] == 1
     assert summary["valid"] == 0
-    assert summary["rejected"] == 1
+    assert summary["rejected"] == 0
+
+    # Out of the stale inventory entirely, and never a published stale.
     with open(out_path, newline="") as f:
-        stale = list(csv.DictReader(f))
-    assert stale[0]["validation_status"] == (
+        assert list(csv.DictReader(f)) == []
+    with open(summary["validated_output_path"], newline="") as f:
+        assert list(csv.DictReader(f)) == []
+
+    with open(summary["error_block_output_path"], newline="") as f:
+        error_blocks = list(csv.DictReader(f))
+    assert len(error_blocks) == 1
+    assert error_blocks[0]["btc_header_hash"] == stale_hash
+    assert error_blocks[0]["classification"] == "error_block"
+    # The verdict that identified it is retained as the primary reason.
+    assert error_blocks[0]["validation_status"] == (
         "REJECTED: BIP34 coinbase height mismatch "
         f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})"
     )
-    with open(summary["validated_output_path"], newline="") as f:
-        assert list(csv.DictReader(f)) == []
 
 
 @pytest.mark.parametrize(
@@ -810,11 +831,13 @@ def test_run_classifier_writes_valid_only_validated_csv(tmp_path):
     assert validated[0]["validation_status"] == "VALID"
     assert summary["validated_output_path"] == str(spec.validated_csv)
 
-    # Stale file now holds stale-only (2); the unknown row is split into its own file.
+    # Stale file holds the VALID stale only. The nBits-mismatched candidate is
+    # a foreign chain's header rather than an invalid Bitcoin block, so it
+    # joins the unknown row instead of lingering as a stale that failed.
     with open(out_path, newline="") as f:
-        assert len(list(csv.DictReader(f))) == 2
-    with open(summary["unknown_output_path"], newline="") as f:
         assert len(list(csv.DictReader(f))) == 1
+    with open(summary["unknown_output_path"], newline="") as f:
+        assert len(list(csv.DictReader(f))) == 2
 
 
 def test_run_classifier_preflight_fails_on_unreachable_node(tmp_path):
@@ -965,7 +988,8 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         _cls_row("unknown", 20),
     ]
     paths = {
-        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     }
     counts = write_classifier_outputs(
         all_results,
@@ -974,17 +998,20 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         stale_path=str(paths["stale"]),
         unknown_path=str(paths["unknown"]),
         validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
     )
 
     def read(p):
         with open(p, newline="") as f:
             r = csv.DictReader(f)
-            assert r.fieldnames == cols  # identical schema across all four files
+            assert r.fieldnames == cols  # identical schema across all five files
             return list(r)
 
-    canon, stale, unknown, validated = (
-        read(paths[k]) for k in ("canonical", "stale", "unknown", "validated")
+    canon, stale, unknown, validated, error_blocks = (
+        read(paths[k])
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     )
+    assert error_blocks == []
 
     # Each file is bucket-pure (no commingling).
     assert [r["classification"] for r in canon] == ["canonical"]
@@ -1008,13 +1035,14 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         "canonical": 1,
         "stale": 2,
         "unknown": 2,
+        "error_block": 0,
         "valid": 1,
         "rejected": 1,
         "validation_unknown": 0,
     }
 
 
-@pytest.mark.parametrize("classification", ["error_block", "near", "", None])
+@pytest.mark.parametrize("classification", ["near", "sideways", "", None])
 def test_write_classifier_outputs_rejects_unrecognised_classification(
     tmp_path, classification
 ):
@@ -1030,7 +1058,8 @@ def test_write_classifier_outputs_rejects_unrecognised_classification(
     else:
         row["classification"] = classification
     paths = {
-        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     }
 
     with pytest.raises(ValueError, match="unrecognised classification"):
@@ -1041,6 +1070,7 @@ def test_write_classifier_outputs_rejects_unrecognised_classification(
             stale_path=str(paths["stale"]),
             unknown_path=str(paths["unknown"]),
             validated_path=str(paths["validated"]),
+            error_block_path=str(paths["error_block"]),
         )
 
     # Fails before any file is written, so a failed run leaves no partial output.
@@ -1050,7 +1080,8 @@ def test_write_classifier_outputs_rejects_unrecognised_classification(
 def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
     cols = output_columns("ixc_height")
     paths = {
-        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     }
     write_classifier_outputs(
         [_cls_row("stale", 500, status="VALID")],
@@ -1059,6 +1090,7 @@ def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
         stale_path=str(paths["stale"]),
         unknown_path=str(paths["unknown"]),
         validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
     )
     # empty unknown file still has the header row, no data rows.
     with open(paths["unknown"], newline="") as f:
