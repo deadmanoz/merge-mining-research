@@ -1065,3 +1065,56 @@ def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
         r = csv.DictReader(f)
         assert r.fieldnames == cols
         assert list(r) == []
+
+
+def test_run_classifier_routes_a_misplaced_stale_to_unknown(tmp_path):
+    """A parent that is itself stale makes the row an unknown, not a failure.
+
+    Phase 2 accepts any parent that resolves; the gate re-checks it and finds
+    it has no confirmations, i.e. it is off the active chain. The row is then
+    a fork continuation, which is what `unknown` means -- and only unknown
+    rows are walked back to a stale root by the ancestry reconciliation, so
+    leaving it labelled stale would strand it outside the descendant path.
+    """
+    prev_stale = "cd" * 32
+    stale_hex, stale_hash = _passing_header(prev_stale)
+    row = _candidate(stale_hex, stale_hash, prev_stale, str(BIP34_HEIGHT + 1), "20")
+    row["coinbase_scriptsig_hex"] = (
+        b"\x03" + (BIP34_HEIGHT + 1).to_bytes(3, "little") + b"pool"
+    ).hex()
+    canonical_bits = row["btc_bits"]
+
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+    headers = {
+        # Resolves for Phase 2, but confirmations <= 0 means it is off the
+        # active chain, so the gate rejects the placement.
+        prev_stale: {
+            "height": BIP34_HEIGHT,
+            "bits": canonical_bits,
+            "confirmations": -1,
+        },
+        _canonical_hash(BIP34_HEIGHT + 1): {
+            "height": BIP34_HEIGHT + 1,
+            "bits": canonical_bits,
+            "confirmations": 1,
+        },
+    }
+    rpc = FakeRpc(headers, {BIP34_HEIGHT + 1: _canonical_hash(BIP34_HEIGHT + 1)})
+
+    summary = run_classifier(_spec(tmp_path, in_path, out_path), rpc=rpc)
+
+    assert summary["stale"] == 0
+    assert summary["unknown"] == 1
+    assert summary["rejected"] == 0
+
+    with open(out_path, newline="") as f:
+        assert list(csv.DictReader(f)) == []
+    with open(summary["unknown_output_path"], newline="") as f:
+        unknown = list(csv.DictReader(f))
+    assert len(unknown) == 1
+    assert unknown[0]["btc_header_hash"] == stale_hash
+    # Indistinguishable from a Phase 2 unknown: the gate annotations are gone.
+    assert unknown[0]["validation_status"] == ""
+    assert unknown[0]["expected_nbits"] == ""

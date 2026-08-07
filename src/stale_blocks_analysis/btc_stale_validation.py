@@ -23,6 +23,15 @@ from .config import (
 RpcBatch = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 NOT_FOUND_ERROR_CODE = -5
 
+# The one verdict that is not a judgement on the block: it says the row is not
+# a direct stale, because its predecessor is not on Bitcoin's active chain.
+# Phase 2 accepts a parent that resolves; this gate re-checks it and can find
+# the parent is itself stale. Such a row is an unknown, not a stale that
+# failed, and the driver reclassifies it.
+PLACEMENT_REJECTION = (
+    "REJECTED: direct-stale predecessor is not the expected active-chain Bitcoin block"
+)
+
 
 def block_version_error(
     row: dict[str, Any],
@@ -546,10 +555,7 @@ def validate_stale_header_context(
         error = response.get("error")
         if error is not None:
             if isinstance(error, dict) and error.get("code") == NOT_FOUND_ERROR_CODE:
-                stale[status_key] = (
-                    "REJECTED: direct-stale predecessor is not the expected "
-                    "active-chain Bitcoin block"
-                )
+                stale[status_key] = PLACEMENT_REJECTION
             else:
                 _set_parent_context_unknown(stale, status_key)
             continue
@@ -566,10 +572,7 @@ def validate_stale_header_context(
             _set_parent_context_unknown(stale, status_key)
             continue
         if confirmations <= 0:
-            stale[status_key] = (
-                "REJECTED: direct-stale predecessor is not the expected "
-                "active-chain Bitcoin block"
-            )
+            stale[status_key] = PLACEMENT_REJECTION
             continue
 
         parent_height = parent.get("height")

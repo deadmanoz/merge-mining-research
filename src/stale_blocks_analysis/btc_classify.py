@@ -50,7 +50,7 @@ from .auxpow_parse import (
     validate_child_header_fields,
 )
 from .btc_rpc import BtcRpc, get_btc_auth
-from .btc_stale_validation import validate_stale_header_context
+from .btc_stale_validation import PLACEMENT_REJECTION, validate_stale_header_context
 from .config import HISTORICAL_CHILD_HEADER_CHAINS, ChainSpec
 
 # Default RPC batch size, matching the inline copies.
@@ -693,6 +693,28 @@ def run_classifier(
         status_key="validation_status",
         expected_key="expected_nbits",
     )
+
+    # --- Routing: a placement rejection is not a verdict on the block ---
+    # Phase 2 called the row stale because its predecessor resolved as an
+    # active-chain header. The gate re-checks that parent and can find it is
+    # not on the active chain after all -- typically because the parent is
+    # itself stale, i.e. this row continues a fork. That makes the row an
+    # unknown, exactly what Phase 2 assigns when a parent does not resolve;
+    # the gate is only discovering it later with a stricter check. Leaving it
+    # as a stale that failed strands it: the ancestry reconciliation walks
+    # unknown rows back to a stale root and promotes the ones that reach one
+    # into stale descendants, and it never sees a row still labelled stale.
+    misplaced = [
+        row
+        for row in stales
+        if str(row.get("validation_status", "")) == PLACEMENT_REJECTION
+    ]
+    if misplaced:
+        for row in misplaced:
+            row["classification"] = "unknown"
+        # The writer clears the gate annotations on unknown rows, so these
+        # land in the unknown file indistinguishable from a Phase 2 unknown.
+        stales = [row for row in stales if row["classification"] == "stale"]
 
     validation_unknown = [
         row
