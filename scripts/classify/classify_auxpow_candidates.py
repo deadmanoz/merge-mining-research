@@ -621,8 +621,12 @@ def _derive_publication_split_paths(stale_csv):
 
     Publication output is a three-bucket artifact family, matching the shared
     classifiers. Re-running a refresh transactionally replaces the family.
+
+    The shared derivation also names the error-block peer, which this refresh
+    does not own: error blocks are built from the classifier's own pass rather
+    than republished here, so that path is deliberately dropped.
     """
-    canonical, unknown = derive_split_paths(str(stale_csv))
+    canonical, unknown, _error_blocks = derive_split_paths(str(stale_csv))
     return Path(canonical), Path(unknown)
 
 

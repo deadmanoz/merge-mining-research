@@ -29,6 +29,7 @@ Outputs are written in the shared classifier schema (matches
   - ``data/geistgeld_canonical_blocks.csv``: canonical rows.
   - ``data/geistgeld_stale_blocks.csv``: stale rows.
   - ``data/geistgeld_unknown_blocks.csv``: unknown rows.
+  - ``data/geistgeld_error_blocks.csv``: rows proven to break a consensus rule.
   - ``data/validated-stales/geistgeld_validated_stales.csv``: stale-only subset, the
     loader's input.
 
@@ -64,6 +65,7 @@ from stale_blocks_analysis.btc_classify import (
     derive_split_paths,
     normalize_bits_hex,
     output_columns,
+    route_rejected_stale_rows,
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
@@ -358,15 +360,24 @@ def main() -> int:
         expected_key="expected_nbits",
     )
 
-    # Write the four bucket-split outputs via the shared writer.
-    canonical_path, unknown_path = derive_split_paths(str(args.output))
-    write_classifier_outputs(
+    # Sort the rejected rows by what the rejection means: a proven consensus
+    # violation is an error block, an unplaceable or non-Bitcoin-difficulty
+    # header is an unknown. This runs before the write so the buckets below are
+    # the ones on disk.
+    route_rejected_stale_rows(pre_stales)
+
+    # Write the five bucket-split outputs via the shared writer.
+    canonical_path, unknown_path, error_block_path = derive_split_paths(
+        str(args.output)
+    )
+    counts = write_classifier_outputs(
         all_results,
         columns=OUTPUT_COLUMNS,
         canonical_path=canonical_path,
         stale_path=str(args.output),
         unknown_path=unknown_path,
         validated_path=str(args.validated_output),
+        error_block_path=error_block_path,
     )
     stales = [r for r in all_results if r["classification"] == "stale"]
     unknown_rows = [r for r in all_results if r["classification"] == "unknown"]
@@ -379,6 +390,7 @@ def main() -> int:
     print(f"  Unique parent hashes:    {len(candidates):,}")
     print(f"  Stale:                   {len(stales):,}")
     print(f"  Unknown:                 {len(unknown_rows):,}")
+    print(f"  Error block:             {counts['error_block']:,}")
     if heights:
         print(f"  BTC height range:        {min(heights):,} – {max(heights):,}")
     print(f"  Output: {args.output}")

@@ -23,9 +23,12 @@ from stale_blocks_analysis.btc_classify import (
     classify_candidates,
     normalize_bits_hex,
     output_columns,
+    route_rejected_stale_rows,
     run_classifier,
     write_classifier_outputs,
 )
+from stale_blocks_analysis.btc_nbits_validation import NBITS_MISMATCH_PREFIX
+from stale_blocks_analysis.btc_stale_validation import PLACEMENT_REJECTION
 from stale_blocks_analysis.config import ChainSpec
 from stale_blocks_analysis.config import BIP34_HEIGHT
 
@@ -1150,3 +1153,66 @@ def test_run_classifier_routes_a_misplaced_stale_to_unknown(tmp_path):
     # Indistinguishable from a Phase 2 unknown: the gate annotations are gone.
     assert unknown[0]["validation_status"] == ""
     assert unknown[0]["expected_nbits"] == ""
+
+
+# ---------------------------------------------------------------------------
+# route_rejected_stale_rows: the shared rejected-row routing
+# ---------------------------------------------------------------------------
+
+
+def _rejected_row(status, *, scriptsig_height=BIP34_HEIGHT, scriptsig=None) -> dict:
+    """Rejected stale row at ``BIP34_HEIGHT``, by default with a clean coinbase.
+
+    ``scriptsig_height`` is the height its coinbase commits to, so passing a
+    value other than the row's own height makes it a BIP34 violation. Passing
+    ``scriptsig`` overrides the coinbase entirely (an empty one is unusable
+    evidence, the way RSK's rows always are).
+    """
+    if scriptsig is None:
+        scriptsig = (b"\x03" + scriptsig_height.to_bytes(3, "little") + b"pool").hex()
+    return {
+        "btc_height": str(BIP34_HEIGHT),
+        "btc_header_hash": f"{BIP34_HEIGHT:064x}",
+        "btc_header_hex": _make_header("00" * 32, 1),
+        "btc_bits": f"{REGTEST_BITS:08x}",
+        "coinbase_scriptsig_hex": scriptsig,
+        "classification": "stale",
+        "validation_status": status,
+    }
+
+
+def test_route_rejected_stale_rows_splits_the_three_rejection_meanings():
+    """The REJECTED prefix covers three situations; only one is a verdict.
+
+    Read end to end this is what the routing exists for: a proven consensus
+    violation leaves the stale inventory as an error block, a row that is not
+    placeable on Bitcoin becomes unknown, and a rejection whose evidence cannot
+    be re-derived stays exactly where it was rather than being guessed at.
+    """
+    violation = _rejected_row(
+        "REJECTED: BIP34 coinbase height mismatch "
+        f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})",
+        scriptsig_height=BIP34_HEIGHT + 1,
+    )
+    misplaced = _rejected_row(PLACEMENT_REJECTION)
+    contaminated = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} (got 1d00ffff, expected 1b0404cb)"
+    )
+    # Rejected on the parent's median time past, which the gate did not retain
+    # on the row, so no rule can be re-derived from the bytes alone.
+    unusable = _rejected_row(
+        "REJECTED: Bitcoin block time not after parent median time past",
+        scriptsig="",
+    )
+    valid = _rejected_row("VALID")
+    rows = [violation, misplaced, contaminated, unusable, valid]
+
+    route_rejected_stale_rows(rows)
+
+    assert violation["classification"] == "error_block"
+    assert misplaced["classification"] == "unknown"
+    assert contaminated["classification"] == "unknown"
+    assert unusable["classification"] == "stale"
+    assert valid["classification"] == "stale"
+    # The verdict that identified each row is left intact for the writer.
+    assert violation["validation_status"].startswith("REJECTED: BIP34")

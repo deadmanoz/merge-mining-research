@@ -402,6 +402,63 @@ def classify_candidates(
     return results
 
 
+def route_rejected_stale_rows(
+    stales: list[dict[str, Any]],
+    *,
+    nbits_by_epoch: Optional[dict[int, int]] = None,
+) -> None:
+    """Re-route the gate's rejected stale rows by what the rejection means.
+
+    Mutates the given rows in place, so the caller's ``all_results`` sees the
+    new ``classification`` and the shared writer partitions on it. Rows that are
+    not rejected stales are left untouched, and the caller re-derives its own
+    stale list afterwards.
+
+    The REJECTED prefix covers three unrelated situations and only one of them
+    is a verdict on the block:
+
+      * a consensus rule was broken -> the block is invalid despite carrying
+        full proof of work, which is an error block;
+      * the predecessor is not on the active chain -> the row is not a direct
+        stale at all. That is what `unknown` means, and it is what Phase 2
+        would have assigned had the parent not resolved. Only unknown rows are
+        walked back to a stale root by the ancestry reconciliation, so leaving
+        it stale strands a fork continuation outside that path;
+      * the difficulty is not Bitcoin's at this height -> a header from another
+        SHA-256 chain, which we cannot place on Bitcoin, so likewise unknown.
+
+    Rules are re-derived from the bytes rather than read back out of the verdict
+    string, so a rejection whose evidence was merely unusable produces no rules
+    and stays put. (Those normally surface as UNKNOWN and abort the run; this
+    keeps the classification honest if one ever does not.)
+
+    ``nbits_by_epoch`` is the committed retarget-epoch reference table, loaded
+    once per call when the caller does not already hold it. It is only read
+    when there is at least one rejected row.
+    """
+    rejected = [
+        row
+        for row in stales
+        if str(row.get("validation_status", "")).startswith("REJECTED:")
+    ]
+    if not rejected:
+        return
+    if nbits_by_epoch is None:
+        nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
+    for row in rejected:
+        rules = consensus_violations(
+            row,
+            int(row["btc_height"]),
+            parent_median_time_past=row.get("_parent_median_time_past"),
+            nbits_by_epoch=nbits_by_epoch,
+        )
+        status = str(row.get("validation_status", ""))
+        if rules:
+            row["classification"] = "error_block"
+        elif status == PLACEMENT_REJECTION or status.startswith(NBITS_MISMATCH_PREFIX):
+            row["classification"] = "unknown"
+
+
 def _derive_tag_path(stale_path: str, tag: str) -> str:
     """Substitute a bucket tag into the stale-inventory path's basename.
 
@@ -416,15 +473,21 @@ def _derive_tag_path(stale_path: str, tag: str) -> str:
     return str(p.with_name(p.stem + tag + ".csv"))
 
 
-def derive_split_paths(stale_path: str) -> tuple[str, str]:
-    """Derive the canonical and unknown output paths from the stale-inventory
-    path: ``_stale_blocks`` -> ``_canonical_blocks`` / ``_unknown_blocks``. When
-    the name has no ``_stale_blocks`` marker, the tag is appended to the stem.
-    Returns ``(canonical_path, unknown_path)``.
+def derive_split_paths(stale_path: str) -> tuple[str, str, str]:
+    """Derive the canonical, unknown, and error-block output paths from the
+    stale-inventory path: ``_stale_blocks`` -> ``_canonical_blocks`` /
+    ``_unknown_blocks`` / ``_error_blocks``. When the name has no
+    ``_stale_blocks`` marker, the tag is appended to the stem. Returns
+    ``(canonical_path, unknown_path, error_block_path)``.
+
+    Every peer of the stale inventory that ``write_classifier_outputs`` needs a
+    path for comes from here, so a caller cannot pick up two of them and then
+    invent a name for the third.
     """
     return (
         _derive_tag_path(stale_path, "_canonical_blocks"),
         _derive_tag_path(stale_path, "_unknown_blocks"),
+        _derive_tag_path(stale_path, "_error_blocks"),
     )
 
 
@@ -591,14 +654,14 @@ def run_classifier(
     # Canonical parents are a distinct output, kept in a separate artifact
     # (the <chain>_canonical_blocks.csv convention) so the stale/unknown
     # inventory keeps its established composition.
-    default_canonical, default_unknown = derive_split_paths(out_path)
+    default_canonical, default_unknown, default_error_block = derive_split_paths(
+        out_path
+    )
     if canonical_output_path is None:
         canonical_output_path = default_canonical
     if unknown_output_path is None:
         unknown_output_path = default_unknown
-    error_block_path = error_block_output_path or _derive_tag_path(
-        out_path, "_error_blocks"
-    )
+    error_block_path = error_block_output_path or default_error_block
     height_col = spec.height_column
 
     if rpc is None:
@@ -717,46 +780,8 @@ def run_classifier(
     )
 
     # --- Routing: sort the rejected rows by what the rejection means ---
-    # The REJECTED prefix covers three unrelated situations and only one of
-    # them is a verdict on the block:
-    #
-    #   * a consensus rule was broken -> the block is invalid despite carrying
-    #     full proof of work, which is an error block;
-    #   * the predecessor is not on the active chain -> the row is not a direct
-    #     stale at all. That is what `unknown` means, and it is what Phase 2
-    #     would have assigned had the parent not resolved. Only unknown rows
-    #     are walked back to a stale root by the ancestry reconciliation, so
-    #     leaving it stale strands a fork continuation outside that path;
-    #   * the difficulty is not Bitcoin's at this height -> a header from
-    #     another SHA-256 chain, which we cannot place on Bitcoin, so likewise
-    #     unknown.
-    #
-    # Rules are re-derived from the bytes rather than read back out of the
-    # verdict string, so a rejection whose evidence was merely unusable
-    # produces no rules and stays put. (Those normally surface as UNKNOWN and
-    # abort below; this keeps the classification honest if one ever does not.)
-    rejected = [
-        row
-        for row in stales
-        if str(row.get("validation_status", "")).startswith("REJECTED:")
-    ]
-    if rejected:
-        nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
-        for row in rejected:
-            rules = consensus_violations(
-                row,
-                int(row["btc_height"]),
-                parent_median_time_past=row.get("_parent_median_time_past"),
-                nbits_by_epoch=nbits_by_epoch,
-            )
-            status = str(row.get("validation_status", ""))
-            if rules:
-                row["classification"] = "error_block"
-            elif status == PLACEMENT_REJECTION or status.startswith(
-                NBITS_MISMATCH_PREFIX
-            ):
-                row["classification"] = "unknown"
-        stales = [row for row in stales if row["classification"] == "stale"]
+    route_rejected_stale_rows(stales)
+    stales = [row for row in stales if row["classification"] == "stale"]
 
     validation_unknown = [
         row

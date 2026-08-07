@@ -23,6 +23,7 @@ Outputs:
 * ``data/groupcoin_canonical_blocks.csv``: canonical rows.
 * ``data/groupcoin_stale_blocks.csv``: stale rows.
 * ``data/groupcoin_unknown_blocks.csv``: unknown rows.
+* ``data/groupcoin_error_blocks.csv``: rows proven to break a consensus rule.
 * ``data/validated-stales/groupcoin_validated_stales.csv``: loader input;
   ``classification == "stale"`` rows only.
 """
@@ -49,6 +50,7 @@ from stale_blocks_analysis.btc_classify import (
     classify_candidates,
     derive_split_paths,
     output_columns,
+    route_rejected_stale_rows,
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
@@ -336,6 +338,11 @@ def main() -> int:
         stales,
         rpc.batch,
     )
+    # Sort the rejected rows by what the rejection means: a proven consensus
+    # violation is an error block, an unplaceable or non-Bitcoin-difficulty
+    # header is an unknown. The verdict tallies below still count every
+    # rejection, whichever bucket the row ends up in.
+    route_rejected_stale_rows(stales)
     rejected = [
         r for r in stales if r.get("validation_status", "").startswith("REJECTED")
     ]
@@ -343,17 +350,21 @@ def main() -> int:
         r for r in stales if r.get("validation_status", "").startswith("UNKNOWN")
     ]
     validated = [r for r in stales if r.get("validation_status") == "VALID"]
+    stales = [r for r in stales if r["classification"] == "stale"]
     unknown_rows = [r for r in all_results if r["classification"] == "unknown"]
 
-    # Write the four bucket-split outputs via the shared writer.
-    canonical_path, unknown_path = derive_split_paths(str(args.output))
-    write_classifier_outputs(
+    # Write the five bucket-split outputs via the shared writer.
+    canonical_path, unknown_path, error_block_path = derive_split_paths(
+        str(args.output)
+    )
+    counts = write_classifier_outputs(
         all_results,
         columns=OUTPUT_COLUMNS,
         canonical_path=canonical_path,
         stale_path=str(args.output),
         unknown_path=unknown_path,
         validated_path=str(args.validated_output),
+        error_block_path=error_block_path,
     )
 
     heights = [int(r["btc_height"]) for r in all_results if r.get("btc_height")]
@@ -367,6 +378,7 @@ def main() -> int:
     print(f"  Rejected nBits:            {len(rejected):,}")
     print(f"  Unknown nBits:             {len(unknown):,}")
     print(f"  Unknown:                   {len(unknown_rows):,}")
+    print(f"  Error block:               {counts['error_block']:,}")
     if heights:
         print(f"  BTC height range:          {min(heights):,} – {max(heights):,}")
     print(f"  Output: {args.output}")

@@ -24,8 +24,8 @@ Pipeline:
     coinbase scriptSig, BIP34 height, and canonical-at-height nBits checks.
     A candidate is accepted only when every available-evidence gate passes.
 
-Output: bucket-split canonical, stale, and unknown CSVs, the committed
-validated-stales CSV, and a rejected direct-stale audit CSV.
+Output: bucket-split canonical, stale, unknown, and error-block CSVs, the
+committed validated-stales CSV, and a rejected direct-stale audit CSV.
 """
 
 import argparse
@@ -46,6 +46,7 @@ from stale_blocks_analysis.btc_classify import (
     classify_candidates as _classify_candidates,
     derive_split_paths,
     output_columns,
+    route_rejected_stale_rows,
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
@@ -215,6 +216,12 @@ def main():
                     s["validation_status"] = f"UNKNOWN: {e2}"
     print(f"Context validation done in {time.time() - t3:.1f}s")
 
+    # Sort the rejected rows by what the rejection means: a proven consensus
+    # violation is an error block, an unplaceable or non-Bitcoin-difficulty
+    # header is an unknown. The gate verdict counts below still report every
+    # rejection, whichever bucket the row lands in.
+    route_rejected_stale_rows(stales)
+
     validated = [s for s in stales if s["validation_status"] == "VALID"]
     rejected = [s for s in stales if s["validation_status"].startswith("REJECTED")]
     unknown = [
@@ -229,9 +236,9 @@ def main():
     print(f"  REJECTED: {len(rejected)}")
     print(f"  UNKNOWN:  {len(unknown)}")
 
-    # --- Phase 4: output (four bucket-split files + the rejected audit file) ---
+    # --- Phase 4: output (five bucket-split files + the rejected audit file) ---
     print(f"\n=== Output ===")
-    canonical_path, unknown_path = derive_split_paths(args.output)
+    canonical_path, unknown_path, error_block_path = derive_split_paths(args.output)
     counts = write_classifier_outputs(
         all_results,
         columns=OUTPUT_COLUMNS,
@@ -239,6 +246,7 @@ def main():
         stale_path=args.output,
         unknown_path=unknown_path,
         validated_path=args.validated_output,
+        error_block_path=error_block_path,
     )
     print(
         f"  {args.output} → {counts['stale']} stale "
@@ -246,6 +254,7 @@ def main():
     )
     print(f"  {unknown_path} → {counts['unknown']} unknown")
     print(f"  {canonical_path} → {counts['canonical']} canonical")
+    print(f"  {error_block_path} → {counts['error_block']} error block")
     print(f"  {args.validated_output} → {counts['valid']} VALID stale")
 
     # Rejected stales are also kept as a separate audit artifact.
