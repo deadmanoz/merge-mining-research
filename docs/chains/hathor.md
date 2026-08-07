@@ -28,6 +28,7 @@ Hathor's merge-mining proof differs from the Namecoin-family `CAuxPow` format. T
 
 - `data/validated-stales/hathor_validated_stales.csv` - committed; 6 stale rows, standard schema.
 - `data/hathor_stale_blocks.csv` - full Phase B classifier output (3,612 BTC-parent rows: 3,606 canonical + 6 stale). Gitignored as a large private report (matches the `data/*_stale_blocks.csv` convention).
+- `data/hathor_error_blocks.csv` - Phase C's error-block peer of the Phase B input (the shared `_stale_blocks` → `_error_blocks` derivation), carrying the standard schema plus `rules_violated`. For the recovered range it will be header-only: all 6 accepted candidates are `VALID`, so no rejected row's bytes prove a consensus rule broken.
 - The 5.57M-row raw `aux_pow` CSV and the consolidated funds+graph supplement (~2 GB) are too large for the repo and remain on the archival host.
 
 Hathor-specific repo artifacts:
@@ -41,7 +42,7 @@ Hathor-specific repo artifacts:
 - `scripts/prep/backfill_hathor_gaps.py` - one-shot gap-fill for raw + supplement extraction holes.
 - `scripts/classify/classify_hathor_stales.py` - Phase A: header reconstruction + self-target PoW filter + BTC-prevhash RPC lookup.
 - `scripts/classify/classify_hathor_phase_b.py` - Phase B: canonical/stale classification + nBits validation gate.
-- `scripts/classify/classify_hathor_phase_c.py` - Phase C: coinbase parse + BIP34 cross-check + standard-schema output.
+- `scripts/classify/classify_hathor_phase_c.py` - Phase C: coinbase parse + BIP34 cross-check + standard-schema output + the error-block peer.
 
 **Coverage.** The extraction starts at Hathor height 1,000,000 on 2020-12-18 and runs to roughly 6,569,000, yielding 5,569,557 `version == 3` rows. The retained 3,606 canonical rows span Hathor heights 1,047,018 to 6,567,450 and Bitcoin heights 664,341 to 949,982. The six accepted candidates span Bitcoin heights 710,969 to 938,873.
 
@@ -103,8 +104,8 @@ API calls, parallelised across 4 IPs).
 1. **Extract** - `extract_hathor_auxpow.py`: raw `aux_pow` blobs per `version == 3` block.
 2. **Supplement** - `supplement_hathor_funds_graph.py`: funds+graph bytes for `aux_block_hash`.
 3. **Phase A** - `classify_hathor_stales.py`: RFC 0006 reconstruction + self-target PoW filter (`SHA256d(header) ≤ target(nBits)`) + Bitcoin predecessor RPC lookup. Of 5,569,557 input rows, 5,422,081 fail their encoded target, 143,604 pass but lack canonical Bitcoin predecessor linkage, **3,612 pass and have canonical-predecessor linkage**, 259 lack the required supplement, and 1 fails reconstruction. These five categories reconcile to the input total.
-4. **Phase B** - `classify_hathor_phase_b.py`: `getblockheader` on the reconstructed header → canonical / stale-labelled candidate. Adds an `nBits` validation gate (the reconstructed header's `nBits` must equal the canonical `nBits` at `parent_height + 1`). Result: 3,606 canonical, **6 stale-labelled candidates**, all 6 `validation_status = VALID` under the available-evidence profile.
-5. **Phase C** - `classify_hathor_phase_c.py`: parse the coinbase for scriptsig/outputs, BIP34 height cross-check (`BIP34 == parent_height + 1`), emit `data/validated-stales/hathor_validated_stales.csv` in the standard schema. All 6 pass the BIP34 cross-check.
+4. **Phase B** - `classify_hathor_phase_b.py`: `getblockheader` on the reconstructed header → canonical / stale-labelled candidate. Adds an `nBits` validation gate (the reconstructed header's `nBits` must equal the canonical `nBits` at `parent_height + 1`). Result: 3,606 canonical, **6 stale-labelled candidates**, all 6 `validation_status = VALID` under the available-evidence profile. Phase B writes the shared verdict vocabulary (`VALID`, `REJECTED: <reason>`, `UNKNOWN: <reason>`); Phase C also accepts the pre-rename tokens archived Phase B intermediates still carry.
+5. **Phase C** - `classify_hathor_phase_c.py`: parse the coinbase for scriptsig/outputs, BIP34 height cross-check (`BIP34 == parent_height + 1`), emit `data/validated-stales/hathor_validated_stales.csv` in the standard schema. All 6 pass the BIP34 cross-check. Rejected rows are not dropped silently: those whose bytes prove a consensus rule broken go to `data/hathor_error_blocks.csv` with the derived `rules_violated`, and the remainder (rejections resting on unusable or missing evidence) are counted in the run summary.
 
 **Chain-specific quirks.**
 
