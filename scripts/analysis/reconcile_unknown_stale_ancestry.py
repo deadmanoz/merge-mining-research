@@ -6,7 +6,9 @@ classifier inventories, builds the canonical known-stale hash set from
 upstream plus local AuxPoW stale files, walks unknown prev-hash ancestry
 through the union of unknown inventories, writes reproducible CSV/JSON evidence
 under results/analysis/stale-ancestry/, and writes the derived canonical promotion file at
-data/stale_descendants.csv.
+data/stale_descendants.csv. A candidate whose own authenticated bytes prove a
+consensus rule broken is not a descendant at all; it goes to the sidecar's
+_error_blocks peer with the derived rules_violated instead.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     bip34_height_error,
@@ -62,6 +65,16 @@ RESULTS_DIR = PROJECT_ROOT / "results" / "analysis" / "stale-ancestry"
 CACHE_DIR = PROJECT_ROOT / "cache"
 PROMOTED_CSV = DATA_DIR / "stale_descendants.csv"
 
+
+def error_blocks_csv_for(promoted_csv: Path) -> Path:
+    """Return the ``_error_blocks`` sibling of a promoted-descendant path.
+
+    Uses the shared bucket-split derivation so the descendant sidecar's
+    consensus-invalid peer is named the same way as every classifier's.
+    """
+    return Path(derive_split_paths(str(promoted_csv))[2])
+
+
 HASH_COLUMNS = ("btc_header_hash", "btc_hash", "hash")
 PREV_COLUMNS = ("btc_prev_hash",)
 BITS_COLUMNS = ("btc_bits", "btc_bits_hex")
@@ -81,6 +94,44 @@ OUTPUT_PATHS = "unknown-stale-descendant-paths.csv"
 OUTPUT_ROOTS = "unknown-stale-root-summary.csv"
 OUTPUT_ANOMALIES = "unknown-stale-anomalies.csv"
 OUTPUT_SUMMARY = "unknown-stale-reconciliation-summary.json"
+
+# Column order of the promoted descendant sidecar. The consensus-invalid peer
+# reuses it and appends the pipe-joined full rule set, the column name and
+# format ``build_error_blocks.py`` honors verbatim on import.
+PROMOTED_FIELDS = [
+    "classification",
+    "promotion_subclass",
+    "validation_status",
+    "btc_height",
+    "btc_header_hash",
+    "btc_prev_hash",
+    "btc_time",
+    "btc_bits",
+    "expected_nbits",
+    "pow_valid",
+    "header_hash_match",
+    "bip34_height_status",
+    "observed_btc_heights",
+    "observed_btc_times",
+    "observed_btc_bits",
+    "root_stale_hash",
+    "root_stale_height",
+    "root_stale_sources",
+    "root_stale_chains",
+    "root_stale_btc_times",
+    "root_stale_bits",
+    "stale_fork_depth",
+    "path_hashes",
+    "path_chain_sets",
+    "observed_chains",
+    "unknown_rows",
+    "source_rows",
+    "coinbase_scriptsig_hex",
+    "coinbase_outputs",
+    "btc_header_hex",
+    "notes",
+]
+PROMOTED_ERROR_BLOCK_FIELDS = [*PROMOTED_FIELDS, "rules_violated"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +264,8 @@ def parse_header_fields(header_hex: str) -> dict[str, str]:
 
 DESCENDANT_UNJUDGEABLE_FAILURES = frozenset(
     {
+        "missing_header_hex",
+        "header_hash_mismatch",
         "prev_hash_path_mismatch",
         "pow_target_mismatch",
         "nbits_epoch_mismatch",
@@ -233,15 +286,23 @@ def descendant_consensus_rules(
     rule. It uses the same shared derivation the classifier uses, so that a
     rejection means the same thing wherever it is produced.
 
-    The inferred height is sound enough to judge against, provided none of
-    ``DESCENDANT_UNJUDGEABLE_FAILURES`` fired. It is the root's confirmed
-    height plus the fork depth, walked along links this run already verified
-    (``prev_hash_path_mismatch`` would be recorded otherwise), and an
-    ``nbits_epoch_mismatch`` would have fired if the header's difficulty were
-    not Bitcoin's at that height -- which also rules out a share at the
-    canonical target and another chain's header. Without all three the
-    evidence is too weak to call: a coinbase-height mismatch would be equally
-    consistent with a wrong height, so no rule is derived.
+    Nothing is derived unless every one of ``DESCENDANT_UNJUDGEABLE_FAILURES``
+    is absent, because each one undermines a different premise of the claim:
+
+    - ``missing_header_hex`` / ``header_hash_mismatch``: the supplied bytes are
+      not authenticated as this block's. Every rule below the retarget one is
+      read straight out of those bytes, so publishing a violation under the
+      claimed hash would attribute another block's (or nobody's) header to it.
+      Corroborating the published hash against the serialized header is the
+      precondition for every downstream verdict in this repo, not an extra.
+    - ``prev_hash_path_mismatch`` / ``pow_target_mismatch`` /
+      ``nbits_epoch_mismatch``: the height is not sound enough to judge
+      against. It is the root's confirmed height plus the fork depth, walked
+      along links this run already verified, and an ``nbits_epoch_mismatch``
+      would have fired if the header's difficulty were not Bitcoin's at that
+      height -- which also rules out a share at the canonical target and
+      another chain's header. Without them a coinbase-height mismatch would be
+      equally consistent with a wrong height.
 
     ``nbits_by_epoch`` is deliberately not supplied. The absent
     ``nbits_epoch_mismatch`` already proves the bits equal the canonical
@@ -449,6 +510,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Committed public Bitcoin epoch nBits reference directory.",
     )
     parser.add_argument("--promoted-csv", type=Path, default=PROMOTED_CSV)
+    parser.add_argument(
+        "--error-blocks-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Consensus-invalid descendant candidates; defaults to the "
+            "_error_blocks sibling of --promoted-csv."
+        ),
+    )
     parser.add_argument("--max-depth", type=int, default=10_000)
     parser.add_argument(
         "--check-mainchain",
@@ -635,7 +705,21 @@ def descendant_notes(
 def validate_output_mode(
     args: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> None:
-    """Require disposable outputs whenever incomplete reconciliation is allowed."""
+    """Resolve the derived output path, then guard the publication defaults.
+
+    ``--error-blocks-csv`` defaults to the sibling of whatever
+    ``--promoted-csv`` names, so a disposable promoted path already yields a
+    disposable error-block path; only an explicit committed one is refused. The
+    two must also be distinct, because the descendant sidecar and its
+    consensus-invalid peer are written in sequence and aliasing them would leave
+    only the second.
+    """
+    if args.error_blocks_csv is None:
+        args.error_blocks_csv = error_blocks_csv_for(args.promoted_csv)
+    if args.error_blocks_csv.resolve() == args.promoted_csv.resolve():
+        parser.error(
+            f"--error-blocks-csv must not be --promoted-csv: {args.promoted_csv}"
+        )
     if not args.allow_partial:
         return
     default_outputs: list[str] = []
@@ -643,6 +727,8 @@ def validate_output_mode(
         default_outputs.append("--results-dir")
     if args.promoted_csv.resolve() == PROMOTED_CSV.resolve():
         default_outputs.append("--promoted-csv")
+    if args.error_blocks_csv.resolve() == error_blocks_csv_for(PROMOTED_CSV).resolve():
+        default_outputs.append("--error-blocks-csv")
     if default_outputs:
         parser.error(
             "--allow-partial requires explicit disposable output paths; refusing "
@@ -673,7 +759,13 @@ def validate_publication_rows(
     baseline: PublicationBaseline,
     parser: argparse.ArgumentParser,
 ) -> None:
-    """Reject a computed descendant set that regresses the committed baseline."""
+    """Reject a computed descendant set that regresses the committed baseline.
+
+    ``rows`` is every computed row, including the ones routed to the
+    error-block peer: moving artifact is not losing evidence. Proving a
+    committed VALID descendant consensus-invalid is a separate regression,
+    because that row does leave the published sidecar.
+    """
     statuses: dict[str, str] = {}
     computed_rows_by_hash: dict[str, dict[str, object]] = {}
     duplicate_hashes: set[str] = set()
@@ -691,6 +783,13 @@ def validate_publication_rows(
         if expected_status == "VALID_STALE_DESCENDANT"
         and statuses.get(block_hash) != "VALID_STALE_DESCENDANT"
     )
+    consensus_invalid_regressions = sorted(
+        block_hash
+        for block_hash, expected_status in baseline.statuses_by_hash.items()
+        if expected_status == "VALID_STALE_DESCENDANT"
+        and str(computed_rows_by_hash.get(block_hash, {}).get("classification", ""))
+        == "error_block"
+    )
     problems: list[str] = []
     if duplicate_hashes:
         problems.append(
@@ -705,6 +804,12 @@ def validate_publication_rows(
         problems.append(
             f"{len(validity_regressions)} committed VALID descendants no longer VALID"
             f" (first: {validity_regressions[0]})"
+        )
+    if consensus_invalid_regressions:
+        problems.append(
+            f"{len(consensus_invalid_regressions)} committed VALID descendants are "
+            "now consensus-invalid error blocks and would leave the sidecar "
+            f"(first: {consensus_invalid_regressions[0]})"
         )
     if len(statuses) < len(baseline.statuses_by_hash):
         problems.append(
@@ -1090,7 +1195,9 @@ def main(argv: list[str] | None = None) -> None:
     Rows that terminate at a known stale are validated (header hash,
     prev-hash-path consistency, self-PoW, epoch nBits, and BIP34 height) and
     written to `data/stale_descendants.csv` as either
-    `VALID_STALE_DESCENDANT` or `REJECTED_<reason>`; every output CSV
+    `VALID_STALE_DESCENDANT` or `REJECTED_<reason>`, except for the ones whose
+    authenticated bytes prove a consensus rule broken, which go to the
+    `--error-blocks-csv` peer instead; every output CSV
     (inventory/direct-matches/descendant-paths/root-summary/anomalies/promoted)
     and the JSON summary are written under `results/analysis/stale-ancestry/`, and the
     summary is also printed to stdout.
@@ -1898,6 +2005,7 @@ def main(argv: list[str] | None = None) -> None:
                 "classification": (
                     "error_block" if consensus_rules else "stale_descendant"
                 ),
+                "rules_violated": "|".join(consensus_rules),
                 "promotion_subclass": result.category,
                 "validation_status": validation_status,
                 "btc_height": "" if inferred_height is None else inferred_height,
@@ -1944,6 +2052,22 @@ def main(argv: list[str] | None = None) -> None:
             }
         )
 
+    # A candidate whose own bytes prove a consensus rule broken is not a stale
+    # descendant, so it leaves the sidecar entirely for the error-block peer.
+    # Publishing it here instead would put a second classification into a file
+    # whose reader accepts exactly one, and would hand nothing the derived rules.
+    descendant_rows = [
+        row for row in promoted_rows if row["classification"] == "stale_descendant"
+    ]
+    error_block_rows = [
+        row for row in promoted_rows if row["classification"] == "error_block"
+    ]
+
+    # The baseline is an evidence-coverage floor, so it is checked against every
+    # computed row rather than the published subset: a committed hash that moved
+    # to the error-block peer is still recovered, not lost. Losing one from both
+    # artifacts, or proving a committed VALID descendant consensus-invalid, is
+    # still a regression and still fails the run.
     if publication_baseline is not None:
         validate_publication_rows(promoted_rows, publication_baseline, parser)
     if mainchain_cache_dirty:
@@ -2068,14 +2192,15 @@ def main(argv: list[str] | None = None) -> None:
 
     valid_promoted_hashes = {
         row["btc_header_hash"]
-        for row in promoted_rows
+        for row in descendant_rows
         if row["validation_status"] == "VALID_STALE_DESCENDANT"
     }
     rejected_promoted_hashes = {
         row["btc_header_hash"]
-        for row in promoted_rows
+        for row in descendant_rows
         if row["validation_status"] != "VALID_STALE_DESCENDANT"
     }
+    error_block_hashes = {row["btc_header_hash"] for row in error_block_rows}
 
     summary = {
         "known_stale_hashes": len(known_stale_hashes),
@@ -2093,7 +2218,9 @@ def main(argv: list[str] | None = None) -> None:
         "unique_stale_descendant_unknown_hashes": len(stale_descendant_hashes),
         "promoted_stale_descendant_hashes": len(valid_promoted_hashes),
         "rejected_stale_descendant_hashes": len(rejected_promoted_hashes),
+        "error_block_descendant_hashes": len(error_block_hashes),
         "promoted_csv": rel(args.promoted_csv),
+        "error_blocks_csv": rel(args.error_blocks_csv),
         "dangling_unknown_roots": sum(
             1 for category, _terminal in root_summary if category == "dangling_unknown"
         ),
@@ -2194,43 +2321,8 @@ def main(argv: list[str] | None = None) -> None:
             "terminal_stale_bits",
         ],
     )
-    write_csv(
-        args.promoted_csv,
-        promoted_rows,
-        [
-            "classification",
-            "promotion_subclass",
-            "validation_status",
-            "btc_height",
-            "btc_header_hash",
-            "btc_prev_hash",
-            "btc_time",
-            "btc_bits",
-            "expected_nbits",
-            "pow_valid",
-            "header_hash_match",
-            "bip34_height_status",
-            "observed_btc_heights",
-            "observed_btc_times",
-            "observed_btc_bits",
-            "root_stale_hash",
-            "root_stale_height",
-            "root_stale_sources",
-            "root_stale_chains",
-            "root_stale_btc_times",
-            "root_stale_bits",
-            "stale_fork_depth",
-            "path_hashes",
-            "path_chain_sets",
-            "observed_chains",
-            "unknown_rows",
-            "source_rows",
-            "coinbase_scriptsig_hex",
-            "coinbase_outputs",
-            "btc_header_hex",
-            "notes",
-        ],
-    )
+    write_csv(args.promoted_csv, descendant_rows, PROMOTED_FIELDS)
+    write_csv(args.error_blocks_csv, error_block_rows, PROMOTED_ERROR_BLOCK_FIELDS)
     write_csv(
         results_dir / OUTPUT_ROOTS,
         root_rows,

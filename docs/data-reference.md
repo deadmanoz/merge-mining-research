@@ -162,6 +162,14 @@ every row is loadable: loaders take only
 VALID_STALE_DESCENDANT` (currently 21 of 25 rows; the other 4 are
 `REJECTED_bip34_height_mismatch`).
 
+Those 4 are error blocks: their own committed bytes prove the BIP34
+coinbase-height rule broken. The reconciliation now routes such candidates to
+the sidecar's `_error_blocks` peer
+(`data/stale_descendants_error_blocks.csv`, gitignored) with the derived
+pipe-joined `rules_violated`, and keeps this file's `classification` column
+purely `stale_descendant`. The committed file above still predates that split;
+the next publication rebuild drops it to 21 rows and emits those 4 to the peer.
+
 Key columns beyond the standard BTC header fields: `promotion_subclass`,
 `root_stale_hash` / `root_stale_height` / `root_stale_sources` /
 `root_stale_chains` (the known stale root the descendant chains back to),

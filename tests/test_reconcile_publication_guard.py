@@ -399,3 +399,42 @@ def test_descendant_consensus_rules_needs_judgeable_evidence():
             module.descendant_consensus_rules(header_hex, scriptsig, 400001, [failure])
             == []
         )
+
+
+def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
+    """Bytes not proven to be this block's cannot prove anything about it.
+
+    Every rule but the retarget one is read straight out of the supplied header
+    and coinbase bytes. When those bytes are absent, or hash to something other
+    than the claimed block hash, publishing a violation under that hash would
+    attribute another block's evidence -- or nobody's -- to it. Corroborating
+    the published hash against the serialized header is the precondition for
+    the verdict here, the same as at classification time.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+    long_scriptsig = "aa" * 101
+
+    # Controls: authenticated, the same evidence does derive each rule.
+    assert module.descendant_consensus_rules(header_hex, scriptsig, 400001, []) == [
+        "bip34_coinbase_height_mismatch"
+    ]
+    assert "coinbase_scriptsig_length_above_100" in module.descendant_consensus_rules(
+        header_hex, long_scriptsig, 400001, []
+    )
+
+    # A header present but not proven to hash to the claimed block hash.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, 400001, ["header_hash_mismatch"]
+        )
+        == []
+    )
+    # No header at all: the coinbase alone must not carry a verdict either.
+    assert (
+        module.descendant_consensus_rules(
+            "", long_scriptsig, 400001, ["missing_header_hex"]
+        )
+        == []
+    )

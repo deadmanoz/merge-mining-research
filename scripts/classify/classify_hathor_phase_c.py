@@ -19,8 +19,13 @@ format with semicolon-separated pkscript_hex for unparseable scripts.
 
 A rejected row whose bytes prove a consensus rule broken is an error block, not
 a dropped candidate. Those rows are written to the ``_error_blocks`` peer of the
-Phase B input on the same schema plus ``rules_violated``. A rejection whose
-evidence was merely unusable yields no rules and is still dropped, but the drop
+Phase B input on the same schema plus ``rules_violated``. A rejection that says
+the row is not a direct stale at all -- an unplaceable predecessor or a
+difficulty that is not Bitcoin's at that height -- makes it an ``unknown``,
+written to the ``_unknown_blocks`` peer: Phase B still labelled the source row
+``stale``, so dropping it would both misclassify a fork continuation in the full
+inventory and hide it from the unknown-ancestry walk. Only a rejection whose
+evidence was merely unusable yields nothing and is dropped, and even that drop
 is counted and reported rather than silent.
 
 Phase B's status vocabulary was renamed to the shared ``VALID`` /
@@ -42,7 +47,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from stale_blocks_analysis.bitcoin_binary import parse_coinbase  # noqa: E402
-from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
+from stale_blocks_analysis.bitcoin_epoch_reference import (  # noqa: E402
+    load_nbits_by_epoch,
+)
+from stale_blocks_analysis.btc_classify import (  # noqa: E402
+    derive_split_paths,
+    rejection_route,
+)
 from stale_blocks_analysis.btc_nbits_validation import (  # noqa: E402
     NBITS_MISMATCH_PREFIX,
 )
@@ -51,6 +62,7 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     consensus_violations,
     stale_header_context_error,
 )
+from stale_blocks_analysis.config import BITCOIN_EPOCH_REFERENCE_DIR  # noqa: E402
 
 
 # The verdict ``btc_stale_validation._set_parent_context_unknown`` writes. It is
@@ -195,18 +207,24 @@ def _optional_parent_mediantime(row: dict[str, str]) -> int | None:
 
 
 def derived_error_block_rules(
-    row: dict, btc_height: object, *, parent_row: dict[str, str]
+    row: dict,
+    btc_height: object,
+    *,
+    parent_row: dict[str, str],
+    nbits_by_epoch: dict[int, int],
 ) -> list[str]:
     """Return the consensus rules a rejected row's own bytes prove it violated.
 
     ``row`` carries the parsed header and coinbase evidence; ``parent_row`` is
     the Phase B input row, which is where the canonical parent's
-    median-time-past lives.
+    median-time-past lives. ``nbits_by_epoch`` is the committed retarget-epoch
+    reference table, so a candidate at an epoch start still carrying the
+    previous epoch's bits becomes ``nbits_retarget_not_applied`` here. Phase B
+    rejects exactly that row as an nBits mismatch, and Phase C is where that
+    rejection is meant to turn into an error block.
 
     Empty when the height is unresolved (that rejection is about missing parent
-    context, not about the block) or when the evidence is merely unusable. The
-    epoch retarget rule is not evaluated: Phase C does not load the retarget
-    reference table.
+    context, not about the block) or when the evidence is merely unusable.
     """
     if not isinstance(btc_height, int) or isinstance(btc_height, bool):
         return []
@@ -214,6 +232,7 @@ def derived_error_block_rules(
         row,
         btc_height,
         parent_median_time_past=_optional_parent_mediantime(parent_row),
+        nbits_by_epoch=nbits_by_epoch,
     )
 
 
@@ -246,7 +265,8 @@ def _write_rows_atomically(
 
 def main():
     """Filter Phase B's stale rows, parse each coinbase, and write the
-    standard-schema ``hathor_validated_stales.csv`` plus the error-block peer.
+    standard-schema ``hathor_validated_stales.csv`` plus the error-block and
+    unknown peers.
     """
     p = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     p.add_argument("--input", default="data/hathor_stale_blocks.csv")
@@ -261,21 +281,32 @@ def main():
             "peer of --input, matching the shared bucket-split naming"
         ),
     )
+    p.add_argument(
+        "--unknown-block-output",
+        default=None,
+        help=(
+            "rejected rows that are not direct stales at all; defaults to the "
+            "_unknown_blocks peer of --input"
+        ),
+    )
     args = p.parse_args()
 
     in_path = Path(args.input)
     out_path = Path(args.output)
     # derive_split_paths names the canonical/unknown/error-block peers of a
-    # stale inventory. Phase C only writes the third; Phase B owns the rest.
-    error_block_path = Path(
-        args.error_block_output or derive_split_paths(str(in_path))[2]
-    )
+    # stale inventory. Phase C writes the last two; the canonical rows stay in
+    # Phase B's own inventory.
+    _, default_unknown_path, default_error_block_path = derive_split_paths(str(in_path))
+    error_block_path = Path(args.error_block_output or default_error_block_path)
+    unknown_path = Path(args.unknown_block_output or default_unknown_path)
+    nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
 
     n_in = 0
     n_stale = 0
     n_rejected_undetermined = 0
     rows_out = []
     error_rows = []
+    unknown_rows = []
     vstatus = {}
 
     with open(in_path) as f:
@@ -339,14 +370,21 @@ def main():
             if status == "VALID":
                 rows_out.append(out)
             elif status.startswith("REJECTED:"):
-                # A rejection means one of three unrelated things and only the
-                # first is a verdict on the block: a consensus rule the bytes
-                # prove broken (an error block), a header we cannot place on
-                # Bitcoin, or evidence too incomplete to judge. Re-derive the
-                # rules rather than reading them back out of the verdict string,
-                # so only the first case is published.
-                rules = derived_error_block_rules(out, btc_height, parent_row=row)
-                if rules:
+                # A rejection means one of three unrelated things and only one
+                # is a verdict on the block: a consensus rule the bytes prove
+                # broken (an error block), a header we cannot place on Bitcoin
+                # (an unknown), or evidence too incomplete to judge (dropped).
+                # Re-derive the rules rather than reading them back out of the
+                # verdict string, then let the shared precedence pick the
+                # artifact.
+                rules = derived_error_block_rules(
+                    out,
+                    btc_height,
+                    parent_row=row,
+                    nbits_by_epoch=nbits_by_epoch,
+                )
+                route = rejection_route(out, rules, status=status)
+                if route == "error_block":
                     error_rows.append(
                         {
                             **out,
@@ -354,14 +392,28 @@ def main():
                             "rules_violated": "|".join(rules),
                         }
                     )
+                elif route == "unknown":
+                    # Matching the shared writer: an unknown row's state is
+                    # final on the primary axis, so the stale-gate annotations
+                    # go rather than describing a verdict that no longer holds.
+                    unknown_rows.append(
+                        {
+                            **out,
+                            "classification": "unknown",
+                            "validation_status": "",
+                            "expected_nbits": "",
+                        }
+                    )
                 else:
                     n_rejected_undetermined += 1
 
     rows_out.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
     error_rows.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
+    unknown_rows.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
 
     _write_rows_atomically(out_path, rows_out, columns=OUTPUT_COLUMNS)
     _write_rows_atomically(error_block_path, error_rows, columns=ERROR_BLOCK_COLUMNS)
+    _write_rows_atomically(unknown_path, unknown_rows, columns=OUTPUT_COLUMNS)
 
     print("Phase C complete:", file=sys.stderr)
     print(f"  read:        {n_in:,} rows", file=sys.stderr)
@@ -369,6 +421,10 @@ def main():
     print(f"  written:     {len(rows_out):,} rows to {out_path}", file=sys.stderr)
     print(
         f"  error blocks: {len(error_rows):,} rows to {error_block_path}",
+        file=sys.stderr,
+    )
+    print(
+        f"  unknown:     {len(unknown_rows):,} rows to {unknown_path}",
         file=sys.stderr,
     )
     print(

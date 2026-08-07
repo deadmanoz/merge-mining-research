@@ -5,20 +5,44 @@
 Label error blocks during classification instead of discovering them by hand
 afterwards. A shared routing step now sorts every gate-rejected stale
 candidate by what the rejection means, re-deriving the broken consensus rules
-from the row's own bytes: a proven violation becomes `classification=error_block`
-in its own bucket file, a placement or non-Bitcoin-difficulty rejection becomes
-`unknown`, and a rejection whose evidence proves nothing stays a rejected
-stale. The routing runs uniformly across the shared driver, the four
-direct-gate classifiers, the namecoin/i0coin classifier, RSK (version and
-median-time-past rules only, as its proof exposes no coinbase), Hathor Phase C,
-and the stale-descendant reconciliation. Hathor Phase B now writes the shared
+from the row's own bytes. The three meanings are ranked rather than tested in
+any convenient order, because one row can satisfy several of them: a placement
+rejection makes the row `unknown` first (with no active-chain parent its height
+was never established, so no height-dependent rule is trustworthy); a
+difficulty that is not Bitcoin's at that height also makes it `unknown` and
+outranks a broken rule, since a foreign SHA-256 chain's header is not an
+invalid Bitcoin block, the sole exception being
+`nbits_retarget_not_applied`, whose bits are the previous epoch's by
+definition; only then does a proven violation become
+`classification=error_block` in its own bucket file; and a rejection whose
+evidence proves nothing stays a rejected stale, as does one whose canonical
+`nBits` was never recorded. Contamination is decided from the persisted
+`expected_nbits` rather than the verdict string, which the later header-context
+gate can overwrite.
+
+The routing runs uniformly across the shared driver, the four direct-gate
+classifiers, the namecoin/i0coin classifier, RSK (version, median-time-past,
+and retarget rules only, as its proof exposes no coinbase), Hathor Phase C, and
+the stale-descendant reconciliation. Hathor Phase B now writes the shared
 `VALID`/`REJECTED:`/`UNKNOWN:` verdict vocabulary, with Phase C accepting the
-pre-rename tokens archived intermediates still carry. The classifier output
+pre-rename tokens archived intermediates still carry; Phase C also loads the
+committed retarget-epoch table, so an epoch-start candidate carrying the
+previous epoch's bits becomes an error block there rather than being dropped,
+and its re-routed unknowns get an `_unknown_blocks` peer instead of vanishing
+from both the inventory and the unknown-ancestry walk. The ancestry
+reconciliation derives rules only from header bytes that authenticate against
+the claimed hash, and routes the candidates it does judge out of
+`data/stale_descendants.csv` into a new `--error-blocks-csv` peer, so the
+descendant sidecar keeps a single `classification`. The classifier output
 writer fails loudly on an unrecognised classification instead of silently
-dropping the row, `nbits_retarget_not_applied` and the two
-`bip34_*_coinbase_height_missing` rules join the shared derivation, and the
-rejected-rows sweep gains namecoin coverage. All 33 committed error blocks
-re-derive unchanged under the shared decision.
+dropping the row, and its `rejected` count spans every bucket the routing
+produced (with a `rejected_stale`/`rejected_error_block`/`rejected_unknown`
+breakdown) so a fully re-routed run cannot report zero rejections.
+`nbits_retarget_not_applied` and the two `bip34_*_coinbase_height_missing`
+rules join the shared derivation, the rejected-rows sweep gains namecoin
+coverage, and the RSK classifier refuses aliased output paths before it opens
+any of them. All 33 committed error blocks re-derive unchanged under the shared
+decision.
 
 Preserve LF line endings in both error-block CSV writers and make the offline
 error-block validator reject every row whose `classification` is not exactly

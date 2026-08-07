@@ -429,7 +429,12 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert summary["unknown"] == 2
     assert summary["error_block"] == 0
     assert summary["valid"] == 1
-    assert summary["rejected"] == 0
+    # The gate rejected one candidate and the routing moved it out of the stale
+    # bucket; the total must still report it, or the run looks clean.
+    assert summary["rejected"] == 1
+    assert summary["rejected_stale"] == 0
+    assert summary["rejected_error_block"] == 0
+    assert summary["rejected_unknown"] == 1
     assert summary["validation_unknown"] == 0
 
     # Stale file: the surviving VALID stale only.
@@ -710,7 +715,8 @@ def test_run_classifier_labels_a_bip34_mismatch_as_an_error_block(tmp_path):
     assert summary["stale"] == 0
     assert summary["error_block"] == 1
     assert summary["valid"] == 0
-    assert summary["rejected"] == 0
+    assert summary["rejected"] == 1
+    assert summary["rejected_error_block"] == 1
 
     # Out of the stale inventory entirely, and never a published stale.
     with open(out_path, newline="") as f:
@@ -1041,6 +1047,9 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         "error_block": 0,
         "valid": 1,
         "rejected": 1,
+        "rejected_stale": 1,
+        "rejected_error_block": 0,
+        "rejected_unknown": 0,
         "validation_unknown": 0,
     }
 
@@ -1160,21 +1169,35 @@ def test_run_classifier_routes_a_misplaced_stale_to_unknown(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _rejected_row(status, *, scriptsig_height=BIP34_HEIGHT, scriptsig=None) -> dict:
-    """Rejected stale row at ``BIP34_HEIGHT``, by default with a clean coinbase.
+def _rejected_row(
+    status,
+    *,
+    height=BIP34_HEIGHT,
+    scriptsig_height=None,
+    scriptsig=None,
+    bits=REGTEST_BITS,
+    expected_nbits=None,
+) -> dict:
+    """Rejected stale row at ``height``, by default with a clean coinbase.
 
-    ``scriptsig_height`` is the height its coinbase commits to, so passing a
-    value other than the row's own height makes it a BIP34 violation. Passing
-    ``scriptsig`` overrides the coinbase entirely (an empty one is unusable
-    evidence, the way RSK's rows always are).
+    ``scriptsig_height`` is the height its coinbase commits to and defaults to
+    the row's own, so passing a different value makes it a BIP34 violation.
+    Passing ``scriptsig`` overrides the coinbase entirely (an empty one is
+    unusable evidence, the way RSK's rows always are). ``expected_nbits`` is the
+    canonical difficulty the nBits gate persisted for this height; it defaults
+    to the row's own bits, that is, a header whose difficulty IS Bitcoin's here.
     """
+    if scriptsig_height is None:
+        scriptsig_height = height
     if scriptsig is None:
         scriptsig = (b"\x03" + scriptsig_height.to_bytes(3, "little") + b"pool").hex()
+    bits_hex = f"{bits:08x}"
     return {
-        "btc_height": str(BIP34_HEIGHT),
-        "btc_header_hash": f"{BIP34_HEIGHT:064x}",
-        "btc_header_hex": _make_header("00" * 32, 1),
-        "btc_bits": f"{REGTEST_BITS:08x}",
+        "btc_height": str(height),
+        "btc_header_hash": f"{height:064x}",
+        "btc_header_hex": _make_header("00" * 32, 1, bits=bits),
+        "btc_bits": bits_hex,
+        "expected_nbits": bits_hex if expected_nbits is None else expected_nbits,
         "coinbase_scriptsig_hex": scriptsig,
         "classification": "stale",
         "validation_status": status,
@@ -1216,3 +1239,58 @@ def test_route_rejected_stale_rows_splits_the_three_rejection_meanings():
     assert valid["classification"] == "stale"
     # The verdict that identified each row is left intact for the writer.
     assert violation["validation_status"].startswith("REJECTED: BIP34")
+
+
+def test_route_rejected_stale_rows_ranks_placement_and_contamination_first():
+    """A broken rule only makes an error block once the row IS a Bitcoin block.
+
+    Every row here breaks BIP34 in its own committed bytes and not one of them
+    is an error block. Two are not Bitcoin blocks at this height at all, and the
+    third was never shown to be one. Contamination is read off the persisted
+    ``expected_nbits`` rather than the surviving verdict string, because the
+    later header-context gate can overwrite an nBits REJECTED and erase the only
+    trace of it in the status.
+
+    The retarget row is the deliberate exception: its bits are the previous
+    epoch's, which differs from the canonical value by definition, so the
+    contamination branch would swallow the one nBits mismatch that really is a
+    Bitcoin consensus violation.
+    """
+    epoch_start = 229_824  # a retarget boundary above BIP34_HEIGHT
+    epoch_table = {epoch_start: OTHER_EASY_BITS, epoch_start - 2016: REGTEST_BITS}
+    bip34_mismatch = (
+        "REJECTED: BIP34 coinbase height mismatch "
+        f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})"
+    )
+
+    misplaced = _rejected_row(PLACEMENT_REJECTION, scriptsig_height=BIP34_HEIGHT + 1)
+    contaminated = _rejected_row(
+        bip34_mismatch,
+        scriptsig_height=BIP34_HEIGHT + 1,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+    )
+    unverified = _rejected_row(
+        bip34_mismatch, scriptsig_height=BIP34_HEIGHT + 1, expected_nbits=""
+    )
+    unapplied_retarget = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} "
+        f"(got {REGTEST_BITS:08x}, expected {OTHER_EASY_BITS:08x})",
+        height=epoch_start,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+    )
+
+    route_rejected_stale_rows(
+        [misplaced, contaminated, unverified, unapplied_retarget],
+        nbits_by_epoch=epoch_table,
+    )
+
+    # No active-chain parent, so the height the BIP34 rule was checked at was
+    # never established.
+    assert misplaced["classification"] == "unknown"
+    # Another SHA-256 chain's header: calling it consensus-invalid would be a
+    # claim about the wrong chain.
+    assert contaminated["classification"] == "unknown"
+    # No canonical nBits was ever recorded here, so nothing shows this header is
+    # Bitcoin's at this height and it must not be promoted.
+    assert unverified["classification"] == "stale"
+    assert unapplied_retarget["classification"] == "error_block"

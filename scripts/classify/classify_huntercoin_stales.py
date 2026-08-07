@@ -178,7 +178,10 @@ def main() -> int:
     print(f"  Stale:                 {summary['stale']:,}")
     print(f"  Unknown:               {summary['unknown']:,}")
     print(f"  Validated (gate VALID): {summary['valid']:,}")
-    print(f"  Rejected (nBits gate):  {summary['rejected']:,}")
+    print(f"  Rejected (gate, total): {summary['rejected']:,}")
+    print(f"    still stale:          {summary['rejected_stale']:,}")
+    print(f"    error blocks:         {summary['rejected_error_block']:,}")
+    print(f"    re-routed to unknown: {summary['rejected_unknown']:,}")
     print(f"  Output: {summary['output_path']}")
     print(f"  Validated stales: {summary['validated_output_path']}")
     if args.keep_near:

@@ -250,7 +250,7 @@ def main():
     )
     print(
         f"  {args.output} → {counts['stale']} stale "
-        f"({counts['valid']} VALID, {counts['rejected']} REJECTED)"
+        f"({counts['valid']} VALID, {counts['rejected_stale']} REJECTED)"
     )
     print(f"  {unknown_path} → {counts['unknown']} unknown")
     print(f"  {canonical_path} → {counts['canonical']} canonical")

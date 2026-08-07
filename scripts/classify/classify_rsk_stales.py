@@ -161,6 +161,35 @@ def ensure_parent(path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
+def validate_distinct_paths(args, error_blocks_out: str) -> None:
+    """Refuse to run when any two input/output paths resolve to the same file.
+
+    The four outputs are written in sequence, so an aliased pair fails silently
+    and destructively: the later writer truncates an artifact the run has just
+    finished. Pointing ``--error-blocks-out`` at ``--stales-out`` would leave
+    only the error blocks; pointing it at ``--validated-out`` would erase it.
+
+    This mirrors ``_validate_distinct_paths`` in
+    ``classify_auxpow_candidates.py``. That one is not reused: its parameters
+    are positional over that script's own artifact set and it derives that
+    script's publication split, neither of which describes RSK's outputs.
+    """
+    labelled = {
+        "input": Path(args.input).resolve(),
+        "pool registry": Path(args.pool_registry).resolve(),
+        "stale/unknown inventory output": Path(args.stales_out).resolve(),
+        "validated-stale output": Path(args.validated_out).resolve(),
+        "error-block output": Path(error_blocks_out).resolve(),
+        "summary output": Path(args.summary_out).resolve(),
+    }
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        previous = seen.get(path)
+        if previous is not None:
+            raise ValueError(f"{label} aliases {previous}: {path}")
+        seen[path] = label
+
+
 def bits_to_target(bits_hex: str) -> int:
     """Expand a compact ``nBits`` hex string into the full target integer."""
     n = int(bits_hex, 16)
@@ -422,6 +451,10 @@ def gate_and_route(
 def main():
     """Run the four-pass RSK classifier and write CSV and summary outputs."""
     args = parse_args()
+    # Resolve the derived error-block path and check every path for aliasing
+    # before any RPC work happens or any output is opened.
+    error_blocks_out = args.error_blocks_out or derive_split_paths(args.stales_out)[2]
+    validate_distinct_paths(args, error_blocks_out)
     bitcoin_rpc = rpc_from_args(args)
     real_pow_rows = []
     total = 0
@@ -618,7 +651,6 @@ def main():
     # (Phase 3 unknowns and rows the routing moved there). Error blocks go to
     # their own sibling file. The normalized public loader input contains only
     # VALID direct stales after the exact-key exclusion overlay.
-    error_blocks_out = args.error_blocks_out or derive_split_paths(args.stales_out)[2]
     print("\n=== Writing outputs ===", file=sys.stderr)
     ensure_parent(args.stales_out)
     with open(args.stales_out, "w", newline="") as f:

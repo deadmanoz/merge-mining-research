@@ -53,6 +53,7 @@ from .btc_rpc import BtcRpc, get_btc_auth
 from .bitcoin_epoch_reference import load_nbits_by_epoch
 from .btc_nbits_validation import NBITS_MISMATCH_PREFIX
 from .btc_stale_validation import (
+    NBITS_RETARGET_RULE,
     PLACEMENT_REJECTION,
     consensus_violations,
     validate_stale_header_context,
@@ -402,6 +403,86 @@ def classify_candidates(
     return results
 
 
+def _contamination_evidence(
+    row: dict[str, Any],
+    *,
+    status: str,
+    bits_key: str,
+    expected_key: str,
+) -> Optional[bool]:
+    """Report whether the header's difficulty is Bitcoin's at its own height.
+
+    ``True`` means it is not, so the header belongs to another SHA-256 chain;
+    ``False`` means it matches; ``None`` means the comparison could not be made
+    and neither answer is supported.
+
+    A surviving contamination verdict settles it on its own. Otherwise the
+    durable per-row evidence decides, because ``validate_stale_header_context``
+    may overwrite an nBits REJECTED with a later context REJECTED: the status
+    string then no longer names the contamination, while ``expected_nbits`` --
+    the canonical value the nBits gate persisted for this height -- still does.
+    """
+    if status.startswith(NBITS_MISMATCH_PREFIX):
+        return True
+    expected = str(row.get(expected_key, "") or "").strip().lower()
+    bits = str(row.get(bits_key, "") or "").strip().lower()
+    if not expected or not bits:
+        return None
+    return expected != bits
+
+
+def rejection_route(
+    row: dict[str, Any],
+    rules: list[str],
+    *,
+    status: str,
+    bits_key: str = "btc_bits",
+    expected_key: str = "expected_nbits",
+) -> Optional[str]:
+    """Return the classification a REJECTED verdict supports, or ``None``.
+
+    ``None`` means the rejection says nothing about what the row is, so the
+    caller leaves the row's classification alone.
+
+    A rejected row can satisfy several of these at once and the weakest claim
+    has to win, so the order matters:
+
+      1. A placement rejection beats everything. Without an active-chain
+         predecessor the row's height was never established, so every
+         height-dependent rule re-derived from its bytes is unreliable -- and
+         the row is not a direct stale at all. That is what ``unknown`` means,
+         and it is what Phase 2 would have assigned had the parent not resolved.
+         Only unknown rows are walked back to a stale root by the ancestry
+         reconciliation, so leaving such a row stale strands a fork continuation
+         outside that path.
+      2. Contamination beats a broken rule. A header whose difficulty is not
+         Bitcoin's at this height is another SHA-256 chain's block; calling it a
+         consensus-invalid Bitcoin block would be a claim about the wrong chain,
+         even when its bytes also break a Bitcoin rule. The single exception is
+         ``NBITS_RETARGET_RULE``, the sanctioned nBits mismatch that IS a
+         Bitcoin violation: those bits are the previous epoch's by definition,
+         so that rule escapes this branch rather than being buried by it.
+      3. Only then do the re-derived rules make the row an error block.
+      4. Anything else -- a rejection resting on unusable evidence -- stays put.
+
+    When the contamination comparison cannot be made at all the row also stays
+    put. Absence of contamination evidence is not evidence that the header is
+    Bitcoin's, and it must not promote the row to a published error block.
+    """
+    if status == PLACEMENT_REJECTION:
+        return "unknown"
+    contaminated = _contamination_evidence(
+        row, status=status, bits_key=bits_key, expected_key=expected_key
+    )
+    if contaminated is None:
+        return None
+    if contaminated and NBITS_RETARGET_RULE not in rules:
+        return "unknown"
+    if rules:
+        return "error_block"
+    return None
+
+
 def route_rejected_stale_rows(
     stales: list[dict[str, Any]],
     *,
@@ -415,17 +496,12 @@ def route_rejected_stale_rows(
     stale list afterwards.
 
     The REJECTED prefix covers three unrelated situations and only one of them
-    is a verdict on the block:
-
-      * a consensus rule was broken -> the block is invalid despite carrying
-        full proof of work, which is an error block;
-      * the predecessor is not on the active chain -> the row is not a direct
-        stale at all. That is what `unknown` means, and it is what Phase 2
-        would have assigned had the parent not resolved. Only unknown rows are
-        walked back to a stale root by the ancestry reconciliation, so leaving
-        it stale strands a fork continuation outside that path;
-      * the difficulty is not Bitcoin's at this height -> a header from another
-        SHA-256 chain, which we cannot place on Bitcoin, so likewise unknown.
+    is a verdict on the block, so each row is routed by the fixed precedence
+    ``rejection_route`` documents: an unplaceable predecessor first (its height
+    was never established), then a difficulty that is not Bitcoin's at that
+    height (another SHA-256 chain, unless the mismatch is the one that proves an
+    unapplied retarget), and only then a re-derived consensus violation, which
+    is the sole case that makes the row an error block.
 
     Rules are re-derived from the bytes rather than read back out of the verdict
     string, so a rejection whose evidence was merely unusable produces no rules
@@ -452,11 +528,11 @@ def route_rejected_stale_rows(
             parent_median_time_past=row.get("_parent_median_time_past"),
             nbits_by_epoch=nbits_by_epoch,
         )
-        status = str(row.get("validation_status", ""))
-        if rules:
-            row["classification"] = "error_block"
-        elif status == PLACEMENT_REJECTION or status.startswith(NBITS_MISMATCH_PREFIX):
-            row["classification"] = "unknown"
+        route = rejection_route(
+            row, rules, status=str(row.get("validation_status", ""))
+        )
+        if route is not None:
+            row["classification"] = route
 
 
 def _derive_tag_path(stale_path: str, tag: str) -> str:
@@ -535,6 +611,14 @@ def write_classifier_outputs(
     files *and* from the returned counts, so an incomplete run would report as a
     complete one. ``near`` rows never reach here -- they are separated before
     Phase 2 and written by their own path.
+
+    ``rejected`` counts every gate rejection the run produced, whichever bucket
+    the routing moved the row into, and ``rejected_stale`` /
+    ``rejected_error_block`` / ``rejected_unknown`` break that total down.
+    Counting only the stale bucket would let a run that rejected and re-routed
+    every candidate report zero rejections. The verdict is read off the input
+    rows because the canonical and unknown output rows have already had their
+    gate annotations cleared.
     """
     buckets: dict[str, list[dict]] = {
         "canonical": [],
@@ -542,6 +626,7 @@ def write_classifier_outputs(
         "unknown": [],
         "error_block": [],
     }
+    rejected_by_bucket: dict[str, int] = dict.fromkeys(buckets, 0)
     for row_number, row in enumerate(all_results, start=1):
         classification = row.get("classification")
         bucket = buckets.get(classification)
@@ -551,6 +636,8 @@ def write_classifier_outputs(
                 f"{classification!r} (expected one of {sorted(buckets)}); "
                 f"btc_header_hash={row.get('btc_header_hash', '')!r}"
             )
+        if str(row.get("validation_status", "")).startswith("REJECTED"):
+            rejected_by_bucket[classification] += 1
         output_row = dict(row)
         if classification in ("canonical", "unknown"):
             output_row["validation_status"] = ""
@@ -571,11 +658,10 @@ def write_classifier_outputs(
         "unknown": len(buckets["unknown"]),
         "error_block": len(buckets["error_block"]),
         "valid": len(validated),
-        "rejected": sum(
-            1
-            for s in buckets["stale"]
-            if str(s.get("validation_status", "")).startswith("REJECTED")
-        ),
+        "rejected": sum(rejected_by_bucket.values()),
+        "rejected_stale": rejected_by_bucket["stale"],
+        "rejected_error_block": rejected_by_bucket["error_block"],
+        "rejected_unknown": rejected_by_bucket["unknown"],
         "validation_unknown": sum(
             1
             for s in buckets["stale"]
@@ -644,9 +730,12 @@ def run_classifier(
     unknown -> ``unknown_output_path`` (``_stale_blocks`` -> ``_unknown_blocks``),
     stale -> ``output_path`` (stale rows only), and the VALID-stale subset ->
     ``validated_output_path``. Returns a summary count dict:
-    ``{total, btc_valid, canonical, stale, unknown, valid, rejected,
+    ``{total, btc_valid, canonical, stale, unknown, error_block, valid,
+    rejected, rejected_stale, rejected_error_block, rejected_unknown,
     validation_unknown, output_path, unknown_output_path,
-    validated_output_path, canonical_output_path}``.
+    error_block_output_path, validated_output_path, canonical_output_path}``.
+    ``rejected`` is the run's total gate rejections across every bucket the
+    routing produced; the three ``rejected_*`` keys break it down.
     """
     in_path = input_path or str(spec.input_csv)
     out_path = output_path or str(spec.output_csv)
@@ -824,6 +913,9 @@ def run_classifier(
         "error_block": counts["error_block"],
         "valid": counts["valid"],
         "rejected": counts["rejected"],
+        "rejected_stale": counts["rejected_stale"],
+        "rejected_error_block": counts["rejected_error_block"],
+        "rejected_unknown": counts["rejected_unknown"],
         "validation_unknown": counts["validation_unknown"],
         "near": len(near_headers) if keep_near else 0,
         "output_path": out_path,
