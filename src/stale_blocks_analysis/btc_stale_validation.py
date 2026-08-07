@@ -219,6 +219,150 @@ def bip34_height_error(
     return None
 
 
+BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
+
+MTP_RULE = "time_below_mtp"
+LEGACY_MTP_RULE = "median_time_past_violation"
+
+VERSION_RULES = frozenset(
+    {
+        "bip34_block_version_below_2",
+        "bip66_block_version_below_3",
+        "bip65_block_version_below_4",
+    }
+)
+LENGTH_RULES = frozenset(
+    {
+        "coinbase_scriptsig_length_above_100",
+        "coinbase_scriptsig_length_below_2",
+    }
+)
+
+
+def expected_version_rule(height: int) -> str:
+    """Return the version-rule token for a version violation at ``height``.
+
+    Mirrors the thresholds ``block_version_error`` enforces: version 2 (BIP34)
+    at [BIP34_HEIGHT, BIP66_HEIGHT), 3 (BIP66) at [BIP66_HEIGHT, BIP65_HEIGHT),
+    and 4 (BIP65) above. A v1/v2 header at a BIP65-era height violates the v4
+    minimum, so the token is ``bip65_block_version_below_4``.
+    """
+    if height >= BIP65_HEIGHT:
+        return "bip65_block_version_below_4"
+    if height >= BIP66_HEIGHT:
+        return "bip66_block_version_below_3"
+    return "bip34_block_version_below_2"
+
+
+def expected_length_rule(
+    row: dict[str, Any],
+    *,
+    scriptsig_key: str = "coinbase_scriptsig_hex",
+) -> str | None:
+    """Return the length-rule token for the actual scriptSig length, or None.
+
+    Returns None when the length cannot be derived: an EMPTY scriptSig is
+    missing evidence (the row may simply not expose the parent coinbase, as
+    RSK never does), not a zero-byte violation, and malformed hex is likewise
+    unusable. Only a PRESENT scriptSig whose length violates 2..100 yields a
+    token.
+    """
+    scriptsig_text = str(row.get(scriptsig_key, "") or "").strip()
+    if not scriptsig_text:
+        return None
+    try:
+        length = len(bytes.fromhex(scriptsig_text))
+    except ValueError:
+        return None
+    if length > 100:
+        return "coinbase_scriptsig_length_above_100"
+    if length < 2:
+        return "coinbase_scriptsig_length_below_2"
+    return None
+
+
+def consensus_violations(
+    row: dict[str, Any],
+    expected_height: int,
+    *,
+    parent_median_time_past: int | None = None,
+    scriptsig_key: str = "coinbase_scriptsig_hex",
+    header_hex_key: str = "btc_header_hex",
+) -> list[str]:
+    """Return every consensus rule this row's evidence proves it violated.
+
+    A row with a non-empty result is an error block: a Bitcoin block carrying
+    full proof of work that breaks a consensus rule. An empty result means the
+    evidence proves no violation -- which is NOT the same as the block being
+    valid, only that nothing here demonstrates otherwise.
+
+    This is deliberately stricter than "the gate returned REJECTED". The gate
+    reports three different situations under that one prefix and only the first
+    is an error block:
+
+    - a consensus rule was broken -- reported here;
+    - the evidence was unusable (missing or malformed coinbase scriptSig, a
+      malformed BIP34 column, an unparseable header) -- we cannot tell, so no
+      token is produced;
+    - the row is not a direct stale at all, because its predecessor is not the
+      expected active-chain block -- a placement verdict from
+      ``validate_stale_header_context``, never a property of the block itself.
+
+    Unlike ``stale_header_context_error`` this does not stop at the first
+    failure: a block can break several rules at once and the published
+    ``rules_violated`` column records all of them. Order is the gate's own
+    precedence (median-time-past, version, scriptSig length, BIP34 height), so
+    the first element is the primary rejection reason.
+
+    ``parent_median_time_past`` is supplied by the caller because it is not a
+    row column -- it comes from the canonical parent's header, which the
+    classifier already fetches to check placement. Omit it and the
+    median-time-past rule is simply not evaluated; every other rule is derived
+    from the committed header and coinbase bytes alone.
+    """
+    rules: list[str] = []
+
+    if parent_median_time_past is not None:
+        mtp_error = median_time_past_error(row, parent_median_time_past)
+        if mtp_error is not None and mtp_error.startswith("REJECTED:"):
+            rules.append(MTP_RULE)
+
+    version_error = block_version_error(
+        row, expected_height, header_hex_key=header_hex_key
+    )
+    if version_error is not None and version_error.startswith("REJECTED:"):
+        rules.append(expected_version_rule(expected_height))
+
+    if coinbase_scriptsig_length_error(row, scriptsig_key=scriptsig_key) is not None:
+        length_rule = expected_length_rule(row, scriptsig_key=scriptsig_key)
+        if length_rule is not None:
+            rules.append(length_rule)
+
+    # At BIP34+ heights ``bip34_height_error`` rejects a too-low version before
+    # it examines the coinbase prefix, so a version-1 header's real violation is
+    # the version -- already recorded above -- and not the coinbase height.
+    if version_error is None:
+        bip34_error = bip34_height_error(
+            row,
+            expected_height,
+            scriptsig_key=scriptsig_key,
+            header_hex_key=header_hex_key,
+        )
+        # Only the genuine raw-prefix mismatch is a consensus violation. The
+        # gate's other REJECTED forms are unusable evidence or a disagreement
+        # between the scriptSig and the optional metadata column.
+        if bip34_error is not None and bip34_error.startswith(
+            BIP34_HEIGHT_MISMATCH_PREFIX
+        ):
+            rules.append(
+                "bip34_v2_coinbase_height_mismatch"
+                if expected_height < BIP34_HEIGHT
+                else "bip34_coinbase_height_mismatch"
+            )
+
+    return rules
+
+
 def _bip34_height_prefix(height: int) -> bytes:
     """Encode the exact ``CScript() << height`` prefix checked by Core."""
     if height == 0:
