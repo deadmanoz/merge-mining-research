@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from stale_blocks_analysis.btc_stale_validation import (
     MTP_RULE,
+    NBITS_RETARGET_RULE,
+    RETARGET_INTERVAL,
     bip34_height_error,
     block_version_error,
     coinbase_scriptsig_length_error,
@@ -589,3 +591,39 @@ def test_expected_length_rule_returns_none_without_usable_scriptsig():
     assert expected_length_rule({"coinbase_scriptsig_hex": ""}) is None
     assert expected_length_rule({"coinbase_scriptsig_hex": "zz"}) is None
     assert expected_length_rule({"coinbase_scriptsig_hex": "ab" * 50}) is None
+
+
+def test_consensus_violations_detects_an_unapplied_retarget():
+    """The epoch-boundary case: full proof of work, but the old difficulty.
+
+    Distinct from a mid-epoch nBits mismatch, which is the contamination
+    gate's target class (a foreign-chain parent) and never an error block.
+    """
+    height = 717696
+    table = {height: 0x170944DD, height - RETARGET_INTERVAL: 0x1709C11E}
+    row = {**_clean_row(height), "btc_bits": "1709c11e"}
+
+    # Not evaluated without the reference table.
+    assert consensus_violations(row, height) == []
+    assert consensus_violations(row, height, nbits_by_epoch=table) == [
+        NBITS_RETARGET_RULE
+    ]
+
+    # Correct newly-retargeted bits: no violation.
+    applied = {**row, "btc_bits": "170944dd"}
+    assert consensus_violations(applied, height, nbits_by_epoch=table) == []
+
+    # Mid-epoch the rule cannot apply at all: identical bits, no violation.
+    mid = height + 1
+    mid_row = {**_clean_row(mid), "btc_bits": "1709c11e"}
+    assert consensus_violations(mid_row, mid, nbits_by_epoch=table) == []
+
+
+def test_retarget_check_fails_closed_when_it_cannot_be_evaluated():
+    row = {**_clean_row(717696), "btc_bits": "1709c11e"}
+    try:
+        consensus_violations(row, 717696, nbits_by_epoch={})
+    except ValueError as exc:
+        assert "epoch table lacks" in str(exc)
+    else:  # pragma: no cover - the call must raise
+        raise AssertionError("an unevaluable retarget claim must not pass silently")

@@ -221,8 +221,11 @@ def bip34_height_error(
 
 BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
 
+RETARGET_INTERVAL = 2016
+
 MTP_RULE = "time_below_mtp"
 LEGACY_MTP_RULE = "median_time_past_violation"
+NBITS_RETARGET_RULE = "nbits_retarget_not_applied"
 
 VERSION_RULES = frozenset(
     {
@@ -281,11 +284,56 @@ def expected_length_rule(
     return None
 
 
+def nbits_retarget_not_applied_error(
+    row: dict[str, Any],
+    expected_height: int,
+    nbits_by_epoch: dict[int, int],
+    *,
+    bits_key: str = "btc_bits",
+) -> str | None:
+    """Return a rejection when the row failed to apply an epoch retarget.
+
+    All three conditions must hold: the height is an epoch start, the row's
+    bits differ from the epoch table's value there (the newly retargeted bits
+    the block must use), and the row's bits equal the PREVIOUS epoch's value.
+
+    A mid-epoch nBits mismatch is not this rule -- that is the contamination
+    gate's target class (a foreign-chain parent), not a consensus violation of
+    a Bitcoin block. This rule is specifically the boundary case where the
+    header still carries full proof of work but kept the old difficulty.
+
+    Raises ``ValueError`` when the claim cannot be evaluated -- malformed bits,
+    or an epoch table that does not reach the height. Failing closed matters
+    here: silently returning None would let an unevaluated row look clean.
+    """
+    try:
+        bits = int(str(row.get(bits_key, "") or "").strip(), 16)
+    except ValueError as exc:
+        raise ValueError(f"malformed {bits_key} for {NBITS_RETARGET_RULE}") from exc
+    if expected_height % RETARGET_INTERVAL != 0:
+        return None
+    epoch_bits = nbits_by_epoch.get(expected_height)
+    previous_bits = nbits_by_epoch.get(expected_height - RETARGET_INTERVAL)
+    if epoch_bits is None or previous_bits is None:
+        raise ValueError(
+            f"epoch table lacks {expected_height} or "
+            f"{expected_height - RETARGET_INTERVAL}; cannot re-derive "
+            f"{NBITS_RETARGET_RULE}"
+        )
+    if bits == epoch_bits or bits != previous_bits:
+        return None
+    return (
+        f"REJECTED: {NBITS_RETARGET_RULE} at epoch start {expected_height} "
+        f"(got previous-epoch bits {bits:08x}, expected {epoch_bits:08x})"
+    )
+
+
 def consensus_violations(
     row: dict[str, Any],
     expected_height: int,
     *,
     parent_median_time_past: int | None = None,
+    nbits_by_epoch: dict[int, int] | None = None,
     scriptsig_key: str = "coinbase_scriptsig_hex",
     header_hex_key: str = "btc_header_hex",
 ) -> list[str]:
@@ -314,13 +362,21 @@ def consensus_violations(
     precedence (median-time-past, version, scriptSig length, BIP34 height), so
     the first element is the primary rejection reason.
 
-    ``parent_median_time_past`` is supplied by the caller because it is not a
-    row column -- it comes from the canonical parent's header, which the
-    classifier already fetches to check placement. Omit it and the
-    median-time-past rule is simply not evaluated; every other rule is derived
-    from the committed header and coinbase bytes alone.
+    Two rules need context the row does not carry, so the caller supplies it
+    and omitting it means that rule is simply not evaluated:
+    ``parent_median_time_past`` comes from the canonical parent's header, which
+    the classifier already fetches to check placement, and ``nbits_by_epoch``
+    is the committed retarget-epoch reference table. Every other rule is
+    derived from the header and coinbase bytes alone.
     """
     rules: list[str] = []
+
+    if nbits_by_epoch is not None:
+        retarget_error = nbits_retarget_not_applied_error(
+            row, expected_height, nbits_by_epoch
+        )
+        if retarget_error is not None:
+            rules.append(NBITS_RETARGET_RULE)
 
     if parent_median_time_past is not None:
         mtp_error = median_time_past_error(row, parent_median_time_past)

@@ -120,6 +120,7 @@ from stale_blocks_analysis.btc_stale_validation import (
     expected_length_rule as _expected_length_token,
     expected_version_rule as _expected_version_token,
     median_time_past_error,
+    nbits_retarget_not_applied_error as _nbits_retarget_not_applied_error,
 )
 from stale_blocks_analysis.config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
@@ -278,45 +279,20 @@ def nbits_retarget_not_applied_error(
 ) -> str | None:
     """Re-derive the ``nbits_retarget_not_applied`` violation offline.
 
-    Gate contract: returns a ``REJECTED:`` failure string when the row
-    demonstrably failed to apply the retarget at an epoch boundary, ``None``
-    when it did not. All three conditions must hold for the violation:
-
-    (a) the row's height is an epoch start (``height % 2016 == 0``);
-    (b) the row's ``btc_bits`` differs from the epoch table value at that
-        height (the newly-retargeted bits the block must use);
-    (c) the row's ``btc_bits`` equals the epoch table value at the PREVIOUS
-        epoch start (``height - 2016``).
-
-    Raises ``ValueError`` when the claim cannot be evaluated (malformed row
-    fields, or the epoch table lacks either height): the validator fails
-    closed on an unevaluable claim.
+    Thin adapter over the shared gate in ``btc_stale_validation``: the dataset
+    row carries its height in ``height`` while the classifier passes its
+    authoritative height explicitly, so only the height lookup differs. Raises
+    ``ValueError`` when the claim cannot be evaluated (malformed row fields, or
+    an epoch table that lacks either height); the validator fails closed on an
+    unevaluable claim.
     """
     try:
         height = int(str(row.get("height", "") or "").strip())
-        bits = int(str(row.get("btc_bits", "") or "").strip(), 16)
     except ValueError as exc:
         raise ValueError(
             "malformed height or btc_bits for nbits_retarget_not_applied"
         ) from exc
-    if height % EPOCH_LENGTH != 0:
-        # Not a retarget boundary: the rule cannot apply, so there is no
-        # violation to re-derive (a mid-epoch nBits mismatch is the
-        # contamination gate's target class, not an error block).
-        return None
-    epoch_bits = nbits_by_epoch.get(height)
-    previous_bits = nbits_by_epoch.get(height - EPOCH_LENGTH)
-    if epoch_bits is None or previous_bits is None:
-        raise ValueError(
-            f"epoch table lacks {height} or {height - EPOCH_LENGTH}; "
-            "cannot re-derive nbits_retarget_not_applied"
-        )
-    if bits == epoch_bits or bits != previous_bits:
-        return None
-    return (
-        f"REJECTED: nbits_retarget_not_applied at epoch start {height} "
-        f"(got previous-epoch bits {bits:08x}, expected {epoch_bits:08x})"
-    )
+    return _nbits_retarget_not_applied_error(row, height, nbits_by_epoch)
 
 
 def validate_row(
