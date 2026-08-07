@@ -552,8 +552,10 @@ def route_rejected_stale_rows(
     keeps the classification honest if one ever does not.)
 
     ``nbits_by_epoch`` is the committed retarget-epoch reference table, loaded
-    once per call when the caller does not already hold it. It is only read
-    when there is at least one rejected row.
+    once per call when the caller does not already hold it. It is only read for
+    a row whose routing actually consults it: a placement rejection is settled
+    first, so a run that only ever rejects on placement never touches the
+    table.
     """
     rejected = [
         row
@@ -562,18 +564,29 @@ def route_rejected_stale_rows(
     ]
     if not rejected:
         return
-    if nbits_by_epoch is None:
-        nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
     for row in rejected:
+        status = str(row.get("validation_status", ""))
+        if status == PLACEMENT_REJECTION:
+            # Placement has top precedence in ``rejection_route`` and needs no
+            # re-derived rules, so settle it before the epoch table is
+            # consulted. ``nbits_retarget_not_applied_error`` raises when the
+            # committed reference does not reach the row's height (deliberately
+            # fail-closed), and at a retarget-boundary height beyond the
+            # checked-in table that would abort the whole run over a row whose
+            # classification never depended on that rule.
+            route = rejection_route(row, [], status=status)
+            if route is not None:
+                row["classification"] = route
+            continue
+        if nbits_by_epoch is None:
+            nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
         rules = consensus_violations(
             row,
             int(row["btc_height"]),
             parent_median_time_past=row.get("_parent_median_time_past"),
             nbits_by_epoch=nbits_by_epoch,
         )
-        route = rejection_route(
-            row, rules, status=str(row.get("validation_status", ""))
-        )
+        route = rejection_route(row, rules, status=status)
         if route is not None:
             row["classification"] = route
 
@@ -626,6 +639,29 @@ def _write_split_file(path: str, rows: list[dict], *, columns: list[str]) -> Non
             writer.writerow(row)
 
 
+def _validate_distinct_outputs(labelled: dict[str, str]) -> None:
+    """Refuse to write when any two of the bucket outputs are the same file.
+
+    The five files are written in sequence, so an aliased pair fails silently
+    and destructively: the later write replaces an artifact the run has just
+    finished. The dangerous case is the VALID-only ``validated`` loader input,
+    which a caller can point at a derived peer's name (``--output /tmp/foo.csv
+    --validated-output /tmp/foo_error_blocks.csv``) and have replaced by the
+    error-block bucket on the final write.
+
+    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py`` and
+    ``classify_hathor_phase_c.py``. Those are not reused: each is named over
+    its own script's artifact set, which is not the shared writer's.
+    """
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        resolved = Path(path).resolve()
+        previous = seen.get(resolved)
+        if previous is not None:
+            raise ValueError(f"{label} aliases {previous}: {resolved}")
+        seen[resolved] = label
+
+
 def write_classifier_outputs(
     all_results: list[dict],
     *,
@@ -662,7 +698,19 @@ def write_classifier_outputs(
     every candidate report zero rejections. The verdict is read off the input
     rows because the canonical and unknown output rows have already had their
     gate annotations cleared.
+
+    All five destinations must resolve to distinct files; aliasing any two
+    raises ``ValueError`` before anything is written.
     """
+    _validate_distinct_outputs(
+        {
+            "canonical output": canonical_path,
+            "stale output": stale_path,
+            "unknown output": unknown_path,
+            "validated-stale output": validated_path,
+            "error-block output": error_block_path,
+        }
+    )
     buckets: dict[str, list[dict]] = {
         "canonical": [],
         "stale": [],

@@ -11,6 +11,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "analysis" / "reconcile_unknown_stale_ancestry.py"
 BASELINE_HASH = "11" * 32
+# Bitcoin's canonical compact bits for the epoch starting at height 399,168,
+# used as the matched header/expected pair the rule derivation requires at the
+# height-400,001 candidates below.
+BITS = "1806b99f"
 
 
 def _load_module():
@@ -390,15 +394,74 @@ def test_descendant_consensus_rules_needs_judgeable_evidence():
     header_hex = "04000000" + "00" * 76
     scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
 
-    assert module.descendant_consensus_rules(header_hex, scriptsig, 400001, []) == [
-        "bip34_coinbase_height_mismatch"
-    ]
-    assert module.descendant_consensus_rules(header_hex, scriptsig, None, []) == []
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, None, [], header_bits=BITS, expected_nbits=BITS
+        )
+        == []
+    )
     for failure in sorted(module.DESCENDANT_UNJUDGEABLE_FAILURES):
         assert (
-            module.descendant_consensus_rules(header_hex, scriptsig, 400001, [failure])
+            module.descendant_consensus_rules(
+                header_hex,
+                scriptsig,
+                400001,
+                [failure],
+                header_bits=BITS,
+                expected_nbits=BITS,
+            )
             == []
         )
+
+
+def test_descendant_consensus_rules_needs_a_canonical_difficulty_match():
+    """An uncompared difficulty must not read as a canonical-difficulty match.
+
+    ``expected_bits_for_height`` returns ``""`` for a height the committed
+    epoch reference does not reach, and the caller then records no
+    ``nbits_epoch_mismatch`` -- the comparison simply never happened. Deriving
+    rules from that silence would publish a foreign or easy-target header as an
+    error block with its canonical difficulty never checked, so the match is
+    required outright.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+
+    # Control: bits present on both sides and equal.
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
+
+    # The epoch reference does not reach this height, so nothing was compared.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=""
+        )
+        == []
+    )
+    # No bits recovered for the candidate at all.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, 400001, [], header_bits="", expected_nbits=BITS
+        )
+        == []
+    )
+    # Compared, and the header's difficulty is not Bitcoin's at this height.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex,
+            scriptsig,
+            400001,
+            [],
+            header_bits="1d00ffff",
+            expected_nbits=BITS,
+        )
+        == []
+    )
 
 
 def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
@@ -417,24 +480,34 @@ def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
     long_scriptsig = "aa" * 101
 
     # Controls: authenticated, the same evidence does derive each rule.
-    assert module.descendant_consensus_rules(header_hex, scriptsig, 400001, []) == [
-        "bip34_coinbase_height_mismatch"
-    ]
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
     assert "coinbase_scriptsig_length_above_100" in module.descendant_consensus_rules(
-        header_hex, long_scriptsig, 400001, []
+        header_hex, long_scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
     )
 
     # A header present but not proven to hash to the claimed block hash.
     assert (
         module.descendant_consensus_rules(
-            header_hex, scriptsig, 400001, ["header_hash_mismatch"]
+            header_hex,
+            scriptsig,
+            400001,
+            ["header_hash_mismatch"],
+            header_bits=BITS,
+            expected_nbits=BITS,
         )
         == []
     )
     # No header at all: the coinbase alone must not carry a verdict either.
     assert (
         module.descendant_consensus_rules(
-            "", long_scriptsig, 400001, ["missing_header_hex"]
+            "",
+            long_scriptsig,
+            400001,
+            ["missing_header_hex"],
+            header_bits=BITS,
+            expected_nbits=BITS,
         )
         == []
     )

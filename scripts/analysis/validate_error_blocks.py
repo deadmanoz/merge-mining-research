@@ -22,7 +22,10 @@ from the committed bytes, with no live RPC:
    requires the header version to pass the version requirement for the height
    (at BIP34+ heights ``bip34_height_error`` rejects a too-low version before
    examining the coinbase prefix, so a version-1 header labelled with a
-   coinbase-height token would otherwise pass for the wrong reason).
+   coinbase-height token would otherwise pass for the wrong reason). A BIP34
+   coinbase-height token must further match the FORM of the gate's verdict:
+   one gate serves both the wrong-height and the missing-height rules, so a
+   row must not claim both tokens off a single mismatch verdict.
    ``rejection_reason`` must be non-empty and equal to the FIRST token of
    ``rules_violated``: the dataset contract makes it the primary rule of the
    pipe-joined set, so a row whose ``rejection_reason`` is a secondary rule
@@ -113,6 +116,8 @@ from stale_blocks_analysis.btc_stale_validation import (
     VERSION_RULES as _VERSION_RULE_TOKENS,
 )
 from stale_blocks_analysis.btc_stale_validation import (
+    BIP34_HEIGHT_MISMATCH_PREFIX,
+    BIP34_HEIGHT_MISSING_PREFIX,
     bip34_height_error,
     block_version_error,
     coinbase_scriptsig_length_error,
@@ -208,31 +213,32 @@ RULE_GATES: dict[str, Gate] = {
 # regardless of its coinbase bytes. A row labelled with a coinbase-height
 # token whose header version is ALSO too low for its height is inconsistent:
 # the real/primary violation is the version, not the coinbase height.
-_BIP34_COINBASE_HEIGHT_TOKENS = frozenset(
+# That single gate also serves two distinct coinbase-height violations, so the
+# declared token names a FORM its verdict has to match as well. The mismatch
+# form is the genuine raw-prefix mismatch (a height push is there and it is
+# wrong for the claimed height); the missing form is a present, well-formed
+# scriptSig carrying no decodable height push at all. Both prefixes are
+# imported from ``btc_stale_validation``, the same strings the sweeps and the
+# reconciliation key on. Every other REJECTED form the gate produces is
+# neither: unusable evidence ("malformed ...", "missing coinbase scriptSig") or
+# the metadata cross-check disagreement ("decoded BIP34 coinbase height
+# disagrees with btc_bip34_height"), where the scriptSig encodes the height
+# CORRECTLY and only the optional column disagrees -- inconsistent metadata,
+# not a Bitcoin consensus violation.
+_BIP34_HEIGHT_MISMATCH_TOKENS = frozenset(
     {
         "bip34_coinbase_height_mismatch",
         "bip34_v2_coinbase_height_mismatch",
+    }
+)
+_BIP34_HEIGHT_MISSING_TOKENS = frozenset(
+    {
         "bip34_coinbase_height_missing",
         "bip34_v2_coinbase_height_missing",
     }
 )
-# The genuine raw-prefix BIP34 coinbase-height mismatch: the scriptSig's
-# encoded height push is actually wrong for the claimed height. This is the
-# same prefix the sweeps key on (``_BIP34_HEIGHT_MISMATCH_PREFIX`` /
-# ``BIP34_HEIGHT_MISMATCH_PREFIX`` there). ``bip34_height_error``'s other
-# REJECTED forms are NOT a coinbase-height consensus violation: unusable
-# evidence ("malformed ...", "missing ...") or the metadata cross-check
-# disagreement ("decoded BIP34 coinbase height disagrees with
-# btc_bip34_height", where the scriptSig encodes the height correctly and only
-# the optional column disagrees). Only the raw-prefix mismatch proves a BIP34
-# coinbase-height violation. Imported above from ``btc_stale_validation``.
-# The metadata cross-check rejection: the scriptSig encodes the height
-# CORRECTLY and only the optional ``btc_bip34_height`` column disagrees with
-# the decoded prefix. That is inconsistent metadata, not a Bitcoin consensus
-# violation (the raw coinbase bytes are correct), so it is neither derived nor
-# accepted as proof of a BIP34 coinbase-height rule.
-_BIP34_METADATA_CROSSCHECK_PREFIX = (
-    "REJECTED: decoded BIP34 coinbase height disagrees with"
+_BIP34_COINBASE_HEIGHT_TOKENS = (
+    _BIP34_HEIGHT_MISMATCH_TOKENS | _BIP34_HEIGHT_MISSING_TOKENS
 )
 
 
@@ -582,26 +588,33 @@ def validate_row(
                 "missing-evidence verdict, not a proven violation)"
             )
             continue
-        # A BIP34 coinbase-height token is proven only by the genuine
-        # raw-prefix height mismatch (the scriptSig's encoded height push is
-        # actually wrong for the claimed height) — the same form the sweeps
-        # key on. bip34_height_error's metadata cross-check rejection
-        # ("REJECTED: decoded BIP34 coinbase height disagrees with
-        # btc_bip34_height") fires when the scriptSig encodes the height
-        # CORRECTLY and only the optional btc_bip34_height column disagrees:
-        # that is inconsistent metadata, not a Bitcoin consensus violation
-        # (the raw coinbase bytes are correct), so it is not proof of the
-        # declared coinbase-height rule. (A too-low header VERSION rejection
-        # is handled by the version-inconsistency check below.)
-        if rule in _BIP34_COINBASE_HEIGHT_TOKENS and gate_result.startswith(
-            _BIP34_METADATA_CROSSCHECK_PREFIX
-        ):
-            failures.append(
-                f"rule {rule} could not be evaluated (gate returned a "
-                "metadata cross-check rejection, not a genuine raw-prefix "
-                "coinbase-height mismatch)"
+        # A BIP34 coinbase-height token is proven only when the gate's verdict
+        # is the DECLARED form of the violation. bip34_height_error serves both
+        # the mismatch and the missing-height rules, so requiring merely "some
+        # rejection" would let a row with a decodable wrong height claim the
+        # real mismatch token AND a missing-height token off that one verdict:
+        # the reverse check in (b2) sees the mismatch claimed and never
+        # rejects the extra one, so a published rules_violated value would
+        # never have re-derived. Its other REJECTED forms match neither prefix
+        # and are also rejected here: unusable evidence (handled above) and the
+        # metadata cross-check disagreement, where the raw coinbase bytes are
+        # correct and only the optional btc_bip34_height column disagrees. (A
+        # too-low header VERSION rejection is handled by the
+        # version-inconsistency check below.)
+        if rule in _BIP34_COINBASE_HEIGHT_TOKENS:
+            declared_prefix = (
+                BIP34_HEIGHT_MISSING_PREFIX
+                if rule in _BIP34_HEIGHT_MISSING_TOKENS
+                else BIP34_HEIGHT_MISMATCH_PREFIX
             )
-            continue
+            if not gate_result.startswith(declared_prefix):
+                # No ``continue``: a too-low header version is one of the
+                # verdicts that lands here, and the check below names that
+                # cause precisely. Both messages are accurate for such a row.
+                failures.append(
+                    f"rule {rule} did not re-derive in its declared form "
+                    f"(gate verdict does not begin {declared_prefix!r})"
+                )
         # The gate fired, but that only proves A violation exists — not that
         # the DECLARED token is the right one. For the version and length
         # rules the correct token is determined by the height / actual

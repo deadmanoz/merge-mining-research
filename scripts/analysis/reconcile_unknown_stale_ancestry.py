@@ -269,7 +269,6 @@ DESCENDANT_UNJUDGEABLE_FAILURES = frozenset(
         "header_hash_mismatch",
         "prev_hash_path_mismatch",
         "pow_target_mismatch",
-        "nbits_epoch_mismatch",
     }
 )
 
@@ -279,6 +278,9 @@ def descendant_consensus_rules(
     scriptsig_hex: str,
     inferred_height: int | None,
     validation_failures: list[str],
+    *,
+    header_bits: str,
+    expected_nbits: str,
 ) -> list[str]:
     """Return the consensus rules a descendant candidate's bytes prove broken.
 
@@ -287,31 +289,53 @@ def descendant_consensus_rules(
     rule. It uses the same shared derivation the classifier uses, so that a
     rejection means the same thing wherever it is produced.
 
-    Nothing is derived unless every one of ``DESCENDANT_UNJUDGEABLE_FAILURES``
-    is absent, because each one undermines a different premise of the claim:
+    Two premises have to hold before any rule is derived, and the difficulty
+    one is required as POSITIVE evidence rather than as a missing failure.
+
+    First, every one of ``DESCENDANT_UNJUDGEABLE_FAILURES`` must be absent:
 
     - ``missing_header_hex`` / ``header_hash_mismatch``: the supplied bytes are
-      not authenticated as this block's. Every rule below the retarget one is
-      read straight out of those bytes, so publishing a violation under the
-      claimed hash would attribute another block's (or nobody's) header to it.
-      Corroborating the published hash against the serialized header is the
-      precondition for every downstream verdict in this repo, not an extra.
-    - ``prev_hash_path_mismatch`` / ``pow_target_mismatch`` /
-      ``nbits_epoch_mismatch``: the height is not sound enough to judge
-      against. It is the root's confirmed height plus the fork depth, walked
-      along links this run already verified, and an ``nbits_epoch_mismatch``
-      would have fired if the header's difficulty were not Bitcoin's at that
-      height -- which also rules out a share at the canonical target and
-      another chain's header. Without them a coinbase-height mismatch would be
-      equally consistent with a wrong height.
+      not authenticated as this block's. Every rule below is read straight out
+      of those bytes, so publishing a violation under the claimed hash would
+      attribute another block's (or nobody's) header to it. Corroborating the
+      published hash against the serialized header is the precondition for
+      every downstream verdict in this repo, not an extra.
+    - ``prev_hash_path_mismatch`` / ``pow_target_mismatch``: the height is not
+      sound enough to judge against, and the digest is not known to meet the
+      target its own bits encode. The height is the root's confirmed height
+      plus the fork depth, walked along links this run already verified.
+      Without them a coinbase-height mismatch would be equally consistent with
+      a wrong height.
 
-    ``nbits_by_epoch`` is deliberately not supplied. The absent
-    ``nbits_epoch_mismatch`` already proves the bits equal the canonical
-    value, so the unapplied-retarget rule cannot apply.
+    Second, ``expected_nbits`` and ``header_bits`` must both be present and
+    equal. The absence of an ``nbits_epoch_mismatch`` failure does NOT prove
+    that: the caller derives ``expected_nbits`` from the committed epoch
+    reference, which returns ``""`` for a height the table does not reach, and
+    the comparison is then skipped rather than failed. Reading that silence as
+    a match would let a foreign or easy-target header be published as an error
+    block with its canonical difficulty never checked, so the match is required
+    outright.
+
+    Requiring it also settles the canonical proof of work without a second
+    digest check, which is why none is made here. ``pow_target_mismatch`` being
+    absent proves the digest meets the target ``header_bits`` encodes, and
+    ``header_bits`` equalling ``expected_nbits`` makes that target the
+    canonical one for this height. The classification-time twin
+    (``btc_classify._meets_canonical_btc_difficulty``) does need its own digest
+    check because it admits the unapplied-retarget rule, whose rows carry the
+    PREVIOUS epoch's easier bits by definition; no such exception exists here.
+
+    ``nbits_by_epoch`` is deliberately not supplied for the same reason: the
+    bits are proven equal to the canonical value, so the unapplied-retarget
+    rule cannot apply.
     """
     if inferred_height is None:
         return []
     if DESCENDANT_UNJUDGEABLE_FAILURES & set(validation_failures):
+        return []
+    canonical_bits = expected_nbits.strip().lower()
+    observed_bits = header_bits.strip().lower()
+    if not canonical_bits or not observed_bits or observed_bits != canonical_bits:
         return []
     return consensus_violations(
         {"btc_header_hex": header_hex, "coinbase_scriptsig_hex": scriptsig_hex},
@@ -725,17 +749,35 @@ def validate_output_mode(
 
     ``--error-blocks-csv`` defaults to the sibling of whatever
     ``--promoted-csv`` names, so a disposable promoted path already yields a
-    disposable error-block path; only an explicit committed one is refused. The
-    two must also be distinct, because the descendant sidecar and its
-    consensus-invalid peer are written in sequence and aliasing them would leave
-    only the second.
+    disposable error-block path; only an explicit committed one is refused.
+
+    Every artifact this run generates must also resolve to a distinct file.
+    They are written in sequence, so an aliased pair fails silently and
+    destructively: the later write replaces one the run has just finished.
+    Checking the error-block path against ``--promoted-csv`` alone would leave
+    the six ``--results-dir`` artifacts open, and pointing it at, say,
+    ``unknown-stale-root-summary.csv`` would have the error-block rows written
+    and then immediately replaced by the root summary.
     """
     if args.error_blocks_csv is None:
         args.error_blocks_csv = error_blocks_csv_for(args.promoted_csv)
-    if args.error_blocks_csv.resolve() == args.promoted_csv.resolve():
-        parser.error(
-            f"--error-blocks-csv must not be --promoted-csv: {args.promoted_csv}"
-        )
+    labelled = {
+        "reconciliation-inventory output": args.results_dir / OUTPUT_INVENTORY,
+        "direct-matches output": args.results_dir / OUTPUT_DIRECT,
+        "descendant-paths output": args.results_dir / OUTPUT_PATHS,
+        "root-summary output": args.results_dir / OUTPUT_ROOTS,
+        "anomalies output": args.results_dir / OUTPUT_ANOMALIES,
+        "reconciliation-summary output": args.results_dir / OUTPUT_SUMMARY,
+        "--promoted-csv": args.promoted_csv,
+        "--error-blocks-csv": args.error_blocks_csv,
+    }
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        resolved = path.resolve()
+        previous = seen.get(resolved)
+        if previous is not None:
+            parser.error(f"{label} aliases {previous}: {resolved}")
+        seen[resolved] = label
     if not args.allow_partial:
         return
     default_outputs: list[str] = []
@@ -2006,13 +2048,27 @@ def main(argv: list[str] | None = None) -> None:
             if bip34_failure is not None:
                 validation_failures.append(bip34_failure)
 
+        consensus_rules = descendant_consensus_rules(
+            header_hex,
+            scriptsig_hex,
+            inferred_height,
+            validation_failures,
+            header_bits=row_bits,
+            expected_nbits=expected_nbits,
+        )
+        # The descendant verdict and the classification are the same judgement
+        # on one row, so they must not disagree. The BIP34 verdict above passes
+        # a scriptSig that is over-long but correctly prefixed, and never looks
+        # at the length at all, so without this a row would be emitted to the
+        # error-block peer still carrying VALID_STALE_DESCENDANT. Rows that
+        # already carry a failure are already rejections and keep their primary
+        # reason; the derived rules travel in ``rules_violated`` either way.
+        if consensus_rules and not validation_failures:
+            validation_failures.extend(consensus_rules)
         validation_status = (
             "VALID_STALE_DESCENDANT"
             if not validation_failures
             else "REJECTED_" + "|".join(validation_failures)
-        )
-        consensus_rules = descendant_consensus_rules(
-            header_hex, scriptsig_hex, inferred_height, validation_failures
         )
         sources, chains, heights, times, bits = stale_sources(stale_by_hash[stale_hash])
 
