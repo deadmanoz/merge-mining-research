@@ -199,10 +199,45 @@ re-derivation. The offline validator's job is to prove the named consensus
 violation from the committed bytes; active-parent/canonical placement is a
 separate, online gate.
 
+## Classification-time labelling
+
+Error blocks are now an outcome of the normal classification pass, not a
+separate discovery step. `route_rejected_stale_rows`
+(`src/stale_blocks_analysis/btc_classify.py`) sorts every gate-rejected stale
+candidate by what the rejection actually means, re-deriving the broken rules
+from the row's own bytes via `consensus_violations` rather than parsing the
+verdict string:
+
+- a proven consensus violation makes the row `classification=error_block`,
+  written to the `data/<chain>_error_blocks.csv` sibling of the stale
+  inventory (gitignored, like its four bucket peers);
+- a placement rejection (the predecessor is not on the active chain) or a
+  contamination rejection (the difficulty is not Bitcoin's at that height)
+  makes the row `unknown`, since neither is a judgement on a Bitcoin block;
+- a rejection whose evidence proves nothing stays a rejected stale.
+
+The same routing runs in the shared driver (16 chains), the four classifiers
+that call the gate directly (elastos, coiledcoin, geistgeld, groupcoin), the
+namecoin/i0coin classifier, the RSK classifier (which can only ever produce
+the version and median-time-past rules, since its proof exposes no parent
+coinbase), and Hathor Phase C. The stale-descendant reconciliation applies the
+identical derivation to its rejected candidates
+(`descendant_consensus_rules` in
+`scripts/analysis/reconcile_unknown_stale_ancestry.py`), judging only rows
+whose path, proof of work, and canonical bits all verified. Hathor Phase A is
+deliberately outside this machinery (import-free, runs on the archive host),
+and Phase B feeds Phase C using the shared verdict vocabulary.
+
+The committed dataset below remains the publication surface and exclusion
+gate; consolidating classifier-emitted rows into it across chains is the
+builder's job, not the classifier's.
+
 ## The sweeps
 
 Four sweeps under `scripts/analysis/`, sharing `scripts/analysis/_sweep_common.py`,
-hunted for error blocks beyond the carried-over set. Each re-verifies full
+hunted for error blocks beyond the carried-over set, and they predate
+classification-time labelling: they remain the retroactive path for archived
+inventories produced before the routing existed. Each re-verifies full
 proof of work per row and writes a dated report to
 `results/analysis/error-blocks/`, including negative results.
 

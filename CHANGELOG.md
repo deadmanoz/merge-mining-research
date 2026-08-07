@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+Label error blocks during classification instead of discovering them by hand
+afterwards. A shared routing step now sorts every gate-rejected stale
+candidate by what the rejection means, re-deriving the broken consensus rules
+from the row's own bytes: a proven violation becomes `classification=error_block`
+in its own bucket file, a placement or non-Bitcoin-difficulty rejection becomes
+`unknown`, and a rejection whose evidence proves nothing stays a rejected
+stale. The routing runs uniformly across the shared driver, the four
+direct-gate classifiers, the namecoin/i0coin classifier, RSK (version and
+median-time-past rules only, as its proof exposes no coinbase), Hathor Phase C,
+and the stale-descendant reconciliation. Hathor Phase B now writes the shared
+`VALID`/`REJECTED:`/`UNKNOWN:` verdict vocabulary, with Phase C accepting the
+pre-rename tokens archived intermediates still carry. The classifier output
+writer fails loudly on an unrecognised classification instead of silently
+dropping the row, `nbits_retarget_not_applied` and the two
+`bip34_*_coinbase_height_missing` rules join the shared derivation, and the
+rejected-rows sweep gains namecoin coverage. All 33 committed error blocks
+re-derive unchanged under the shared decision.
+
 Preserve LF line endings in both error-block CSV writers and make the offline
 error-block validator reject every row whose `classification` is not exactly
 `error_block`. Project a source row originally labelled `stale` to
