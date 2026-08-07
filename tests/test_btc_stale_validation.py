@@ -627,3 +627,38 @@ def test_retarget_check_fails_closed_when_it_cannot_be_evaluated():
         assert "epoch table lacks" in str(exc)
     else:  # pragma: no cover - the call must raise
         raise AssertionError("an unevaluable retarget claim must not pass silently")
+
+
+def test_consensus_violations_names_a_coinbase_with_no_height_at_all():
+    """A well-formed coinbase carrying no height push is its own violation.
+
+    Distinct from a mismatch, where a height is present but wrong. Both are
+    proven by the committed bytes once BIP34 makes the prefix mandatory, so
+    both need a name -- an unnamed violation cannot be recorded or re-derived.
+    """
+    height = BIP34_HEIGHT + 10
+    # A valid 2..100 byte scriptSig with no decodable height push.
+    row = {**_clean_row(height, version=2), "coinbase_scriptsig_hex": b"pooldata".hex()}
+    assert consensus_violations(row, height) == ["bip34_coinbase_height_missing"]
+
+    early = BIP34_VERSION_2_HEIGHT + 10
+    early_row = {
+        **_clean_row(early, version=2),
+        "coinbase_scriptsig_hex": b"pooldata".hex(),
+    }
+    assert consensus_violations(early_row, early) == [
+        "bip34_v2_coinbase_height_missing"
+    ]
+
+
+def test_missing_and_mismatched_coinbase_height_are_not_the_same_rule():
+    height = BIP34_HEIGHT + 10
+    wrong = {
+        **_clean_row(height, version=2),
+        "coinbase_scriptsig_hex": _scriptsig(height + 1),
+    }
+    absent = {
+        **_clean_row(height, version=2),
+        "coinbase_scriptsig_hex": b"pooldata".hex(),
+    }
+    assert consensus_violations(wrong, height) != consensus_violations(absent, height)

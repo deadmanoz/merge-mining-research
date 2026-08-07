@@ -183,6 +183,8 @@ RULE_GATES: dict[str, Gate] = {
     ),
     "bip34_coinbase_height_mismatch": bip34_height_error,
     "bip34_v2_coinbase_height_mismatch": bip34_height_error,
+    "bip34_coinbase_height_missing": bip34_height_error,
+    "bip34_v2_coinbase_height_missing": bip34_height_error,
 }
 
 # The version-rule and length-rule tokens are not independent labels: each is
@@ -210,6 +212,8 @@ _BIP34_COINBASE_HEIGHT_TOKENS = frozenset(
     {
         "bip34_coinbase_height_mismatch",
         "bip34_v2_coinbase_height_mismatch",
+        "bip34_coinbase_height_missing",
+        "bip34_v2_coinbase_height_missing",
     }
 )
 # The genuine raw-prefix BIP34 coinbase-height mismatch: the scriptSig's

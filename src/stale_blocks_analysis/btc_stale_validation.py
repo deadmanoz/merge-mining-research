@@ -229,6 +229,10 @@ def bip34_height_error(
 
 
 BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
+# The coinbase carries no decodable height push at all. Distinct from a
+# mismatch (a height is there, it is the wrong one) but equally a violation
+# once BIP34 makes the prefix mandatory, and equally derivable from the bytes.
+BIP34_HEIGHT_MISSING_PREFIX = "REJECTED: missing BIP34 coinbase height"
 
 RETARGET_INTERVAL = 2016
 
@@ -416,13 +420,25 @@ def consensus_violations(
         # Only the genuine raw-prefix mismatch is a consensus violation. The
         # gate's other REJECTED forms are unusable evidence or a disagreement
         # between the scriptSig and the optional metadata column.
+        v2_era = expected_height < BIP34_HEIGHT
         if bip34_error is not None and bip34_error.startswith(
             BIP34_HEIGHT_MISMATCH_PREFIX
         ):
             rules.append(
                 "bip34_v2_coinbase_height_mismatch"
-                if expected_height < BIP34_HEIGHT
+                if v2_era
                 else "bip34_coinbase_height_mismatch"
+            )
+        elif bip34_error is not None and bip34_error.startswith(
+            BIP34_HEIGHT_MISSING_PREFIX
+        ):
+            # A present, well-formed coinbase carrying no height push at all.
+            # Once the prefix is mandatory that is as much a violation as the
+            # wrong height, and it is proven by the same committed bytes.
+            rules.append(
+                "bip34_v2_coinbase_height_missing"
+                if v2_era
+                else "bip34_coinbase_height_missing"
             )
 
     return rules
