@@ -145,6 +145,24 @@ def normalize_validation_status(status: str) -> str:
     return LEGACY_VALIDATION_STATUS.get(status, status)
 
 
+def _unresolved_height_status(status: str, unresolved: str) -> str:
+    """Keep Phase B's verdict when the height it would have supplied is absent.
+
+    A row Phase B already rejected does not acquire a second, unrelated verdict
+    just because no parent height came with it: the absent height is a
+    CONSEQUENCE of that rejection (a placement rejection resolves no parent at
+    all, so it carries none), not an independent finding. ``rejection_route``
+    routes on the verdict string -- a placement rejection to ``unknown``, an
+    nBits mismatch on its contamination evidence -- and neither survives being
+    overwritten here, so the row would reach the router as an unrecognised
+    rejection and be dropped instead of published. Only a row that arrived
+    without a rejection gets the height-resolution one.
+    """
+    if status.startswith("REJECTED:"):
+        return status
+    return unresolved
+
+
 def resolved_height_and_status(
     row: dict[str, str], scriptsig_hex: str
 ) -> tuple[int | str, str]:
@@ -156,9 +174,13 @@ def resolved_height_and_status(
     try:
         parent_height_int = int(parent_height)
     except (TypeError, ValueError):
-        return "", "REJECTED: missing canonical parent height"
+        return "", _unresolved_height_status(
+            status, "REJECTED: missing canonical parent height"
+        )
     if parent_height_int < 0:
-        return "", "REJECTED: invalid canonical parent height"
+        return "", _unresolved_height_status(
+            status, "REJECTED: invalid canonical parent height"
+        )
 
     btc_height = parent_height_int + 1
     if status == "VALID":
@@ -263,6 +285,38 @@ def _write_rows_atomically(
         raise
 
 
+def validate_distinct_paths(
+    in_path: Path,
+    out_path: Path,
+    error_block_path: Path,
+    unknown_path: Path,
+) -> None:
+    """Refuse to run when any two input/output paths resolve to the same file.
+
+    The three outputs are replaced in sequence, so an aliased pair fails
+    silently and destructively: the later replacement discards an artifact the
+    run has just finished writing. Pointing ``--error-block-output`` at
+    ``--output`` would leave only the error blocks, and pointing
+    ``--unknown-block-output`` at either would erase that in turn.
+
+    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py``.
+    That one is not reused: its parameters are named over RSK's own artifact
+    set (a pool registry and a summary), which is not Phase C's.
+    """
+    labelled = {
+        "input": in_path.resolve(),
+        "validated-stale output": out_path.resolve(),
+        "error-block output": error_block_path.resolve(),
+        "unknown-block output": unknown_path.resolve(),
+    }
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        previous = seen.get(path)
+        if previous is not None:
+            raise ValueError(f"{label} aliases {previous}: {path}")
+        seen[path] = label
+
+
 def main():
     """Filter Phase B's stale rows, parse each coinbase, and write the
     standard-schema ``hathor_validated_stales.csv`` plus the error-block and
@@ -299,6 +353,7 @@ def main():
     _, default_unknown_path, default_error_block_path = derive_split_paths(str(in_path))
     error_block_path = Path(args.error_block_output or default_error_block_path)
     unknown_path = Path(args.unknown_block_output or default_unknown_path)
+    validate_distinct_paths(in_path, out_path, error_block_path, unknown_path)
     nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
 
     n_in = 0

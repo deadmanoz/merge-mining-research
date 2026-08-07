@@ -1294,3 +1294,29 @@ def test_route_rejected_stale_rows_ranks_placement_and_contamination_first():
     # Bitcoin's at this height and it must not be promoted.
     assert unverified["classification"] == "stale"
     assert unapplied_retarget["classification"] == "error_block"
+
+
+def test_route_rejected_stale_rows_denies_the_retarget_exception_to_a_share():
+    """The retarget exception needs full PoW at the CANONICAL target.
+
+    The rule and the contamination verdict are both read off the bits values,
+    and Phase 1 only proved the header meets the target its own bits encode.
+    Where the retarget RAISED difficulty those bits are the easier ones, so a
+    header carrying them can clear its embedded target and still fall short of
+    what Bitcoin required at that height. That is a share at Bitcoin
+    difficulty, not a consensus-invalid Bitcoin block, and publishing it as an
+    error block would assert proof of work it never did.
+    """
+    epoch_start = 229_824  # a retarget boundary above BIP34_HEIGHT
+    # The new epoch's difficulty is far above the previous epoch's, so the
+    # synthetic header's digest meets its embedded bits and nothing else.
+    epoch_table = {epoch_start: 0x1D00FFFF, epoch_start - 2016: REGTEST_BITS}
+    share = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} (got {REGTEST_BITS:08x}, expected 1d00ffff)",
+        height=epoch_start,
+        expected_nbits="1d00ffff",
+    )
+
+    route_rejected_stale_rows([share], nbits_by_epoch=epoch_table)
+
+    assert share["classification"] == "unknown"

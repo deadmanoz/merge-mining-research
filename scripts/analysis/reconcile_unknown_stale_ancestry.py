@@ -27,6 +27,7 @@ from typing import Iterable
 from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
+    BIP34_HEIGHT_MISSING_PREFIX,
     bip34_height_error,
     block_version_error,
     consensus_violations,
@@ -318,6 +319,21 @@ def descendant_consensus_rules(
     )
 
 
+def bip34_height_absent(bip34_error: str) -> bool:
+    """Report whether a BIP34 rejection is an absent height, not a wrong one.
+
+    Two of the gate's verdicts mean the height is not there: no coinbase
+    scriptSig to read at all, and a present, well-formed scriptSig carrying no
+    decodable height push (``BIP34_HEIGHT_MISSING_PREFIX``, which the shared
+    ``consensus_violations`` tokens as ``bip34_coinbase_height_missing``).
+    Reporting the second as a mismatch would put ``rules_violated`` and
+    ``validation_status`` in contradiction over the same committed bytes.
+    """
+    return "missing coinbase scriptSig" in bip34_error or bip34_error.startswith(
+        BIP34_HEIGHT_MISSING_PREFIX
+    )
+
+
 def descendant_bip34_verdict(
     header_hex: str, scriptsig_hex: str, expected_height: int
 ) -> tuple[str, str | None]:
@@ -343,7 +359,7 @@ def descendant_bip34_verdict(
         status = "match"
     elif bip34_error.startswith("UNKNOWN:"):
         status = "unknown"
-    elif "missing coinbase scriptSig" in bip34_error:
+    elif bip34_height_absent(bip34_error):
         status = "missing"
     else:
         status = "mismatch"
@@ -356,7 +372,7 @@ def descendant_bip34_verdict(
         return status, None
     if bip34_error.startswith("UNKNOWN:"):
         return "unknown", "bip34_validation_unknown"
-    if "missing coinbase scriptSig" in bip34_error:
+    if bip34_height_absent(bip34_error):
         return "missing", "bip34_height_missing"
     if "version below 2" in bip34_error:
         return "mismatch", "bip34_block_version"

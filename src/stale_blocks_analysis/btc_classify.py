@@ -431,6 +431,39 @@ def _contamination_evidence(
     return expected != bits
 
 
+def _meets_canonical_btc_difficulty(
+    row: dict[str, Any],
+    *,
+    expected_key: str,
+    header_hex_key: str = "btc_header_hex",
+) -> bool:
+    """Report whether the header's digest meets Bitcoin's target at this height.
+
+    ``_meets_btc_difficulty`` answers the Phase 1 question -- does the digest
+    meet the target the header's OWN nBits encodes -- and that is not the same
+    question here. At an epoch start where difficulty rose, the previous
+    epoch's bits are the easier ones, so a header carrying them can clear its
+    embedded target while falling short of the canonical one. Such a header is
+    a share at Bitcoin difficulty, not a block, so the ``expected_nbits`` the
+    nBits gate persisted for this height is the target that decides it.
+
+    Fails closed. An unusable header or an unparseable ``expected_nbits``
+    returns False, because neither supports the claim that this digest is full
+    Bitcoin proof of work.
+    """
+    try:
+        raw = bytes.fromhex(str(row.get(header_hex_key, "") or "").strip())
+    except (ValueError, TypeError):
+        return False
+    if len(raw) != 80:
+        return False
+    try:
+        expected_bits = int(str(row.get(expected_key, "") or "").strip(), 16)
+    except ValueError:
+        return False
+    return hash_meets_btc_difficulty(hash_from_header_bytes(raw), expected_bits)
+
+
 def rejection_route(
     row: dict[str, Any],
     rules: list[str],
@@ -461,7 +494,13 @@ def rejection_route(
          even when its bytes also break a Bitcoin rule. The single exception is
          ``NBITS_RETARGET_RULE``, the sanctioned nBits mismatch that IS a
          Bitcoin violation: those bits are the previous epoch's by definition,
-         so that rule escapes this branch rather than being buried by it.
+         so that rule escapes this branch rather than being buried by it --
+         but only once the digest is shown to meet the CANONICAL target too.
+         Both rules and contamination are read off the bits values alone, and
+         Phase 1 only proved the header meets its own embedded target; where a
+         retarget raised difficulty the previous epoch's bits are the easier
+         ones, so without that check a share at Bitcoin difficulty would be
+         published as full-proof-of-work Bitcoin evidence.
       3. Only then do the re-derived rules make the row an error block.
       4. Anything else -- a rejection resting on unusable evidence -- stays put.
 
@@ -476,7 +515,11 @@ def rejection_route(
     )
     if contaminated is None:
         return None
-    if contaminated and NBITS_RETARGET_RULE not in rules:
+    retarget_exception = (
+        NBITS_RETARGET_RULE in rules
+        and _meets_canonical_btc_difficulty(row, expected_key=expected_key)
+    )
+    if contaminated and not retarget_exception:
         return "unknown"
     if rules:
         return "error_block"
