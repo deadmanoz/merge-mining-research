@@ -511,3 +511,57 @@ def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
         )
         == []
     )
+
+
+def test_a_version_rule_alone_cannot_promote_a_descendant():
+    """Core counts the version vote over the block's own ancestors.
+
+    A direct stale's are the canonical chain, so the fixed cutover is exact for
+    it. A descendant's leave the canonical chain at the fork root, so a fork
+    spanning an activation boundary can carry a different verdict, and a
+    version rule is not proof there. Rules settled by the bytes alone still are.
+    """
+    module = _load_module()
+    height = 400000
+    bits = "1806f0a8"
+    common = {
+        "header_bits": bits,
+        "expected_nbits": bits,
+    }
+
+    # Version 1 well past BIP65: the shared derivation names a version rule...
+    from stale_blocks_analysis.btc_stale_validation import consensus_violations
+
+    version_only = {
+        "btc_header_hex": "01000000" + "00" * 76,
+        "coinbase_scriptsig_hex": (
+            b"\x03" + height.to_bytes(3, "little") + b"pool"
+        ).hex(),
+    }
+    assert consensus_violations(version_only, height) == ["bip65_block_version_below_4"]
+    # ...but it cannot make a descendant an error block.
+    assert (
+        module.descendant_consensus_rules(
+            version_only["btc_header_hex"],
+            version_only["coinbase_scriptsig_hex"],
+            height,
+            [],
+            **common,
+        )
+        == []
+    )
+
+    # A byte-settled rule is unaffected.
+    wrong_height = {
+        "btc_header_hex": "04000000" + "00" * 76,
+        "coinbase_scriptsig_hex": (
+            b"\x03" + (height + 1).to_bytes(3, "little") + b"pool"
+        ).hex(),
+    }
+    assert module.descendant_consensus_rules(
+        wrong_height["btc_header_hex"],
+        wrong_height["coinbase_scriptsig_hex"],
+        height,
+        [],
+        **common,
+    ) == ["bip34_coinbase_height_mismatch"]

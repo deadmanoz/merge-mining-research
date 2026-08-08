@@ -67,13 +67,21 @@ cutover at the observed canonical activation heights (227,931 / 363,725 /
 388,381). This is an approximation of Bitcoin Core's actual IsSuperMajority
 enforcement, which required a rolling threshold of 750-of-1000 blocks to
 *lock in* and then 950-of-1000 to *enforce* the new minimum version. The
-approximation is exact for a direct stale (one whose parent is canonical) well
-past activation, which covers every row currently in the dataset. It can
-diverge from Core in two cases the hard cutover cannot see: a stale-fork block
-whose branch diverged from the canonical chain *before* activation (Core would
-judge it against the rolling threshold state on its own fork, not the canonical
-height), and a block boundary-adjacent to activation (where the real
-750/950-window had not yet tipped). The negative-version headers produced by
+approximation is exact for a direct stale, which covers every row currently in
+the dataset, and exactly at the boundary as much as far past it. Core counts
+the vote over the block's OWN ancestors, and a direct stale's parent is
+canonical, so its 1000-block window is the same window the canonical block at
+that height has and the two verdicts cannot differ. Distance from activation is
+not what decides it. What decides it is whether the block's ancestry within
+that window IS the canonical chain, and for a direct stale it is, by the same
+node lookup that made it a direct stale in the first place.
+
+The cutover can therefore diverge from Core in one case, not two: a stale-fork
+block whose branch left the canonical chain *before* activation. Core judges it
+against the rolling threshold state on its own fork, where a different version
+mix can give a different verdict. That is the descendant path, and it is why
+`descendant_consensus_rules` refuses to promote a descendant on a version rule
+alone. The negative-version headers produced by
 version-rolling/overt ASICBoost are a genuinely subtle instance of the same
 problem: their `nVersion` reads as below the minimum under a naive comparison,
 but the rolling-threshold and version-bit semantics make the cutover verdict

@@ -28,6 +28,7 @@ from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     BIP34_HEIGHT_MISSING_PREFIX,
+    VERSION_RULES,
     bip34_height_error,
     block_version_error,
     consensus_violations,
@@ -337,10 +338,21 @@ def descendant_consensus_rules(
     observed_bits = header_bits.strip().lower()
     if not canonical_bits or not observed_bits or observed_bits != canonical_bits:
         return []
-    return consensus_violations(
+    rules = consensus_violations(
         {"btc_header_hex": header_hex, "coinbase_scriptsig_hex": scriptsig_hex},
         inferred_height,
     )
+    # A version rule rests on a fixed-height cutover standing in for Core's
+    # rolling IsSuperMajority vote, and Core counts that vote over the block's
+    # OWN ancestors. For a direct stale those ancestors are the main chain, so
+    # its window is the main chain's window and the cutover is exact. A
+    # descendant's is not: its ancestry leaves the main chain at the fork root,
+    # so a fork spanning an activation boundary can carry a different version
+    # mix and a different verdict. Reconstructing the branch's own threshold
+    # state is out of scope (GitHub issue #21), so a version rule cannot
+    # promote a descendant to a block proven consensus-invalid. Rules that are
+    # settled by the bytes alone are unaffected.
+    return [rule for rule in rules if rule not in VERSION_RULES]
 
 
 def bip34_height_absent(bip34_error: str) -> bool:
