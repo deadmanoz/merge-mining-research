@@ -749,17 +749,29 @@ def _publish_artifact_family(staged_destinations):
 
 
 def _write_publication_inventory(stale_csv, rows):
-    """Authenticate, normalize, and transactionally publish four buckets."""
+    """Authenticate, normalize, and transactionally publish four buckets.
+
+    The error bucket is written on ERROR_BLOCK_FIELDS and keeps its rule set;
+    its three siblings keep OUTPUT_FIELDS byte-identical.
+    """
     buckets = {"canonical": [], "stale": [], "unknown": [], "error_block": []}
     for row_number, row in enumerate(rows, start=2):
         _require_authenticated_child_header_with_context(row, row_number=row_number)
         publication_row = _publication_row(row)
-        bucket = buckets.get(publication_row["classification"])
+        classification = publication_row["classification"]
+        bucket = buckets.get(classification)
         if bucket is None:
             raise RuntimeError(
                 "internal error: unsupported publication classification "
-                f"{publication_row['classification']!r}"
+                f"{classification!r}"
             )
+        if classification == "error_block":
+            # Same contract as ``_write_error_block_rows_atomic``: the error
+            # bucket alone keeps the pipe-joined rule set that justifies its
+            # rows, and a missing key raises rather than publishing a blank
+            # claim. ``_publication_row`` drops it with every other diagnostic
+            # column, so it is restored here.
+            publication_row[RULES_VIOLATED_COLUMN] = row[RULES_VIOLATED_COLUMN]
         bucket.append(publication_row)
 
     for bucket in buckets.values():
@@ -779,7 +791,10 @@ def _write_publication_inventory(stale_csv, rows):
         staged_destinations = []
         for bucket_name, destination in zip(bucket_names, destinations, strict=True):
             staged = transaction_root / destination.name
-            _write_dict_rows_atomic(staged, buckets[bucket_name], OUTPUT_FIELDS)
+            fields = (
+                ERROR_BLOCK_FIELDS if bucket_name == "error_block" else OUTPUT_FIELDS
+            )
+            _write_dict_rows_atomic(staged, buckets[bucket_name], fields)
             staged_destinations.append((staged, destination))
         _publish_artifact_family(staged_destinations)
     return canonical_csv, unknown_csv, error_block_csv

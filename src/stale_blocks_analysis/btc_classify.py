@@ -661,14 +661,19 @@ def _write_split_file(path: str, rows: list[dict], *, columns: list[str]) -> Non
 
 
 def _validate_distinct_outputs(labelled: dict[str, str]) -> None:
-    """Refuse to write when any two of the bucket outputs are the same file.
+    """Refuse to write when any two of a run's outputs are the same file.
 
-    The five files are written in sequence, so an aliased pair fails silently
-    and destructively: the later write replaces an artifact the run has just
+    The files are written in sequence, so an aliased pair fails silently and
+    destructively: the later write replaces an artifact the run has just
     finished. The dangerous case is the VALID-only ``validated`` loader input,
     which a caller can point at a derived peer's name (``--output /tmp/foo.csv
     --validated-output /tmp/foo_error_blocks.csv``) and have replaced by the
     error-block bucket on the final write.
+
+    ``write_classifier_outputs`` passes its five bucket destinations;
+    ``run_classifier`` passes those plus whichever of its two optional files
+    (near, all-valid) the run will actually write, because those two are
+    written outside the shared writer and so are invisible to its own check.
 
     This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py`` and
     ``classify_hathor_phase_c.py``. Those are not reused: each is named over
@@ -847,6 +852,12 @@ def run_classifier(
     also written to ``all_valid_path`` or ``<output>.btc_valid.csv`` for
     debugging.
 
+    Every destination the run will write -- the five bucket files, plus
+    whichever of the two optional files above their flags enable -- must
+    resolve to a distinct path, and aliasing any two raises ``ValueError``
+    before the first output is opened. An optional path the flags leave unused
+    is not part of that set.
+
     Before the (potentially large) Phase 1 scan, a single ``getblockcount``
     preflight fails fast on an unreachable/misconfigured node. Each Phase 2 batch
     that raises is retried one candidate at a time so a single bad row or
@@ -881,6 +892,35 @@ def run_classifier(
         unknown_output_path = default_unknown
     error_block_path = error_block_output_path or default_error_block
     height_col = spec.height_column
+
+    # Resolve every destination this run will actually write, and check them
+    # together before the first one is opened. ``write_classifier_outputs``
+    # only sees its own five, and the two optional files are written outside
+    # it: the all-valid dump before it and the near bucket after it. So an
+    # aliased near path silently replaces the error-block bucket, and an
+    # aliased all-valid path is silently replaced by it. The optional
+    # destinations join the set only when their flag is on, so a default path
+    # that this run will never write cannot fail it.
+    near_path_out: Optional[str] = None
+    if keep_near:
+        near_path_out = near_output_path or _derive_tag_path(out_path, "_near_blocks")
+    all_valid_out: Optional[str] = None
+    if all_valid:
+        all_valid_out = (
+            all_valid_path or out_path.rsplit(".csv", 1)[0] + ".btc_valid.csv"
+        )
+    run_destinations = {
+        "canonical output": canonical_output_path,
+        "stale output": out_path,
+        "unknown output": unknown_output_path,
+        "validated-stale output": validated_path,
+        "error-block output": error_block_path,
+    }
+    if near_path_out is not None:
+        run_destinations["near output"] = near_path_out
+    if all_valid_out is not None:
+        run_destinations["all-valid output"] = all_valid_out
+    _validate_distinct_outputs(run_destinations)
 
     if rpc is None:
         auth = get_btc_auth()
@@ -950,9 +990,8 @@ def run_classifier(
                     seen_near.add(btc_hash)
                     near_headers.append(row)
 
-    if all_valid and valid_headers:
-        valid_path = all_valid_path or out_path.rsplit(".csv", 1)[0] + ".btc_valid.csv"
-        with open(valid_path, "w", newline="") as f:
+    if all_valid_out is not None and valid_headers:
+        with open(all_valid_out, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(valid_headers[0].keys()))
             writer.writeheader()
             writer.writerows(valid_headers)
@@ -1024,9 +1063,7 @@ def run_classifier(
     )
 
     # --- Optional fifth file: retained near rows (sibling evidence) ---
-    near_path_out: Optional[str] = None
-    if keep_near:
-        near_path_out = near_output_path or _derive_tag_path(out_path, "_near_blocks")
+    if near_path_out is not None:
         for row in near_headers:
             row["classification"] = "near"
         _write_split_file(

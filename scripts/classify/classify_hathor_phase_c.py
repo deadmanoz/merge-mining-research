@@ -432,12 +432,26 @@ def main():
                 # Re-derive the rules rather than reading them back out of the
                 # verdict string, then let the shared precedence pick the
                 # artifact.
-                rules = derived_error_block_rules(
-                    out,
-                    btc_height,
-                    parent_row=row,
-                    nbits_by_epoch=nbits_by_epoch,
-                )
+                if status == PLACEMENT_REJECTION:
+                    # Mirrors route_rejected_stale_rows: placement has top
+                    # precedence in rejection_route and needs no re-derived
+                    # rules, so settle it before the epoch table is consulted.
+                    # Phase B pairs a placement rejection with a resolved
+                    # parent height when the parent is a known side-chain block
+                    # (confirmations == -1), so the derivation is genuinely
+                    # reachable for such a row, and
+                    # nbits_retarget_not_applied_error raises when the
+                    # committed reference does not reach that height
+                    # (deliberately fail-closed) -- aborting the whole run over
+                    # a row whose classification never depended on that rule.
+                    rules = []
+                else:
+                    rules = derived_error_block_rules(
+                        out,
+                        btc_height,
+                        parent_row=row,
+                        nbits_by_epoch=nbits_by_epoch,
+                    )
                 route = rejection_route(out, rules, status=status)
                 if route == "error_block":
                     error_rows.append(

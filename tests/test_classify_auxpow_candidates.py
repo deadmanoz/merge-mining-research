@@ -362,6 +362,10 @@ def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp
     prove a broken consensus rule, which makes the row an error block rather
     than a rejected stale. It leaves the rejection log entirely and lands in
     the _error_blocks sibling with its verdict intact.
+
+    The publication family's error bucket makes the same claim, so it carries
+    the same evidence: the rule set on ERROR_BLOCK_FIELDS. Its three siblings
+    keep OUTPUT_FIELDS exactly.
     """
     mod = _load_classifier()
     parent = "31" * 32
@@ -400,6 +404,7 @@ def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp
     output_path = tmp_path / "validated.csv"
     rejected_path = tmp_path / "rejected.csv"
     evidence_path = tmp_path / "evidence.csv"
+    publication_path = tmp_path / "i0coin_stale_blocks.csv"
     with input_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(row))
         writer.writeheader()
@@ -411,6 +416,7 @@ def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp
         rejected_path,
         mod.RpcClient(rpc=_DispatchRpc(dispatch)),
         evidence_csv=evidence_path,
+        publication_csv=publication_path,
     )
 
     with output_path.open(newline="") as f:
@@ -418,7 +424,9 @@ def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp
     with rejected_path.open(newline="") as f:
         assert list(csv.DictReader(f)) == []
     with (tmp_path / "validated_error_blocks.csv").open(newline="") as f:
-        error_blocks = list(csv.DictReader(f))
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == mod.ERROR_BLOCK_FIELDS
+        error_blocks = list(reader)
     assert len(error_blocks) == 1
     assert error_blocks[0]["classification"] == "error_block"
     assert error_blocks[0]["btc_height"] == "478559"
@@ -426,8 +434,24 @@ def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp
     assert error_blocks[0]["validation_status"] == (
         "REJECTED: BIP34 coinbase height mismatch (got 478560, expected 478559)"
     )
+    assert error_blocks[0]["rules_violated"] == "bip34_coinbase_height_mismatch"
     with evidence_path.open(newline="") as f:
         assert list(csv.DictReader(f)) == []
+
+    with (tmp_path / "i0coin_error_blocks.csv").open(newline="") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == mod.ERROR_BLOCK_FIELDS
+        publication_error_blocks = list(reader)
+    assert publication_error_blocks == error_blocks
+    for peer in (
+        "i0coin_stale_blocks",
+        "i0coin_canonical_blocks",
+        "i0coin_unknown_blocks",
+    ):
+        with (tmp_path / f"{peer}.csv").open(newline="") as f:
+            reader = csv.DictReader(f)
+            assert reader.fieldnames == mod.OUTPUT_FIELDS
+            assert list(reader) == []
 
 
 def test_classifier_does_not_create_evidence_file_by_default(tmp_path):
