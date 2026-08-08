@@ -67,13 +67,21 @@ cutover at the observed canonical activation heights (227,931 / 363,725 /
 388,381). This is an approximation of Bitcoin Core's actual IsSuperMajority
 enforcement, which required a rolling threshold of 750-of-1000 blocks to
 *lock in* and then 950-of-1000 to *enforce* the new minimum version. The
-approximation is exact for a direct stale (one whose parent is canonical) well
-past activation, which covers every row currently in the dataset. It can
-diverge from Core in two cases the hard cutover cannot see: a stale-fork block
-whose branch diverged from the canonical chain *before* activation (Core would
-judge it against the rolling threshold state on its own fork, not the canonical
-height), and a block boundary-adjacent to activation (where the real
-750/950-window had not yet tipped). The negative-version headers produced by
+approximation is exact for a direct stale, which covers every row currently in
+the dataset, and exactly at the boundary as much as far past it. Core counts
+the vote over the block's OWN ancestors, and a direct stale's parent is
+canonical, so its 1000-block window is the same window the canonical block at
+that height has and the two verdicts cannot differ. Distance from activation is
+not what decides it. What decides it is whether the block's ancestry within
+that window IS the canonical chain, and for a direct stale it is, by the same
+node lookup that made it a direct stale in the first place.
+
+The cutover can therefore diverge from Core in one case, not two: a stale-fork
+block whose branch left the canonical chain *before* activation. Core judges it
+against the rolling threshold state on its own fork, where a different version
+mix can give a different verdict. That is the descendant path, and it is why
+`descendant_consensus_rules` refuses to promote a descendant on a version rule
+alone. The negative-version headers produced by
 version-rolling/overt ASICBoost are a genuinely subtle instance of the same
 problem: their `nVersion` reads as below the minimum under a naive comparison,
 but the rolling-threshold and version-bit semantics make the cutover verdict
@@ -199,10 +207,74 @@ re-derivation. The offline validator's job is to prove the named consensus
 violation from the committed bytes; active-parent/canonical placement is a
 separate, online gate.
 
+## Classification-time labelling
+
+Error blocks are now an outcome of the normal classification pass, not a
+separate discovery step. `route_rejected_stale_rows`
+(`src/stale_blocks_analysis/btc_classify.py`) sorts every gate-rejected stale
+candidate by what the rejection actually means, re-deriving the broken rules
+from the row's own bytes via `consensus_violations` rather than parsing the
+verdict string:
+
+The three meanings are ranked, not tested in whatever order is convenient,
+because one row can satisfy several of them and the weakest claim has to win
+(`rejection_route` owns the order):
+
+1. a placement rejection (the predecessor is not on the active chain) makes the
+   row `unknown` first. Without an active-chain parent the row's height was
+   never established, so every height-dependent rule re-derived from its bytes
+   is unreliable;
+2. a contamination rejection (the difficulty is not Bitcoin's at that height)
+   also makes the row `unknown`, and it outranks a broken rule: a foreign
+   SHA-256 chain's header is not an invalid Bitcoin block, even when its bytes
+   would break a Bitcoin rule. Contamination is read off the persisted
+   `expected_nbits` rather than the verdict string, because the later
+   header-context gate can overwrite an `nBits` REJECTED and erase the only
+   trace of it. The one exception is `nbits_retarget_not_applied`, whose bits
+   are the previous epoch's by definition, the sanctioned `nBits` mismatch that
+   really is a Bitcoin consensus violation;
+3. only then does a proven consensus violation make the row
+   `classification=error_block`, written to the `data/<chain>_error_blocks.csv`
+   sibling of the stale inventory (gitignored, like its four bucket peers). That
+   file carries its peers' columns plus the pipe-joined `rules_violated`, the
+   full derived rule set: the rules are the evidence for the claim, and
+   `validation_status` names only the gate that fired first, which for
+   `nbits_retarget_not_applied` is a generic `nBits` mismatch. The four peers,
+   including the `*_validated_stales.csv` loader input, keep their schema;
+4. a rejection whose evidence proves nothing stays a rejected stale, as does
+   one where the canonical `nBits` was never recorded, since nothing then shows
+   the header is Bitcoin's at that height.
+
+The same routing runs in the shared driver (16 chains), the four classifiers
+that call the gate directly (elastos, coiledcoin, geistgeld, groupcoin), the
+namecoin/i0coin classifier, the RSK classifier (which can only ever produce
+the version, median-time-past, and retarget rules, since its proof exposes no
+parent coinbase), and Hathor Phase C, whose re-routed unknowns go to the
+`_unknown_blocks` peer of its Phase B input. The stale-descendant
+reconciliation applies the identical derivation to its rejected candidates
+(`descendant_consensus_rules` in
+`scripts/analysis/reconcile_unknown_stale_ancestry.py`), judging only rows
+whose supplied header authenticates against the claimed hash and whose path,
+proof of work, and canonical bits all verified; the ones it does judge leave
+`data/stale_descendants.csv` entirely for its `_error_blocks` peer, so the
+descendant sidecar only ever carries `stale_descendant` rows. Hathor Phase A is
+deliberately outside this machinery (import-free, runs on the archive host),
+and Phase B feeds Phase C using the shared verdict vocabulary.
+
+Every gate rejection is still counted, whichever bucket the routing moved the
+row into: `write_classifier_outputs` returns the total as `rejected` plus the
+`rejected_stale` / `rejected_error_block` / `rejected_unknown` breakdown.
+
+The committed dataset below remains the publication surface and exclusion
+gate; consolidating classifier-emitted rows into it across chains is the
+builder's job, not the classifier's.
+
 ## The sweeps
 
 Four sweeps under `scripts/analysis/`, sharing `scripts/analysis/_sweep_common.py`,
-hunted for error blocks beyond the carried-over set. Each re-verifies full
+hunted for error blocks beyond the carried-over set, and they predate
+classification-time labelling: they remain the retroactive path for archived
+inventories produced before the routing existed. Each re-verifies full
 proof of work per row and writes a dated report to
 `results/analysis/error-blocks/`, including negative results.
 

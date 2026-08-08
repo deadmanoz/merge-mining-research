@@ -25,6 +25,17 @@ MANIFEST_FILENAME = "manifest.json"
 DEFAULT_API_BASE = "https://mempool.space/api"
 
 
+def load_nbits_by_epoch(directory: Path) -> dict[int, int]:
+    """Load the committed epoch table as ``{epoch_start_height: nbits_int}``.
+
+    The consensus gates need integer bits keyed by height; the committed file
+    stores hex keyed by a string height.
+    """
+    with open(Path(directory) / NBITS_FILENAME) as f:
+        table = json.load(f)
+    return {int(height): int(bits, 16) for height, bits in table.items()}
+
+
 class ReferenceError(RuntimeError):
     """Raised when public source data cannot form a valid reference."""
 

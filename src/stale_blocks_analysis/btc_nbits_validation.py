@@ -9,6 +9,13 @@ from typing import Any
 RpcBatch = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 
 
+# The contamination verdict: the header's difficulty is not Bitcoin's at this
+# height, so it belongs to another SHA-256 chain rather than being an invalid
+# Bitcoin block. The one exception is an unapplied retarget at an epoch
+# boundary, which the consensus rules catch separately.
+NBITS_MISMATCH_PREFIX = "REJECTED: nBits mismatch with canonical BTC height"
+
+
 def _response_map(
     responses: object, *, requested_ids: set[int]
 ) -> dict[int, dict[str, Any]] | None:
@@ -162,6 +169,5 @@ def validate_stale_nbits(
             stale[status_key] = "VALID"
         else:
             stale[status_key] = (
-                "REJECTED: nBits mismatch with canonical BTC height "
-                f"(got {stale_bits}, expected {expected})"
+                f"{NBITS_MISMATCH_PREFIX} (got {stale_bits}, expected {expected})"
             )

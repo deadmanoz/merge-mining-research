@@ -83,6 +83,7 @@ import argparse
 import csv
 import hashlib
 import io
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -116,12 +117,26 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     coinbase_scriptsig_length_error,
 )
 
+# Namecoin's classified inventory is not one of the regen-staging chains, so it
+# is read from the chain archive's own per-chain layout. The archive root is
+# redacted from the tracked tree per the repo's leak-redaction guidance:
+# operators set ERROR_BLOCKS_CHAIN_ARCHIVE_ROOT to the real root, and the
+# placeholder default fails closed (the ssh reader errors with a clear message)
+# when the env var is unset. A --chain-archive-root mirror run is unaffected:
+# the mirror reader keys on the chain name and the filename only.
+CHAIN_ARCHIVE_ROOT = os.environ.get(
+    "ERROR_BLOCKS_CHAIN_ARCHIVE_ROOT", "<chain-archive>"
+)
+
 # Authoritative per-chain classified inventories on the chain archive host.
 # (chain, absolute path on ARCHIVE_HOST). Verified 2026-07-30: 45 REJECTED
-# rows across these 8 inventories. This 8-chain REJECTED-row coverage map is
-# deliberately NOT the shared 19-chain STALE_INVENTORIES map in
-# _sweep_common.
+# rows across the eight regen-staging/scratch inventories; namecoin was added
+# afterwards to close a coverage hole (the largest error-block-producing chain
+# family had no archived inventory here at all) and its REJECTED-row tally has
+# not been observed yet. This REJECTED-row coverage map is deliberately NOT the
+# shared 19-chain STALE_INVENTORIES map in _sweep_common.
 CHAIN_INVENTORIES: dict[str, str] = {
+    "namecoin": f"{CHAIN_ARCHIVE_ROOT}/namecoin/classified/namecoin_stale_blocks.csv",
     "devcoin": "~/mmr-child-header-regen-20260729/staging/chains/devcoin/classified/devcoin_stale_blocks.csv",
     "ixcoin": "~/mmr-child-header-regen-20260729/staging/chains/ixcoin/classified/ixcoin_stale_blocks.csv",
     "i0coin": "~/mmr-child-header-regen-20260729/staging/chains/i0coin/classified/i0coin_stale_blocks.csv",
@@ -132,8 +147,21 @@ CHAIN_INVENTORIES: dict[str, str] = {
     "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
 }
 
+# Namecoin is not one of the regen-staging chains STALE_INVENTORY_BASELINE_ROWS
+# covers, so its baseline is stated here from the committed monitor-evidence
+# counts: results/monitor-evidence/monitor-evidence-counts.csv records
+# source_rows 344675 for the namecoin classified inventory. Every other chain
+# keeps the shared baseline, and an unlisted chain still raises KeyError rather
+# than silently sweeping without coverage enforcement.
+NAMECOIN_BASELINE_ROWS = 344_675
+
 REJECTED_INVENTORY_BASELINE_ROWS = {
-    chain: STALE_INVENTORY_BASELINE_ROWS[chain] for chain in CHAIN_INVENTORIES
+    chain: (
+        NAMECOIN_BASELINE_ROWS
+        if chain == "namecoin"
+        else STALE_INVENTORY_BASELINE_ROWS[chain]
+    )
+    for chain in CHAIN_INVENTORIES
 }
 
 # Rejection-reason classes, matched on the text after "REJECTED: ".

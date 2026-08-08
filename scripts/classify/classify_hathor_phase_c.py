@@ -16,6 +16,22 @@ Standard schema::
 
 ``coinbase_outputs`` uses the project's standard ``addr:value|addr:value``
 format with semicolon-separated pkscript_hex for unparseable scripts.
+
+A rejected row whose bytes prove a consensus rule broken is an error block, not
+a dropped candidate. Those rows are written to the ``_error_blocks`` peer of the
+Phase B input on the same schema plus ``rules_violated``. A rejection that says
+the row is not a direct stale at all -- an unplaceable predecessor or a
+difficulty that is not Bitcoin's at that height -- makes it an ``unknown``,
+written to the ``_unknown_blocks`` peer: Phase B still labelled the source row
+``stale``, so dropping it would both misclassify a fork continuation in the full
+inventory and hide it from the unknown-ancestry walk. Only a rejection whose
+evidence was merely unusable yields nothing and is dropped, and even that drop
+is counted and reported rather than silent.
+
+Phase B's status vocabulary was renamed to the shared ``VALID`` /
+``REJECTED: <reason>`` / ``UNKNOWN: <reason>`` convention. Archived Phase B
+intermediates on the archival host still carry the pre-rename tokens, so this
+reader accepts both and normalizes on load.
 """
 
 from __future__ import annotations
@@ -31,9 +47,39 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from stale_blocks_analysis.bitcoin_binary import parse_coinbase  # noqa: E402
+from stale_blocks_analysis.bitcoin_epoch_reference import (  # noqa: E402
+    load_nbits_by_epoch,
+)
+from stale_blocks_analysis.btc_classify import (  # noqa: E402
+    derive_split_paths,
+    rejection_route,
+)
+from stale_blocks_analysis.btc_nbits_validation import (  # noqa: E402
+    NBITS_MISMATCH_PREFIX,
+)
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
+    PLACEMENT_REJECTION,
+    consensus_violations,
     stale_header_context_error,
 )
+from stale_blocks_analysis.config import BITCOIN_EPOCH_REFERENCE_DIR  # noqa: E402
+
+
+# The verdict ``btc_stale_validation._set_parent_context_unknown`` writes. It is
+# not an exported constant there, so it is duplicated here as a literal.
+PARENT_CONTEXT_UNKNOWN = "UNKNOWN: canonical parent context unavailable"
+
+# Phase B's pre-rename status vocabulary. Archived Phase B intermediates still
+# carry these tokens, so they are normalized onto the shared verdict convention
+# on read -- the same way this repo's readers accept legacy ``orphan`` where a
+# writer now emits ``unknown``.
+LEGACY_VALIDATION_STATUS = {
+    "PARENT_NOT_CANONICAL": PLACEMENT_REJECTION,
+    "PARENT_CONTEXT_UNAVAILABLE": PARENT_CONTEXT_UNKNOWN,
+    # The legacy token carried no operands, so the bare prefix is all it
+    # asserted; the "(got ..., expected ...)" suffix is not part of that record.
+    "NBITS_MISMATCH": NBITS_MISMATCH_PREFIX,
+}
 
 
 OUTPUT_COLUMNS = [
@@ -50,6 +96,10 @@ OUTPUT_COLUMNS = [
     "validation_status",
     "expected_nbits",
 ]
+
+# Error blocks carry the standard row plus the pipe-joined full rule set, the
+# column name and format ``build_error_blocks.py`` honors verbatim on import.
+ERROR_BLOCK_COLUMNS = [*OUTPUT_COLUMNS, "rules_violated"]
 
 PHASE_B_REQUIRED_COLUMNS = {
     "classification",
@@ -85,20 +135,52 @@ def parse_coinbase_tx(tx_bytes: bytes) -> dict | None:
     return parse_coinbase(fake_block)
 
 
+def normalize_validation_status(status: str) -> str:
+    """Map a legacy Phase B status token onto the shared verdict vocabulary.
+
+    Current Phase B verdicts pass through unchanged, as does legacy ``VALID``
+    (the one token the rename left alone); only the three renamed tokens are
+    rewritten.
+    """
+    return LEGACY_VALIDATION_STATUS.get(status, status)
+
+
+def _unresolved_height_status(status: str, unresolved: str) -> str:
+    """Keep Phase B's verdict when the height it would have supplied is absent.
+
+    A row Phase B already rejected does not acquire a second, unrelated verdict
+    just because no parent height came with it: the absent height is a
+    CONSEQUENCE of that rejection (a placement rejection resolves no parent at
+    all, so it carries none), not an independent finding. ``rejection_route``
+    routes on the verdict string -- a placement rejection to ``unknown``, an
+    nBits mismatch on its contamination evidence -- and neither survives being
+    overwritten here, so the row would reach the router as an unrecognised
+    rejection and be dropped instead of published. Only a row that arrived
+    without a rejection gets the height-resolution one.
+    """
+    if status.startswith("REJECTED:"):
+        return status
+    return unresolved
+
+
 def resolved_height_and_status(
     row: dict[str, str], scriptsig_hex: str
 ) -> tuple[int | str, str]:
     """Resolve parent-derived height and apply historical header-context gates."""
-    status = row.get("validation_status", "") or ""
-    if status == "PARENT_CONTEXT_UNAVAILABLE" or status.startswith("UNKNOWN:"):
+    status = normalize_validation_status(row.get("validation_status", "") or "")
+    if status.startswith("UNKNOWN:"):
         return "", status
     parent_height = row.get("btc_parent_height", "")
     try:
         parent_height_int = int(parent_height)
     except (TypeError, ValueError):
-        return "", "REJECTED: missing canonical parent height"
+        return "", _unresolved_height_status(
+            status, "REJECTED: missing canonical parent height"
+        )
     if parent_height_int < 0:
-        return "", "REJECTED: invalid canonical parent height"
+        return "", _unresolved_height_status(
+            status, "REJECTED: invalid canonical parent height"
+        )
 
     btc_height = parent_height_int + 1
     if status == "VALID":
@@ -132,7 +214,53 @@ def _parse_parent_mediantime(row: dict[str, str]) -> int:
     return parsed
 
 
-def _write_rows_atomically(output: Path, rows: list[dict]) -> None:
+def _optional_parent_mediantime(row: dict[str, str]) -> int | None:
+    """Return the persisted parent MTP, or None when the row does not carry one.
+
+    Phase B only resolves the MTP once it has an active-chain parent, so a
+    placement rejection legitimately has none. ``consensus_violations`` skips
+    the median-time-past rule when the context is None, which is the honest
+    answer here: not evaluated rather than not violated.
+    """
+    try:
+        return _parse_parent_mediantime(row)
+    except ValueError:
+        return None
+
+
+def derived_error_block_rules(
+    row: dict,
+    btc_height: object,
+    *,
+    parent_row: dict[str, str],
+    nbits_by_epoch: dict[int, int],
+) -> list[str]:
+    """Return the consensus rules a rejected row's own bytes prove it violated.
+
+    ``row`` carries the parsed header and coinbase evidence; ``parent_row`` is
+    the Phase B input row, which is where the canonical parent's
+    median-time-past lives. ``nbits_by_epoch`` is the committed retarget-epoch
+    reference table, so a candidate at an epoch start still carrying the
+    previous epoch's bits becomes ``nbits_retarget_not_applied`` here. Phase B
+    rejects exactly that row as an nBits mismatch, and Phase C is where that
+    rejection is meant to turn into an error block.
+
+    Empty when the height is unresolved (that rejection is about missing parent
+    context, not about the block) or when the evidence is merely unusable.
+    """
+    if not isinstance(btc_height, int) or isinstance(btc_height, bool):
+        return []
+    return consensus_violations(
+        row,
+        btc_height,
+        parent_median_time_past=_optional_parent_mediantime(parent_row),
+        nbits_by_epoch=nbits_by_epoch,
+    )
+
+
+def _write_rows_atomically(
+    output: Path, rows: list[dict], *, columns: list[str]
+) -> None:
     """Replace ``output`` only after a complete CSV has been written."""
     output.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
@@ -147,7 +275,7 @@ def _write_rows_atomically(output: Path, rows: list[dict]) -> None:
             delete=False,
         ) as f:
             temp_path = Path(f.name)
-            writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS)
+            writer = csv.DictWriter(f, fieldnames=columns)
             writer.writeheader()
             writer.writerows(rows)
         os.replace(temp_path, output)
@@ -157,23 +285,83 @@ def _write_rows_atomically(output: Path, rows: list[dict]) -> None:
         raise
 
 
+def validate_distinct_paths(
+    in_path: Path,
+    out_path: Path,
+    error_block_path: Path,
+    unknown_path: Path,
+) -> None:
+    """Refuse to run when any two input/output paths resolve to the same file.
+
+    The three outputs are replaced in sequence, so an aliased pair fails
+    silently and destructively: the later replacement discards an artifact the
+    run has just finished writing. Pointing ``--error-block-output`` at
+    ``--output`` would leave only the error blocks, and pointing
+    ``--unknown-block-output`` at either would erase that in turn.
+
+    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py``.
+    That one is not reused: its parameters are named over RSK's own artifact
+    set (a pool registry and a summary), which is not Phase C's.
+    """
+    labelled = {
+        "input": in_path.resolve(),
+        "validated-stale output": out_path.resolve(),
+        "error-block output": error_block_path.resolve(),
+        "unknown-block output": unknown_path.resolve(),
+    }
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        previous = seen.get(path)
+        if previous is not None:
+            raise ValueError(f"{label} aliases {previous}: {path}")
+        seen[path] = label
+
+
 def main():
     """Filter Phase B's stale rows, parse each coinbase, and write the
-    standard-schema ``hathor_validated_stales.csv``.
+    standard-schema ``hathor_validated_stales.csv`` plus the error-block and
+    unknown peers.
     """
     p = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     p.add_argument("--input", default="data/hathor_stale_blocks.csv")
     p.add_argument(
         "--output", default="data/validated-stales/hathor_validated_stales.csv"
     )
+    p.add_argument(
+        "--error-block-output",
+        default=None,
+        help=(
+            "consensus-invalid rejected rows; defaults to the _error_blocks "
+            "peer of --input, matching the shared bucket-split naming"
+        ),
+    )
+    p.add_argument(
+        "--unknown-block-output",
+        default=None,
+        help=(
+            "rejected rows that are not direct stales at all; defaults to the "
+            "_unknown_blocks peer of --input"
+        ),
+    )
     args = p.parse_args()
 
     in_path = Path(args.input)
     out_path = Path(args.output)
+    # derive_split_paths names the canonical/unknown/error-block peers of a
+    # stale inventory. Phase C writes the last two; the canonical rows stay in
+    # Phase B's own inventory.
+    _, default_unknown_path, default_error_block_path = derive_split_paths(str(in_path))
+    error_block_path = Path(args.error_block_output or default_error_block_path)
+    unknown_path = Path(args.unknown_block_output or default_unknown_path)
+    validate_distinct_paths(in_path, out_path, error_block_path, unknown_path)
+    nbits_by_epoch = load_nbits_by_epoch(BITCOIN_EPOCH_REFERENCE_DIR)
 
     n_in = 0
     n_stale = 0
+    n_rejected_undetermined = 0
     rows_out = []
+    error_rows = []
+    unknown_rows = []
     vstatus = {}
 
     with open(in_path) as f:
@@ -214,7 +402,7 @@ def main():
             # prefix is a mandatory cross-check, never a height fallback.
             btc_height, status = resolved_height_and_status(row, scriptsig_hex)
             vstatus[status or "(none)"] = vstatus.get(status or "(none)", 0) + 1
-            if status == "PARENT_CONTEXT_UNAVAILABLE" or status.startswith("UNKNOWN:"):
+            if status.startswith("UNKNOWN:"):
                 raise RuntimeError(
                     "Phase C validation context is incomplete; refusing to "
                     f"replace output at input row {n_in}: {status}"
@@ -236,15 +424,83 @@ def main():
             }
             if status == "VALID":
                 rows_out.append(out)
+            elif status.startswith("REJECTED:"):
+                # A rejection means one of three unrelated things and only one
+                # is a verdict on the block: a consensus rule the bytes prove
+                # broken (an error block), a header we cannot place on Bitcoin
+                # (an unknown), or evidence too incomplete to judge (dropped).
+                # Re-derive the rules rather than reading them back out of the
+                # verdict string, then let the shared precedence pick the
+                # artifact.
+                if status == PLACEMENT_REJECTION:
+                    # Mirrors route_rejected_stale_rows: placement has top
+                    # precedence in rejection_route and needs no re-derived
+                    # rules, so settle it before the epoch table is consulted.
+                    # Phase B pairs a placement rejection with a resolved
+                    # parent height when the parent is a known side-chain block
+                    # (confirmations == -1), so the derivation is genuinely
+                    # reachable for such a row, and
+                    # nbits_retarget_not_applied_error raises when the
+                    # committed reference does not reach that height
+                    # (deliberately fail-closed) -- aborting the whole run over
+                    # a row whose classification never depended on that rule.
+                    rules = []
+                else:
+                    rules = derived_error_block_rules(
+                        out,
+                        btc_height,
+                        parent_row=row,
+                        nbits_by_epoch=nbits_by_epoch,
+                    )
+                route = rejection_route(out, rules, status=status)
+                if route == "error_block":
+                    error_rows.append(
+                        {
+                            **out,
+                            "classification": "error_block",
+                            "rules_violated": "|".join(rules),
+                        }
+                    )
+                elif route == "unknown":
+                    # Matching the shared writer: an unknown row's state is
+                    # final on the primary axis, so the stale-gate annotations
+                    # go rather than describing a verdict that no longer holds.
+                    unknown_rows.append(
+                        {
+                            **out,
+                            "classification": "unknown",
+                            "validation_status": "",
+                            "expected_nbits": "",
+                        }
+                    )
+                else:
+                    n_rejected_undetermined += 1
 
     rows_out.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
+    error_rows.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
+    unknown_rows.sort(key=lambda r: (r["btc_height"] or 0, r["hathor_height"]))
 
-    _write_rows_atomically(out_path, rows_out)
+    _write_rows_atomically(out_path, rows_out, columns=OUTPUT_COLUMNS)
+    _write_rows_atomically(error_block_path, error_rows, columns=ERROR_BLOCK_COLUMNS)
+    _write_rows_atomically(unknown_path, unknown_rows, columns=OUTPUT_COLUMNS)
 
     print("Phase C complete:", file=sys.stderr)
     print(f"  read:        {n_in:,} rows", file=sys.stderr)
     print(f"  stale rows:  {n_stale:,}", file=sys.stderr)
     print(f"  written:     {len(rows_out):,} rows to {out_path}", file=sys.stderr)
+    print(
+        f"  error blocks: {len(error_rows):,} rows to {error_block_path}",
+        file=sys.stderr,
+    )
+    print(
+        f"  unknown:     {len(unknown_rows):,} rows to {unknown_path}",
+        file=sys.stderr,
+    )
+    print(
+        f"  dropped:     {n_rejected_undetermined:,} rejected rows with no "
+        "derivable consensus rule",
+        file=sys.stderr,
+    )
     print("  validation_status:", file=sys.stderr)
     for k, v in sorted(vstatus.items()):
         print(f"    {k:>18s}: {v:,}", file=sys.stderr)

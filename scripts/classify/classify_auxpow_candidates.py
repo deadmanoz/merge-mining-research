@@ -4,14 +4,20 @@
 Takes the CSV output from extract_auxpow_from_blkdat.py (all self-target-PoW-
 valid headers) and queries a local Bitcoin Core node to classify each as:
 
-  canonical  — hash exists in the canonical chain (the common case)
-  stale      — not canonical, but prev_hash IS in the canonical chain
-  unknown    — neither hash nor prev_hash in the canonical chain
+  canonical    — hash exists in the canonical chain (the common case)
+  stale        — not canonical, but prev_hash IS in the canonical chain
+  unknown      — neither hash nor prev_hash in the canonical chain
+  error_block  — a full-proof-of-work stale candidate whose own bytes prove it
+                 broke a Bitcoin consensus rule
 
 For direct-stale candidates, applies the shared available-evidence validation
 profile: active-parent placement, median-time-past, historical minimum block
 version, coinbase scriptSig bounds, BIP34 height commitment, and expected
-Bitcoin nBits at the recovered height.
+Bitcoin nBits at the recovered height. The rejections are then handed to the
+shared ``route_rejected_stale_rows``, which re-derives the broken rules from
+each row's own bytes: a proven consensus violation becomes an ``error_block``
+written to its own sibling artifact, a contamination (nBits) rejection becomes
+an ``unknown``, and a rejection whose evidence proves nothing stays a stale.
 
 Usage:
     python3 classify_auxpow_candidates.py \
@@ -41,7 +47,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.btc_rpc import BtcRpc  # noqa: E402
-from stale_blocks_analysis.btc_classify import derive_split_paths  # noqa: E402
+from stale_blocks_analysis.btc_classify import (  # noqa: E402
+    RULES_VIOLATED_COLUMN,
+    derive_split_paths,
+    route_rejected_stale_rows,
+)
+from stale_blocks_analysis.btc_nbits_validation import (  # noqa: E402
+    NBITS_MISMATCH_PREFIX,
+)
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     stale_header_context_error,
 )
@@ -299,6 +312,11 @@ OUTPUT_FIELDS = [
     "expected_nbits",
 ]
 
+# The error-block peer alone carries the pipe-joined rule set the routing
+# derived, matching the shared writer, Hathor phase C, and the reconciler. Its
+# three publication siblings keep OUTPUT_FIELDS unchanged.
+ERROR_BLOCK_FIELDS = [*OUTPUT_FIELDS, RULES_VIOLATED_COLUMN]
+
 EVIDENCE_FIELDS = [
     "btc_stale_height",
     "btc_hash",
@@ -506,6 +524,7 @@ def _validate_distinct_paths(
     input_csv,
     output_csv,
     rejected_csv,
+    error_blocks_csv,
     evidence_csv,
     classified_csv,
     publication_csv,
@@ -515,16 +534,20 @@ def _validate_distinct_paths(
         "input": Path(input_csv).resolve(),
         "validated-stale output": Path(output_csv).resolve(),
         "rejected output": Path(rejected_csv).resolve(),
+        "error-block output": Path(error_blocks_csv).resolve(),
     }
     if evidence_csv is not None:
         labelled["evidence output"] = Path(evidence_csv).resolve()
     if classified_csv is not None:
         labelled["classified output"] = Path(classified_csv).resolve()
     if publication_csv is not None:
-        canonical_csv, unknown_csv = _derive_publication_split_paths(publication_csv)
+        canonical_csv, unknown_csv, error_block_csv = _derive_publication_split_paths(
+            publication_csv
+        )
         labelled["publication stale output"] = Path(publication_csv).resolve()
         labelled["publication canonical output"] = canonical_csv.resolve()
         labelled["publication unknown output"] = unknown_csv.resolve()
+        labelled["publication error-block output"] = error_block_csv.resolve()
     seen = {}
     for label, path in labelled.items():
         previous = seen.get(path)
@@ -586,16 +609,38 @@ def _write_publication_rows_atomic(path, rows):
     )
 
 
+def _write_error_block_rows_atomic(path, rows):
+    """Write error blocks on the publication schema plus their rule set.
+
+    The rules are the evidence for the error-block claim, and
+    ``validation_status`` does not carry them: it names the one gate that fired
+    first, which for an unapplied retarget is a generic nBits mismatch and for
+    a multi-rule header is only the primary violation. ``route_rejected_stale_rows``
+    stashes the set on every row it routes here, so a missing key means the
+    contract broke and should raise rather than publish a blank claim.
+    """
+    _write_dict_rows_atomic(
+        path,
+        (
+            {**_publication_row(row), RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN]}
+            for row in rows
+        ),
+        ERROR_BLOCK_FIELDS,
+    )
+
+
 def _publication_row(row):
     """Map the i0coin classifier row contract to the compact CSV schema.
 
-    Stale validation diagnostics belong only to stale rows. Canonical and
-    unknown publication rows use the same empty diagnostic fields emitted by
-    the shared classifiers; the full classified and evidence outputs retain
-    their richer annotations.
+    Stale validation diagnostics belong to the rows the gate actually judged:
+    stale rows, and the error blocks routing carved out of them, whose REJECTED
+    verdict is the whole content of the row. Canonical and unknown publication
+    rows use the same empty diagnostic fields emitted by the shared classifiers
+    (a re-routed unknown's verdict survives in the full classified output);
+    the full classified and evidence outputs retain their richer annotations.
     """
     classification = row.get("classification", "")
-    is_stale = classification == "stale"
+    is_gated = classification in ("stale", "error_block")
     return {
         "btc_height": row.get("btc_stale_height", ""),
         "btc_header_hash": row.get("btc_hash", ""),
@@ -611,19 +656,25 @@ def _publication_row(row):
         "child_block_time": row.get("child_block_time", ""),
         "child_nbits": row.get("child_nbits", ""),
         "classification": classification,
-        "validation_status": row.get("validation_status", "") if is_stale else "",
-        "expected_nbits": row.get("expected_nbits", "") if is_stale else "",
+        "validation_status": row.get("validation_status", "") if is_gated else "",
+        "expected_nbits": row.get("expected_nbits", "") if is_gated else "",
     }
 
 
 def _derive_publication_split_paths(stale_csv):
-    """Return the canonical and unknown peers intentionally owned by a refresh.
+    """Return the canonical, unknown, and error-block peers a refresh owns.
 
-    Publication output is a three-bucket artifact family, matching the shared
+    Publication output is a four-bucket artifact family, matching the shared
     classifiers. Re-running a refresh transactionally replaces the family.
+
+    The error-block peer is owned here because this classifier's own pass now
+    produces error blocks: routing moves a rejected row whose bytes prove a
+    consensus violation out of the stale bucket, so a refresh that did not
+    republish that file would silently drop those rows from every bucket of a
+    family it claims to replace completely.
     """
-    canonical, unknown = derive_split_paths(str(stale_csv))
-    return Path(canonical), Path(unknown)
+    canonical, unknown, error_blocks = derive_split_paths(str(stale_csv))
+    return Path(canonical), Path(unknown), Path(error_blocks)
 
 
 def _publish_artifact_family(staged_destinations):
@@ -698,27 +749,41 @@ def _publish_artifact_family(staged_destinations):
 
 
 def _write_publication_inventory(stale_csv, rows):
-    """Authenticate, normalize, and transactionally publish three buckets."""
-    buckets = {"canonical": [], "stale": [], "unknown": []}
+    """Authenticate, normalize, and transactionally publish four buckets.
+
+    The error bucket is written on ERROR_BLOCK_FIELDS and keeps its rule set;
+    its three siblings keep OUTPUT_FIELDS byte-identical.
+    """
+    buckets = {"canonical": [], "stale": [], "unknown": [], "error_block": []}
     for row_number, row in enumerate(rows, start=2):
         _require_authenticated_child_header_with_context(row, row_number=row_number)
         publication_row = _publication_row(row)
-        bucket = buckets.get(publication_row["classification"])
+        classification = publication_row["classification"]
+        bucket = buckets.get(classification)
         if bucket is None:
             raise RuntimeError(
                 "internal error: unsupported publication classification "
-                f"{publication_row['classification']!r}"
+                f"{classification!r}"
             )
+        if classification == "error_block":
+            # Same contract as ``_write_error_block_rows_atomic``: the error
+            # bucket alone keeps the pipe-joined rule set that justifies its
+            # rows, and a missing key raises rather than publishing a blank
+            # claim. ``_publication_row`` drops it with every other diagnostic
+            # column, so it is restored here.
+            publication_row[RULES_VIOLATED_COLUMN] = row[RULES_VIOLATED_COLUMN]
         bucket.append(publication_row)
 
     for bucket in buckets.values():
         bucket.sort(key=lambda row: int(row.get("btc_height") or 0))
 
-    canonical_csv, unknown_csv = _derive_publication_split_paths(stale_csv)
+    canonical_csv, unknown_csv, error_block_csv = _derive_publication_split_paths(
+        stale_csv
+    )
     stale_csv = Path(stale_csv)
     stale_csv.parent.mkdir(parents=True, exist_ok=True)
-    destinations = [canonical_csv, stale_csv, unknown_csv]
-    bucket_names = ["canonical", "stale", "unknown"]
+    destinations = [canonical_csv, stale_csv, unknown_csv, error_block_csv]
+    bucket_names = ["canonical", "stale", "unknown", "error_block"]
     with tempfile.TemporaryDirectory(
         prefix=".publication-build-", dir=stale_csv.parent
     ) as transaction_dir:
@@ -726,10 +791,13 @@ def _write_publication_inventory(stale_csv, rows):
         staged_destinations = []
         for bucket_name, destination in zip(bucket_names, destinations, strict=True):
             staged = transaction_root / destination.name
-            _write_dict_rows_atomic(staged, buckets[bucket_name], OUTPUT_FIELDS)
+            fields = (
+                ERROR_BLOCK_FIELDS if bucket_name == "error_block" else OUTPUT_FIELDS
+            )
+            _write_dict_rows_atomic(staged, buckets[bucket_name], fields)
             staged_destinations.append((staged, destination))
         _publish_artifact_family(staged_destinations)
-    return canonical_csv, unknown_csv
+    return canonical_csv, unknown_csv, error_block_csv
 
 
 def _canonical_evidence_row(row, canonical_header):
@@ -783,13 +851,17 @@ def classify_and_validate(
     evidence_csv=None,
     classified_csv=None,
     publication_csv=None,
+    error_blocks_csv=None,
 ):
     """Read extracted headers, classify against Bitcoin Core, write results."""
 
+    if error_blocks_csv is None:
+        error_blocks_csv = derive_split_paths(str(output_csv))[2]
     _validate_distinct_paths(
         input_csv,
         output_csv,
         rejected_csv,
+        error_blocks_csv,
         evidence_csv,
         classified_csv,
         publication_csv,
@@ -820,10 +892,13 @@ def classify_and_validate(
         "rejected_consensus": 0,
         "rejected_nbits": 0,
         "rejected_other": 0,
+        "error_block": 0,
+        "rerouted_unknown": 0,
     }
 
     validated = []
     rejected = []
+    stale_inventory_rows = []
     evidence = []
     classified = (
         [None] * len(rows)
@@ -886,6 +961,16 @@ def classify_and_validate(
         if not _is_canonical(parent_header):
             stats["unknown"] += 1
             if classified is not None:
+                # Deliberately NOT the shared PLACEMENT_REJECTION string. That
+                # verdict is REJECTED-prefixed because the shared gate meets the
+                # row later, after Phase 2 already called it a stale, and the
+                # driver has to take the stale label back. Here the row never
+                # became a stale: the parent lookup resolves to unknown in the
+                # same step that would have made it one, so the row's state is
+                # already final on the primary axis and there is nothing to
+                # reject. An UNKNOWN prefix also keeps it out of the REJECTED-row
+                # sweeps, which would otherwise count every unknown as an
+                # unrecognised rejection.
                 classified[input_index] = {
                     **row,
                     "btc_stale_height": "",
@@ -983,18 +1068,19 @@ def classify_and_validate(
             entry_list = validated
             stats["validated"] += 1
         else:
+            # The shared contamination verdict: this row's difficulty is not
+            # Bitcoin's at the recovered height, so the header belongs to
+            # another SHA-256 chain. Carrying NBITS_MISMATCH_PREFIX verbatim is
+            # what lets route_rejected_stale_rows recognise it as contamination
+            # rather than a judgement on a Bitcoin block. The post-BCH-fork hint
+            # is appended, not spliced into the prefix.
             nbits_match = "false"
+            status = (
+                f"{NBITS_MISMATCH_PREFIX} "
+                f"(got {stale_nbits}, expected {expected_nbits})"
+            )
             if post_bch:
-                status = (
-                    f"REJECTED: nBits mismatch post-BCH fork "
-                    f"(got {stale_nbits}, expected {expected_nbits}) "
-                    f"; likely BCH/BSV block"
-                )
-            else:
-                status = (
-                    f"REJECTED: nBits mismatch "
-                    f"(got {stale_nbits}, expected {expected_nbits})"
-                )
+                status += "; likely BCH/BSV block"
             entry_list = rejected
             stats["rejected_nbits"] += 1
 
@@ -1019,10 +1105,17 @@ def classify_and_validate(
             "nbits_match": nbits_match,
             "post_bch_fork": str(post_bch).lower(),
             "validation_status": status,
+            # Internal keys the shared router needs and this pass already holds:
+            # the authoritative prev+1 height, the canonical parent's
+            # median-time-past, and the candidate bits under the shared gates'
+            # own column name. Every writer here either builds its fields
+            # explicitly or drops extras, so none of these can reach a CSV.
+            "btc_height": str(stale_height),
+            "btc_bits": stale_nbits,
+            "_parent_median_time_past": parent_median_time_past,
         }
         entry_list.append(out_row)
-        if classified is not None:
-            classified[input_index] = {**row, **out_row}
+        stale_inventory_rows.append((input_index, row, out_row))
         if evidence_csv is not None and status.startswith("VALID"):
             evidence.append((input_index, out_row))
 
@@ -1032,6 +1125,21 @@ def classify_and_validate(
             f"hash {btc_hash[:16]}... | "
             f"status: {status}"
         )
+
+    # Routing: sort the rejections by what each one actually means. A row whose
+    # bytes prove a broken consensus rule is an error block, not a stale; a
+    # contamination (nBits) rejection is not a direct stale at all; a rejection
+    # whose evidence proves nothing stays a stale. The router mutates each row
+    # in place, so the classified inventory is filled in only afterwards.
+    route_rejected_stale_rows(rejected)
+    error_blocks = [row for row in rejected if row["classification"] == "error_block"]
+    rerouted_unknowns = [row for row in rejected if row["classification"] == "unknown"]
+    rejected = [row for row in rejected if row["classification"] == "stale"]
+    stats["error_block"] = len(error_blocks)
+    stats["rerouted_unknown"] = len(rerouted_unknowns)
+    if classified is not None:
+        for input_index, source_row, out_row in stale_inventory_rows:
+            classified[input_index] = {**source_row, **out_row}
 
     if evidence_csv is not None:
         evidence.sort(key=lambda item: item[0])
@@ -1044,9 +1152,14 @@ def classify_and_validate(
         raise RuntimeError("internal error: classified inventory is incomplete")
 
     # Write normalized publication outputs. The full classifier inventory below
-    # retains the source-specific diagnostic columns.
+    # retains the source-specific diagnostic columns. The rejection log keeps
+    # every row the gate turned down, including the ones routing moved to
+    # unknown -- those have no artifact of their own in this mode, and dropping
+    # them would lose them from the run entirely. Error blocks do have their own
+    # artifact, so they are written there instead of counted as rejected stales.
     _write_publication_rows_atomic(output_csv, validated)
-    _write_publication_rows_atomic(rejected_csv, rejected)
+    _write_publication_rows_atomic(rejected_csv, rejected + rerouted_unknowns)
+    _write_error_block_rows_atomic(error_blocks_csv, error_blocks)
 
     if evidence_csv is not None:
         _write_dict_rows_atomic(
@@ -1065,7 +1178,7 @@ def classify_and_validate(
         _write_dict_rows_atomic(classified_csv, classified, classified_fields)
 
     if publication_csv is not None:
-        canonical_csv, unknown_csv = _write_publication_inventory(
+        canonical_csv, unknown_csv, error_block_csv = _write_publication_inventory(
             publication_csv, classified
         )
 
@@ -1079,12 +1192,15 @@ def classify_and_validate(
     print(f"    Rejected context: {stats['rejected_consensus']:>10,}")
     print(f"    Rejected nBits:  {stats['rejected_nbits']:>10,}")
     print(f"    Rejected other:  {stats['rejected_other']:>10,}")
+    print(f"    Error blocks:    {stats['error_block']:>10,}")
+    print(f"    Re-routed to unknown: {stats['rerouted_unknown']:>10,}")
     print(f"  Unknown:           {stats['unknown']:>10,}")
     print(f"  RPC calls:         {btc._stats['calls']:>10,}")
     print(f"  RPC batches:       {btc._stats['batches']:>10,}")
     print(f"  Cache hits:        {btc._stats['cache_hits']:>10,}")
     print(f"\n  Gate-accepted stales: {output_csv}")
     print(f"  Rejected:          {rejected_csv}")
+    print(f"  Error blocks:      {error_blocks_csv}")
     if evidence_csv is not None:
         print(f"  Import evidence:   {evidence_csv}")
     if classified_csv is not None:
@@ -1093,6 +1209,7 @@ def classify_and_validate(
         print(f"  Publication stale: {publication_csv}")
         print(f"  Publication canonical: {canonical_csv}")
         print(f"  Publication unknown: {unknown_csv}")
+        print(f"  Publication error blocks: {error_block_csv}")
 
 
 def main():
@@ -1110,8 +1227,18 @@ def main():
         "--rejected",
         default="",
         help=(
-            "Normalized publication CSV of rejected stales; use "
-            "--classified-output to retain source-specific diagnostic columns"
+            "Normalized publication CSV of gate rejections that are not error "
+            "blocks: rejections still classified stale plus the ones routing "
+            "moved to unknown; use --classified-output to retain "
+            "source-specific diagnostic columns"
+        ),
+    )
+    parser.add_argument(
+        "--error-blocks-out",
+        default=None,
+        help=(
+            "Normalized publication CSV of consensus-invalid full-proof-of-work "
+            "rejections (default: the _error_blocks sibling of --output)"
         ),
     )
     parser.add_argument(
@@ -1134,10 +1261,10 @@ def main():
     parser.add_argument(
         "--publication-output",
         help=(
-            "Optional normalized three-bucket publication family. This path is "
-            "the stale CSV; canonical and unknown peer paths are derived from "
-            "its filename, and a refresh transactionally replaces the complete "
-            "three-file family. Every input row must carry a complete authenticated "
+            "Optional normalized four-bucket publication family. This path is "
+            "the stale CSV; canonical, unknown, and error-block peer paths are "
+            "derived from its filename, and a refresh transactionally replaces "
+            "the complete four-file family. Every input row must carry a complete authenticated "
             "child-header bundle and the uniform child_height column. Unavailable "
             "heights remain blank; populated values must be exact and non-negative. "
             "This is checked before any Bitcoin RPC classification"
@@ -1172,6 +1299,7 @@ def main():
         evidence_csv=args.evidence_output,
         classified_csv=args.classified_output,
         publication_csv=args.publication_output,
+        error_blocks_csv=args.error_blocks_out,
     )
 
 

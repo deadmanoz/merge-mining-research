@@ -185,10 +185,10 @@ def test_retarget_rule_fails_closed_when_epoch_table_lacks_height() -> None:
     # An epoch-start height beyond the committed table's coverage cannot be
     # evaluated: the helper raises and the validator records a failure.
     row = _retarget_row("9999360", "170b98ab")  # 2016 * 4960, an epoch start
-    with pytest.raises(ValueError, match="epoch table lacks"):
+    with pytest.raises(ValueError, match="cannot re-derive"):
         mod.nbits_retarget_not_applied_error(row, {})
     assert any(
-        "rule nbits_retarget_not_applied: epoch table lacks" in f
+        "rule nbits_retarget_not_applied: cannot re-derive" in f
         for f in mod.validate_row(row, nbits_by_epoch={}, mtp_context={})
     )
 
@@ -899,8 +899,8 @@ def test_bip34_metadata_crosscheck_is_not_proof_of_a_coinbase_height_violation()
     row["rules_violated"] = "bip34_coinbase_height_mismatch"
     failures = mod.validate_row(row)
     assert any(
-        "rule bip34_coinbase_height_mismatch could not be evaluated (gate "
-        "returned a metadata cross-check rejection" in f
+        "rule bip34_coinbase_height_mismatch did not re-derive in its "
+        "declared form" in f
         for f in failures
     ), failures
     # The reverse direction agrees: a metadata disagreement derives NO BIP34
@@ -912,7 +912,40 @@ def test_bip34_metadata_crosscheck_is_not_proof_of_a_coinbase_height_violation()
     # the WRONG height) re-derives and is NOT flagged as a metadata cross-check.
     row2 = _version_row(str(height), 4, _bip34_scriptsig(height + 5))
     row2["rules_violated"] = "bip34_coinbase_height_mismatch"
-    assert not any("could not be evaluated" in f for f in mod.validate_row(row2))
+    failures2 = mod.validate_row(row2)
+    assert not any("could not be evaluated" in f for f in failures2)
+    assert not any("did not re-derive" in f for f in failures2), failures2
+
+
+def test_bip34_missing_token_needs_a_missing_height_verdict() -> None:
+    """A wrong height must not also prove the missing-height rule.
+
+    ``bip34_height_error`` is one gate for two rules, so a row with a
+    decodable-but-wrong height could otherwise claim the genuine mismatch token
+    AND a missing-height token: both hit the same gate, the gate returns its
+    mismatch verdict, and the reverse check in (b2) sees the mismatch claimed
+    and never rejects the extra one. The declared token has to match the FORM
+    of the verdict, or a published ``rules_violated`` value never re-derived.
+    """
+    mod = _load_validator()
+    height = 300_000  # BIP34+ era, version 4 passes the version requirement
+    row = _version_row(str(height), 4, _bip34_scriptsig(height + 5))
+
+    # Control: the mismatch token alone re-derives.
+    row["rules_violated"] = "bip34_coinbase_height_mismatch"
+    row["rejection_reason"] = "bip34_coinbase_height_mismatch"
+    assert not any("did not re-derive" in f for f in mod.validate_row(row)), row
+
+    # The same row may not also claim the missing-height rule off that verdict.
+    row["rules_violated"] = (
+        "bip34_coinbase_height_mismatch|bip34_coinbase_height_missing"
+    )
+    failures = mod.validate_row(row)
+    assert any(
+        "rule bip34_coinbase_height_missing did not re-derive in its declared form" in f
+        for f in failures
+    ), failures
+    assert not any("bip34_coinbase_height_mismatch did not" in f for f in failures)
 
 
 def test_time_beyond_future_limit_is_rejected_not_deferred() -> None:

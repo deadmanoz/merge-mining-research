@@ -60,9 +60,24 @@ OUTPUT_COLUMNS = [
     "btc_parent_height",  # height of btc_prev_hash on the main chain
     "btc_parent_mediantime",  # MTP of btc_prev_hash on the main chain
     "expected_nbits",  # canonical nBits at btc_parent_height + 1
-    # VALID | NBITS_MISMATCH | PARENT_NOT_CANONICAL | PARENT_CONTEXT_UNAVAILABLE
+    # VALID | REJECTED: <reason> | UNKNOWN: <reason> (see the verdict constants)
     "validation_status",
 ]
+
+# Phase B is import-free by design (stdlib + requests, so it can run on the
+# archival host), so it cannot import the package's verdict constants. These are
+# duplicated literals and must stay byte-identical to the named originals:
+# Phase C normalizes on read and every downstream reader matches on the prefix.
+
+# mirrors btc_stale_validation.PLACEMENT_REJECTION
+PLACEMENT_REJECTION = (
+    "REJECTED: direct-stale predecessor is not the expected active-chain Bitcoin block"
+)
+# mirrors btc_nbits_validation.NBITS_MISMATCH_PREFIX; the full verdict appends
+# the operands as " (got {got}, expected {expected})"
+NBITS_MISMATCH_PREFIX = "REJECTED: nBits mismatch with canonical BTC height"
+# mirrors the verdict btc_stale_validation._set_parent_context_unknown writes
+PARENT_CONTEXT_UNKNOWN = "UNKNOWN: canonical parent context unavailable"
 
 
 def sha256d(b: bytes) -> bytes:
@@ -257,12 +272,12 @@ def validate_stale(row: dict, rpc: BitcoinRPC) -> tuple[object, object, str, str
     """
     prev_hash = row.get("btc_prev_hash") or ""
     if not prev_hash:
-        return "", "", "", "PARENT_CONTEXT_UNAVAILABLE"
+        return "", "", "", PARENT_CONTEXT_UNKNOWN
     try:
         parent = rpc.call("getblockheader", [prev_hash, True])
     except BitcoinRPCError as e:
         if e.code == -5:
-            return "", "", "", "PARENT_NOT_CANONICAL"
+            return "", "", "", PLACEMENT_REJECTION
         raise
     try:
         parent, _ = _corroborate_verbose_header(rpc, prev_hash, parent)
@@ -271,18 +286,21 @@ def validate_stale(row: dict, rpc: BitcoinRPC) -> tuple[object, object, str, str
         if not isinstance(confirmations, int) or isinstance(confirmations, bool):
             raise MalformedRPCResponse("RPC confirmations is not an integer")
     except MalformedRPCResponse:
-        return "", "", "", "PARENT_CONTEXT_UNAVAILABLE"
+        return "", "", "", PARENT_CONTEXT_UNKNOWN
 
     if confirmations == -1:
         # Parent is itself a side-chain block — height+1 canonical
         # expectation doesn't apply.
-        return parent_height, "", "", "PARENT_NOT_CANONICAL"
+        return parent_height, "", "", PLACEMENT_REJECTION
     if confirmations <= 0:
-        return parent_height, "", "", "PARENT_CONTEXT_UNAVAILABLE"
+        # Neither active (> 0) nor the known side-chain marker (-1): the value
+        # is nonsensical, so the parent's placement is undetermined, not proven
+        # off-chain.
+        return parent_height, "", "", PARENT_CONTEXT_UNKNOWN
 
     parent_mediantime = parent.get("mediantime")
     if not isinstance(parent_mediantime, int) or isinstance(parent_mediantime, bool):
-        return parent_height, "", "", "PARENT_CONTEXT_UNAVAILABLE"
+        return parent_height, "", "", PARENT_CONTEXT_UNKNOWN
 
     canon_height = parent_height + 1
     try:
@@ -295,9 +313,9 @@ def validate_stale(row: dict, rpc: BitcoinRPC) -> tuple[object, object, str, str
             rpc, canon_hash, canon_header_result
         )
     except BitcoinRPCError:
-        return parent_height, parent_mediantime, "", "PARENT_CONTEXT_UNAVAILABLE"
+        return parent_height, parent_mediantime, "", PARENT_CONTEXT_UNKNOWN
     except (MalformedRPCResponse, ValueError):
-        return parent_height, parent_mediantime, "", "PARENT_CONTEXT_UNAVAILABLE"
+        return parent_height, parent_mediantime, "", PARENT_CONTEXT_UNKNOWN
 
     try:
         returned_height = _parse_nonnegative_int(
@@ -317,9 +335,15 @@ def validate_stale(row: dict, rpc: BitcoinRPC) -> tuple[object, object, str, str
         )
         reconstructed_nbits = _normalise_bits(row.get("btc_bits"), source="Phase A")
     except (MalformedRPCResponse, ValueError):
-        return parent_height, parent_mediantime, "", "PARENT_CONTEXT_UNAVAILABLE"
+        return parent_height, parent_mediantime, "", PARENT_CONTEXT_UNKNOWN
 
-    status = "VALID" if reconstructed_nbits == expected_nbits else "NBITS_MISMATCH"
+    if reconstructed_nbits == expected_nbits:
+        status = "VALID"
+    else:
+        status = (
+            f"{NBITS_MISMATCH_PREFIX} "
+            f"(got {reconstructed_nbits}, expected {expected_nbits})"
+        )
     return parent_height, parent_mediantime, expected_nbits, status
 
 
@@ -493,11 +517,13 @@ def main():
             vs = out_row["validation_status"] or "(none)"
             vstatus[vs] = vstatus.get(vs, 0) + 1
 
+    # Any UNKNOWN verdict means the context needed to judge the row was not
+    # available, so the run cannot replace a complete prior output.
     unavailable = [
         row
         for row in output_rows
         if row.get("classification") == "stale"
-        and row.get("validation_status") == "PARENT_CONTEXT_UNAVAILABLE"
+        and str(row.get("validation_status", "") or "").startswith("UNKNOWN:")
     ]
     if unavailable:
         raise RuntimeError(

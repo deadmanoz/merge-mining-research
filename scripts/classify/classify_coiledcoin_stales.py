@@ -33,6 +33,7 @@ from stale_blocks_analysis.btc_classify import (
     derive_split_paths,
     normalize_bits_hex,
     output_columns,
+    route_rejected_stale_rows,
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
@@ -222,8 +223,14 @@ def main():
         f"{len(stales) - len(valid_stales)} REJECTED|UNKNOWN"
     )
 
-    # Write the four bucket-split outputs via the shared writer.
-    canonical_path, unknown_path = derive_split_paths(args.output)
+    # Sort the rejected rows by what the rejection means: a proven consensus
+    # violation is an error block, an unplaceable or non-Bitcoin-difficulty
+    # header is an unknown.
+    route_rejected_stale_rows(stales)
+    stales = [r for r in stales if r["classification"] == "stale"]
+
+    # Write the five bucket-split outputs via the shared writer.
+    canonical_path, unknown_path, error_block_path = derive_split_paths(args.output)
     counts = write_classifier_outputs(
         stale_unknown,
         columns=OUTPUT_COLUMNS,
@@ -231,10 +238,12 @@ def main():
         stale_path=args.output,
         unknown_path=unknown_path,
         validated_path=args.validated_output,
+        error_block_path=error_block_path,
     )
     print(
         f"\nWrote {counts['stale']} stale / {counts['unknown']} unknown / "
-        f"{counts['canonical']} canonical; {counts['valid']} VALID → {args.validated_output}"
+        f"{counts['canonical']} canonical / {counts['error_block']} error block; "
+        f"{counts['valid']} VALID → {args.validated_output}"
     )
 
     if stales:

@@ -23,6 +23,15 @@ from .config import (
 RpcBatch = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 NOT_FOUND_ERROR_CODE = -5
 
+# The one verdict that is not a judgement on the block: it says the row is not
+# a direct stale, because its predecessor is not on Bitcoin's active chain.
+# Phase 2 accepts a parent that resolves; this gate re-checks it and can find
+# the parent is itself stale. Such a row is an unknown, not a stale that
+# failed, and the driver reclassifies it.
+PLACEMENT_REJECTION = (
+    "REJECTED: direct-stale predecessor is not the expected active-chain Bitcoin block"
+)
+
 
 def block_version_error(
     row: dict[str, Any],
@@ -219,6 +228,244 @@ def bip34_height_error(
     return None
 
 
+BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
+# The coinbase carries no decodable height push at all. Distinct from a
+# mismatch (a height is there, it is the wrong one) but equally a violation
+# once BIP34 makes the prefix mandatory, and equally derivable from the bytes.
+BIP34_HEIGHT_MISSING_PREFIX = "REJECTED: missing BIP34 coinbase height"
+
+RETARGET_INTERVAL = 2016
+
+MTP_RULE = "time_below_mtp"
+LEGACY_MTP_RULE = "median_time_past_violation"
+NBITS_RETARGET_RULE = "nbits_retarget_not_applied"
+
+VERSION_RULES = frozenset(
+    {
+        "bip34_block_version_below_2",
+        "bip66_block_version_below_3",
+        "bip65_block_version_below_4",
+    }
+)
+LENGTH_RULES = frozenset(
+    {
+        "coinbase_scriptsig_length_above_100",
+        "coinbase_scriptsig_length_below_2",
+    }
+)
+
+
+def expected_version_rule(height: int) -> str:
+    """Return the version-rule token for a version violation at ``height``.
+
+    Mirrors the thresholds ``block_version_error`` enforces: version 2 (BIP34)
+    at [BIP34_HEIGHT, BIP66_HEIGHT), 3 (BIP66) at [BIP66_HEIGHT, BIP65_HEIGHT),
+    and 4 (BIP65) above. A v1/v2 header at a BIP65-era height violates the v4
+    minimum, so the token is ``bip65_block_version_below_4``.
+    """
+    if height >= BIP65_HEIGHT:
+        return "bip65_block_version_below_4"
+    if height >= BIP66_HEIGHT:
+        return "bip66_block_version_below_3"
+    return "bip34_block_version_below_2"
+
+
+def expected_length_rule(
+    row: dict[str, Any],
+    *,
+    scriptsig_key: str = "coinbase_scriptsig_hex",
+) -> str | None:
+    """Return the length-rule token for the actual scriptSig length, or None.
+
+    Returns None when the length cannot be derived: an EMPTY scriptSig is
+    missing evidence (the row may simply not expose the parent coinbase, as
+    RSK never does), not a zero-byte violation, and malformed hex is likewise
+    unusable. Only a PRESENT scriptSig whose length violates 2..100 yields a
+    token.
+    """
+    scriptsig_text = str(row.get(scriptsig_key, "") or "").strip()
+    if not scriptsig_text:
+        return None
+    try:
+        length = len(bytes.fromhex(scriptsig_text))
+    except ValueError:
+        return None
+    if length > 100:
+        return "coinbase_scriptsig_length_above_100"
+    if length < 2:
+        return "coinbase_scriptsig_length_below_2"
+    return None
+
+
+def nbits_retarget_not_applied_error(
+    row: dict[str, Any],
+    expected_height: int,
+    nbits_by_epoch: dict[int, int],
+    *,
+    bits_key: str = "btc_bits",
+    expected_key: str = "expected_nbits",
+) -> str | None:
+    """Return a rejection when the row failed to apply an epoch retarget.
+
+    All three conditions must hold: the height is an epoch start, the row's
+    bits differ from the newly retargeted value it should have used, and the
+    row's bits equal the PREVIOUS epoch's value.
+
+    A mid-epoch nBits mismatch is not this rule -- that is the contamination
+    gate's target class (a foreign-chain parent), not a consensus violation of
+    a Bitcoin block. This rule is specifically the boundary case where the
+    header still carries full proof of work but kept the old difficulty.
+
+    The newly retargeted value is taken from the row's own ``expected_nbits``
+    when it carries one, because the nBits gate persisted it from Bitcoin Core
+    for exactly this height, which is more authoritative than the committed
+    reference and, crucially, still available for a boundary the table has not
+    reached yet. Without that the table would have to cover every rejected
+    row's height, and a candidate landing on the first boundary past the
+    reference would abort an entire classifier run rather than routing as the
+    ordinary contamination it usually is. The committed table remains the
+    fallback, and the PREVIOUS epoch is read from it either way; that entry is
+    a full retarget interval older, so a reference that lags the chain still
+    has it.
+
+    Raises ``ValueError`` when the claim cannot be evaluated -- malformed bits,
+    or neither source supplying a value. Failing closed matters here: silently
+    returning None would let an unevaluated row look clean.
+    """
+    try:
+        bits = int(str(row.get(bits_key, "") or "").strip(), 16)
+    except ValueError as exc:
+        raise ValueError(f"malformed {bits_key} for {NBITS_RETARGET_RULE}") from exc
+    if expected_height % RETARGET_INTERVAL != 0:
+        return None
+    epoch_bits: int | None
+    try:
+        epoch_bits = int(str(row.get(expected_key, "") or "").strip(), 16)
+    except ValueError:
+        epoch_bits = nbits_by_epoch.get(expected_height)
+    previous_bits = nbits_by_epoch.get(expected_height - RETARGET_INTERVAL)
+    if epoch_bits is None or previous_bits is None:
+        missing = []
+        if epoch_bits is None:
+            missing.append(f"canonical bits for {expected_height}")
+        if previous_bits is None:
+            missing.append(
+                f"epoch table entry for {expected_height - RETARGET_INTERVAL}"
+            )
+        raise ValueError(
+            f"cannot re-derive {NBITS_RETARGET_RULE}: no {' and no '.join(missing)}"
+        )
+    if bits == epoch_bits or bits != previous_bits:
+        return None
+    return (
+        f"REJECTED: {NBITS_RETARGET_RULE} at epoch start {expected_height} "
+        f"(got previous-epoch bits {bits:08x}, expected {epoch_bits:08x})"
+    )
+
+
+def consensus_violations(
+    row: dict[str, Any],
+    expected_height: int,
+    *,
+    parent_median_time_past: int | None = None,
+    nbits_by_epoch: dict[int, int] | None = None,
+    scriptsig_key: str = "coinbase_scriptsig_hex",
+    header_hex_key: str = "btc_header_hex",
+) -> list[str]:
+    """Return every consensus rule this row's evidence proves it violated.
+
+    A row with a non-empty result is an error block: a Bitcoin block carrying
+    full proof of work that breaks a consensus rule. An empty result means the
+    evidence proves no violation -- which is NOT the same as the block being
+    valid, only that nothing here demonstrates otherwise.
+
+    This is deliberately stricter than "the gate returned REJECTED". The gate
+    reports three different situations under that one prefix and only the first
+    is an error block:
+
+    - a consensus rule was broken -- reported here;
+    - the evidence was unusable (missing or malformed coinbase scriptSig, a
+      malformed BIP34 column, an unparseable header) -- we cannot tell, so no
+      token is produced;
+    - the row is not a direct stale at all, because its predecessor is not the
+      expected active-chain block -- a placement verdict from
+      ``validate_stale_header_context``, never a property of the block itself.
+
+    Unlike ``stale_header_context_error`` this does not stop at the first
+    failure: a block can break several rules at once and the published
+    ``rules_violated`` column records all of them. Order is the gate's own
+    precedence (median-time-past, version, scriptSig length, BIP34 height), so
+    the first element is the primary rejection reason.
+
+    Two rules need context the row does not carry, so the caller supplies it
+    and omitting it means that rule is simply not evaluated:
+    ``parent_median_time_past`` comes from the canonical parent's header, which
+    the classifier already fetches to check placement, and ``nbits_by_epoch``
+    is the committed retarget-epoch reference table. Every other rule is
+    derived from the header and coinbase bytes alone.
+    """
+    rules: list[str] = []
+
+    if nbits_by_epoch is not None:
+        retarget_error = nbits_retarget_not_applied_error(
+            row, expected_height, nbits_by_epoch
+        )
+        if retarget_error is not None:
+            rules.append(NBITS_RETARGET_RULE)
+
+    if parent_median_time_past is not None:
+        mtp_error = median_time_past_error(row, parent_median_time_past)
+        if mtp_error is not None and mtp_error.startswith("REJECTED:"):
+            rules.append(MTP_RULE)
+
+    version_error = block_version_error(
+        row, expected_height, header_hex_key=header_hex_key
+    )
+    if version_error is not None and version_error.startswith("REJECTED:"):
+        rules.append(expected_version_rule(expected_height))
+
+    if coinbase_scriptsig_length_error(row, scriptsig_key=scriptsig_key) is not None:
+        length_rule = expected_length_rule(row, scriptsig_key=scriptsig_key)
+        if length_rule is not None:
+            rules.append(length_rule)
+
+    # At BIP34+ heights ``bip34_height_error`` rejects a too-low version before
+    # it examines the coinbase prefix, so a version-1 header's real violation is
+    # the version -- already recorded above -- and not the coinbase height.
+    if version_error is None:
+        bip34_error = bip34_height_error(
+            row,
+            expected_height,
+            scriptsig_key=scriptsig_key,
+            header_hex_key=header_hex_key,
+        )
+        # Only the genuine raw-prefix mismatch is a consensus violation. The
+        # gate's other REJECTED forms are unusable evidence or a disagreement
+        # between the scriptSig and the optional metadata column.
+        v2_era = expected_height < BIP34_HEIGHT
+        if bip34_error is not None and bip34_error.startswith(
+            BIP34_HEIGHT_MISMATCH_PREFIX
+        ):
+            rules.append(
+                "bip34_v2_coinbase_height_mismatch"
+                if v2_era
+                else "bip34_coinbase_height_mismatch"
+            )
+        elif bip34_error is not None and bip34_error.startswith(
+            BIP34_HEIGHT_MISSING_PREFIX
+        ):
+            # A present, well-formed coinbase carrying no height push at all.
+            # Once the prefix is mandatory that is as much a violation as the
+            # wrong height, and it is proven by the same committed bytes.
+            rules.append(
+                "bip34_v2_coinbase_height_missing"
+                if v2_era
+                else "bip34_coinbase_height_missing"
+            )
+
+    return rules
+
+
 def _bip34_height_prefix(height: int) -> bytes:
     """Encode the exact ``CScript() << height`` prefix checked by Core."""
     if height == 0:
@@ -346,10 +593,7 @@ def validate_stale_header_context(
         error = response.get("error")
         if error is not None:
             if isinstance(error, dict) and error.get("code") == NOT_FOUND_ERROR_CODE:
-                stale[status_key] = (
-                    "REJECTED: direct-stale predecessor is not the expected "
-                    "active-chain Bitcoin block"
-                )
+                stale[status_key] = PLACEMENT_REJECTION
             else:
                 _set_parent_context_unknown(stale, status_key)
             continue
@@ -366,10 +610,7 @@ def validate_stale_header_context(
             _set_parent_context_unknown(stale, status_key)
             continue
         if confirmations <= 0:
-            stale[status_key] = (
-                "REJECTED: direct-stale predecessor is not the expected "
-                "active-chain Bitcoin block"
-            )
+            stale[status_key] = PLACEMENT_REJECTION
             continue
 
         parent_height = parent.get("height")
@@ -384,6 +625,11 @@ def validate_stale_header_context(
         if not isinstance(parent_mtp, int) or isinstance(parent_mtp, bool):
             _set_parent_context_unknown(stale, status_key)
             continue
+        # Retain the parent's median-time-past on the row. It is not a column
+        # and cannot be recovered later without the node, but the caller needs
+        # it to re-derive which consensus rules the row broke. The leading
+        # underscore keeps it out of every CSV writer.
+        stale["_parent_median_time_past"] = parent_mtp
 
         error = stale_header_context_error(
             stale,

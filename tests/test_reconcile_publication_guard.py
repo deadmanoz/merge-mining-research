@@ -11,6 +11,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "analysis" / "reconcile_unknown_stale_ancestry.py"
 BASELINE_HASH = "11" * 32
+# Bitcoin's canonical compact bits for the epoch starting at height 399,168,
+# used as the matched header/expected pair the rule derivation requires at the
+# height-400,001 candidates below.
+BITS = "1806b99f"
 
 
 def _load_module():
@@ -375,3 +379,189 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
     assert promoted.is_file()
     assert promoted.read_text().count("\n") == 1
     assert (results / module.OUTPUT_SUMMARY).is_file()
+
+
+def test_descendant_consensus_rules_needs_judgeable_evidence():
+    """A descendant is promoted to error block only on sound evidence.
+
+    The height is the root's confirmed height plus a fork depth, so it is
+    trustworthy only when the path was verified, the work meets its target,
+    and the bits are Bitcoin's canonical value there. Any of those missing and
+    a coinbase-height mismatch is equally consistent with a wrong height, so
+    no rule is derived and the row stays a rejected descendant.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, None, [], header_bits=BITS, expected_nbits=BITS
+        )
+        == []
+    )
+    for failure in sorted(module.DESCENDANT_UNJUDGEABLE_FAILURES):
+        assert (
+            module.descendant_consensus_rules(
+                header_hex,
+                scriptsig,
+                400001,
+                [failure],
+                header_bits=BITS,
+                expected_nbits=BITS,
+            )
+            == []
+        )
+
+
+def test_descendant_consensus_rules_needs_a_canonical_difficulty_match():
+    """An uncompared difficulty must not read as a canonical-difficulty match.
+
+    ``expected_bits_for_height`` returns ``""`` for a height the committed
+    epoch reference does not reach, and the caller then records no
+    ``nbits_epoch_mismatch`` -- the comparison simply never happened. Deriving
+    rules from that silence would publish a foreign or easy-target header as an
+    error block with its canonical difficulty never checked, so the match is
+    required outright.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+
+    # Control: bits present on both sides and equal.
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
+
+    # The epoch reference does not reach this height, so nothing was compared.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=""
+        )
+        == []
+    )
+    # No bits recovered for the candidate at all.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex, scriptsig, 400001, [], header_bits="", expected_nbits=BITS
+        )
+        == []
+    )
+    # Compared, and the header's difficulty is not Bitcoin's at this height.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex,
+            scriptsig,
+            400001,
+            [],
+            header_bits="1d00ffff",
+            expected_nbits=BITS,
+        )
+        == []
+    )
+
+
+def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
+    """Bytes not proven to be this block's cannot prove anything about it.
+
+    Every rule but the retarget one is read straight out of the supplied header
+    and coinbase bytes. When those bytes are absent, or hash to something other
+    than the claimed block hash, publishing a violation under that hash would
+    attribute another block's evidence -- or nobody's -- to it. Corroborating
+    the published hash against the serialized header is the precondition for
+    the verdict here, the same as at classification time.
+    """
+    module = _load_module()
+    header_hex = "04000000" + "00" * 76
+    scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
+    long_scriptsig = "aa" * 101
+
+    # Controls: authenticated, the same evidence does derive each rule.
+    assert module.descendant_consensus_rules(
+        header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    ) == ["bip34_coinbase_height_mismatch"]
+    assert "coinbase_scriptsig_length_above_100" in module.descendant_consensus_rules(
+        header_hex, long_scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
+    )
+
+    # A header present but not proven to hash to the claimed block hash.
+    assert (
+        module.descendant_consensus_rules(
+            header_hex,
+            scriptsig,
+            400001,
+            ["header_hash_mismatch"],
+            header_bits=BITS,
+            expected_nbits=BITS,
+        )
+        == []
+    )
+    # No header at all: the coinbase alone must not carry a verdict either.
+    assert (
+        module.descendant_consensus_rules(
+            "",
+            long_scriptsig,
+            400001,
+            ["missing_header_hex"],
+            header_bits=BITS,
+            expected_nbits=BITS,
+        )
+        == []
+    )
+
+
+def test_a_version_rule_alone_cannot_promote_a_descendant():
+    """Core counts the version vote over the block's own ancestors.
+
+    A direct stale's are the canonical chain, so the fixed cutover is exact for
+    it. A descendant's leave the canonical chain at the fork root, so a fork
+    spanning an activation boundary can carry a different verdict, and a
+    version rule is not proof there. Rules settled by the bytes alone still are.
+    """
+    module = _load_module()
+    height = 400000
+    bits = "1806f0a8"
+    common = {
+        "header_bits": bits,
+        "expected_nbits": bits,
+    }
+
+    # Version 1 well past BIP65: the shared derivation names a version rule...
+    from stale_blocks_analysis.btc_stale_validation import consensus_violations
+
+    version_only = {
+        "btc_header_hex": "01000000" + "00" * 76,
+        "coinbase_scriptsig_hex": (
+            b"\x03" + height.to_bytes(3, "little") + b"pool"
+        ).hex(),
+    }
+    assert consensus_violations(version_only, height) == ["bip65_block_version_below_4"]
+    # ...but it cannot make a descendant an error block.
+    assert (
+        module.descendant_consensus_rules(
+            version_only["btc_header_hex"],
+            version_only["coinbase_scriptsig_hex"],
+            height,
+            [],
+            **common,
+        )
+        == []
+    )
+
+    # A byte-settled rule is unaffected.
+    wrong_height = {
+        "btc_header_hex": "04000000" + "00" * 76,
+        "coinbase_scriptsig_hex": (
+            b"\x03" + (height + 1).to_bytes(3, "little") + b"pool"
+        ).hex(),
+    }
+    assert module.descendant_consensus_rules(
+        wrong_height["btc_header_hex"],
+        wrong_height["coinbase_scriptsig_hex"],
+        height,
+        [],
+        **common,
+    ) == ["bip34_coinbase_height_mismatch"]

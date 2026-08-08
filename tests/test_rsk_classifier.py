@@ -30,12 +30,17 @@ SPEC.loader.exec_module(rsk)
 BLOCK_HASH = "11" * 32
 
 
-def _header(prev_hash: str, nonce: int, bits: int = 0x207FFFFF) -> str:
+def _header(
+    prev_hash: str,
+    nonce: int,
+    bits: int = 0x207FFFFF,
+    time: int = 1_700_000_000,
+) -> str:
     return (
         struct.pack("<i", 4)
         + bytes.fromhex(prev_hash)[::-1]
         + b"\x11" * 32
-        + struct.pack("<I", 1_700_000_000)
+        + struct.pack("<I", time)
         + struct.pack("<I", bits)
         + struct.pack("<I", nonce)
     ).hex()
@@ -138,6 +143,37 @@ def test_stale_validation_rejects_median_time_past_failure() -> None:
 
     assert error is not None
     assert "median-time-past" in error
+
+
+def test_rejected_rows_route_to_error_block_or_unknown() -> None:
+    # One height past BIP65 (and not a retarget-epoch start), so the version
+    # minimum is 4 and the unapplied-retarget rule is not in play.
+    height = BIP65_HEIGHT + 1
+    parent_mtp = 1_700_000_000
+
+    # Proven consensus violation: header time is not above the parent's MTP.
+    violation = _header_row(_header("22" * 32, 1, time=parent_mtp))
+    # Contamination: full proof of work, but not Bitcoin's difficulty here.
+    contamination = _header_row(
+        _header("22" * 32, 2, bits=0x1D00FFFF, time=parent_mtp + 1)
+    )
+    clean = _header_row(_header("22" * 32, 3, time=parent_mtp + 1))
+
+    verified, stale_rows, error_blocks, rerouted_unknowns = rsk.gate_and_route(
+        [
+            (height, violation, parent_mtp),
+            (height, contamination, parent_mtp),
+            (height, clean, parent_mtp),
+        ],
+        {height: "207fffff"},
+    )
+
+    assert [row for _, row in error_blocks] == [violation]
+    assert "median-time-past" in violation["validation_status"]
+    assert [row for _, row in rerouted_unknowns] == [contamination]
+    assert [row for _, row in stale_rows] == [clean]
+    assert [row for _, row in verified] == [clean]
+    assert clean["validation_status"] == "VALID"
 
 
 def test_row_to_out_preserves_miner_evidence_without_pool_attribution() -> None:

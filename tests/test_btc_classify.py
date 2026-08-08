@@ -23,9 +23,12 @@ from stale_blocks_analysis.btc_classify import (
     classify_candidates,
     normalize_bits_hex,
     output_columns,
+    route_rejected_stale_rows,
     run_classifier,
     write_classifier_outputs,
 )
+from stale_blocks_analysis.btc_nbits_validation import NBITS_MISMATCH_PREFIX
+from stale_blocks_analysis.btc_stale_validation import PLACEMENT_REJECTION
 from stale_blocks_analysis.config import ChainSpec
 from stale_blocks_analysis.config import BIP34_HEIGHT
 
@@ -419,20 +422,28 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
     assert summary["total"] == 5
     assert summary["btc_valid"] == 4  # fail_hex dropped
     assert summary["canonical"] == 1
-    assert summary["stale"] == 2
-    assert summary["unknown"] == 1
+    # The nBits-mismatched candidate is a foreign chain's header, not an
+    # invalid Bitcoin block, so it routes to unknown rather than staying a
+    # stale that failed.
+    assert summary["stale"] == 1
+    assert summary["unknown"] == 2
+    assert summary["error_block"] == 0
     assert summary["valid"] == 1
+    # The gate rejected one candidate and the routing moved it out of the stale
+    # bucket; the total must still report it, or the run looks clean.
     assert summary["rejected"] == 1
+    assert summary["rejected_stale"] == 0
+    assert summary["rejected_error_block"] == 0
+    assert summary["rejected_unknown"] == 1
     assert summary["validation_unknown"] == 0
 
-    # Stale file: stale rows only now (2), sorted ascending; unknown is split
-    # into its own file and canonical into the canonical artifact.
+    # Stale file: the surviving VALID stale only.
     with open(out_path, newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == output_columns("ixc_height")
         out_rows = list(reader)
 
-    assert len(out_rows) == 2
+    assert len(out_rows) == 1
     assert all(r["classification"] == "stale" for r in out_rows)
     heights = [int(r["btc_height"]) for r in out_rows]
     assert heights == sorted(heights)
@@ -445,17 +456,19 @@ def test_run_classifier_full_pipeline_with_nbits_gate(tmp_path):
         stale_rows[stale_valid_hash]["child_header_hex"] == rows[1]["child_header_hex"]
     )
     assert stale_rows[stale_valid_hash]["child_nbits"] == "1d00ffff"
-    assert stale_rows[stale_rej_hash]["validation_status"].startswith("REJECTED")
 
-    # Unknown file: the single unknown row, split out of the stale inventory.
+    # Unknown file: the Phase 2 unknown plus the rerouted nBits mismatch.
     with open(summary["unknown_output_path"], newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == output_columns("ixc_height")
         unknown_rows = list(reader)
-    assert len(unknown_rows) == 1
-    assert unknown_rows[0]["btc_header_hash"] == unknown_hash
-    assert unknown_rows[0]["classification"] == "unknown"
-    assert unknown_rows[0]["child_header_hex"] == rows[3]["child_header_hex"]
+    assert len(unknown_rows) == 2
+    by_hash = {r["btc_header_hash"]: r for r in unknown_rows}
+    assert set(by_hash) == {unknown_hash, stale_rej_hash}
+    assert all(r["classification"] == "unknown" for r in unknown_rows)
+    # Indistinguishable from a Phase 2 unknown once rerouted.
+    assert by_hash[stale_rej_hash]["validation_status"] == ""
+    assert by_hash[unknown_hash]["child_header_hex"] == rows[3]["child_header_hex"]
 
     # Canonical artifact: canonical rows with Core's height authoritative.
     with open(summary["canonical_output_path"], newline="") as f:
@@ -659,7 +672,13 @@ def test_run_classifier_nbits_gate_is_not_skippable(tmp_path):
     assert any(c["method"] == "getblockhash" for c in rpc.calls)
 
 
-def test_run_classifier_bip34_gate_excludes_mismatched_stale(tmp_path):
+def test_run_classifier_labels_a_bip34_mismatch_as_an_error_block(tmp_path):
+    """A full-PoW block whose coinbase height is wrong is invalid, not stale.
+
+    This used to stay in the stale inventory carrying a REJECTED verdict,
+    where only a hand-run sweep over the private archive would ever find it.
+    The pass now labels it during the run, from the same bytes.
+    """
     prev_known = "af" * 32
     stale_hex, stale_hash = _passing_header(prev_known)
     row = _candidate(
@@ -693,17 +712,28 @@ def test_run_classifier_bip34_gate_excludes_mismatched_stale(tmp_path):
 
     summary = run_classifier(_spec(tmp_path, in_path, out_path), rpc=rpc)
 
-    assert summary["stale"] == 1
+    assert summary["stale"] == 0
+    assert summary["error_block"] == 1
     assert summary["valid"] == 0
     assert summary["rejected"] == 1
+    assert summary["rejected_error_block"] == 1
+
+    # Out of the stale inventory entirely, and never a published stale.
     with open(out_path, newline="") as f:
-        stale = list(csv.DictReader(f))
-    assert stale[0]["validation_status"] == (
+        assert list(csv.DictReader(f)) == []
+    with open(summary["validated_output_path"], newline="") as f:
+        assert list(csv.DictReader(f)) == []
+
+    with open(summary["error_block_output_path"], newline="") as f:
+        error_blocks = list(csv.DictReader(f))
+    assert len(error_blocks) == 1
+    assert error_blocks[0]["btc_header_hash"] == stale_hash
+    assert error_blocks[0]["classification"] == "error_block"
+    # The verdict that identified it is retained as the primary reason.
+    assert error_blocks[0]["validation_status"] == (
         "REJECTED: BIP34 coinbase height mismatch "
         f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})"
     )
-    with open(summary["validated_output_path"], newline="") as f:
-        assert list(csv.DictReader(f)) == []
 
 
 @pytest.mark.parametrize(
@@ -810,11 +840,13 @@ def test_run_classifier_writes_valid_only_validated_csv(tmp_path):
     assert validated[0]["validation_status"] == "VALID"
     assert summary["validated_output_path"] == str(spec.validated_csv)
 
-    # Stale file now holds stale-only (2); the unknown row is split into its own file.
+    # Stale file holds the VALID stale only. The nBits-mismatched candidate is
+    # a foreign chain's header rather than an invalid Bitcoin block, so it
+    # joins the unknown row instead of lingering as a stale that failed.
     with open(out_path, newline="") as f:
-        assert len(list(csv.DictReader(f))) == 2
-    with open(summary["unknown_output_path"], newline="") as f:
         assert len(list(csv.DictReader(f))) == 1
+    with open(summary["unknown_output_path"], newline="") as f:
+        assert len(list(csv.DictReader(f))) == 2
 
 
 def test_run_classifier_preflight_fails_on_unreachable_node(tmp_path):
@@ -965,7 +997,8 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         _cls_row("unknown", 20),
     ]
     paths = {
-        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     }
     counts = write_classifier_outputs(
         all_results,
@@ -974,17 +1007,22 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         stale_path=str(paths["stale"]),
         unknown_path=str(paths["unknown"]),
         validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
     )
 
-    def read(p):
+    def read(p, expected_cols=cols):
         with open(p, newline="") as f:
             r = csv.DictReader(f)
-            assert r.fieldnames == cols  # identical schema across all four files
+            assert r.fieldnames == expected_cols
             return list(r)
 
     canon, stale, unknown, validated = (
         read(paths[k]) for k in ("canonical", "stale", "unknown", "validated")
     )
+    # The four published buckets share one schema; only the error-block file
+    # carries the rule set that justifies its claim.
+    error_blocks = read(paths["error_block"], [*cols, "rules_violated"])
+    assert error_blocks == []
 
     # Each file is bucket-pure (no commingling).
     assert [r["classification"] for r in canon] == ["canonical"]
@@ -1008,16 +1046,56 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         "canonical": 1,
         "stale": 2,
         "unknown": 2,
+        "error_block": 0,
         "valid": 1,
         "rejected": 1,
+        "rejected_stale": 1,
+        "rejected_error_block": 0,
+        "rejected_unknown": 0,
         "validation_unknown": 0,
     }
+
+
+@pytest.mark.parametrize("classification", ["near", "sideways", "", None])
+def test_write_classifier_outputs_rejects_unrecognised_classification(
+    tmp_path, classification
+):
+    """An unbucketable row must abort the write, never be dropped silently.
+
+    Dropping it would lose the row from all four files *and* from the returned
+    counts, so a partial run would be indistinguishable from a complete one.
+    """
+    cols = output_columns("ixc_height")
+    row = _cls_row("stale", 500, status="VALID")
+    if classification is None:
+        row.pop("classification")
+    else:
+        row["classification"] = classification
+    paths = {
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
+    }
+
+    with pytest.raises(ValueError, match="unrecognised classification"):
+        write_classifier_outputs(
+            [_cls_row("canonical", 1000), row],
+            columns=cols,
+            canonical_path=str(paths["canonical"]),
+            stale_path=str(paths["stale"]),
+            unknown_path=str(paths["unknown"]),
+            validated_path=str(paths["validated"]),
+            error_block_path=str(paths["error_block"]),
+        )
+
+    # Fails before any file is written, so a failed run leaves no partial output.
+    assert not any(p.exists() for p in paths.values())
 
 
 def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
     cols = output_columns("ixc_height")
     paths = {
-        k: tmp_path / f"{k}.csv" for k in ("canonical", "stale", "unknown", "validated")
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
     }
     write_classifier_outputs(
         [_cls_row("stale", 500, status="VALID")],
@@ -1026,9 +1104,280 @@ def test_write_classifier_outputs_writes_header_for_empty_bucket(tmp_path):
         stale_path=str(paths["stale"]),
         unknown_path=str(paths["unknown"]),
         validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
     )
     # empty unknown file still has the header row, no data rows.
     with open(paths["unknown"], newline="") as f:
         r = csv.DictReader(f)
         assert r.fieldnames == cols
         assert list(r) == []
+
+
+def test_run_classifier_routes_a_misplaced_stale_to_unknown(tmp_path):
+    """A parent that is itself stale makes the row an unknown, not a failure.
+
+    Phase 2 accepts any parent that resolves; the gate re-checks it and finds
+    it has no confirmations, i.e. it is off the active chain. The row is then
+    a fork continuation, which is what `unknown` means -- and only unknown
+    rows are walked back to a stale root by the ancestry reconciliation, so
+    leaving it labelled stale would strand it outside the descendant path.
+    """
+    prev_stale = "cd" * 32
+    stale_hex, stale_hash = _passing_header(prev_stale)
+    row = _candidate(stale_hex, stale_hash, prev_stale, str(BIP34_HEIGHT + 1), "20")
+    row["coinbase_scriptsig_hex"] = (
+        b"\x03" + (BIP34_HEIGHT + 1).to_bytes(3, "little") + b"pool"
+    ).hex()
+    canonical_bits = row["btc_bits"]
+
+    in_path = tmp_path / "in.csv"
+    out_path = tmp_path / "out.csv"
+    _write_input(in_path, [row])
+    headers = {
+        # Resolves for Phase 2, but confirmations <= 0 means it is off the
+        # active chain, so the gate rejects the placement.
+        prev_stale: {
+            "height": BIP34_HEIGHT,
+            "bits": canonical_bits,
+            "confirmations": -1,
+        },
+        _canonical_hash(BIP34_HEIGHT + 1): {
+            "height": BIP34_HEIGHT + 1,
+            "bits": canonical_bits,
+            "confirmations": 1,
+        },
+    }
+    rpc = FakeRpc(headers, {BIP34_HEIGHT + 1: _canonical_hash(BIP34_HEIGHT + 1)})
+
+    summary = run_classifier(_spec(tmp_path, in_path, out_path), rpc=rpc)
+
+    assert summary["stale"] == 0
+    assert summary["unknown"] == 1
+    assert summary["rejected"] == 0
+
+    with open(out_path, newline="") as f:
+        assert list(csv.DictReader(f)) == []
+    with open(summary["unknown_output_path"], newline="") as f:
+        unknown = list(csv.DictReader(f))
+    assert len(unknown) == 1
+    assert unknown[0]["btc_header_hash"] == stale_hash
+    # Indistinguishable from a Phase 2 unknown: the gate annotations are gone.
+    assert unknown[0]["validation_status"] == ""
+    assert unknown[0]["expected_nbits"] == ""
+
+
+# ---------------------------------------------------------------------------
+# route_rejected_stale_rows: the shared rejected-row routing
+# ---------------------------------------------------------------------------
+
+
+def _rejected_row(
+    status,
+    *,
+    height=BIP34_HEIGHT,
+    scriptsig_height=None,
+    scriptsig=None,
+    bits=REGTEST_BITS,
+    expected_nbits=None,
+) -> dict:
+    """Rejected stale row at ``height``, by default with a clean coinbase.
+
+    ``scriptsig_height`` is the height its coinbase commits to and defaults to
+    the row's own, so passing a different value makes it a BIP34 violation.
+    Passing ``scriptsig`` overrides the coinbase entirely (an empty one is
+    unusable evidence, the way RSK's rows always are). ``expected_nbits`` is the
+    canonical difficulty the nBits gate persisted for this height; it defaults
+    to the row's own bits, that is, a header whose difficulty IS Bitcoin's here.
+    """
+    if scriptsig_height is None:
+        scriptsig_height = height
+    if scriptsig is None:
+        scriptsig = (b"\x03" + scriptsig_height.to_bytes(3, "little") + b"pool").hex()
+    bits_hex = f"{bits:08x}"
+    return {
+        "btc_height": str(height),
+        "btc_header_hash": f"{height:064x}",
+        "btc_header_hex": _make_header("00" * 32, 1, bits=bits),
+        "btc_bits": bits_hex,
+        "expected_nbits": bits_hex if expected_nbits is None else expected_nbits,
+        "coinbase_scriptsig_hex": scriptsig,
+        "classification": "stale",
+        "validation_status": status,
+    }
+
+
+def test_route_rejected_stale_rows_splits_the_three_rejection_meanings():
+    """The REJECTED prefix covers three situations; only one is a verdict.
+
+    Read end to end this is what the routing exists for: a proven consensus
+    violation leaves the stale inventory as an error block, a row that is not
+    placeable on Bitcoin becomes unknown, and a rejection whose evidence cannot
+    be re-derived stays exactly where it was rather than being guessed at.
+    """
+    violation = _rejected_row(
+        "REJECTED: BIP34 coinbase height mismatch "
+        f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})",
+        scriptsig_height=BIP34_HEIGHT + 1,
+    )
+    misplaced = _rejected_row(PLACEMENT_REJECTION)
+    contaminated = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} (got 1d00ffff, expected 1b0404cb)"
+    )
+    # Rejected on the parent's median time past, which the gate did not retain
+    # on the row, so no rule can be re-derived from the bytes alone.
+    unusable = _rejected_row(
+        "REJECTED: Bitcoin block time not after parent median time past",
+        scriptsig="",
+    )
+    valid = _rejected_row("VALID")
+    rows = [violation, misplaced, contaminated, unusable, valid]
+
+    route_rejected_stale_rows(rows)
+
+    assert violation["classification"] == "error_block"
+    assert misplaced["classification"] == "unknown"
+    assert contaminated["classification"] == "unknown"
+    assert unusable["classification"] == "stale"
+    assert valid["classification"] == "stale"
+    # The verdict that identified each row is left intact for the writer.
+    assert violation["validation_status"].startswith("REJECTED: BIP34")
+
+
+def test_route_rejected_stale_rows_ranks_placement_and_contamination_first():
+    """A broken rule only makes an error block once the row IS a Bitcoin block.
+
+    Every row here breaks BIP34 in its own committed bytes and not one of them
+    is an error block. Two are not Bitcoin blocks at this height at all, and the
+    third was never shown to be one. Contamination is read off the persisted
+    ``expected_nbits`` rather than the surviving verdict string, because the
+    later header-context gate can overwrite an nBits REJECTED and erase the only
+    trace of it in the status.
+
+    The retarget row is the deliberate exception: its bits are the previous
+    epoch's, which differs from the canonical value by definition, so the
+    contamination branch would swallow the one nBits mismatch that really is a
+    Bitcoin consensus violation.
+    """
+    epoch_start = 229_824  # a retarget boundary above BIP34_HEIGHT
+    epoch_table = {epoch_start: OTHER_EASY_BITS, epoch_start - 2016: REGTEST_BITS}
+    bip34_mismatch = (
+        "REJECTED: BIP34 coinbase height mismatch "
+        f"(got {BIP34_HEIGHT + 1}, expected {BIP34_HEIGHT})"
+    )
+
+    misplaced = _rejected_row(PLACEMENT_REJECTION, scriptsig_height=BIP34_HEIGHT + 1)
+    contaminated = _rejected_row(
+        bip34_mismatch,
+        scriptsig_height=BIP34_HEIGHT + 1,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+    )
+    unverified = _rejected_row(
+        bip34_mismatch, scriptsig_height=BIP34_HEIGHT + 1, expected_nbits=""
+    )
+    unapplied_retarget = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} "
+        f"(got {REGTEST_BITS:08x}, expected {OTHER_EASY_BITS:08x})",
+        height=epoch_start,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+    )
+
+    route_rejected_stale_rows(
+        [misplaced, contaminated, unverified, unapplied_retarget],
+        nbits_by_epoch=epoch_table,
+    )
+
+    # No active-chain parent, so the height the BIP34 rule was checked at was
+    # never established.
+    assert misplaced["classification"] == "unknown"
+    # Another SHA-256 chain's header: calling it consensus-invalid would be a
+    # claim about the wrong chain.
+    assert contaminated["classification"] == "unknown"
+    # No canonical nBits was ever recorded here, so nothing shows this header is
+    # Bitcoin's at this height and it must not be promoted.
+    assert unverified["classification"] == "stale"
+    assert unapplied_retarget["classification"] == "error_block"
+
+
+def test_route_rejected_stale_rows_denies_the_retarget_exception_to_a_share():
+    """The retarget exception needs full PoW at the CANONICAL target.
+
+    The rule and the contamination verdict are both read off the bits values,
+    and Phase 1 only proved the header meets the target its own bits encode.
+    Where the retarget RAISED difficulty those bits are the easier ones, so a
+    header carrying them can clear its embedded target and still fall short of
+    what Bitcoin required at that height. That is a share at Bitcoin
+    difficulty, not a consensus-invalid Bitcoin block, and publishing it as an
+    error block would assert proof of work it never did.
+    """
+    epoch_start = 229_824  # a retarget boundary above BIP34_HEIGHT
+    # The new epoch's difficulty is far above the previous epoch's, so the
+    # synthetic header's digest meets its embedded bits and nothing else.
+    epoch_table = {epoch_start: 0x1D00FFFF, epoch_start - 2016: REGTEST_BITS}
+    share = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} (got {REGTEST_BITS:08x}, expected 1d00ffff)",
+        height=epoch_start,
+        expected_nbits="1d00ffff",
+    )
+
+    route_rejected_stale_rows([share], nbits_by_epoch=epoch_table)
+
+    assert share["classification"] == "unknown"
+
+
+def test_an_error_block_publishes_the_rules_that_justified_it(tmp_path):
+    """The error-block file records the evidence for its own claim.
+
+    ``validation_status`` names the ONE gate that fired first, and here that is
+    a generic nBits mismatch: it never says ``nbits_retarget_not_applied``, the
+    rule the routing actually turned on, and it says nothing about the second
+    rule the same bytes break. Publishing the row without the rule set would
+    assert a consensus violation and withhold every reason for it.
+
+    The column rides on the error-block bucket alone. Its four peers -- among
+    them the committed ``*_validated_stales.csv`` loader input -- keep the
+    caller's schema exactly.
+    """
+    epoch_start = 229_824  # a retarget boundary
+    epoch_table = {epoch_start: OTHER_EASY_BITS, epoch_start - 2016: REGTEST_BITS}
+    # Commits the correct BIP34 height (so that rule stays clean) while running
+    # past Bitcoin's 100-byte coinbase scriptSig limit.
+    oversized = (b"\x03" + epoch_start.to_bytes(3, "little") + b"p" * 97).hex()
+    row = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} "
+        f"(got {REGTEST_BITS:08x}, expected {OTHER_EASY_BITS:08x})",
+        height=epoch_start,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+        scriptsig=oversized,
+    )
+
+    route_rejected_stale_rows([row], nbits_by_epoch=epoch_table)
+
+    assert row["classification"] == "error_block"
+    assert row["rules_violated"] == (
+        "nbits_retarget_not_applied|coinbase_scriptsig_length_above_100"
+    )
+    assert "nbits_retarget_not_applied" not in row["validation_status"]
+
+    cols = output_columns("ixc_height")
+    paths = {
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
+    }
+    write_classifier_outputs(
+        [row],
+        columns=cols,
+        canonical_path=str(paths["canonical"]),
+        stale_path=str(paths["stale"]),
+        unknown_path=str(paths["unknown"]),
+        validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
+    )
+
+    with open(paths["error_block"], newline="") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == [*cols, "rules_violated"]
+        written = list(reader)
+    assert [r["rules_violated"] for r in written] == [row["rules_violated"]]
+    for peer in ("canonical", "stale", "unknown", "validated"):
+        with open(paths[peer], newline="") as f:
+            assert csv.DictReader(f).fieldnames == cols

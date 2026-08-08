@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from stale_blocks_analysis import stale_blocks
+from stale_blocks_analysis.btc_nbits_validation import NBITS_MISMATCH_PREFIX
+from stale_blocks_analysis.btc_stale_validation import PLACEMENT_REJECTION
 from stale_blocks_analysis.config import BIP66_HEIGHT
 
 
@@ -177,6 +179,31 @@ def test_hathor_phase_c_enforces_historical_minimum_block_version() -> None:
     )
 
 
+def test_hathor_phase_b_verdicts_mirror_the_shared_vocabulary() -> None:
+    """Phase B duplicates the shared verdict strings; Phase C accepts both.
+
+    Phase B is import-free by design, so its verdict literals are copies that
+    can drift. Pin them against the named originals, and pin Phase C's
+    normalization of the pre-rename tokens archived intermediates still carry.
+    """
+    assert hathor_phase_b.PLACEMENT_REJECTION == PLACEMENT_REJECTION
+    assert hathor_phase_b.NBITS_MISMATCH_PREFIX == NBITS_MISMATCH_PREFIX
+    assert hathor_phase_b.PARENT_CONTEXT_UNKNOWN.startswith("UNKNOWN:")
+
+    scriptsig = (b"\x03" + (700_000).to_bytes(3, "little")).hex()
+    legacy = {"btc_parent_height": "699999"}
+
+    assert hathor_phase_c.resolved_height_and_status(
+        {**legacy, "validation_status": "PARENT_NOT_CANONICAL"}, scriptsig
+    ) == (700_000, PLACEMENT_REJECTION)
+    assert hathor_phase_c.resolved_height_and_status(
+        {**legacy, "validation_status": "NBITS_MISMATCH"}, scriptsig
+    ) == (700_000, NBITS_MISMATCH_PREFIX)
+    assert hathor_phase_c.resolved_height_and_status(
+        {**legacy, "validation_status": "PARENT_CONTEXT_UNAVAILABLE"}, scriptsig
+    ) == ("", hathor_phase_b.PARENT_CONTEXT_UNKNOWN)
+
+
 def test_hathor_phase_b_rejects_malformed_reconstructed_header() -> None:
     row = {
         "btc_header_hex": "00",
@@ -219,7 +246,7 @@ def test_hathor_phase_b_rpc_mismatch_cannot_validate_stale() -> None:
 
     assert hathor_phase_b.validate_stale(
         {"btc_prev_hash": parent_hash, "btc_bits": "170fffff"}, FakeRPC()
-    ) == (699_999, 899, "", "PARENT_CONTEXT_UNAVAILABLE")
+    ) == (699_999, 899, "", hathor_phase_b.PARENT_CONTEXT_UNKNOWN)
 
 
 def test_hathor_phase_b_preserves_output_on_worker_failure(
@@ -331,7 +358,7 @@ def test_hathor_phase_b_preserves_output_on_unavailable_validation(
     unavailable_row.update(
         {
             "classification": "stale",
-            "validation_status": "PARENT_CONTEXT_UNAVAILABLE",
+            "validation_status": hathor_phase_b.PARENT_CONTEXT_UNKNOWN,
         }
     )
     monkeypatch.setattr(hathor_phase_b, "BitcoinRPC", ProbeOnlyRPC)
@@ -397,6 +424,8 @@ def test_hathor_phase_c_preserves_output_on_unavailable_validation(
         {
             "classification": "stale",
             "full_coinbase_hex": "00",
+            # Deliberately the pre-rename token: an archived Phase B
+            # intermediate must still abort the run, not slip through.
             "validation_status": "PARENT_CONTEXT_UNAVAILABLE",
         }
     )

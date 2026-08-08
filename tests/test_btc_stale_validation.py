@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from stale_blocks_analysis.btc_stale_validation import (
+    MTP_RULE,
+    NBITS_RETARGET_RULE,
+    RETARGET_INTERVAL,
     bip34_height_error,
     block_version_error,
     coinbase_scriptsig_length_error,
+    consensus_violations,
+    expected_length_rule,
+    expected_version_rule,
     median_time_past_error,
     stale_header_context_error,
     validate_stale_header_context,
@@ -449,3 +455,210 @@ def test_verified_non_active_parent_is_rejected():
         ),
     )
     assert stale["validation_status"].startswith("REJECTED:")
+
+
+# --- consensus_violations: the error-block decision ------------------------
+#
+# A row with a non-empty result is an error block. These pin the boundary the
+# decision has to hold: a broken consensus rule counts, unusable evidence does
+# not, and a block that breaks several rules reports all of them.
+
+
+def _clean_row(height: int, version: int = 4) -> dict[str, str]:
+    return {
+        "coinbase_scriptsig_hex": _scriptsig(height),
+        "btc_header_hex": _header(version),
+        "btc_time": "1500000000",
+    }
+
+
+def test_consensus_violations_is_empty_for_a_row_that_breaks_nothing():
+    assert consensus_violations(_clean_row(BIP65_HEIGHT), BIP65_HEIGHT) == []
+
+
+def test_consensus_violations_names_the_version_rule_of_the_era():
+    for height, expected in (
+        (BIP34_HEIGHT, "bip34_block_version_below_2"),
+        (BIP66_HEIGHT, "bip66_block_version_below_3"),
+        (BIP65_HEIGHT, "bip65_block_version_below_4"),
+    ):
+        row = _clean_row(height, version=1)
+        assert consensus_violations(row, height) == [expected]
+        assert expected_version_rule(height) == expected
+
+
+def test_consensus_violations_names_both_scriptsig_length_rules():
+    # Below the BIP34 transition only the length rule can fire, so these
+    # isolate it from the version and coinbase-height gates.
+    low = BIP34_VERSION_2_HEIGHT - 1000
+    over = {**_clean_row(low), "coinbase_scriptsig_hex": "ab" * 101}
+    under = {**_clean_row(low), "coinbase_scriptsig_hex": "ab"}
+    assert consensus_violations(over, low) == ["coinbase_scriptsig_length_above_100"]
+    assert consensus_violations(under, low) == ["coinbase_scriptsig_length_below_2"]
+
+
+def test_consensus_violations_distinguishes_the_bip34_token_by_era():
+    # Version 2 or newer from BIP34_VERSION_2_HEIGHT, then every block from
+    # BIP34_HEIGHT -- the two stages carry different tokens.
+    early = BIP34_VERSION_2_HEIGHT + 10
+    early_row = {
+        **_clean_row(early, version=2),
+        "coinbase_scriptsig_hex": _scriptsig(early + 1),
+    }
+    assert consensus_violations(early_row, early) == [
+        "bip34_v2_coinbase_height_mismatch"
+    ]
+
+    late = BIP34_HEIGHT + 10
+    late_row = {
+        **_clean_row(late, version=2),
+        "coinbase_scriptsig_hex": _scriptsig(late + 1),
+    }
+    assert consensus_violations(late_row, late) == ["bip34_coinbase_height_mismatch"]
+
+
+def test_consensus_violations_evaluates_median_time_past_only_when_supplied():
+    height = BIP65_HEIGHT
+    row = {**_clean_row(height), "btc_time": "1500000000"}
+
+    # Not evaluated without the parent's value: it is not a row column.
+    assert consensus_violations(row, height) == []
+    # Timestamp at or below the parent's median-time-past breaks the rule.
+    assert consensus_violations(row, height, parent_median_time_past=1500000000) == [
+        MTP_RULE
+    ]
+    # Above it, no violation.
+    assert consensus_violations(row, height, parent_median_time_past=1499999999) == []
+
+
+def test_consensus_violations_ignores_unusable_evidence():
+    """Missing or malformed evidence proves nothing, so it yields no rule.
+
+    This is the boundary that keeps the classifier from labelling a block an
+    error block on the strength of a rejection that only means "we could not
+    tell". RSK rows in particular never expose the parent coinbase.
+    """
+    height = BIP65_HEIGHT
+    for row in (
+        {**_clean_row(height), "coinbase_scriptsig_hex": ""},
+        {**_clean_row(height), "coinbase_scriptsig_hex": "not-hex"},
+        {**_clean_row(height), "btc_header_hex": ""},
+        {**_clean_row(height), "btc_header_hex": "beef"},
+        {**_clean_row(height), "btc_bip34_height": "not-a-number"},
+    ):
+        assert consensus_violations(row, height) == []
+
+
+def test_consensus_violations_reports_every_broken_rule_in_gate_order():
+    """Unlike the first-failure-wins gate, all violations are reported.
+
+    The published ``rules_violated`` records the full set and the validator
+    fails a row that omits a real one, so a single-string verdict is not
+    enough. Order is the gate's own precedence, making the first element the
+    primary rejection reason.
+    """
+    height = BIP65_HEIGHT
+    row = {
+        "btc_header_hex": _header(1),
+        "coinbase_scriptsig_hex": "ab" * 101,
+        "btc_time": "1500000000",
+    }
+    assert consensus_violations(row, height, parent_median_time_past=1500000000) == [
+        MTP_RULE,
+        "bip65_block_version_below_4",
+        "coinbase_scriptsig_length_above_100",
+    ]
+
+
+def test_version_violation_suppresses_the_coinbase_height_rule():
+    """A too-low version is rejected before the coinbase prefix is examined.
+
+    So a version-1 header's real violation is the version, and reporting a
+    coinbase-height rule alongside it would claim a violation the gate never
+    actually evaluated.
+    """
+    height = BIP34_HEIGHT + 10
+    row = {
+        **_clean_row(height, version=1),
+        "coinbase_scriptsig_hex": _scriptsig(height + 1),
+    }
+    rules = consensus_violations(row, height)
+    assert rules == ["bip34_block_version_below_2"]
+    assert not any(r.endswith("coinbase_height_mismatch") for r in rules)
+
+
+def test_expected_length_rule_returns_none_without_usable_scriptsig():
+    assert expected_length_rule({"coinbase_scriptsig_hex": ""}) is None
+    assert expected_length_rule({"coinbase_scriptsig_hex": "zz"}) is None
+    assert expected_length_rule({"coinbase_scriptsig_hex": "ab" * 50}) is None
+
+
+def test_consensus_violations_detects_an_unapplied_retarget():
+    """The epoch-boundary case: full proof of work, but the old difficulty.
+
+    Distinct from a mid-epoch nBits mismatch, which is the contamination
+    gate's target class (a foreign-chain parent) and never an error block.
+    """
+    height = 717696
+    table = {height: 0x170944DD, height - RETARGET_INTERVAL: 0x1709C11E}
+    row = {**_clean_row(height), "btc_bits": "1709c11e"}
+
+    # Not evaluated without the reference table.
+    assert consensus_violations(row, height) == []
+    assert consensus_violations(row, height, nbits_by_epoch=table) == [
+        NBITS_RETARGET_RULE
+    ]
+
+    # Correct newly-retargeted bits: no violation.
+    applied = {**row, "btc_bits": "170944dd"}
+    assert consensus_violations(applied, height, nbits_by_epoch=table) == []
+
+    # Mid-epoch the rule cannot apply at all: identical bits, no violation.
+    mid = height + 1
+    mid_row = {**_clean_row(mid), "btc_bits": "1709c11e"}
+    assert consensus_violations(mid_row, mid, nbits_by_epoch=table) == []
+
+
+def test_retarget_check_fails_closed_when_it_cannot_be_evaluated():
+    row = {**_clean_row(717696), "btc_bits": "1709c11e"}
+    try:
+        consensus_violations(row, 717696, nbits_by_epoch={})
+    except ValueError as exc:
+        assert "cannot re-derive" in str(exc)
+    else:  # pragma: no cover - the call must raise
+        raise AssertionError("an unevaluable retarget claim must not pass silently")
+
+
+def test_consensus_violations_names_a_coinbase_with_no_height_at_all():
+    """A well-formed coinbase carrying no height push is its own violation.
+
+    Distinct from a mismatch, where a height is present but wrong. Both are
+    proven by the committed bytes once BIP34 makes the prefix mandatory, so
+    both need a name -- an unnamed violation cannot be recorded or re-derived.
+    """
+    height = BIP34_HEIGHT + 10
+    # A valid 2..100 byte scriptSig with no decodable height push.
+    row = {**_clean_row(height, version=2), "coinbase_scriptsig_hex": b"pooldata".hex()}
+    assert consensus_violations(row, height) == ["bip34_coinbase_height_missing"]
+
+    early = BIP34_VERSION_2_HEIGHT + 10
+    early_row = {
+        **_clean_row(early, version=2),
+        "coinbase_scriptsig_hex": b"pooldata".hex(),
+    }
+    assert consensus_violations(early_row, early) == [
+        "bip34_v2_coinbase_height_missing"
+    ]
+
+
+def test_missing_and_mismatched_coinbase_height_are_not_the_same_rule():
+    height = BIP34_HEIGHT + 10
+    wrong = {
+        **_clean_row(height, version=2),
+        "coinbase_scriptsig_hex": _scriptsig(height + 1),
+    }
+    absent = {
+        **_clean_row(height, version=2),
+        "coinbase_scriptsig_hex": b"pooldata".hex(),
+    }
+    assert consensus_violations(wrong, height) != consensus_violations(absent, height)

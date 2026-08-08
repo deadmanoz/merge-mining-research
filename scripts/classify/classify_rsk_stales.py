@@ -16,11 +16,19 @@ scripts/extract/extract_rsk_auxpow.py. Four passes:
      active parent's median-time-past, require btc_bits to match the canonical
      block at the inferred height, and enforce Bitcoin's historical minimum
      header version. RSK's compressed proof does not expose the coinbase fields
-     needed for the scriptSig-length or BIP34-prefix checks.
+     needed for the scriptSig-length or BIP34-prefix checks. Rejected rows are
+     then handed to the shared `route_rejected_stale_rows`, which re-derives
+     the broken rules from each row's own bytes: a proven consensus violation
+     becomes an `error_block`, and a contamination (nBits) rejection becomes an
+     `unknown`.
 
-The full parallel-schema `rsk_stale_blocks.csv` preserves every stale row,
-including rejected candidates, plus the unknown inventory. The normalized
-VALID-only `rsk_validated_stales.csv` applies the exact-key exclusion overlay.
+The full parallel-schema `rsk_stale_blocks.csv` preserves every row that is
+still a stale, including gate rejections whose evidence proves nothing, plus
+the unknown inventory (Phase 3 unknowns and rows the routing moved there).
+Consensus-invalid full-proof-of-work headers go to the sibling
+`rsk_error_blocks.csv` instead, so they are neither published as stales nor
+counted as stales in the summary. The normalized VALID-only
+`rsk_validated_stales.csv` applies the exact-key exclusion overlay.
 RSK loses the coinbase scriptSig and outputs to its midstate-compressed proof,
 so the standard Namecoin-family evidence schema is necessarily sparse. The
 classifier retains `rsk_miner` and joins labels only from the committed
@@ -42,8 +50,12 @@ from stale_blocks_analysis.btc_classify import (
     _header_result,
     _is_active_chain_header,
     _ordered_batch_responses,
+    RULES_VIOLATED_COLUMN,
+    derive_split_paths,
     normalize_bits_hex,
+    route_rejected_stale_rows,
 )
+from stale_blocks_analysis.btc_nbits_validation import NBITS_MISMATCH_PREFIX
 from stale_blocks_analysis.btc_stale_validation import (
     block_version_error,
     median_time_past_error,
@@ -81,6 +93,13 @@ OUT_COLS = [
     "validation_status",
     "expected_nbits",
 ]
+
+# The error-block sibling carries the standard row plus the pipe-joined rule
+# set the routing derived, matching the shared writer and Hathor phase C. It is
+# the evidence for the error-block claim, and ``validation_status`` alone does
+# not carry it: RSK's rejections are worded for the gate that fired, not for
+# the rule that decided the routing.
+ERROR_BLOCK_COLS = [*OUT_COLS, RULES_VIOLATED_COLUMN]
 
 VALIDATED_COLS = [
     "btc_height",
@@ -124,6 +143,14 @@ def parse_args(argv: list[str] | None = None):
         help="normalized VALID-only direct-stale loader input",
     )
     parser.add_argument(
+        "--error-blocks-out",
+        default=None,
+        help=(
+            "consensus-invalid full-proof-of-work output CSV "
+            "(default: the _error_blocks sibling of --stales-out)"
+        ),
+    )
+    parser.add_argument(
         "--pool-registry",
         default=DEFAULT_POOL_REGISTRY,
         help="committed historical RSK miner-label snapshot",
@@ -140,6 +167,35 @@ def parse_args(argv: list[str] | None = None):
 def ensure_parent(path: str) -> None:
     """Create the parent directory of ``path`` if it does not already exist."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+
+def validate_distinct_paths(args, error_blocks_out: str) -> None:
+    """Refuse to run when any two input/output paths resolve to the same file.
+
+    The four outputs are written in sequence, so an aliased pair fails silently
+    and destructively: the later writer truncates an artifact the run has just
+    finished. Pointing ``--error-blocks-out`` at ``--stales-out`` would leave
+    only the error blocks; pointing it at ``--validated-out`` would erase it.
+
+    This mirrors ``_validate_distinct_paths`` in
+    ``classify_auxpow_candidates.py``. That one is not reused: its parameters
+    are positional over that script's own artifact set and it derives that
+    script's publication split, neither of which describes RSK's outputs.
+    """
+    labelled = {
+        "input": Path(args.input).resolve(),
+        "pool registry": Path(args.pool_registry).resolve(),
+        "stale/unknown inventory output": Path(args.stales_out).resolve(),
+        "validated-stale output": Path(args.validated_out).resolve(),
+        "error-block output": Path(error_blocks_out).resolve(),
+        "summary output": Path(args.summary_out).resolve(),
+    }
+    seen: dict[Path, str] = {}
+    for label, path in labelled.items():
+        previous = seen.get(path)
+        if previous is not None:
+            raise ValueError(f"{label} aliases {previous}: {path}")
+        seen[path] = label
 
 
 def bits_to_target(bits_hex: str) -> int:
@@ -318,7 +374,14 @@ def stale_validation_error(
     expected_nbits: str,
     parent_median_time_past: int,
 ) -> str | None:
-    """Return an MTP, version, or nBits rejection reason."""
+    """Return an MTP, version, or nBits rejection reason.
+
+    The three verdict strings are the shared vocabulary the rest of the
+    pipeline routes on: the MTP and version reasons come straight from the
+    shared gate functions, and the nBits reason carries the shared
+    ``NBITS_MISMATCH_PREFIX`` so ``route_rejected_stale_rows`` recognises it as
+    the contamination verdict rather than a judgement on the block.
+    """
     mtp_error = median_time_past_error(row, parent_median_time_past)
     if mtp_error is not None:
         return mtp_error
@@ -328,15 +391,78 @@ def stale_validation_error(
     ours = row["btc_bits"].lower()
     expected = expected_nbits.lower()
     if not expected or expected != ours:
-        return (
-            f"REJECTED: nBits mismatch (got {ours}, expected {expected or 'unknown'})"
-        )
+        return f"{NBITS_MISMATCH_PREFIX} (got {ours}, expected {expected or 'unknown'})"
     return None
+
+
+GatedRows = tuple[
+    list[tuple[int, dict[str, str]]],
+    list[tuple[int, dict[str, str]]],
+    list[tuple[int, dict[str, str]]],
+    list[tuple[int, dict[str, str]]],
+]
+
+
+def gate_and_route(
+    stales_with_height: list[tuple[int, dict[str, str], int]],
+    canon_bits_at: dict[int, str],
+) -> GatedRows:
+    """Apply the publication gate, then route the rejections by what they mean.
+
+    Returns ``(verified, stale_rows, error_blocks, rerouted_unknowns)``, where
+    ``verified`` is the VALID subset of ``stale_rows``. Rows are mutated in
+    place, gaining ``classification``, ``validation_status``, and
+    ``expected_nbits``.
+
+    The router re-derives the broken consensus rules from each row's own bytes
+    rather than reading the verdict string, so a rejection whose evidence was
+    merely unusable produces no rules and the row stays a stale. For RSK only
+    the median-time-past, block-version, and epoch-retarget rules can ever
+    fire: the midstate-compressed proof carries no parent coinbase, so the
+    coinbase scriptSig-length and BIP34-height rules have nothing to evaluate
+    and never contribute a violation.
+    """
+    gated: list[tuple[int, dict[str, str]]] = []
+    for height, row, parent_median_time_past in stales_with_height:
+        expected = canon_bits_at.get(height, "").lower()
+        row["expected_nbits"] = expected
+        row["classification"] = "stale"
+        # Internal keys the shared router needs and this pass already holds:
+        # the authoritative prev+1 height and the canonical parent's
+        # median-time-past. row_to_out/validated_row build their output dicts
+        # field by field, so neither key can leak into a CSV.
+        row["btc_height"] = str(height)
+        row["_parent_median_time_past"] = parent_median_time_past
+        error = stale_validation_error(
+            row,
+            height,
+            expected,
+            parent_median_time_past,
+        )
+        row["validation_status"] = "VALID" if error is None else error
+        gated.append((height, row))
+
+    route_rejected_stale_rows([row for _, row in gated])
+
+    def bucket(name: str) -> list[tuple[int, dict[str, str]]]:
+        return [(height, row) for height, row in gated if row["classification"] == name]
+
+    stale_rows = bucket("stale")
+    verified = [
+        (height, row)
+        for height, row in stale_rows
+        if row["validation_status"] == "VALID"
+    ]
+    return verified, stale_rows, bucket("error_block"), bucket("unknown")
 
 
 def main():
     """Run the four-pass RSK classifier and write CSV and summary outputs."""
     args = parse_args()
+    # Resolve the derived error-block path and check every path for aliasing
+    # before any RPC work happens or any output is opened.
+    error_blocks_out = args.error_blocks_out or derive_split_paths(args.stales_out)[2]
+    validate_distinct_paths(args, error_blocks_out)
     bitcoin_rpc = rpc_from_args(args)
     real_pow_rows = []
     total = 0
@@ -503,26 +629,21 @@ def main():
                     f"canonical header {canonical_block_hash} lacks valid bits"
                 ) from exc
 
-    verified = []
-    rejected = []
-    for height, row, parent_median_time_past in stales_with_height:
-        expected = canon_bits_at.get(height, "").lower()
-        row["expected_nbits"] = expected
-        error = stale_validation_error(
-            row,
-            height,
-            expected,
-            parent_median_time_past,
-        )
-        if error is None:
-            row["validation_status"] = "VALID"
-            verified.append((height, row))
-        else:
-            row["validation_status"] = error
-            rejected.append((height, row, error))
+    verified, stale_rows, error_blocks, rerouted_unknowns = gate_and_route(
+        stales_with_height, canon_bits_at
+    )
+    rejected_stales = len(stale_rows) - len(verified)
     print(f"  publication-gate accepted stales: {len(verified):,}", file=sys.stderr)
     print(
-        f"  rejected (MTP/nBits/version): {len(rejected):,}",
+        f"  rejected, still stale (unusable evidence): {rejected_stales:,}",
+        file=sys.stderr,
+    )
+    print(
+        f"  error blocks (proven consensus violation): {len(error_blocks):,}",
+        file=sys.stderr,
+    )
+    print(
+        f"  re-routed to unknown (contamination/placement): {len(rerouted_unknowns):,}",
         file=sys.stderr,
     )
 
@@ -533,18 +654,17 @@ def main():
     pool_labels = load_pool_labels(args.pool_registry)
     public_rows = build_validated_rows(verified, pool_labels, excluded)
 
-    # Full classified output retains every stale-labelled row, including gate
-    # rejections, plus the unknown inventory. The normalized public loader input
-    # contains only VALID direct stales after the exact-key exclusion overlay.
+    # Full classified output retains every row that is still a stale, including
+    # gate rejections whose evidence proved nothing, plus the unknown inventory
+    # (Phase 3 unknowns and rows the routing moved there). Error blocks go to
+    # their own sibling file. The normalized public loader input contains only
+    # VALID direct stales after the exact-key exclusion overlay.
     print("\n=== Writing outputs ===", file=sys.stderr)
     ensure_parent(args.stales_out)
     with open(args.stales_out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=OUT_COLS)
         w.writeheader()
-        classified_stales = [(h, row) for h, row in verified] + [
-            (h, row) for h, row, _ in rejected
-        ]
-        for h, row in sorted(classified_stales, key=lambda x: x[0]):
+        for h, row in sorted(stale_rows, key=lambda x: x[0]):
             w.writerow(
                 row_to_out(
                     row,
@@ -554,8 +674,35 @@ def main():
                     expected_nbits=row["expected_nbits"],
                 )
             )
-        for row in sorted(unknowns, key=lambda r: int(r["rsk_height"])):
-            w.writerow(row_to_out(row, "unknown"))
+        # Re-routed rows keep their inferred height but drop the stale-gate
+        # annotations, matching the shared writer: their state is final on the
+        # primary axis, so a stale verdict would be misleading.
+        unknown_out: list[tuple[dict[str, str], int | str]] = [
+            (row, "") for row in unknowns
+        ] + [(row, h) for h, row in rerouted_unknowns]
+        for row, h in sorted(unknown_out, key=lambda x: int(x[0]["rsk_height"])):
+            w.writerow(row_to_out(row, "unknown", btc_stale_height=h))
+
+    ensure_parent(error_blocks_out)
+    with open(error_blocks_out, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=ERROR_BLOCK_COLS)
+        w.writeheader()
+        for h, row in sorted(error_blocks, key=lambda x: x[0]):
+            w.writerow(
+                {
+                    **row_to_out(
+                        row,
+                        "error_block",
+                        btc_stale_height=h,
+                        validation_status=row["validation_status"],
+                        expected_nbits=row["expected_nbits"],
+                    ),
+                    # The router stashes this on every row it routes here, so
+                    # a KeyError would mean the contract broke -- better than
+                    # publishing the claim with its evidence blank.
+                    RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN],
+                }
+            )
 
     ensure_parent(args.validated_out)
     with open(args.validated_out, "w", newline="") as f:
@@ -563,6 +710,7 @@ def main():
         writer.writeheader()
         writer.writerows(public_rows)
 
+    total_unknown_rows = len(unknowns) + len(rerouted_unknowns)
     ensure_parent(args.summary_out)
     with open(args.summary_out, "w") as f:
         f.write("RSK merge-mining classification summary\n")
@@ -576,20 +724,27 @@ def main():
         f.write(f"  Stale candidates:              {len(candidates):>12,}\n")
         f.write(f"    With canonical parent:       {len(stales_with_height):>12,}\n")
         f.write(f"      Gate-accepted candidates:  {len(verified):>12,}\n")
-        f.write(f"      Rejected (MTP/nBits/version): {len(rejected):>9,}\n")
+        f.write(f"      Rejected, still stale:     {rejected_stales:>12,}\n")
+        f.write(f"      Error blocks:              {len(error_blocks):>12,}\n")
+        f.write(f"      Re-routed to unknown:      {len(rerouted_unknowns):>12,}\n")
         f.write(f"    Unknowns (no canonical parent): {len(unknowns):>10,}\n")
         f.write(
             f"\nOutput rows in rsk_stale_blocks.csv: "
-            f"{len(stales_with_height) + len(unknowns):,} "
-            f"({len(stales_with_height):,} stale + {len(unknowns):,} unknown)\n"
+            f"{len(stale_rows) + total_unknown_rows:,} "
+            f"({len(stale_rows):,} stale + {total_unknown_rows:,} unknown)\n"
         )
+        f.write(f"Error-block rows in rsk_error_blocks.csv: {len(error_blocks):,}\n")
         f.write(
             f"VALID direct-stale rows after exclusion overlay: {len(public_rows):,}\n"
         )
-    print(f"\n✓ Outputs:", file=sys.stderr)
+    print("\n✓ Outputs:", file=sys.stderr)
     print(
-        f"  {args.stales_out}  ({len(stales_with_height) + len(unknowns):,} rows: "
-        f"{len(stales_with_height):,} stale + {len(unknowns):,} unknown)",
+        f"  {args.stales_out}  ({len(stale_rows) + total_unknown_rows:,} rows: "
+        f"{len(stale_rows):,} stale + {total_unknown_rows:,} unknown)",
+        file=sys.stderr,
+    )
+    print(
+        f"  {error_blocks_out}  ({len(error_blocks):,} error blocks)",
         file=sys.stderr,
     )
     print(
