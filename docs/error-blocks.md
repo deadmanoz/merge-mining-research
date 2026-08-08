@@ -227,7 +227,12 @@ because one row can satisfy several of them and the weakest claim has to win
    really is a Bitcoin consensus violation;
 3. only then does a proven consensus violation make the row
    `classification=error_block`, written to the `data/<chain>_error_blocks.csv`
-   sibling of the stale inventory (gitignored, like its four bucket peers);
+   sibling of the stale inventory (gitignored, like its four bucket peers). That
+   file carries its peers' columns plus the pipe-joined `rules_violated`, the
+   full derived rule set: the rules are the evidence for the claim, and
+   `validation_status` names only the gate that fired first, which for
+   `nbits_retarget_not_applied` is a generic `nBits` mismatch. The four peers,
+   including the `*_validated_stales.csv` loader input, keep their schema;
 4. a rejection whose evidence proves nothing stays a rejected stale, as does
    one where the canonical `nBits` was never recorded, since nothing then shows
    the header is Bitcoin's at that height.

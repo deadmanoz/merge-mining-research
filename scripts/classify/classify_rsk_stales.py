@@ -50,6 +50,7 @@ from stale_blocks_analysis.btc_classify import (
     _header_result,
     _is_active_chain_header,
     _ordered_batch_responses,
+    RULES_VIOLATED_COLUMN,
     derive_split_paths,
     normalize_bits_hex,
     route_rejected_stale_rows,
@@ -92,6 +93,13 @@ OUT_COLS = [
     "validation_status",
     "expected_nbits",
 ]
+
+# The error-block sibling carries the standard row plus the pipe-joined rule
+# set the routing derived, matching the shared writer and Hathor phase C. It is
+# the evidence for the error-block claim, and ``validation_status`` alone does
+# not carry it: RSK's rejections are worded for the gate that fired, not for
+# the rule that decided the routing.
+ERROR_BLOCK_COLS = [*OUT_COLS, RULES_VIOLATED_COLUMN]
 
 VALIDATED_COLS = [
     "btc_height",
@@ -677,17 +685,23 @@ def main():
 
     ensure_parent(error_blocks_out)
     with open(error_blocks_out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=OUT_COLS)
+        w = csv.DictWriter(f, fieldnames=ERROR_BLOCK_COLS)
         w.writeheader()
         for h, row in sorted(error_blocks, key=lambda x: x[0]):
             w.writerow(
-                row_to_out(
-                    row,
-                    "error_block",
-                    btc_stale_height=h,
-                    validation_status=row["validation_status"],
-                    expected_nbits=row["expected_nbits"],
-                )
+                {
+                    **row_to_out(
+                        row,
+                        "error_block",
+                        btc_stale_height=h,
+                        validation_status=row["validation_status"],
+                        expected_nbits=row["expected_nbits"],
+                    ),
+                    # The router stashes this on every row it routes here, so
+                    # a KeyError would mean the contract broke -- better than
+                    # publishing the claim with its evidence blank.
+                    RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN],
+                }
             )
 
     ensure_parent(args.validated_out)

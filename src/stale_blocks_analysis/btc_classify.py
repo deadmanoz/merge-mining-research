@@ -163,6 +163,15 @@ _CHILD_OUTPUT_COLUMNS = [
     "child_nbits",
 ]
 
+# The pipe-joined set of consensus rules a row's own bytes prove it violated.
+# It exists only on the error-block artifact: it is the evidence for that
+# classification, and no other bucket has a claim to record. The name and the
+# ``|`` separator are the import contract ``scripts/prep/build_error_blocks.py``
+# honors verbatim, and the ones the other two producers
+# (``classify_hathor_phase_c.py`` and ``reconcile_unknown_stale_ancestry.py``)
+# already emit, so all three agree.
+RULES_VIOLATED_COLUMN = "rules_violated"
+
 
 def output_columns(height_col: str) -> list[str]:
     """Build the OUTPUT_COLUMNS list for a chain.
@@ -551,6 +560,14 @@ def route_rejected_stale_rows(
     and stays put. (Those normally surface as UNKNOWN and abort the run; this
     keeps the classification honest if one ever does not.)
 
+    A row routed to ``error_block`` keeps the full rule set on
+    ``RULES_VIOLATED_COLUMN``, pipe-joined, for the error-block writer to
+    publish. Without it the artifact would assert a consensus violation while
+    recording only ``validation_status``, which names the ONE gate that fired
+    first and can name a different thing entirely: an unapplied retarget is
+    routed on ``nbits_retarget_not_applied`` but rejected as a generic nBits
+    mismatch, and a header breaking several rules keeps only the primary one.
+
     ``nbits_by_epoch`` is the committed retarget-epoch reference table, loaded
     once per call when the caller does not already hold it. It is only read for
     a row whose routing actually consults it: a placement rejection is settled
@@ -589,6 +606,10 @@ def route_rejected_stale_rows(
         route = rejection_route(row, rules, status=status)
         if route is not None:
             row["classification"] = route
+            if route == "error_block":
+                # ``rejection_route`` only returns ``error_block`` when
+                # ``rules`` is non-empty, so this is never a blank claim.
+                row[RULES_VIOLATED_COLUMN] = "|".join(rules)
 
 
 def _derive_tag_path(stale_path: str, tag: str) -> str:
@@ -673,7 +694,18 @@ def write_classifier_outputs(
     error_block_path: str,
 ) -> dict[str, int]:
     """Partition classified rows by ``classification`` and write the five
-    bucket-split output files, each on the same ``columns`` schema.
+    bucket-split output files.
+
+    Four of them are written on the caller's ``columns`` schema unchanged. The
+    error-block file alone gets ``RULES_VIOLATED_COLUMN`` appended, because it
+    is the only bucket that asserts a consensus violation and the rule set is
+    the evidence for that assertion. The extra column is appended to whatever
+    the caller supplied rather than to a fixed base, so a per-chain column
+    (coiledcoin's ``eligius_attack_window``) is carried into the error-block
+    file too. Its four peers keep their exact schema -- including
+    ``validated``, the committed ``*_validated_stales.csv`` loader input, whose
+    column contract the ``stale_blocks.py`` loaders and the monitor importer
+    read.
 
     ``canonical`` / ``stale`` / ``unknown`` are partitioned on the primary
     ``classification`` -- never on ``validation_status``. Canonical and
@@ -737,11 +769,17 @@ def write_classifier_outputs(
         bucket.append(output_row)
     validated = [s for s in buckets["stale"] if s.get("validation_status") == "VALID"]
 
+    error_block_columns = list(columns)
+    if RULES_VIOLATED_COLUMN not in error_block_columns:
+        error_block_columns.append(RULES_VIOLATED_COLUMN)
+
     _write_split_file(canonical_path, buckets["canonical"], columns=columns)
     _write_split_file(stale_path, buckets["stale"], columns=columns)
     _write_split_file(unknown_path, buckets["unknown"], columns=columns)
     _write_split_file(validated_path, validated, columns=columns)
-    _write_split_file(error_block_path, buckets["error_block"], columns=columns)
+    _write_split_file(
+        error_block_path, buckets["error_block"], columns=error_block_columns
+    )
 
     return {
         "canonical": len(buckets["canonical"]),

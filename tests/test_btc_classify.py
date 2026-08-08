@@ -1010,16 +1010,18 @@ def test_write_classifier_outputs_splits_by_bucket_and_validated(tmp_path):
         error_block_path=str(paths["error_block"]),
     )
 
-    def read(p):
+    def read(p, expected_cols=cols):
         with open(p, newline="") as f:
             r = csv.DictReader(f)
-            assert r.fieldnames == cols  # identical schema across all five files
+            assert r.fieldnames == expected_cols
             return list(r)
 
-    canon, stale, unknown, validated, error_blocks = (
-        read(paths[k])
-        for k in ("canonical", "stale", "unknown", "validated", "error_block")
+    canon, stale, unknown, validated = (
+        read(paths[k]) for k in ("canonical", "stale", "unknown", "validated")
     )
+    # The four published buckets share one schema; only the error-block file
+    # carries the rule set that justifies its claim.
+    error_blocks = read(paths["error_block"], [*cols, "rules_violated"])
     assert error_blocks == []
 
     # Each file is bucket-pure (no commingling).
@@ -1320,3 +1322,62 @@ def test_route_rejected_stale_rows_denies_the_retarget_exception_to_a_share():
     route_rejected_stale_rows([share], nbits_by_epoch=epoch_table)
 
     assert share["classification"] == "unknown"
+
+
+def test_an_error_block_publishes_the_rules_that_justified_it(tmp_path):
+    """The error-block file records the evidence for its own claim.
+
+    ``validation_status`` names the ONE gate that fired first, and here that is
+    a generic nBits mismatch: it never says ``nbits_retarget_not_applied``, the
+    rule the routing actually turned on, and it says nothing about the second
+    rule the same bytes break. Publishing the row without the rule set would
+    assert a consensus violation and withhold every reason for it.
+
+    The column rides on the error-block bucket alone. Its four peers -- among
+    them the committed ``*_validated_stales.csv`` loader input -- keep the
+    caller's schema exactly.
+    """
+    epoch_start = 229_824  # a retarget boundary
+    epoch_table = {epoch_start: OTHER_EASY_BITS, epoch_start - 2016: REGTEST_BITS}
+    # Commits the correct BIP34 height (so that rule stays clean) while running
+    # past Bitcoin's 100-byte coinbase scriptSig limit.
+    oversized = (b"\x03" + epoch_start.to_bytes(3, "little") + b"p" * 97).hex()
+    row = _rejected_row(
+        f"{NBITS_MISMATCH_PREFIX} "
+        f"(got {REGTEST_BITS:08x}, expected {OTHER_EASY_BITS:08x})",
+        height=epoch_start,
+        expected_nbits=f"{OTHER_EASY_BITS:08x}",
+        scriptsig=oversized,
+    )
+
+    route_rejected_stale_rows([row], nbits_by_epoch=epoch_table)
+
+    assert row["classification"] == "error_block"
+    assert row["rules_violated"] == (
+        "nbits_retarget_not_applied|coinbase_scriptsig_length_above_100"
+    )
+    assert "nbits_retarget_not_applied" not in row["validation_status"]
+
+    cols = output_columns("ixc_height")
+    paths = {
+        k: tmp_path / f"{k}.csv"
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
+    }
+    write_classifier_outputs(
+        [row],
+        columns=cols,
+        canonical_path=str(paths["canonical"]),
+        stale_path=str(paths["stale"]),
+        unknown_path=str(paths["unknown"]),
+        validated_path=str(paths["validated"]),
+        error_block_path=str(paths["error_block"]),
+    )
+
+    with open(paths["error_block"], newline="") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == [*cols, "rules_violated"]
+        written = list(reader)
+    assert [r["rules_violated"] for r in written] == [row["rules_violated"]]
+    for peer in ("canonical", "stale", "unknown", "validated"):
+        with open(paths[peer], newline="") as f:
+            assert csv.DictReader(f).fieldnames == cols

@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.btc_rpc import BtcRpc  # noqa: E402
 from stale_blocks_analysis.btc_classify import (  # noqa: E402
+    RULES_VIOLATED_COLUMN,
     derive_split_paths,
     route_rejected_stale_rows,
 )
@@ -310,6 +311,11 @@ OUTPUT_FIELDS = [
     "validation_status",
     "expected_nbits",
 ]
+
+# The error-block peer alone carries the pipe-joined rule set the routing
+# derived, matching the shared writer, Hathor phase C, and the reconciler. Its
+# three publication siblings keep OUTPUT_FIELDS unchanged.
+ERROR_BLOCK_FIELDS = [*OUTPUT_FIELDS, RULES_VIOLATED_COLUMN]
 
 EVIDENCE_FIELDS = [
     "btc_stale_height",
@@ -600,6 +606,26 @@ def _write_publication_rows_atomic(path, rows):
         path,
         (_publication_row(row) for row in rows),
         OUTPUT_FIELDS,
+    )
+
+
+def _write_error_block_rows_atomic(path, rows):
+    """Write error blocks on the publication schema plus their rule set.
+
+    The rules are the evidence for the error-block claim, and
+    ``validation_status`` does not carry them: it names the one gate that fired
+    first, which for an unapplied retarget is a generic nBits mismatch and for
+    a multi-rule header is only the primary violation. ``route_rejected_stale_rows``
+    stashes the set on every row it routes here, so a missing key means the
+    contract broke and should raise rather than publish a blank claim.
+    """
+    _write_dict_rows_atomic(
+        path,
+        (
+            {**_publication_row(row), RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN]}
+            for row in rows
+        ),
+        ERROR_BLOCK_FIELDS,
     )
 
 
@@ -1118,7 +1144,7 @@ def classify_and_validate(
     # artifact, so they are written there instead of counted as rejected stales.
     _write_publication_rows_atomic(output_csv, validated)
     _write_publication_rows_atomic(rejected_csv, rejected + rerouted_unknowns)
-    _write_publication_rows_atomic(error_blocks_csv, error_blocks)
+    _write_error_block_rows_atomic(error_blocks_csv, error_blocks)
 
     if evidence_csv is not None:
         _write_dict_rows_atomic(
