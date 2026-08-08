@@ -303,21 +303,34 @@ def nbits_retarget_not_applied_error(
     nbits_by_epoch: dict[int, int],
     *,
     bits_key: str = "btc_bits",
+    expected_key: str = "expected_nbits",
 ) -> str | None:
     """Return a rejection when the row failed to apply an epoch retarget.
 
     All three conditions must hold: the height is an epoch start, the row's
-    bits differ from the epoch table's value there (the newly retargeted bits
-    the block must use), and the row's bits equal the PREVIOUS epoch's value.
+    bits differ from the newly retargeted value it should have used, and the
+    row's bits equal the PREVIOUS epoch's value.
 
     A mid-epoch nBits mismatch is not this rule -- that is the contamination
     gate's target class (a foreign-chain parent), not a consensus violation of
     a Bitcoin block. This rule is specifically the boundary case where the
     header still carries full proof of work but kept the old difficulty.
 
+    The newly retargeted value is taken from the row's own ``expected_nbits``
+    when it carries one, because the nBits gate persisted it from Bitcoin Core
+    for exactly this height, which is more authoritative than the committed
+    reference and, crucially, still available for a boundary the table has not
+    reached yet. Without that the table would have to cover every rejected
+    row's height, and a candidate landing on the first boundary past the
+    reference would abort an entire classifier run rather than routing as the
+    ordinary contamination it usually is. The committed table remains the
+    fallback, and the PREVIOUS epoch is read from it either way; that entry is
+    a full retarget interval older, so a reference that lags the chain still
+    has it.
+
     Raises ``ValueError`` when the claim cannot be evaluated -- malformed bits,
-    or an epoch table that does not reach the height. Failing closed matters
-    here: silently returning None would let an unevaluated row look clean.
+    or neither source supplying a value. Failing closed matters here: silently
+    returning None would let an unevaluated row look clean.
     """
     try:
         bits = int(str(row.get(bits_key, "") or "").strip(), 16)
@@ -325,13 +338,22 @@ def nbits_retarget_not_applied_error(
         raise ValueError(f"malformed {bits_key} for {NBITS_RETARGET_RULE}") from exc
     if expected_height % RETARGET_INTERVAL != 0:
         return None
-    epoch_bits = nbits_by_epoch.get(expected_height)
+    epoch_bits: int | None
+    try:
+        epoch_bits = int(str(row.get(expected_key, "") or "").strip(), 16)
+    except ValueError:
+        epoch_bits = nbits_by_epoch.get(expected_height)
     previous_bits = nbits_by_epoch.get(expected_height - RETARGET_INTERVAL)
     if epoch_bits is None or previous_bits is None:
+        missing = []
+        if epoch_bits is None:
+            missing.append(f"canonical bits for {expected_height}")
+        if previous_bits is None:
+            missing.append(
+                f"epoch table entry for {expected_height - RETARGET_INTERVAL}"
+            )
         raise ValueError(
-            f"epoch table lacks {expected_height} or "
-            f"{expected_height - RETARGET_INTERVAL}; cannot re-derive "
-            f"{NBITS_RETARGET_RULE}"
+            f"cannot re-derive {NBITS_RETARGET_RULE}: no {' and no '.join(missing)}"
         )
     if bits == epoch_bits or bits != previous_bits:
         return None

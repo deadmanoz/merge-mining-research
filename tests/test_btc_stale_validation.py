@@ -624,7 +624,7 @@ def test_retarget_check_fails_closed_when_it_cannot_be_evaluated():
     try:
         consensus_violations(row, 717696, nbits_by_epoch={})
     except ValueError as exc:
-        assert "epoch table lacks" in str(exc)
+        assert "cannot re-derive" in str(exc)
     else:  # pragma: no cover - the call must raise
         raise AssertionError("an unevaluable retarget claim must not pass silently")
 

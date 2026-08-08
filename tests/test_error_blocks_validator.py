@@ -185,10 +185,10 @@ def test_retarget_rule_fails_closed_when_epoch_table_lacks_height() -> None:
     # An epoch-start height beyond the committed table's coverage cannot be
     # evaluated: the helper raises and the validator records a failure.
     row = _retarget_row("9999360", "170b98ab")  # 2016 * 4960, an epoch start
-    with pytest.raises(ValueError, match="epoch table lacks"):
+    with pytest.raises(ValueError, match="cannot re-derive"):
         mod.nbits_retarget_not_applied_error(row, {})
     assert any(
-        "rule nbits_retarget_not_applied: epoch table lacks" in f
+        "rule nbits_retarget_not_applied: cannot re-derive" in f
         for f in mod.validate_row(row, nbits_by_epoch={}, mtp_context={})
     )
 
