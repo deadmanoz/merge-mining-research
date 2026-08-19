@@ -208,10 +208,15 @@ for any of these are welcome even without running the pipeline. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) and the per-chain notes under
 [`docs/chains/`](docs/chains/).
 
-The recovered coinbase evidence is retained for a later mining-pool attribution
-phase. That future work will support analysis of pool size, stale incidence,
-and block propagation, but pool attribution is not part of the current public
-analysis pipeline.
+The recovered coinbase evidence is retained for mining-pool attribution.
+Attribution supports analysis of pool size, stale incidence, and block
+propagation, but stays outside the acquisition and recovery pipeline. The pool-attribution layer itself, including its dual
+tag-owner/template-producer attribution design, is implemented in this
+repository and documented in
+[`docs/pool-attribution.md`](docs/pool-attribution.md). The
+observed-versus-expected stale-rate analysis, its methodology and threats to
+validity, and the propagation-era definitions live in the companion
+`stale_rate_analysis` repo.
 
 The reusable logic lives in the core modules under `src/stale_blocks_analysis/`
 (`auxpow_parse`, `auxpow_chainid`, `btc_rpc`, `btc_classify`,
