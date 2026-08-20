@@ -87,9 +87,11 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
 
     For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
     scriptsig hex and output addresses carried in the record. Records that
-    arrive pre-tagged (pool already set, as for RSK rows whose attribution
-    comes from a miner-address registry rather than the BTC coinbase) skip
-    identify_pool entirely.
+    arrive pre-tagged (pool already set by a caller that labels before
+    tagging) skip identification entirely; in this repo's own assembly no
+    record arrives pre-tagged — RSK rows enter untagged and receive their
+    historical registry labels in a later attribution pass, so coinbase
+    evidence wins.
     """
     for b in blocks:
         # Pre-tagged source (e.g., RSK with miner-address pool resolution).

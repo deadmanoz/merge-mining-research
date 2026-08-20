@@ -319,3 +319,23 @@ def test_empty_string_registry_entries_fail_closed(tmp_path, monkeypatch):
     # and would claim every otherwise-unmatched row: fail closed instead.
     with pytest.raises(ValueError, match="non-empty strings"):
         pi.identify_pool(b"anything")
+
+
+def test_nameless_registry_entries_fail_closed(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi
+
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "nameless.json").write_text(
+        '{"id": "n", "addresses": [], "tags": ["/Ghost/"]}'
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    # Skipping a nameless file would silently drop its markers from the
+    # runtime tables while the export still looks complete.
+    with pytest.raises(ValueError, match="'name' must be a non-empty string"):
+        pi.identify_pool(b"xx/Ghost/yy")

@@ -178,8 +178,15 @@ def fetch_known_pools() -> dict:
                 )
         name = pool.get("name")
         link = pool.get("link", "") or ""
-        if not name:
-            continue
+        if not isinstance(name, str) or not name.strip():
+            # Skipping would silently drop the file's tags and addresses
+            # from the runtime tables while the export still looks
+            # complete: fail closed like the other schema defects.
+            raise ValueError(
+                f"Malformed pool registry file {pool_file}: 'name' must be "
+                "a non-empty string. Fix or remove the file; attribution "
+                "refuses to run from a partial registry."
+            )
         entry = {"name": name, "link": link}
         for tag in pool.get("tags") or []:
             if tag in coinbase_tags and coinbase_tags[tag]["name"] != name:

@@ -45,14 +45,21 @@ events and both are kept.
 
 `tag_stale_blocks` then labels each record, preferring a locally available raw
 block as the coinbase source and otherwise using the carried AuxPoW coinbase
-fields. Pre-tagged records skip coinbase identification entirely, which is how
-RSK rows are handled. The `has_bin` column records which path a row took.
+fields. RSK rows enter tagging untagged like every other record (their loader
+returns header identity only); the historical registry label is joined
+afterwards, onto rsk-sourced rows whose coinbase evidence produced no
+attribution, so grafted coinbase evidence always wins over the historical
+registry. The `has_bin` column records which coinbase path a row took.
 
 ## RSK: historical labels only
 
 RSK's merge-mining proof does not expose the Bitcoin parent coinbase, so RSK
-rows cannot be attributed by the process above. They are labelled instead from
-`results/rsk_pool_registry.csv` by `rsk_miner` address. That registry is a
+rows usually cannot be attributed by the process above (the exception is an
+RSK-witnessed header whose coinbase another chain carried, grafted in the
+merge; coinbase evidence then wins). After tagging, the remaining rsk-sourced
+rows are labelled from the historical `pool_label` column of the committed
+RSK loader input, itself derived from `results/rsk_pool_registry.csv` by
+`rsk_miner` address. That registry is a
 historical snapshot (see [`chains/rsk.md`](chains/rsk.md)), and labels derived
 from it surface only with `attribution_basis=rsk_historical`: they are
 preserved as historical evidence, never reported as a current attribution
