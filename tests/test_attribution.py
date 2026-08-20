@@ -323,23 +323,34 @@ def test_require_blocks_archive_rejects_missing_and_empty(tmp_path, monkeypatch)
 def test_require_blocks_archive_rejects_an_incomplete_checkout(tmp_path, monkeypatch):
     import pytest
 
+    import subprocess
+
     clone, blocks = _git_archive(tmp_path, ["1-aa.bin", "2-bb.bin", "3-cc.bin"])
     monkeypatch.setattr(attribution, "STALE_DIR", clone)
     monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
 
-    # Complete archive: the pinned inventory and the disk agree.
+    # Complete archive: the tracked names and the disk agree.
     attribution.require_blocks_archive()
-    assert attribution.archive_inventory() == (3, 3)
+    expected, present = attribution.archive_inventory()
+    assert expected == present == {"1-aa.bin", "2-bb.bin", "3-cc.bin"}
 
-    # A single present binary is NOT enough once the manifest says three.
+    # An untracked stray must not mask a missing tracked binary: counts
+    # would match here, names do not.
     (blocks / "2-bb.bin").unlink()
-    (blocks / "3-cc.bin").unlink()
-    with pytest.raises(FileNotFoundError, match="1 of 3 binaries"):
+    (blocks / "99-zz.bin").write_bytes(b"stray")
+    with pytest.raises(FileNotFoundError, match="2-bb.bin"):
+        attribution.require_blocks_archive()
+
+    # A staged deletion must not shrink the manifest either: it is read
+    # from HEAD, not the index.
+    subprocess.run(
+        ["git", "rm", "-q", "--cached", "blocks/2-bb.bin"], cwd=clone, check=True
+    )
+    with pytest.raises(FileNotFoundError, match="2-bb.bin"):
         attribution.require_blocks_archive()
 
     # ...unless the caller opts in explicitly.
     attribution.require_blocks_archive(allow_partial=True)
-    assert attribution.archive_inventory() == (3, 1)
 
 
 def test_archive_inventory_without_a_git_checkout(tmp_path, monkeypatch):
@@ -350,7 +361,7 @@ def test_archive_inventory_without_a_git_checkout(tmp_path, monkeypatch):
     monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
 
     # No manifest to compare against: expected is unknown, presence suffices.
-    assert attribution.archive_inventory() == (None, 1)
+    assert attribution.archive_inventory() == (None, {"1-aa.bin"})
     attribution.require_blocks_archive()
 
 
@@ -365,3 +376,51 @@ def test_repository_inputs_fingerprint_tracks_content(tmp_path):
 
     a.write_text("height,hash\n1,bb\n")
     assert attribution._repository_inputs_fingerprint([a, b]) != first
+
+
+def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis.config import CHAINS_BY_AUXPOW_ACTIVATION
+
+    staged = tmp_path / "validated-stales"
+    staged.mkdir()
+    for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
+        (staged / f"{key}_validated_stales.csv").write_text("btc_height\n")
+    descendants = tmp_path / "stale_descendants.csv"
+    descendants.write_text("height\n")
+    monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
+    monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
+
+    attribution.require_committed_inputs()
+
+    # A deleted loader input is indistinguishable from an empty chain in
+    # the export, so its absence stops the run instead.
+    first_key = CHAINS_BY_AUXPOW_ACTIVATION[0][0]
+    (staged / f"{first_key}_validated_stales.csv").unlink()
+    with pytest.raises(FileNotFoundError, match=first_key):
+        attribution.require_committed_inputs()
+
+
+def test_unknown_sentinel_does_not_bypass_identification(monkeypatch):
+    from stale_blocks_analysis import stale_merge
+
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FoundPool", "tag")
+    )
+    rows = [
+        {
+            "height": 999999999,
+            "hash": "ab" * 32,
+            "source": "auxpow",
+            "pool": "Unknown",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+
+    out = stale_merge.tag_stale_blocks(rows)
+
+    # The sentinel is not a label: the carried coinbase is still read.
+    assert out[0]["pool"] == "FoundPool"
+    assert out[0]["_pool_match"] == "tag"

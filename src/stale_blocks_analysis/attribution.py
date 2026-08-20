@@ -240,6 +240,7 @@ def load_attributed_stales(
     *min_height* is passed verbatim to every loader as a plain height floor;
     the default of 0 admits everything available.
     """
+    require_committed_inputs()
     require_blocks_archive(allow_partial=allow_partial)
     # Rebuild the identification tables from disk so this run's labels match
     # the dataset state the meta sidecar records, even in a long-lived
@@ -294,10 +295,10 @@ def _repository_input_files() -> list[Path]:
 
     Data side: every committed loader CSV, the stale descendants and their
     correction overlay, and the error-blocks exclusion inputs. Code side:
-    the modules that load, merge, tag, fold, and export. Two runs with the
-    same commit but different local edits to any of these can produce
-    different labels, so the sidecar fingerprints their content rather than
-    relying on the commit-plus-dirty flag alone.
+    every module in this package. Two runs with the same commit but
+    different local edits to any of these can produce different labels, so
+    the sidecar fingerprints their content rather than relying on the
+    commit-plus-dirty flag alone.
     """
     files = sorted(VALIDATED_STALES_DIR.glob("*.csv"))
     files += [
@@ -306,19 +307,10 @@ def _repository_input_files() -> list[Path]:
         ERROR_BLOCKS_CSV,
         ERROR_BLOCKS_MTP_CONTEXT_CSV,
     ]
-    here = Path(__file__).resolve().parent
-    files += [
-        here / name
-        for name in (
-            "attribution.py",
-            "bitcoin_binary.py",
-            "config.py",
-            "pool_identification.py",
-            "stale_blocks.py",
-            "stale_merge.py",
-            "template_producers.py",
-        )
-    ]
+    # Every module in the package, not a hand-listed subset: the loaders
+    # reach helpers transitively (error_blocks, bitcoin_binary, ...), and a
+    # curated list silently goes stale as those imports change.
+    files += sorted(Path(__file__).resolve().parent.glob("*.py"))
     return files
 
 
@@ -332,24 +324,64 @@ def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
     return h.hexdigest()
 
 
-def archive_inventory() -> tuple[int | None, int]:
-    """Expected and present block-binary counts for the fetched archive.
+def archive_inventory() -> tuple[set[str] | None, set[str]]:
+    """Block-binary filenames tracked at HEAD, and those on disk.
 
-    Expected is what the clone tracks at its current commit, which is the
-    only manifest of what a complete archive looks like. It is None when
-    the clone is not a git checkout, where no manifest exists to compare
-    against.
+    The tracked set is the only manifest of what a complete archive looks
+    like. It is read from HEAD rather than the index so a staged deletion
+    cannot shrink it, and compared by name rather than by count so an
+    untracked stray cannot mask a missing binary. It is None when the clone
+    is not a git checkout, where no manifest exists to compare against.
     """
-    present = sum(1 for _ in BLOCKS_DIR.glob("*.bin"))
+    present = {p.name for p in BLOCKS_DIR.glob("*.bin")}
     proc = subprocess.run(
-        ["git", "-C", str(STALE_DIR), "ls-files", "blocks/"],
+        [
+            "git",
+            "-C",
+            str(STALE_DIR),
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "HEAD",
+            "blocks/",
+        ],
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
         return None, present
-    expected = sum(1 for line in proc.stdout.splitlines() if line.endswith(".bin"))
+    expected = {
+        line.rsplit("/", 1)[-1]
+        for line in proc.stdout.splitlines()
+        if line.endswith(".bin")
+    }
     return expected, present
+
+
+def require_committed_inputs() -> None:
+    """Stop when a committed loader input is absent.
+
+    A missing CSV makes its loader return no rows, which is
+    indistinguishable in the export from a chain that genuinely recovered
+    no stales (several chains legitimately have zero-row inputs). Presence
+    is therefore checked before loading rather than inferred from counts.
+    """
+    missing = [
+        VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
+        for key, _date in CHAINS_BY_AUXPOW_ACTIVATION
+        if not (VALIDATED_STALES_DIR / f"{key}_validated_stales.csv").exists()
+    ]
+    if not STALE_DESCENDANTS_CSV.exists():
+        missing.append(STALE_DESCENDANTS_CSV)
+    if missing:
+        shown = ", ".join(p.name for p in missing[:3])
+        raise FileNotFoundError(
+            f"{len(missing)} committed attribution input(s) missing "
+            f"(e.g. {shown}). A missing loader input is silently identical "
+            "to a chain with no recovered stales, so it stops the run "
+            "rather than shrinking the export. Restore the file(s) from the "
+            "checkout."
+        )
 
 
 def require_blocks_archive(allow_partial: bool = False) -> None:
@@ -363,7 +395,7 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
     present, which the meta sidecar then records.
     """
     expected, present = archive_inventory()
-    if present == 0:
+    if not present:
         raise FileNotFoundError(
             f"No block binaries under {BLOCKS_DIR} — run "
             "./scripts/fetch-data.sh to clone the pinned "
@@ -371,13 +403,16 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
             "coinbase source for recovered headers; an empty or missing "
             "archive would silently produce weaker labels."
         )
-    if expected is not None and present < expected and not allow_partial:
+    missing = sorted(expected - present) if expected is not None else []
+    if missing and not allow_partial:
+        shown = ", ".join(missing[:3])
         raise FileNotFoundError(
-            f"Incomplete block archive: {present} of {expected} binaries "
-            f"tracked at the {STALE_DIR} checkout are present. The missing "
-            "ones would silently fall back to AuxPoW-only evidence. Run "
-            "./scripts/fetch-data.sh, or pass --allow-partial to attribute "
-            "from what is present (recorded in the meta sidecar)."
+            f"Incomplete block archive: {len(missing)} of {len(expected)} "
+            f"binaries tracked at the {STALE_DIR} checkout are absent "
+            f"(e.g. {shown}). The missing ones would silently fall back to "
+            "AuxPoW-only evidence. Run ./scripts/fetch-data.sh, or pass "
+            "--allow-partial to attribute from what is present (recorded "
+            "in the meta sidecar)."
         )
 
 
@@ -444,7 +479,10 @@ def write_attribution_meta(
     dataset, plus the same for the stale-blocks clone and the per-basis row
     counts.
     """
-    _archive_expected, _archive_present = archive_inventory()
+    _expected_names, _present_names = archive_inventory()
+    _archive_missing = (
+        sorted(_expected_names - _present_names) if _expected_names is not None else []
+    )
     meta = {
         "min_height": min_height,
         "rows": len(stale),
@@ -468,10 +506,12 @@ def write_attribution_meta(
             "state": _clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
             "archive": {
-                "expected": _archive_expected,
-                "present": _archive_present,
-                "partial": _archive_expected is not None
-                and _archive_present < _archive_expected,
+                "expected": (
+                    len(_expected_names) if _expected_names is not None else None
+                ),
+                "present": len(_present_names),
+                "missing": len(_archive_missing),
+                "partial": bool(_archive_missing),
                 "allow_partial": allow_partial,
             },
         },

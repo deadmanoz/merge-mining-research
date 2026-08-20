@@ -94,8 +94,10 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
     evidence wins.
     """
     for b in blocks:
-        # Pre-tagged source (e.g., RSK with miner-address pool resolution).
-        if b.get("pool"):
+        # A caller-supplied label bypasses identification, but the "Unknown"
+        # sentinel is not a label: a row carrying it still has its coinbase
+        # evidence read, exactly as if the key were absent.
+        if b.get("pool") and b["pool"] != "Unknown":
             b.setdefault("has_bin", False)
             b.pop("_scriptsig_hex", None)
             b.pop("_outputs_str", None)
