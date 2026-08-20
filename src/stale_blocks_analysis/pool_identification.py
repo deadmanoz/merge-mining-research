@@ -148,8 +148,16 @@ def fetch_known_pools() -> dict:
         try:
             pool = json.loads(pool_file.read_text())
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"  Skipping {pool_file.name}: {exc}", file=sys.stderr)
-            continue
+            # Fail closed: a skipped file would silently demote its pool's
+            # blocks to Unknown (or weaker matches) while the export still
+            # looks complete. This bites hardest in the supported dirty
+            # local-registry workflow, where an in-progress edit must not
+            # turn into partial experimental results.
+            raise ValueError(
+                f"Malformed pool registry file {pool_file}: {exc}. Fix or "
+                "remove the file; attribution refuses to run from a partial "
+                "registry."
+            ) from exc
         name = pool.get("name")
         link = pool.get("link", "") or ""
         if not name:

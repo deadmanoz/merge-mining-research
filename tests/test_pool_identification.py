@@ -203,3 +203,22 @@ def test_local_override_never_displaces_upstream(tmp_path, monkeypatch):
 
     assert pi.identify_pool(b"no-tag", [(0, spk_upstream)]) == "UpstreamPool"
     assert pi.identify_pool(b"no-tag", [(0, spk_local)]) == "LocalOnly"
+
+
+def test_malformed_registry_file_fails_closed(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi
+
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "good.json").write_text(
+        '{"id": "g", "name": "GoodPool", "addresses": [], "tags": ["/Good/"]}'
+    )
+    (pools / "broken.json").write_text('{"name": "BrokenPool", "tags": [')
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    with pytest.raises(ValueError, match="broken.json"):
+        pi.identify_pool(b"xx/Good/yy")
