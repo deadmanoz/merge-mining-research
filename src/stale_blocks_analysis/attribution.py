@@ -18,9 +18,12 @@ Three passes run over the merged, tagged records, in order:
    does not expose it). Those rows carry `attribution_basis=rsk_historical`
    so a consumer can always tell them apart: they are historical evidence,
    never a current attribution result.
-3. `template_producer` is folded from the tag-owner label, so every record
-   carries both the tag owner and, where the measurement evidence supports
-   it, the entity that actually built the template.
+3. `template_producer` is folded from the tag-owner label for
+   coinbase-attributed rows, so every record carries both the tag owner and,
+   where the measurement evidence supports it, the entity that actually
+   built the template. Rows whose label is not coinbase-derived
+   (`rsk_historical`, `unattributed`) carry their label unfolded: the fold
+   table's evidence is coinbase-tag measurement and does not apply to them.
 
 Export contract (`results/analysis/pool-attribution/stale-block-attributions.csv`,
 a gitignored regenerable run product):
@@ -119,13 +122,22 @@ def _apply_rsk_historical_labels(stale: list[dict]) -> None:
             if not (row.get("validation_status") or "").startswith("VALID"):
                 continue
             label = (row.get("pool_label") or "").strip()
-            if not label:
+            # The registry column uses the literal sentinel "Unknown" for
+            # rows its historical analysis could not attribute; treat it
+            # like an empty label so those rows stay `unattributed`.
+            if not label or label == "Unknown":
                 continue
             labels[(int(row["btc_height"]), row["btc_header_hash"])] = label
 
     n = 0
     for s in stale:
         if s.get("source") != "rsk":
+            continue
+        # An RSK-sourced row can still gain real coinbase evidence when a
+        # later-activating chain witnessed the same header and the merge
+        # grafted its coinbase. Coinbase attribution outranks the historical
+        # registry, so never overwrite it.
+        if s.get("attribution_basis") == "coinbase":
             continue
         label = labels.get((s["height"], s["hash"]))
         if not label:
@@ -142,11 +154,21 @@ def _apply_rsk_historical_labels(stale: list[dict]) -> None:
 
 
 def _apply_template_producers(stale: list[dict]) -> None:
-    """Fold every tag-owner label into its template-producer label."""
+    """Fold coinbase-derived tag-owner labels into template-producer labels.
+
+    The fold table's evidence is stratum-job and coinbase-tag measurement, so
+    it applies only to rows whose label came from the coinbase
+    (`attribution_basis=coinbase`). An `rsk_historical` label is a
+    miner-address attribution with no coinbase behind it, so it is carried
+    into `template_producer` unfolded rather than upgraded to a
+    template-producer claim; unattributed rows carry "Unknown".
+    """
     for s in stale:
-        s["template_producer"] = fold_template_producer(
-            s.get("pool") or "Unknown", s["height"]
-        )
+        tag = s.get("pool") or "Unknown"
+        if s.get("attribution_basis") == "coinbase":
+            s["template_producer"] = fold_template_producer(tag, s["height"])
+        else:
+            s["template_producer"] = tag
 
 
 def load_attributed_stales(min_height: int = 0) -> list[dict]:

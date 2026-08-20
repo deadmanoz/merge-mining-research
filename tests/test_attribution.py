@@ -52,7 +52,9 @@ def _write_rsk_csv(path) -> None:
         "rsk_miner,pool_label\n"
         "100,aaa,stale,VALID,32dfc7a8,Braiins Pool\n"
         "200,bbb,stale,REJECTED_NBITS,32dfc7a8,Rejected Pool\n"
-        "300,ccc,stale,VALID_STALE,32dfc7a8,F2Pool\n",
+        "300,ccc,stale,VALID_STALE,32dfc7a8,F2Pool\n"
+        "400,ddd,stale,VALID,32dfc7a8,Unknown\n"
+        "500,eee,stale,VALID,32dfc7a8,Braiins Pool\n",
         encoding="utf-8",
     )
 
@@ -72,6 +74,10 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
         {"height": 200, "hash": "bbb", "source": "rsk", "pool": "Unknown"},
         # VALID_-prefixed verdicts pass the public gate.
         {"height": 300, "hash": "ccc", "source": "rsk", "pool": "Unknown"},
+        # The registry's literal "Unknown" sentinel is not an attribution.
+        {"height": 400, "hash": "ddd", "source": "rsk", "pool": "Unknown"},
+        # An RSK row with grafted coinbase evidence keeps its coinbase label.
+        {"height": 500, "hash": "eee", "source": "rsk", "pool": "F2Pool"},
     ]
     _apply_attribution_basis(records)
 
@@ -85,6 +91,10 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
     assert records[2]["attribution_basis"] == "unattributed"
     assert records[3]["pool"] == "F2Pool"
     assert records[3]["attribution_basis"] == "rsk_historical"
+    assert records[4]["pool"] == "Unknown"
+    assert records[4]["attribution_basis"] == "unattributed"
+    assert records[5]["pool"] == "F2Pool"
+    assert records[5]["attribution_basis"] == "coinbase"
 
     out = capsys.readouterr().out
     assert "RSK historical miner-registry labels applied to 2 rows" in out
@@ -103,16 +113,34 @@ def test_rsk_join_is_a_no_op_when_the_registry_input_is_absent(
     assert records[0]["attribution_basis"] == "unattributed"
 
 
-def test_template_producer_pass_folds_labels_and_defaults_to_unknown() -> None:
+def test_template_producer_pass_folds_only_coinbase_derived_labels() -> None:
     records = [
-        {"height": 850_000, "hash": "a", "pool": "AntPool"},
-        {"height": 850_000, "hash": "b", "pool": None},
+        {
+            "height": 850_000,
+            "hash": "a",
+            "pool": "AntPool",
+            "attribution_basis": "coinbase",
+        },
+        # An RSK historical label is not coinbase evidence: carried unfolded.
+        {
+            "height": 850_000,
+            "hash": "b",
+            "pool": "AntPool",
+            "attribution_basis": "rsk_historical",
+        },
+        {
+            "height": 850_000,
+            "hash": "c",
+            "pool": None,
+            "attribution_basis": "unattributed",
+        },
     ]
 
     _apply_template_producers(records)
 
     assert records[0]["template_producer"] == "AntPool & friends"
-    assert records[1]["template_producer"] == "Unknown"
+    assert records[1]["template_producer"] == "AntPool"
+    assert records[2]["template_producer"] == "Unknown"
 
 
 def test_writer_projects_stray_working_keys_and_emits_lf_endings(tmp_path) -> None:

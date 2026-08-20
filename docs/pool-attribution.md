@@ -62,7 +62,11 @@ result.
 
 Attribution is dual. Every attributable block carries a *tag-owner* label from
 the coinbase and, where the evidence supports it, a *template-producer* label
-folded in by `src/stale_blocks_analysis/template_producers.py`. The two have
+folded in by `src/stale_blocks_analysis/template_producers.py`. The fold
+applies only to coinbase-derived labels: an `rsk_historical` label is a
+miner-address attribution with no coinbase behind it, so it is carried into
+the `template_producer` column unfolded rather than upgraded to a
+template-producer claim. The two have
 diverged materially since roughly 2021 to 2023, because proxy pooling and
 template sharing decouple the coinbase tag from the entity that built the
 block: 0xB10C's stratum-job measurements show near-identical templates across
