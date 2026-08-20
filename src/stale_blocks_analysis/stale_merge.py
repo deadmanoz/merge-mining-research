@@ -39,11 +39,21 @@ def merge_stale_sources(
     for b in auxpow:
         key = (b["height"], b["hash"])
         if key in primary_idx:
-            # Carry AuxPoW coinbase data to the primary record as fallback
+            # Carry AuxPoW coinbase data to the primary record as fallback.
+            # Both observations witness the same Bitcoin coinbase, so the
+            # scriptSig and the outputs are filled independently: a record
+            # that already has one field can still gain the other from a
+            # later observation. Non-empty fields are never overwritten.
             pri = primary_idx[key]
-            if "_scriptsig_hex" not in pri and b.get("_scriptsig_hex"):
+            filled = False
+            if not pri.get("_scriptsig_hex") and b.get("_scriptsig_hex"):
                 pri["_scriptsig_hex"] = b["_scriptsig_hex"]
-                pri["_outputs_str"] = b.get("_outputs_str", "")
+                filled = True
+            if not pri.get("_outputs_str") and b.get("_outputs_str"):
+                pri["_outputs_str"] = b["_outputs_str"]
+                filled = True
+            if filled:
+                pri.setdefault("_outputs_str", "")
                 enriched += 1
         else:
             primary_idx[key] = b

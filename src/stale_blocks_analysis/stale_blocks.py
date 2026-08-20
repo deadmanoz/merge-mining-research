@@ -104,7 +104,9 @@ def _addr_to_spk(addr: str) -> bytes | None:
     h160 = _b58_decode_to_hash160(addr)
     if h160 is None:
         return None
-    if addr.startswith("1") or addr.startswith("N"):  # P2PKH (N prefix = Namecoin)
+    # P2PKH (N prefix = Namecoin, S prefix = Syscoin; the base58 version
+    # byte is chain cosmetics, the hash160 payload is the same)
+    if addr.startswith(("1", "N", "S")):
         return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
     elif addr.startswith("3") or addr.startswith("M"):  # P2SH (M prefix = Namecoin)
         return bytes([0xA9, 0x14]) + h160 + bytes([0x87])

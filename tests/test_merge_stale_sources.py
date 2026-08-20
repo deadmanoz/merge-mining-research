@@ -110,3 +110,44 @@ def test_tag_stale_blocks_auxpow_fallback_passes_coinbase_to_identify(monkeypatc
     assert out[0]["has_bin"] is False
     assert seen["sig"] == bytes.fromhex("deadbeef")
     assert seen["outputs"] is None
+
+
+def test_exact_duplicate_fills_missing_coinbase_fields_independently():
+    primary = [
+        {
+            "height": 166_343,
+            "hash": "aa",
+            "source": "namecoin",
+            "_scriptsig_hex": "aabb",
+            "_outputs_str": "",
+        }
+    ]
+    auxpow = [
+        {
+            "height": 166_343,
+            "hash": "aa",
+            "source": "i0coin",
+            "_scriptsig_hex": "ccdd",
+            "_outputs_str": "raw:76a914",
+        }
+    ]
+
+    merged = merge_stale_sources(primary, auxpow)
+
+    assert len(merged) == 1
+    # The existing scriptSig is never overwritten; the missing outputs are
+    # filled from the later observation of the same coinbase.
+    assert merged[0]["_scriptsig_hex"] == "aabb"
+    assert merged[0]["_outputs_str"] == "raw:76a914"
+
+
+def test_addr_to_spk_decodes_syscoin_p2pkh_addresses():
+    from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    addr = "SfYHFxiGv4mRtUfQVHxfMWknEt53Bjj286"
+    h160 = _b58_decode_to_hash160(addr)
+    assert h160 is not None and len(h160) == 20
+
+    spk = _addr_to_spk(addr)
+    assert spk == bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
