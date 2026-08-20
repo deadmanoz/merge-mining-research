@@ -160,9 +160,8 @@ def fetch_known_pools() -> dict:
             ) from exc
         for field in ("tags", "addresses"):
             value = pool.get(field)
-            if value is not None and (
-                not isinstance(value, list)
-                or any(not isinstance(item, str) or not item.strip() for item in value)
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) or not item.strip() for item in value
             ):
                 # A string value would be iterated per character and register
                 # overbroad one-character tags (a "/" tag matches almost
@@ -172,7 +171,8 @@ def fetch_known_pools() -> dict:
                 # unparseable JSON does.
                 raise ValueError(
                     f"Malformed pool registry file {pool_file}: {field!r} "
-                    "must be an array of non-empty strings. Fix or remove "
+                    "must be present and an array of non-empty strings "
+                    "(null and missing both hide markers). Fix or remove "
                     "the file; attribution refuses to run from a partial "
                     "registry."
                 )
@@ -188,11 +188,11 @@ def fetch_known_pools() -> dict:
                 "refuses to run from a partial registry."
             )
         entry = {"name": name, "link": link}
-        for tag in pool.get("tags") or []:
+        for tag in pool["tags"]:
             if tag in coinbase_tags and coinbase_tags[tag]["name"] != name:
                 tag_conflicts.append((tag, coinbase_tags[tag]["name"], name))
             coinbase_tags[tag] = entry
-        for addr in pool.get("addresses") or []:
+        for addr in pool["addresses"]:
             if addr in payout_addresses and payout_addresses[addr]["name"] != name:
                 addr_conflicts.append((addr, payout_addresses[addr]["name"], name))
             payout_addresses[addr] = entry
