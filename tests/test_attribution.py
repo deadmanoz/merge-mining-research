@@ -247,6 +247,7 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     monkeypatch.setattr(attribution, "_pinned_ref", lambda key: "a" * 40)
     monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fingerprint")
     monkeypatch.setattr(attribution, "_stale_inputs_fingerprint", lambda: "stalefp")
+    monkeypatch.setattr(attribution, "_repository_inputs_fingerprint", lambda: "repofp")
     stale = [
         {"height": 1, "hash": "aa", "attribution_basis": "coinbase"},
         {"height": 2, "hash": "bb", "attribution_basis": "unattributed"},
@@ -267,7 +268,8 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     assert meta["mining_pools"]["dataset_fingerprint"] == "fingerprint"
     assert meta["stale_blocks"]["state"]["commit"] == "a" * 40
     assert meta["stale_blocks"]["input_fingerprint"] == "stalefp"
-    assert meta["repository"] == {"commit": "a" * 40, "dirty": False}
+    assert meta["repository"]["state"] == {"commit": "a" * 40, "dirty": False}
+    assert meta["repository"]["input_fingerprint"] == "repofp"
 
 
 def test_stale_inputs_fingerprint_tracks_content(tmp_path, monkeypatch):
@@ -298,3 +300,16 @@ def test_require_blocks_archive_needs_actual_binaries(tmp_path, monkeypatch):
 
     (empty / "1-aa.bin").write_bytes(b"payload")
     attribution.require_blocks_archive()
+
+
+def test_repository_inputs_fingerprint_tracks_content(tmp_path):
+    a = tmp_path / "loader.csv"
+    b = tmp_path / "module.py"
+    a.write_text("height,hash\n1,aa\n")
+    b.write_text("VALUE = 1\n")
+
+    first = attribution._repository_inputs_fingerprint([a, b])
+    assert first == attribution._repository_inputs_fingerprint([a, b])
+
+    a.write_text("height,hash\n1,bb\n")
+    assert attribution._repository_inputs_fingerprint([a, b]) != first

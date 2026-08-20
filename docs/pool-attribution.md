@@ -122,10 +122,12 @@ so a consumer can always tell what kind of evidence produced a label.
 
 A `stale-block-attributions.meta.json` sidecar records what produced the
 labels: the pinned and actual commits (plus dirty state) of both fetched
-clones, this repository's own commit and dirty state (the committed loader
-inputs and the attribution code are inputs too), the requested height floor,
-content fingerprints of the pool dataset and of the block binaries the run
-can read, and per-basis row counts.
+clones and of this repository, the requested height floor, per-basis row
+counts, and content fingerprints of everything the run reads. Those
+fingerprints cover the pool dataset, the block binaries, and this
+repository's own consumed files (the committed loader CSVs, the descendant
+and error-block inputs, and the attribution modules), so two runs from the
+same commit with different local edits are still distinguishable.
 
 The registry is read from its working tree on every run, since a local fork
 is a supported workflow. A run whose registry is not the clean committed pin

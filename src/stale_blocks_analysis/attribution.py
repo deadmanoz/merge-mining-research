@@ -70,11 +70,16 @@ from .config import (
     BLOCKS_DIR,
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
+    ERROR_BLOCKS_CSV,
+    ERROR_BLOCKS_MTP_CONTEXT_CSV,
     LOCAL_MINING_POOLS_DIR,
     PROJECT_ROOT,
     RESULTS_DIR,
     RSK_CSV,
+    STALE_DESCENDANT_CORRECTIONS_CSV,
+    STALE_DESCENDANTS_CSV,
     STALE_DIR,
+    VALIDATED_STALES_DIR,
 )
 from .pool_identification import pool_dataset_fingerprint, reset_runtime_pool_tables
 from .stale_blocks import load_stale_descendants
@@ -282,6 +287,49 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
     print(f"CSV -> {path}")
 
 
+def _repository_input_files() -> list[Path]:
+    """The repository files whose content shapes the export.
+
+    Data side: every committed loader CSV, the stale descendants and their
+    correction overlay, and the error-blocks exclusion inputs. Code side:
+    the modules that load, merge, tag, fold, and export. Two runs with the
+    same commit but different local edits to any of these can produce
+    different labels, so the sidecar fingerprints their content rather than
+    relying on the commit-plus-dirty flag alone.
+    """
+    files = sorted(VALIDATED_STALES_DIR.glob("*.csv"))
+    files += [
+        STALE_DESCENDANTS_CSV,
+        STALE_DESCENDANT_CORRECTIONS_CSV,
+        ERROR_BLOCKS_CSV,
+        ERROR_BLOCKS_MTP_CONTEXT_CSV,
+    ]
+    here = Path(__file__).resolve().parent
+    files += [
+        here / name
+        for name in (
+            "attribution.py",
+            "bitcoin_binary.py",
+            "config.py",
+            "pool_identification.py",
+            "stale_blocks.py",
+            "stale_merge.py",
+            "template_producers.py",
+        )
+    ]
+    return files
+
+
+def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
+    """SHA-256 over the repository files the export consumes."""
+    h = hashlib.sha256()
+    for f in files if files is not None else _repository_input_files():
+        if f.exists():
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()
+
+
 def require_blocks_archive() -> None:
     """Stop when the fetched blocks/ archive is missing.
 
@@ -372,8 +420,12 @@ def write_attribution_meta(
             "dataset_fingerprint": pool_dataset_fingerprint(),
         },
         # The export also depends on the committed loader inputs and the
-        # attribution code itself, so record this repository's own state.
-        "repository": _clone_state(PROJECT_ROOT),
+        # attribution code itself, so record this repository's own state
+        # and the content of exactly the files it consumes.
+        "repository": {
+            "state": _clone_state(PROJECT_ROOT),
+            "input_fingerprint": _repository_inputs_fingerprint(),
+        },
         "stale_blocks": {
             "pinned_ref": _pinned_ref("stale-blocks"),
             "state": _clone_state(STALE_DIR),
