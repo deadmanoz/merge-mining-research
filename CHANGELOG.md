@@ -9,17 +9,19 @@ clone of bitcoin-data/mining-pools joins the fetched datasets, and
 for the merge-mining-recovered stales.
 
 Identification matches each coinbase against the registry: scriptSig tags
-longest-first, then coinbase OP_RETURN outputs, then payout addresses. The
-record set is this repo's own recovered evidence: every AuxPoW loader plus
-the stale descendants. The upstream census is not labelled here; the
+longest-first, then coinbase OP_RETURN outputs, then payout addresses.
+
+The record set is this repo's own recovered evidence: every AuxPoW loader
+plus the stale descendants. The upstream census is not labelled here; the
 combined census-plus-recovered set belongs to the stale-rate analysis,
-which the companion repo assembles from the same functions. Every row
-carries three attribution fields: the tag-owner
-`pool`, a `template_producer` that folds modern proxy-pooled tags into the
-entity that actually built the template, and an `attribution_basis` naming
-the kind of evidence (`coinbase`, `rsk_historical`, or `unattributed`). RSK's
-labels come from a historical miner registry and only ever appear under
-their own basis, never as current attribution.
+which the companion repo assembles from the same functions.
+
+Every row carries three attribution fields: the tag-owner `pool`, a
+`template_producer` that folds modern proxy-pooled tags into the entity that
+actually built the template, and an `attribution_basis` naming the kind of
+evidence (`coinbase`, `rsk_historical`, or `unattributed`). RSK's labels
+come from a historical miner registry and only ever appear under their own
+basis, never as current attribution.
 
 The export is a gitignored run product, not a committed dataset. The
 observed-vs-expected analysis and the propagation-era scheme live in a

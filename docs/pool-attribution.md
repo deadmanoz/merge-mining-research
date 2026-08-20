@@ -75,34 +75,37 @@ result.
 
 ## Dual attribution: tag owner and template producer
 
-Attribution is dual. Every attributable block carries a *tag-owner* label from
-the coinbase and, where the evidence supports it, a *template-producer* label
-folded in by `src/stale_blocks_analysis/template_producers.py`. The fold
-applies only to labels derived from an actual coinbase-tag observation
-(scriptSig or OP_RETURN): a payout-address-only identification observes no
-tag, and an `rsk_historical` label is a
-miner-address attribution with no coinbase behind it, so both are carried
-into the `template_producer` column unfolded rather than upgraded to a
-template-producer claim. Each fold row also has an end height. The folds rest
-on measurements from specific periods, and nothing here knows whether a proxy
-arrangement continued after the cited data ends, so a tag from a block mined
-after that point is left as-is. Extending an end height requires newer
-published measurements. Non-custodial-template pools (Ocean.xyz's DATUM model,
-P2Pool) are not table rows at all: their tags are left as-is, since every
-table row is a measured proxy relationship between two named pools,
-and the non-custodial characterization is recorded here as prose. The two have
-diverged materially since roughly 2021 to 2023, because proxy pooling and
-template sharing decouple the coinbase tag from the entity that built the
-block: 0xB10C's stratum-job measurements show near-identical templates across
-nominally distinct pools and document stratum endpoints serving jobs that carry
-another pool's coinbase tag, with the resulting cluster at a large share of
-network hashrate. Under proxy pooling the coinbase tag is systematically wrong
-as a measure of who built a block, and therefore of who won or lost a
-propagation race, so both labels are carried and neither is discarded in favour
-of the other. The full treatment, including how the two are reported against
-each other and the threats to validity attaching to both, belongs to the
-methodology in the companion `stale_rate_analysis` repo (a separate analysis
-repo, not yet published).
+Since roughly 2021, proxy pooling and template sharing have decoupled the
+coinbase tag from the entity that built the block. 0xB10C's stratum-job
+measurements show near-identical templates across nominally distinct pools,
+and stratum endpoints serving jobs that carry another pool's coinbase tag,
+with the resulting cluster at a large share of network hashrate. Under proxy
+pooling the coinbase tag misidentifies who built a block, and therefore who
+won or lost a propagation race.
+
+Every attributable block therefore carries two labels: the tag-owner `pool`
+from the coinbase, and, where the evidence supports it, a `template_producer`
+folded in by `src/stale_blocks_analysis/template_producers.py`. Both are
+kept; neither replaces the other.
+
+The fold applies only to labels that came from an actual tag observation
+(scriptSig or OP_RETURN). A payout-address match observes no tag, and an
+`rsk_historical` label has no coinbase behind it, so both go into the
+`template_producer` column unchanged.
+
+Each fold row also has an end height. The folds rest on measurements from
+specific periods, and nothing here knows whether a proxy arrangement
+continued after the cited data ends, so a tag from a later block is left
+as-is until newer published measurements extend a row.
+
+Non-custodial-template pools (Ocean.xyz's DATUM model, P2Pool) are not table
+rows at all: their tags are left as-is. Every row in the table is a measured
+proxy relationship between two named pools; the non-custodial
+characterization is recorded here as prose.
+
+How the two labels are reported against each other, and the threats to
+validity attaching to both, belong to the methodology in the companion
+`stale_rate_analysis` repo (not yet published).
 
 ## Export contract
 
@@ -115,32 +118,37 @@ height,hash,source,pool,template_producer,attribution_basis,has_bin
 ```
 
 `attribution_basis` is one of `coinbase`, `rsk_historical`, or `unattributed`,
-so a consumer can always tell what kind of evidence produced a label. A
-`stale-block-attributions.meta.json` sidecar records the provenance the labels
-came from: the pinned and actual commits (plus dirty state) of both fetched
+so a consumer can always tell what kind of evidence produced a label.
+
+A `stale-block-attributions.meta.json` sidecar records what produced the
+labels: the pinned and actual commits (plus dirty state) of both fetched
 clones, this repository's own commit and dirty state (the committed loader
 inputs and the attribution code are inputs too), the requested height floor,
 content fingerprints of the pool dataset and of the block binaries the run
-can read, and per-basis row counts. The
-registry is read from its working tree on every run, since a local fork is a
-supported workflow, so a run whose registry is not the clean committed pin is
-flagged on stderr and identified in the sidecar. The export
-is a gitignored, regenerable run product under `results/analysis/`, and
-deliberately not a committed dataset for now: the registry pin and the loader
-inputs it derives from are committed, and the export is reproducible from them
-together with the recorded registry state.
+can read, and per-basis row counts.
+
+The registry is read from its working tree on every run, since a local fork
+is a supported workflow. A run whose registry is not the clean committed pin
+is flagged on stderr and identified in the sidecar.
+
+The export is a gitignored, regenerable run product under
+`results/analysis/`, and deliberately not a committed dataset for now: the
+registry pin and the loader inputs it derives from are committed, and the
+export is reproducible from them together with the recorded registry state.
 
 ## Scope boundary
 
 The observed-versus-expected stale-rate analysis is not part of this
-repository, and neither is labelling the upstream census: this repo needs the
+repository, and neither is labelling the upstream census. This repo needs the
 census for deduplication, novelty accounting, and upstreaming, but has no use
-of its own for census labels, so the analysis's combined
-census-plus-recovered stale set is assembled and labelled in the companion
-`stale_rate_analysis` repo, using this repository's functions. That repo also
-maintains the propagation-era scheme, the pool size tiers, the main-chain
-denominators, and the study methodology and its threats to validity, and
-consumes this repository as a same-trust-domain library. The boundary is enforced in the
+of its own for census labels.
+
+The combined census-plus-recovered stale set the analysis works over is
+assembled and labelled in the companion `stale_rate_analysis` repo, using
+this repository's functions. That repo also maintains the propagation-era
+scheme, the pool size tiers, the main-chain denominators, and the study
+methodology and its threats to validity, and consumes this repository as a
+same-trust-domain library. The boundary is enforced in the
 code as well as by convention: this repository intentionally carries no era
 constants and no era vocabulary, and the attribution API takes `min_height` as
 a caller-supplied parameter rather than deriving a height window from an era

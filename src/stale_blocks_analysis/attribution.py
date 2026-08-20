@@ -3,12 +3,16 @@
 This is the attribution layer's driver. It merges every per-chain
 AuxPoW-recovered loader in `stale_blocks.py` plus the stale descendants,
 tags each record with a mining pool, and records what kind of evidence
-produced each label. The scope is deliberately this repo's own recovered
-evidence: the upstream census is not merged or labelled here, because the
-combined census-plus-recovered set is the stale-rate analysis's input and
-the companion repo assembles it from these same functions. Acquisition and
-recovery stay free of pool attribution; this module is the separate pass
-over already-loaded records described in `docs/pool-attribution.md`.
+produced each label.
+
+The scope is deliberately this repo's own recovered evidence. The upstream
+census is not merged or labelled here: the combined census-plus-recovered
+set is the stale-rate analysis's input, and the companion repo assembles it
+from these same functions.
+
+Acquisition and recovery stay free of pool attribution; this module is the
+separate pass over already-loaded records described in
+`docs/pool-attribution.md`.
 
 Three passes run over the merged, tagged records, in order:
 
