@@ -182,3 +182,50 @@ def test_writer_projects_stray_working_keys_and_emits_lf_endings(tmp_path) -> No
     assert rows[0]["hash"] == "aaa"
     assert rows[0]["pool"] == "F2Pool"
     assert rows[1]["attribution_basis"] == "unattributed"
+
+
+def test_clone_state_reports_commit_and_dirty(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "clone"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "f.txt").write_text("x")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "c"], cwd=repo, check=True)
+
+    state = attribution._clone_state(repo)
+    assert state is not None
+    assert len(state["commit"]) == 40 and state["dirty"] is False
+
+    (repo / "f.txt").write_text("y")
+    assert attribution._clone_state(repo)["dirty"] is True
+    assert attribution._clone_state(tmp_path / "missing") is None
+
+
+def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        attribution, "_clone_state", lambda p: {"commit": "a" * 40, "dirty": False}
+    )
+    monkeypatch.setattr(attribution, "_pinned_ref", lambda key: "a" * 40)
+    monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fingerprint")
+    stale = [
+        {"height": 1, "hash": "aa", "attribution_basis": "coinbase"},
+        {"height": 2, "hash": "bb", "attribution_basis": "unattributed"},
+    ]
+    csv_path = tmp_path / "stale-block-attributions.csv"
+
+    meta_path = attribution.write_attribution_meta(stale, csv_path)
+
+    assert meta_path.name == "stale-block-attributions.meta.json"
+    import json
+
+    meta = json.loads(meta_path.read_text())
+    assert meta["rows"] == 2
+    assert meta["attribution_basis_counts"] == {"coinbase": 1, "unattributed": 1}
+    assert meta["mining_pools"]["pinned_ref"] == "a" * 40
+    assert meta["mining_pools"]["state"]["dirty"] is False
+    assert meta["mining_pools"]["dataset_fingerprint"] == "fingerprint"
+    assert meta["stale_blocks"]["state"]["commit"] == "a" * 40

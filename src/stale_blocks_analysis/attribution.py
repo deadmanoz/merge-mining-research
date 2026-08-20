@@ -48,7 +48,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -56,10 +59,14 @@ from . import stale_blocks as _stale_loaders
 from .config import (
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
+    LOCAL_MINING_POOLS_DIR,
+    PROJECT_ROOT,
     RESULTS_DIR,
     RSK_CSV,
     STALE_CSV,
+    STALE_DIR,
 )
+from .pool_identification import pool_dataset_fingerprint
 from .stale_blocks import load_stale_csv, load_stale_descendants
 from .stale_merge import merge_stale_sources, tag_stale_blocks
 from .template_producers import fold_template_producer
@@ -222,6 +229,91 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
     print(f"CSV -> {path}")
 
 
+def _clone_state(path: Path) -> dict | None:
+    """Commit and dirty state of a fetched clone; None when absent/not git."""
+    if not (path / ".git").exists():
+        return None
+
+    def _git(*args: str) -> str | None:
+        proc = subprocess.run(
+            ["git", "-C", str(path), *args], capture_output=True, text=True
+        )
+        return proc.stdout.strip() if proc.returncode == 0 else None
+
+    commit = _git("rev-parse", "HEAD")
+    status = _git("status", "--porcelain")
+    return {"commit": commit, "dirty": bool(status)}
+
+
+def _pinned_ref(key: str) -> str | None:
+    """The commit pinned for *key* in the committed data-sources.tsv."""
+    manifest = PROJECT_ROOT / "data-sources.tsv"
+    if not manifest.exists():
+        return None
+    for line in manifest.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) == 4 and fields[0] == key:
+            return fields[2]
+    return None
+
+
+def write_attribution_meta(stale: list[dict], csv_path: Path) -> Path:
+    """Record the dataset state the export was produced from.
+
+    The registry is read from its working tree on every run (a local fork is
+    a supported workflow), so an export is reproducible only together with
+    the registry state that produced it. The sidecar records the pinned and
+    actual commits, the dirty flag, and the content fingerprint of the pool
+    dataset, plus the same for the stale-blocks clone and the per-basis row
+    counts.
+    """
+    meta = {
+        "rows": len(stale),
+        "attribution_basis_counts": dict(
+            sorted(Counter(s.get("attribution_basis") for s in stale).items())
+        ),
+        "mining_pools": {
+            "pinned_ref": _pinned_ref("mining-pools"),
+            "state": _clone_state(LOCAL_MINING_POOLS_DIR),
+            "dataset_fingerprint": pool_dataset_fingerprint(),
+        },
+        "stale_blocks": {
+            "pinned_ref": _pinned_ref("stale-blocks"),
+            "state": _clone_state(STALE_DIR),
+        },
+    }
+    meta_path = csv_path.with_suffix(".meta.json")
+    with open(meta_path, "w", newline="") as f:
+        json.dump(meta, f, indent=2, sort_keys=True)
+        f.write("\n")
+    return meta_path
+
+
+def _warn_on_unpinned_registry(meta_path: Path) -> None:
+    """Surface a registry that is not the clean committed pin on stderr."""
+    meta = json.loads(meta_path.read_text())
+    pools = meta["mining_pools"]
+    state = pools.get("state")
+    pin = pools.get("pinned_ref")
+    if state is None:
+        print(
+            "WARNING: mining-pools clone not found or not a git checkout; "
+            "labels are not traceable to the committed pin.",
+            file=sys.stderr,
+        )
+        return
+    if state.get("dirty") or (pin and state.get("commit") != pin):
+        print(
+            "WARNING: mining-pools clone is not the clean committed pin "
+            f"(pin {pin}, actual {state.get('commit')}, "
+            f"dirty={state.get('dirty')}); labels reflect the working tree "
+            "recorded in the .meta.json sidecar, not the pin.",
+            file=sys.stderr,
+        )
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=(
@@ -258,6 +350,9 @@ def main() -> None:
 
     stale = load_attributed_stales(min_height=args.min_height)
     dump_attributions_csv(stale, args.output)
+    meta_path = write_attribution_meta(stale, args.output)
+    print(f"Meta -> {meta_path}")
+    _warn_on_unpinned_registry(meta_path)
 
     pools = {s.get("pool") or "Unknown" for s in stale}
     n_rsk = sum(1 for s in stale if s.get("attribution_basis") == "rsk_historical")

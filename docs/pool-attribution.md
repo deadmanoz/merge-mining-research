@@ -66,7 +66,10 @@ folded in by `src/stale_blocks_analysis/template_producers.py`. The fold
 applies only to coinbase-derived labels: an `rsk_historical` label is a
 miner-address attribution with no coinbase behind it, so it is carried into
 the `template_producer` column unfolded rather than upgraded to a
-template-producer claim. The two have
+template-producer claim. Fold windows also end at their evidence horizon: a
+proxy relationship is a positive claim, so a tag dated after the last
+measurement the table cites passes through unfolded until newer evidence
+raises the cap. The two have
 diverged materially since roughly 2021 to 2023, because proxy pooling and
 template sharing decouple the coinbase tag from the entity that built the
 block: 0xB10C's stratum-job measurements show near-identical templates across
@@ -91,10 +94,17 @@ height,hash,source,pool,template_producer,attribution_basis,has_bin
 ```
 
 `attribution_basis` is one of `coinbase`, `rsk_historical`, or `unattributed`,
-so a consumer can always tell which evidence path produced a label. The export
+so a consumer can always tell which evidence path produced a label. A
+`stale-block-attributions.meta.json` sidecar records the provenance the labels
+came from: the pinned and actual commits (plus dirty state) of both fetched
+clones, the pool dataset's content fingerprint, and per-basis row counts. The
+registry is read from its working tree on every run, since a local fork is a
+supported workflow, so a run whose registry is not the clean committed pin is
+flagged on stderr and identified in the sidecar. The export
 is a gitignored, regenerable run product under `results/analysis/`, and
 deliberately not a committed dataset for now: the registry pin and the loader
-inputs it derives from are committed, and the export is reproducible from them.
+inputs it derives from are committed, and the export is reproducible from them
+together with the recorded registry state.
 
 ## Scope boundary
 
