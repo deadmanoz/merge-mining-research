@@ -299,3 +299,23 @@ def test_identify_pool_detailed_reports_the_match_method(tmp_path, monkeypatch):
     )
     assert pi.identify_pool_detailed(None) == ("Unknown", "none")
     assert pi.identify_pool_detailed(b"nothing-matches") == ("Unknown", "none")
+
+
+def test_empty_string_registry_entries_fail_closed(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi
+
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "empty-tag.json").write_text(
+        '{"id": "e", "name": "EmptyTagPool", "addresses": [], "tags": [""]}'
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    # An empty tag encodes to b"", which is a substring of every scriptSig
+    # and would claim every otherwise-unmatched row: fail closed instead.
+    with pytest.raises(ValueError, match="non-empty strings"):
+        pi.identify_pool(b"anything")

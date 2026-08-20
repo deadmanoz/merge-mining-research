@@ -162,16 +162,19 @@ def fetch_known_pools() -> dict:
             value = pool.get(field)
             if value is not None and (
                 not isinstance(value, list)
-                or any(not isinstance(item, str) for item in value)
+                or any(not isinstance(item, str) or not item.strip() for item in value)
             ):
                 # A string value would be iterated per character and register
                 # overbroad one-character tags (a "/" tag matches almost
-                # every coinbase), so schema errors fail closed like
+                # every coinbase), and an empty-string tag encodes to b"",
+                # which occurs in every scriptSig and would claim every
+                # otherwise-unmatched row. Schema errors fail closed like
                 # unparseable JSON does.
                 raise ValueError(
                     f"Malformed pool registry file {pool_file}: {field!r} "
-                    "must be an array of strings. Fix or remove the file; "
-                    "attribution refuses to run from a partial registry."
+                    "must be an array of non-empty strings. Fix or remove "
+                    "the file; attribution refuses to run from a partial "
+                    "registry."
                 )
         name = pool.get("name")
         link = pool.get("link", "") or ""
