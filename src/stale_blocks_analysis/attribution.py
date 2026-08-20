@@ -1,12 +1,14 @@
 """Per-stale-block pool attribution: assembly, evidence basis, and export.
 
-This is the attribution layer's driver. It loads the upstream
-bitcoin-data/stale-blocks baseline, merges every per-chain AuxPoW-recovered
-loader in `stale_blocks.py` plus the stale descendants over it, tags each
-record with a mining pool, and records which evidence path produced each
-label. Acquisition and recovery stay free of pool attribution; this module is
-the separate pass over already-loaded records described in
-`docs/pool-attribution.md`.
+This is the attribution layer's driver. It merges every per-chain
+AuxPoW-recovered loader in `stale_blocks.py` plus the stale descendants,
+tags each record with a mining pool, and records what kind of evidence
+produced each label. The scope is deliberately this repo's own recovered
+evidence: the upstream census is not merged or labelled here, because the
+combined census-plus-recovered set is the stale-rate analysis's input and
+the companion repo assembles it from these same functions. Acquisition and
+recovery stay free of pool attribution; this module is the separate pass
+over already-loaded records described in `docs/pool-attribution.md`.
 
 Three passes run over the merged, tagged records, in order:
 
@@ -16,7 +18,7 @@ Three passes run over the merged, tagged records, in order:
    are joined against the `pool_label` column of the committed
    `rsk_validated_stales.csv`, whose labels come from a historical
    miner-address registry rather than the BTC parent coinbase (RSK's proof
-   does not expose it). The join is by observation identity, regardless of
+   does not expose it). The join key is `(height, hash)`, regardless of
    which source's row survived the merge, and never displaces a coinbase
    attribution. Labelled rows carry `attribution_basis=rsk_historical`
    so a consumer can always tell them apart: they are historical evidence,
@@ -42,7 +44,7 @@ It carries no windowing semantics of its own: the default of 0 means
 population supply their own floor.
 
 Depends on: config (CHAIN_SPECS, CHAINS_BY_AUXPOW_ACTIVATION, RESULTS_DIR,
-RSK_CSV, STALE_CSV), stale_blocks (per-chain loaders), stale_merge
+RSK_CSV, BLOCKS_DIR), stale_blocks (per-chain loaders), stale_merge
 (merge_stale_sources, tag_stale_blocks), template_producers
 (fold_template_producer).
 """
@@ -68,11 +70,10 @@ from .config import (
     PROJECT_ROOT,
     RESULTS_DIR,
     RSK_CSV,
-    STALE_CSV,
     STALE_DIR,
 )
 from .pool_identification import pool_dataset_fingerprint, reset_runtime_pool_tables
-from .stale_blocks import load_stale_csv, load_stale_descendants
+from .stale_blocks import load_stale_descendants
 from .stale_merge import merge_stale_sources, tag_stale_blocks
 from .template_producers import fold_template_producer
 
@@ -93,7 +94,7 @@ ATTRIBUTION_COLUMNS = [
 ]
 
 
-def _auxpow_loader_roster() -> list[tuple[str, Callable]]:
+def auxpow_loader_roster() -> list[tuple[str, Callable]]:
     """Per-chain stale loaders in CHAINS_BY_AUXPOW_ACTIVATION order.
 
     Derived from the public CHAIN_SPECS registry — new chains join the
@@ -106,7 +107,7 @@ def _auxpow_loader_roster() -> list[tuple[str, Callable]]:
     ]
 
 
-def _apply_attribution_basis(stale: list[dict]) -> None:
+def apply_attribution_basis(stale: list[dict]) -> None:
     """Record whether coinbase identification produced a real pool label."""
     for s in stale:
         s["attribution_basis"] = (
@@ -114,7 +115,7 @@ def _apply_attribution_basis(stale: list[dict]) -> None:
         )
 
 
-def _apply_rsk_historical_labels(stale: list[dict]) -> None:
+def apply_rsk_historical_labels(stale: list[dict]) -> None:
     """Join the historical miner-registry `pool_label` onto RSK observations.
 
     RSK's merge-mining proof does not expose the BTC parent coinbase, so
@@ -123,8 +124,8 @@ def _apply_rsk_historical_labels(stale: list[dict]) -> None:
     here, flagged as `rsk_historical` so they are never mistaken for a
     coinbase-derived attribution result.
 
-    The join key is the OBSERVATION identity `(height, hash)`, not the
-    merged row's retained `source`: when an RSK-observed header also
+    The join key is `(height, hash)`, the identity of the observed header,
+    not the merged row's retained `source`: when an RSK-observed header also
     appears in the census or an earlier-activation chain, that primary
     row's source survives the merge, but the header was still accepted as
     an RSK stale observation and its historical label still applies.
@@ -169,7 +170,7 @@ def _apply_rsk_historical_labels(stale: list[dict]) -> None:
         )
 
 
-def _apply_template_producers(stale: list[dict]) -> None:
+def apply_template_producers(stale: list[dict]) -> None:
     """Fold coinbase-derived tag-owner labels into template-producer labels.
 
     The fold table's evidence is stratum-job and coinbase-tag measurement, so
@@ -196,7 +197,13 @@ def _apply_template_producers(stale: list[dict]) -> None:
 
 
 def load_attributed_stales(min_height: int = 0) -> list[dict]:
-    """Load, merge, tag, and attribute every available stale-block record.
+    """Load, merge, tag, and attribute the merge-mining-recovered stales.
+
+    The record set is this repo's own evidence: AuxPoW-recovered direct
+    stales from every chain loader, the stale descendants, and RSK
+    observations. The upstream census is NOT merged here; labelling the
+    combined census-plus-recovered set is the stale-rate analysis's job,
+    and the companion repo assembles it from these same functions.
 
     *min_height* is passed verbatim to every loader as a plain height floor;
     the default of 0 admits everything available.
@@ -206,11 +213,9 @@ def load_attributed_stales(min_height: int = 0) -> list[dict]:
     # process that edited the registry clone since the previous run.
     reset_runtime_pool_tables()
 
-    print("Loading stale block records ...")
-    stale = load_stale_csv(min_height=min_height)
-    print(f"  {len(stale)} stale blocks at height >= {min_height:,}")
-
-    for key, loader in _auxpow_loader_roster():
+    print("Loading merge-mining-recovered stale records ...")
+    stale: list[dict] = []
+    for key, loader in auxpow_loader_roster():
         rows = loader(min_height=min_height)
         if rows:
             print(f"  {len(rows)} {CHAIN_SPECS[key].display_name} stale blocks loaded")
@@ -228,9 +233,9 @@ def load_attributed_stales(min_height: int = 0) -> list[dict]:
     n_bin = sum(1 for s in stale if s["has_bin"])
     print(f"  {n_bin} binaries parsed, {len(stale) - n_bin} without binary")
 
-    _apply_attribution_basis(stale)
-    _apply_rsk_historical_labels(stale)
-    _apply_template_producers(stale)
+    apply_attribution_basis(stale)
+    apply_rsk_historical_labels(stale)
+    apply_template_producers(stale)
     return stale
 
 
@@ -252,17 +257,16 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
 
 
 def _stale_inputs_fingerprint() -> str:
-    """SHA-256 over the consumed stale-blocks inputs (census CSV + blocks/).
+    """SHA-256 over the consumed stale-blocks input (the blocks/ binaries).
 
-    The stale-blocks clone is as editable as the registry clone, and the
+    The raw blocks are the only part of the stale-blocks clone this export
+    reads (as a coinbase source for recovered headers the census also
+    archived). The clone is as editable as the registry clone, and the
     commit + dirty flag alone cannot distinguish two different working-tree
-    edits. The run already reads every matching binary, so hashing the
-    consumed inputs costs comparably to the export itself.
+    edits. The run already reads every matching binary, so hashing them
+    costs comparably to the export itself.
     """
     h = hashlib.sha256()
-    if STALE_CSV.exists():
-        h.update(b"stale-blocks.csv")
-        h.update(STALE_CSV.read_bytes())
     if BLOCKS_DIR.is_dir():
         for f in sorted(BLOCKS_DIR.glob("*.bin")):
             h.update(f.name.encode())
@@ -390,10 +394,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
-    if not STALE_CSV.exists():
+    if not BLOCKS_DIR.is_dir():
         sys.exit(
-            f"Missing {STALE_CSV} — run ./scripts/fetch-data.sh to clone the "
-            "pinned bitcoin-data/stale-blocks dataset."
+            f"Missing {BLOCKS_DIR} — run ./scripts/fetch-data.sh to clone the "
+            "pinned bitcoin-data/stale-blocks dataset. Its blocks/ binaries "
+            "are a coinbase source for recovered headers; running without "
+            "them would silently produce weaker labels."
         )
 
     stale = load_attributed_stales(min_height=args.min_height)

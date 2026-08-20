@@ -7,17 +7,17 @@ import csv
 from stale_blocks_analysis import attribution, stale_blocks
 from stale_blocks_analysis.attribution import (
     ATTRIBUTION_COLUMNS,
-    _apply_attribution_basis,
-    _apply_rsk_historical_labels,
-    _apply_template_producers,
-    _auxpow_loader_roster,
+    apply_attribution_basis,
+    apply_rsk_historical_labels,
+    apply_template_producers,
+    auxpow_loader_roster,
     dump_attributions_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS, CHAINS_BY_AUXPOW_ACTIVATION
 
 
 def test_roster_follows_activation_order_and_covers_every_chain_spec() -> None:
-    roster = _auxpow_loader_roster()
+    roster = auxpow_loader_roster()
     keys = [key for key, _fn in roster]
 
     assert keys == [key for key, _date in CHAINS_BY_AUXPOW_ACTIVATION]
@@ -25,7 +25,7 @@ def test_roster_follows_activation_order_and_covers_every_chain_spec() -> None:
 
 
 def test_roster_resolves_the_public_loader_for_each_chain() -> None:
-    for key, fn in _auxpow_loader_roster():
+    for key, fn in auxpow_loader_roster():
         expected = getattr(stale_blocks, f"load_{key.replace('-', '_')}_stales")
         assert fn is expected, key
 
@@ -37,7 +37,7 @@ def test_attribution_basis_marks_only_real_coinbase_labels() -> None:
         {"height": 3, "hash": "c"},
     ]
 
-    _apply_attribution_basis(records)
+    apply_attribution_basis(records)
 
     assert [r["attribution_basis"] for r in records] == [
         "coinbase",
@@ -79,9 +79,9 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
         # An RSK row with grafted coinbase evidence keeps its coinbase label.
         {"height": 500, "hash": "eee", "source": "rsk", "pool": "F2Pool"},
     ]
-    _apply_attribution_basis(records)
+    apply_attribution_basis(records)
 
-    _apply_rsk_historical_labels(records)
+    apply_rsk_historical_labels(records)
 
     assert records[0]["pool"] == "Braiins Pool"
     assert records[0]["attribution_basis"] == "rsk_historical"
@@ -105,9 +105,9 @@ def test_rsk_join_is_a_no_op_when_the_registry_input_is_absent(
 ) -> None:
     monkeypatch.setattr(attribution, "RSK_CSV", tmp_path / "missing.csv")
     records = [{"height": 100, "hash": "aaa", "source": "rsk", "pool": "Unknown"}]
-    _apply_attribution_basis(records)
+    apply_attribution_basis(records)
 
-    _apply_rsk_historical_labels(records)
+    apply_rsk_historical_labels(records)
 
     assert records[0]["pool"] == "Unknown"
     assert records[0]["attribution_basis"] == "unattributed"
@@ -145,7 +145,7 @@ def test_template_producer_pass_folds_only_coinbase_derived_labels() -> None:
         },
     ]
 
-    _apply_template_producers(records)
+    apply_template_producers(records)
 
     assert records[0]["template_producer"] == "AntPool & friends"
     assert records[1]["template_producer"] == "AntPool"
@@ -246,12 +246,9 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
 
 
 def test_stale_inputs_fingerprint_tracks_content(tmp_path, monkeypatch):
-    csv_path = tmp_path / "stale-blocks.csv"
     blocks = tmp_path / "blocks"
     blocks.mkdir()
-    csv_path.write_text("height,hash\n1,aa\n")
     (blocks / "1-aa.bin").write_bytes(b"blockbytes")
-    monkeypatch.setattr(attribution, "STALE_CSV", csv_path)
     monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
 
     first = attribution._stale_inputs_fingerprint()

@@ -5,16 +5,19 @@
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and
-`just attribute` turns the retained evidence into a per-stale-block export
-of pool labels.
+`just attribute` turns the retained evidence into an export of pool labels
+for the merge-mining-recovered stales.
 
 Identification matches each coinbase against the registry: scriptSig tags
 longest-first, then coinbase OP_RETURN outputs, then payout addresses. The
-record set is the upstream census merged with every AuxPoW loader and the
-stale descendants. Every row carries three attribution fields: the tag-owner
+record set is this repo's own recovered evidence: every AuxPoW loader plus
+the stale descendants. The upstream census is not labelled here; the
+combined census-plus-recovered set belongs to the stale-rate analysis,
+which the companion repo assembles from the same functions. Every row
+carries three attribution fields: the tag-owner
 `pool`, a `template_producer` that folds modern proxy-pooled tags into the
 entity that actually built the template, and an `attribution_basis` naming
-the evidence path (`coinbase`, `rsk_historical`, or `unattributed`). RSK's
+the kind of evidence (`coinbase`, `rsk_historical`, or `unattributed`). RSK's
 labels come from a historical miner registry and only ever appear under
 their own basis, never as current attribution.
 

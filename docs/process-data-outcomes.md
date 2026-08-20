@@ -156,9 +156,10 @@ rows. Source details and the authentication contract are recorded in
 [`child-header-hydration.md`](child-header-hydration.md).
 
 Mining-pool attribution is a separate layer over the recovery outputs:
-`just attribute` fetches the pinned pool registry and emits a per-stale-block
-attribution export as a gitignored run product (see
-[`pool-attribution.md`](pool-attribution.md)). No attribution results are
+`just attribute` fetches the pinned pool registry and labels the
+merge-mining-recovered stales, writing an export as a gitignored run product
+(see [`pool-attribution.md`](pool-attribution.md)). The upstream census is
+not labelled here. No attribution results are
 committed.
 
 The full extraction/classification/reconciliation sequence is not encoded in

@@ -166,8 +166,9 @@ Be strict about what belongs in git:
   with its `data/error-blocks/mtp_context.csv` sidecar.
 - Do not commit fetched upstream data under `data/stale-blocks/` or
   `data/mining-pools/`.
-- Do not commit attribution run outputs. `just attribute` writes
-  `results/analysis/pool-attribution/*.csv`, covered by the existing
+- Do not commit attribution run outputs. `just attribute` labels the
+  merge-mining-recovered stales and writes
+  `results/analysis/pool-attribution/*`, covered by the existing
   `results/analysis/*/` ignore; the export is a regenerable run product
   (see `docs/pool-attribution.md`).
 - Do not commit raw extracts, PoW-passing intermediates, full classifier
@@ -247,8 +248,10 @@ Preserve these distinctions:
   current attribution result. The attribution layer may surface those labels
   only with `attribution_basis=rsk_historical`.
 - Pool attribution is dual: every attributed record carries `pool` (tag owner)
-  plus `template_producer` (the evidence-dated proxy-cluster fold in
-  `template_producers.py`). The observed-vs-expected stale-rate analysis and
+  plus `template_producer` (the dated proxy-cluster fold in
+  `template_producers.py`). The attribution export covers only the
+  merge-mining-recovered stales; labelling the combined
+  census-plus-recovered set, the observed-vs-expected analysis, and
   the propagation-era scheme live in the companion `stale_rate_analysis` repo;
   this repo deliberately carries no era constants or era vocabulary, and the
   attribution API takes `min_height` as a caller-supplied parameter.

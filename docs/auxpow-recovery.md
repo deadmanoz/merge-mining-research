@@ -241,8 +241,8 @@ RSK is the exception: its recovery artifacts preserve the RSK miner address and
 historical `pool_label`, rather than the Bitcoin parent coinbase transaction.
 
 The attribution layer fetches the pinned `bitcoin-data/mining-pools` registry,
-runs the shared coinbase-to-pool matcher over the merged stale set, and emits a
-per-stale-block attribution export as a gitignored run product; see
+runs the shared coinbase-to-pool matcher over the merge-mining-recovered
+stales, and emits an attribution export as a gitignored run product; see
 [`pool-attribution.md`](pool-attribution.md) for the layer and its export
 contract. No attribution results are committed, and the observed-vs-expected
 analysis over those labels lives in the companion `stale_rate_analysis` repo
