@@ -1,0 +1,119 @@
+"""Merging and pool-tagging of loaded stale-block records.
+
+Analysis-side companions to the loaders in `stale_blocks.py`:
+`merge_stale_sources` combines the upstream bitcoin-data/stale-blocks
+baseline with AuxPoW-recovered records (deduplicating by (height, hash)),
+and `tag_stale_blocks` attributes each record to a mining pool via
+`identify_pool`. The loaders themselves stay free of pool attribution so
+the acquisition/recovery pipeline never imports the pool dataset.
+
+Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
+pool_identification (identify_pool), stale_blocks (_addr_to_spk).
+"""
+
+from .bitcoin_binary import parse_coinbase
+from .config import BLOCKS_DIR
+from .pool_identification import identify_pool
+from .stale_blocks import _addr_to_spk
+
+
+def merge_stale_sources(
+    primary: list[dict],
+    auxpow: list[dict],
+) -> list[dict]:
+    """Merge stale block lists, deduplicating by (height, hash).
+
+    Primary (bitcoin-data/stale-blocks) wins on exact duplicates; AuxPoW
+    records at new (height, hash) pairs are added. Records at the same
+    height but with different hashes are both kept (multi-way forks).
+
+    For exact duplicates, the AuxPoW coinbase fields (_scriptsig_hex,
+    _outputs_str) are carried over to the primary record so
+    tag_stale_blocks() can use them as a fallback when the .bin file is
+    missing.
+    """
+    primary_idx = {(b["height"], b["hash"]): b for b in primary}
+    merged = list(primary)
+    added = 0
+    enriched = 0
+    for b in auxpow:
+        key = (b["height"], b["hash"])
+        if key in primary_idx:
+            # Carry AuxPoW coinbase data to the primary record as fallback
+            pri = primary_idx[key]
+            if "_scriptsig_hex" not in pri and b.get("_scriptsig_hex"):
+                pri["_scriptsig_hex"] = b["_scriptsig_hex"]
+                pri["_outputs_str"] = b.get("_outputs_str", "")
+                enriched += 1
+        else:
+            primary_idx[key] = b
+            merged.append(b)
+            added += 1
+    merged.sort(key=lambda r: r["height"])
+    print(
+        f"  Merged stale sources: {len(primary)} primary + {added} new from AuxPoW "
+        f"= {len(merged)} total ({enriched} primary enriched with AuxPoW coinbase)"
+    )
+    return merged
+
+
+def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
+    """Parse .bin files and tag each block with its pool name.
+
+    For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
+    scriptsig hex and output addresses carried in the record. Records that
+    arrive pre-tagged (pool already set, as for RSK rows whose attribution
+    comes from a miner-address registry rather than the BTC coinbase) skip
+    identify_pool entirely.
+    """
+    for b in blocks:
+        # Pre-tagged source (e.g., RSK with miner-address pool resolution).
+        if b.get("pool"):
+            b.setdefault("has_bin", False)
+            b.pop("_scriptsig_hex", None)
+            b.pop("_outputs_str", None)
+            continue
+
+        # Try .bin file first (primary source)
+        path = BLOCKS_DIR / f"{b['height']}-{b['hash']}.bin"
+        if path.exists():
+            raw = path.read_bytes()
+            cb = parse_coinbase(raw)
+            if cb:
+                b["pool"] = identify_pool(cb["scriptsig"], cb["outputs"])
+            else:
+                b["pool"] = "Unknown"
+            b["has_bin"] = True
+            continue
+
+        # AuxPoW source: use pre-parsed coinbase data
+        sig_hex = b.pop("_scriptsig_hex", "")
+        outputs_str = b.pop("_outputs_str", "")
+
+        if sig_hex:
+            scriptsig = bytes.fromhex(sig_hex)
+            # Build (value, scriptPubKey) tuples. Each entry is either a
+            # base58/bech32 address (NMC, Syscoin loaders) or a raw
+            # scriptPubKey hex string (Devcoin, ixcoin loaders, whose
+            # source CSVs carry scripts not addresses). Try address first,
+            # fall back to hex.
+            outputs = []
+            if outputs_str:
+                for entry in outputs_str.split(";"):
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    spk = _addr_to_spk(entry)
+                    if spk is None:
+                        try:
+                            spk = bytes.fromhex(entry)
+                        except ValueError:
+                            continue
+                    outputs.append((0, spk))
+            b["pool"] = identify_pool(scriptsig, outputs or None)
+        else:
+            b["pool"] = "Unknown"
+
+        b["has_bin"] = False
+
+    return blocks
