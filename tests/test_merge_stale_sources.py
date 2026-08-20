@@ -65,7 +65,7 @@ def test_tag_stale_blocks_preserves_pretagged_rows(monkeypatch):
 
     monkeypatch.setattr(
         stale_merge,
-        "identify_pool",
+        "identify_pool_detailed",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not be called")),
     )
     rows = [
@@ -92,9 +92,9 @@ def test_tag_stale_blocks_auxpow_fallback_passes_coinbase_to_identify(monkeypatc
     def fake_identify(sig, outputs=None):
         seen["sig"] = sig
         seen["outputs"] = outputs
-        return "FallbackPool"
+        return "FallbackPool", "tag"
 
-    monkeypatch.setattr(stale_merge, "identify_pool", fake_identify)
+    monkeypatch.setattr(stale_merge, "identify_pool_detailed", fake_identify)
     # Height/hash chosen so no BLOCKS_DIR .bin file can exist.
     rows = [
         {
@@ -181,9 +181,9 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
 
     def fake_identify(sig, outputs=None):
         seen["sig"] = sig
-        return "FallbackPool"
+        return "FallbackPool", "tag"
 
-    monkeypatch.setattr(stale_merge, "identify_pool", fake_identify)
+    monkeypatch.setattr(stale_merge, "identify_pool_detailed", fake_identify)
     rows = [
         {
             "height": 700000,
@@ -199,3 +199,27 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     assert out[0]["pool"] == "FallbackPool"
     assert out[0]["has_bin"] is True
     assert seen["sig"] == bytes.fromhex("deadbeef")
+
+
+def test_primary_exact_duplicates_are_dropped_first_wins():
+    primary = [
+        {"height": 1, "hash": "aa", "source": "stale-blocks"},
+        {"height": 1, "hash": "aa", "source": "stale-blocks-copy"},
+        {"height": 2, "hash": "bb", "source": "stale-blocks"},
+    ]
+    auxpow = [
+        {
+            "height": 1,
+            "hash": "aa",
+            "source": "namecoin",
+            "_scriptsig_hex": "aabb",
+            "_outputs_str": "",
+        }
+    ]
+
+    merged = merge_stale_sources(primary, auxpow)
+
+    assert [(r["height"], r["hash"]) for r in merged] == [(1, "aa"), (2, "bb")]
+    # The kept first copy receives the enrichment.
+    assert merged[0]["source"] == "stale-blocks"
+    assert merged[0]["_scriptsig_hex"] == "aabb"

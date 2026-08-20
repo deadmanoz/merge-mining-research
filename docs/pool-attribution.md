@@ -63,9 +63,11 @@ result.
 Attribution is dual. Every attributable block carries a *tag-owner* label from
 the coinbase and, where the evidence supports it, a *template-producer* label
 folded in by `src/stale_blocks_analysis/template_producers.py`. The fold
-applies only to coinbase-derived labels: an `rsk_historical` label is a
-miner-address attribution with no coinbase behind it, so it is carried into
-the `template_producer` column unfolded rather than upgraded to a
+applies only to labels derived from an actual coinbase-tag observation
+(scriptSig or OP_RETURN): a payout-address-only identification observes no
+tag, and an `rsk_historical` label is a
+miner-address attribution with no coinbase behind it, so both are carried
+into the `template_producer` column unfolded rather than upgraded to a
 template-producer claim. Fold windows also end at their evidence horizon: a
 proxy relationship is a positive claim, so a tag dated after the last
 measurement the table cites passes through unfolded until newer evidence

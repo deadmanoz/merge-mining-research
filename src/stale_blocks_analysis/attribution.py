@@ -172,7 +172,15 @@ def _apply_template_producers(stale: list[dict]) -> None:
     """
     for s in stale:
         tag = s.get("pool") or "Unknown"
-        if s.get("attribution_basis") == "coinbase":
+        # The fold's evidence is coinbase-TAG measurement, so it applies
+        # only when the label came from an actual tag observation (scriptSig
+        # or OP_RETURN); a payout-address-only identification is coinbase
+        # evidence for the tag OWNER but observes no tag, so it is carried
+        # unfolded.
+        if s.get("attribution_basis") == "coinbase" and s.get("_pool_match") in (
+            "tag",
+            "op_return",
+        ):
             s["template_producer"] = fold_template_producer(tag, s["height"])
         else:
             s["template_producer"] = tag

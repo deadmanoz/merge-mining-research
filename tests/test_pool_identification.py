@@ -267,3 +267,35 @@ def test_reset_runtime_pool_tables_picks_up_registry_edits(tmp_path, monkeypatch
 
     pi.reset_runtime_pool_tables()
     assert pi.identify_pool(b"xx/Tag/yy") == "SecondPool"
+
+
+def test_identify_pool_detailed_reports_the_match_method(tmp_path, monkeypatch):
+    from stale_blocks_analysis import pool_identification as pi
+    from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
+
+    addr = "3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9"
+    h160 = _b58_decode_to_hash160(addr)
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "p.json").write_text(
+        '{"id": "p", "name": "MethodPool", '
+        f'"addresses": ["{addr}"], "tags": ["/MethodPool/"]}}'.replace("}}", "}")
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    spk_addr = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+    op_return = (0, b"\x6a" + b"/MethodPool/")
+
+    assert pi.identify_pool_detailed(b"xx/MethodPool/yy") == ("MethodPool", "tag")
+    assert pi.identify_pool_detailed(b"no-tag", [op_return]) == (
+        "MethodPool",
+        "op_return",
+    )
+    assert pi.identify_pool_detailed(b"no-tag", [(0, spk_addr)]) == (
+        "MethodPool",
+        "address",
+    )
+    assert pi.identify_pool_detailed(None) == ("Unknown", "none")
+    assert pi.identify_pool_detailed(b"nothing-matches") == ("Unknown", "none")

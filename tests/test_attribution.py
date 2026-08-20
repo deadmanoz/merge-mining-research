@@ -120,6 +120,15 @@ def test_template_producer_pass_folds_only_coinbase_derived_labels() -> None:
             "hash": "a",
             "pool": "AntPool",
             "attribution_basis": "coinbase",
+            "_pool_match": "tag",
+        },
+        # A payout-address-only identification observes no tag: not folded.
+        {
+            "height": 850_000,
+            "hash": "d",
+            "pool": "AntPool",
+            "attribution_basis": "coinbase",
+            "_pool_match": "address",
         },
         # An RSK historical label is not coinbase evidence: carried unfolded.
         {
@@ -140,7 +149,8 @@ def test_template_producer_pass_folds_only_coinbase_derived_labels() -> None:
 
     assert records[0]["template_producer"] == "AntPool & friends"
     assert records[1]["template_producer"] == "AntPool"
-    assert records[2]["template_producer"] == "Unknown"
+    assert records[2]["template_producer"] == "AntPool"
+    assert records[3]["template_producer"] == "Unknown"
 
 
 def test_writer_projects_stray_working_keys_and_emits_lf_endings(tmp_path) -> None:

@@ -303,19 +303,26 @@ def pool_dataset_fingerprint() -> str:
     return h.hexdigest()
 
 
-def identify_pool(
+def identify_pool_detailed(
     sig: bytes | None, outputs: list[tuple[int, bytes]] | None = None
-) -> str:
-    """Identify pool from coinbase scriptSig, OP_RETURN data, and output addresses."""
+) -> tuple[str, str]:
+    """Identify a pool and report which evidence path matched.
+
+    Returns ``(name, method)`` with method one of ``"tag"`` (scriptSig tag),
+    ``"op_return"`` (tag found in a coinbase OP_RETURN output),
+    ``"address"`` (payout-address hash160 match), or ``"none"``. Downstream
+    consumers that make tag-evidence-only claims (the template-producer
+    fold) gate on the method.
+    """
     if not sig:
-        return "Unknown"
+        return "Unknown", "none"
 
     pool_tags, addr_pools = _ensure_runtime_pool_tables()
 
     # 1. ScriptSig tag matching
     for tag, name in pool_tags:
         if tag in sig:
-            return name
+            return name, "tag"
 
     # 2. OP_RETURN data in coinbase outputs (e.g. "Mined by 1hash.com")
     if outputs:
@@ -323,10 +330,10 @@ def identify_pool(
             if len(spk) >= 3 and spk[0] == 0x6A:  # OP_RETURN
                 for tag, name in pool_tags:
                     if tag in spk:
-                        return name
+                        return name, "op_return"
                 # Check for "1hash.com" in OP_RETURN specifically
                 if b"1hash.com" in spk:
-                    return "1hash.com"
+                    return "1hash.com", "op_return"
 
         # 3. Output address matching (last resort for tagless miners)
         for _value, spk in outputs:
@@ -338,6 +345,13 @@ def identify_pool(
             elif len(spk) == 22 and spk[0] == 0x00:  # P2WPKH
                 h160 = spk[2:]
             if h160 and h160 in addr_pools:
-                return addr_pools[h160]
+                return addr_pools[h160], "address"
 
-    return "Unknown"
+    return "Unknown", "none"
+
+
+def identify_pool(
+    sig: bytes | None, outputs: list[tuple[int, bytes]] | None = None
+) -> str:
+    """Identify pool from coinbase scriptSig, OP_RETURN data, and output addresses."""
+    return identify_pool_detailed(sig, outputs)[0]

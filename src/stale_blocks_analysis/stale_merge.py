@@ -8,12 +8,12 @@ and `tag_stale_blocks` attributes each record to a mining pool via
 the acquisition/recovery pipeline never imports the pool dataset.
 
 Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
-pool_identification (identify_pool), stale_blocks (_addr_to_spk).
+pool_identification (identify_pool_detailed), stale_blocks (_addr_to_spk).
 """
 
 from .bitcoin_binary import parse_coinbase
 from .config import BLOCKS_DIR
-from .pool_identification import identify_pool
+from .pool_identification import identify_pool_detailed
 from .stale_blocks import _addr_to_spk
 
 
@@ -32,8 +32,23 @@ def merge_stale_sources(
     tag_stale_blocks() can use them as a fallback when the .bin file is
     missing.
     """
-    primary_idx = {(b["height"], b["hash"]): b for b in primary}
-    merged = list(primary)
+    # Deduplicate exact keys inside the primary list itself (first row
+    # wins), so a duplicated upstream row can never double-count a stale
+    # event or split its AuxPoW enrichment across copies. The upstream
+    # census currently has no exact-key duplicates; this is the doctrine
+    # (dedupe by (height, hash)) enforced rather than assumed.
+    primary_idx: dict = {}
+    merged: list[dict] = []
+    primary_dupes = 0
+    for b in primary:
+        key = (b["height"], b["hash"])
+        if key in primary_idx:
+            primary_dupes += 1
+            continue
+        primary_idx[key] = b
+        merged.append(b)
+    if primary_dupes:
+        print(f"  {primary_dupes} exact-duplicate primary rows dropped")
     added = 0
     enriched = 0
     for b in auxpow:
@@ -90,7 +105,9 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
         if has_bin:
             cb = parse_coinbase(path.read_bytes())
             if cb:
-                b["pool"] = identify_pool(cb["scriptsig"], cb["outputs"])
+                b["pool"], b["_pool_match"] = identify_pool_detailed(
+                    cb["scriptsig"], cb["outputs"]
+                )
                 b["has_bin"] = True
                 continue
             # Unparseable binary: fall through to the carried AuxPoW coinbase
@@ -122,9 +139,12 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
                         except ValueError:
                             continue
                     outputs.append((0, spk))
-            b["pool"] = identify_pool(scriptsig, outputs or None)
+            b["pool"], b["_pool_match"] = identify_pool_detailed(
+                scriptsig, outputs or None
+            )
         else:
             b["pool"] = "Unknown"
+            b["_pool_match"] = "none"
 
         b["has_bin"] = has_bin
 
