@@ -12,10 +12,13 @@ Three passes run over the merged, tagged records, in order:
 
 1. `attribution_basis` is set to `coinbase` where coinbase identification
    produced a real label, and `unattributed` otherwise.
-2. RSK rows are re-joined against the `pool_label` column of the committed
+2. Rows whose `(height, hash)` matches an accepted RSK stale observation
+   are joined against the `pool_label` column of the committed
    `rsk_validated_stales.csv`, whose labels come from a historical
    miner-address registry rather than the BTC parent coinbase (RSK's proof
-   does not expose it). Those rows carry `attribution_basis=rsk_historical`
+   does not expose it). The join is by observation identity, regardless of
+   which source's row survived the merge, and never displaces a coinbase
+   attribution. Labelled rows carry `attribution_basis=rsk_historical`
    so a consumer can always tell them apart: they are historical evidence,
    never a current attribution result.
 3. `template_producer` is folded from the tag-owner label for
@@ -48,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -57,6 +61,7 @@ from pathlib import Path
 
 from . import stale_blocks as _stale_loaders
 from .config import (
+    BLOCKS_DIR,
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
     LOCAL_MINING_POOLS_DIR,
@@ -110,13 +115,19 @@ def _apply_attribution_basis(stale: list[dict]) -> None:
 
 
 def _apply_rsk_historical_labels(stale: list[dict]) -> None:
-    """Re-join RSK rows against the historical miner-registry `pool_label`.
+    """Join the historical miner-registry `pool_label` onto RSK observations.
 
     RSK's merge-mining proof does not expose the BTC parent coinbase, so
     `load_rsk_stales` deliberately returns header identity only. The labels
     live in the committed loader input's `pool_label` column and are applied
     here, flagged as `rsk_historical` so they are never mistaken for a
     coinbase-derived attribution result.
+
+    The join key is the OBSERVATION identity `(height, hash)`, not the
+    merged row's retained `source`: when an RSK-observed header also
+    appears in the census or an earlier-activation chain, that primary
+    row's source survives the merge, but the header was still accepted as
+    an RSK stale observation and its historical label still applies.
     """
     if not RSK_CSV.exists():
         return
@@ -138,12 +149,10 @@ def _apply_rsk_historical_labels(stale: list[dict]) -> None:
 
     n = 0
     for s in stale:
-        if s.get("source") != "rsk":
-            continue
-        # An RSK-sourced row can still gain real coinbase evidence when a
-        # later-activating chain witnessed the same header and the merge
-        # grafted its coinbase. Coinbase attribution outranks the historical
-        # registry, so never overwrite it.
+        # A row can carry real coinbase evidence (its own binary, or a
+        # coinbase grafted from another chain's observation of the same
+        # header). Coinbase attribution outranks the historical registry,
+        # so never overwrite it.
         if s.get("attribution_basis") == "coinbase":
             continue
         label = labels.get((s["height"], s["hash"]))
@@ -242,6 +251,25 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
     print(f"CSV -> {path}")
 
 
+def _stale_inputs_fingerprint() -> str:
+    """SHA-256 over the consumed stale-blocks inputs (census CSV + blocks/).
+
+    The stale-blocks clone is as editable as the registry clone, and the
+    commit + dirty flag alone cannot distinguish two different working-tree
+    edits. The run already reads every matching binary, so hashing the
+    consumed inputs costs comparably to the export itself.
+    """
+    h = hashlib.sha256()
+    if STALE_CSV.exists():
+        h.update(b"stale-blocks.csv")
+        h.update(STALE_CSV.read_bytes())
+    if BLOCKS_DIR.is_dir():
+        for f in sorted(BLOCKS_DIR.glob("*.bin")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()
+
+
 def _clone_state(path: Path) -> dict | None:
     """Commit and dirty state of a fetched clone; None when absent/not git."""
     if not (path / ".git").exists():
@@ -301,6 +329,7 @@ def write_attribution_meta(
         "stale_blocks": {
             "pinned_ref": _pinned_ref("stale-blocks"),
             "state": _clone_state(STALE_DIR),
+            "input_fingerprint": _stale_inputs_fingerprint(),
         },
     }
     meta_path = csv_path.with_suffix(".meta.json")

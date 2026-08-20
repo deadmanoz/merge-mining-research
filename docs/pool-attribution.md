@@ -47,17 +47,20 @@ events and both are kept.
 block as the coinbase source and otherwise using the carried AuxPoW coinbase
 fields. RSK rows enter tagging untagged like every other record (their loader
 returns header identity only); the historical registry label is joined
-afterwards, onto rsk-sourced rows whose coinbase evidence produced no
-attribution, so grafted coinbase evidence always wins over the historical
-registry. The `has_bin` column records which coinbase path a row took.
+afterwards, by observation identity: any merged row whose `(height, hash)`
+matches an accepted RSK stale observation and whose coinbase evidence
+produced no attribution receives the label, regardless of which source's
+row survived the merge, so coinbase evidence always wins over the
+historical registry. The `has_bin` column records which coinbase path a row took.
 
 ## RSK: historical labels only
 
 RSK's merge-mining proof does not expose the Bitcoin parent coinbase, so RSK
 rows usually cannot be attributed by the process above (the exception is an
 RSK-witnessed header whose coinbase another chain carried, grafted in the
-merge; coinbase evidence then wins). After tagging, the remaining rsk-sourced
-rows are labelled from the historical `pool_label` column of the committed
+merge; coinbase evidence then wins). After tagging, rows matching an accepted
+RSK stale observation by `(height, hash)` and still unattributed
+are labelled from the historical `pool_label` column of the committed
 RSK loader input, itself derived from `results/rsk_pool_registry.csv` by
 `rsk_miner` address. That registry is a
 historical snapshot (see [`chains/rsk.md`](chains/rsk.md)), and labels derived
@@ -111,7 +114,8 @@ so a consumer can always tell which evidence path produced a label. A
 came from: the pinned and actual commits (plus dirty state) of both fetched
 clones, this repository's own commit and dirty state (the committed loader
 inputs and the attribution code are inputs too), the requested height floor,
-the pool dataset's content fingerprint, and per-basis row counts. The
+content fingerprints of the pool dataset and of the consumed stale-blocks
+inputs (census CSV plus block binaries), and per-basis row counts. The
 registry is read from its working tree on every run, since a local fork is a
 supported workflow, so a run whose registry is not the clean committed pin is
 flagged on stderr and identified in the sidecar. The export

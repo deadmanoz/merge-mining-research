@@ -85,8 +85,8 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
 
     assert records[0]["pool"] == "Braiins Pool"
     assert records[0]["attribution_basis"] == "rsk_historical"
-    assert records[1]["pool"] == "Unknown"
-    assert records[1]["attribution_basis"] == "unattributed"
+    assert records[1]["pool"] == "Braiins Pool"
+    assert records[1]["attribution_basis"] == "rsk_historical"
     assert records[2]["pool"] == "Unknown"
     assert records[2]["attribution_basis"] == "unattributed"
     assert records[3]["pool"] == "F2Pool"
@@ -97,7 +97,7 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
     assert records[5]["attribution_basis"] == "coinbase"
 
     out = capsys.readouterr().out
-    assert "RSK historical miner-registry labels applied to 2 rows" in out
+    assert "RSK historical miner-registry labels applied to 3 rows" in out
 
 
 def test_rsk_join_is_a_no_op_when_the_registry_input_is_absent(
@@ -221,6 +221,7 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(attribution, "_pinned_ref", lambda key: "a" * 40)
     monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fingerprint")
+    monkeypatch.setattr(attribution, "_stale_inputs_fingerprint", lambda: "stalefp")
     stale = [
         {"height": 1, "hash": "aa", "attribution_basis": "coinbase"},
         {"height": 2, "hash": "bb", "attribution_basis": "unattributed"},
@@ -240,4 +241,21 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     assert meta["mining_pools"]["state"]["dirty"] is False
     assert meta["mining_pools"]["dataset_fingerprint"] == "fingerprint"
     assert meta["stale_blocks"]["state"]["commit"] == "a" * 40
+    assert meta["stale_blocks"]["input_fingerprint"] == "stalefp"
     assert meta["repository"] == {"commit": "a" * 40, "dirty": False}
+
+
+def test_stale_inputs_fingerprint_tracks_content(tmp_path, monkeypatch):
+    csv_path = tmp_path / "stale-blocks.csv"
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    csv_path.write_text("height,hash\n1,aa\n")
+    (blocks / "1-aa.bin").write_bytes(b"blockbytes")
+    monkeypatch.setattr(attribution, "STALE_CSV", csv_path)
+    monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
+
+    first = attribution._stale_inputs_fingerprint()
+    assert first == attribution._stale_inputs_fingerprint()
+
+    (blocks / "1-aa.bin").write_bytes(b"editedbytes")
+    assert attribution._stale_inputs_fingerprint() != first
