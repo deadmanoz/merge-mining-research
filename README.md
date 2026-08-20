@@ -314,6 +314,7 @@ just refresh-bitcoin-epoch-reference
 just full-evidence
 just strict-weak-orphans
 just monitor-evidence
+just attribute
 just child-header-coverage --input-dir <staged-evidence-dir> \
   --output <staged-results-dir>/child-header-coverage.csv
 just check-leaks

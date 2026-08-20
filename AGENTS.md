@@ -62,11 +62,13 @@ The development install includes pytest and Ruff. The core install
 checks are not needed.
 
 `scripts/fetch-data.sh` clones or updates the upstream datasets declared in
-`data-sources.tsv` (`bitcoin-data/stale-blocks` under `data/stale-blocks/`) and
+`data-sources.tsv` (`bitcoin-data/stale-blocks` under `data/stale-blocks/` and
+`bitcoin-data/mining-pools` under `data/mining-pools/`) and
 checks each out at its pinned commit, so recovery inputs are reproducible. Use
 `just upstream-check` to compare the pin with upstream, `just upstream-update`
 to update the pin, and `just upstream-sidecar` to build the contribution
-sidecar. Override the location with `STALE_BLOCKS_DIR`. The script leaves a
+sidecar. Override the locations with `STALE_BLOCKS_DIR` and
+`LOCAL_MINING_POOLS_DIR`. The script leaves a
 clone that is on a branch or has local edits untouched.
 
 ## Common Commands
@@ -82,6 +84,7 @@ just full-evidence
 just child-header-coverage
 just strict-weak-orphans
 just monitor-evidence
+just attribute
 just upstream-check
 just upstream-update
 just upstream-sidecar
@@ -125,6 +128,10 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   `data/error-blocks/error_blocks.csv`), and the
   `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
+  The pool-attribution layer (`pool_identification`, `stale_merge`,
+  `template_producers`, `attribution`; see `docs/pool-attribution.md`) is a
+  separate pass over already-loaded records — the acquisition/recovery side
+  never imports it.
   Prefer adding shared logic here over re-inlining it in a script. Future
   research directions get their own packages.
 - `scripts/`: extraction, classification, analysis, and utility scripts,
@@ -157,7 +164,12 @@ Be strict about what belongs in git:
   corrected upstream or archived candidates from re-entering public outputs
   (it supersedes the removed `data/stale_block_exclusions.csv` overlay), along
   with its `data/error-blocks/mtp_context.csv` sidecar.
-- Do not commit fetched upstream data under `data/stale-blocks/`.
+- Do not commit fetched upstream data under `data/stale-blocks/` or
+  `data/mining-pools/`.
+- Do not commit attribution run outputs. `just attribute` writes
+  `results/analysis/pool-attribution/*.csv`, covered by the existing
+  `results/analysis/*/` ignore; the export is a regenerable run product
+  (see `docs/pool-attribution.md`).
 - Do not commit raw extracts, PoW-passing intermediates, full classifier
   outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
   marker SQLite/Parquet outputs, or node data directories unless a doc
@@ -232,7 +244,14 @@ Preserve these distinctions:
   evidence for later attribution research.
 - RSK is special: its proof does not expose the real parent coinbase. Preserve
   `rsk_miner` as evidence, but do not treat historical `pool_label` values as a
-  current attribution result.
+  current attribution result. The attribution layer may surface those labels
+  only with `attribution_basis=rsk_historical`.
+- Pool attribution is dual: every attributed record carries `pool` (tag owner)
+  plus `template_producer` (the evidence-dated proxy-cluster fold in
+  `template_producers.py`). The observed-vs-expected stale-rate analysis and
+  the propagation-era scheme live in the companion `stale_rate_analysis` repo;
+  this repo deliberately carries no era constants or era vocabulary, and the
+  attribution API takes `min_height` as a caller-supplied parameter.
 - Post-2017 contamination from BCH/BSV-like parent headers is filtered with
   self-target PoW and expected-`nBits` checks. Before classification, the shared
   driver corroborates the published hash, previous hash, time, and `nBits`
