@@ -282,6 +282,9 @@ def write_attribution_meta(
             "state": _clone_state(LOCAL_MINING_POOLS_DIR),
             "dataset_fingerprint": pool_dataset_fingerprint(),
         },
+        # The export also depends on the committed loader inputs and the
+        # attribution code itself, so record this repository's own state.
+        "repository": _clone_state(PROJECT_ROOT),
         "stale_blocks": {
             "pinned_ref": _pinned_ref("stale-blocks"),
             "state": _clone_state(STALE_DIR),

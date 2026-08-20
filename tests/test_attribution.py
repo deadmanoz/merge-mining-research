@@ -230,3 +230,4 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     assert meta["mining_pools"]["state"]["dirty"] is False
     assert meta["mining_pools"]["dataset_fingerprint"] == "fingerprint"
     assert meta["stale_blocks"]["state"]["commit"] == "a" * 40
+    assert meta["repository"] == {"commit": "a" * 40, "dirty": False}

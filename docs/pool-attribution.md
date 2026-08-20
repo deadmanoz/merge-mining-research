@@ -100,7 +100,9 @@ height,hash,source,pool,template_producer,attribution_basis,has_bin
 so a consumer can always tell which evidence path produced a label. A
 `stale-block-attributions.meta.json` sidecar records the provenance the labels
 came from: the pinned and actual commits (plus dirty state) of both fetched
-clones, the pool dataset's content fingerprint, and per-basis row counts. The
+clones, this repository's own commit and dirty state (the committed loader
+inputs and the attribution code are inputs too), the requested height floor,
+the pool dataset's content fingerprint, and per-basis row counts. The
 registry is read from its working tree on every run, since a local fork is a
 supported workflow, so a run whose registry is not the clean committed pin is
 flagged on stderr and identified in the sidecar. The export
