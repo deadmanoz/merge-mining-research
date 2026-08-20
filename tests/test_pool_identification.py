@@ -393,3 +393,22 @@ def test_mistyped_addresses_fail_their_checksums(pool_clone):
     )
     with pytest.raises(ValueError, match="bech32 checksum"):
         pi.identify_pool(b"anything")
+
+
+def test_uppercase_bech32_payout_address_is_accepted(pool_clone):
+    """BIP-173 permits an all-uppercase address. The checksum verifier
+    already folded case, so a case-sensitive decoder dispatch would let the
+    validator pass an address it then failed to decode, rejecting an
+    otherwise valid registry."""
+    _clone_dir, add_pool = pool_clone
+    add_pool(
+        "upper.json",
+        pool_id="up",
+        name="UpperPool",
+        tags=["/UpperPool/"],
+        addresses=["BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"],
+    )
+
+    assert pi.identify_pool(b"xx/UpperPool/yy") == "UpperPool"
+    program = pi._decode_payout_address("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")
+    assert program is not None and len(program) == 20

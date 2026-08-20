@@ -176,8 +176,12 @@ def _decode_payout_address(addr: str) -> bytes | None:
     fine and is simply unusable for the 20-byte lookup; the pinned registry
     contains such an address, so "decodes" and "is usable" are deliberately
     different questions.
+
+    The bech32 test is case-insensitive because BIP-173 permits an
+    all-uppercase address; base58 is case-sensitive by construction and is
+    left alone.
     """
-    if addr.startswith("bc1"):
+    if addr.lower().startswith("bc1"):
         return _bech32_decode_to_program(addr)
     return _b58_decode_to_hash160(addr)
 

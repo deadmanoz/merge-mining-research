@@ -223,3 +223,12 @@ def test_primary_exact_duplicates_are_dropped_first_wins():
     # The kept first copy receives the enrichment.
     assert merged[0]["source"] == "stale-blocks"
     assert merged[0]["_scriptsig_hex"] == "aabb"
+
+
+def test_addr_to_spk_accepts_uppercase_bech32():
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    upper = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
+    lower = upper.lower()
+    assert _addr_to_spk(upper) == _addr_to_spk(lower)
+    assert _addr_to_spk(upper)[:2] == b"\x00\x14"

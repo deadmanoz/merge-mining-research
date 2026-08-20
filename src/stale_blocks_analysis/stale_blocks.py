@@ -92,10 +92,13 @@ def _addr_to_spk(addr: str) -> bytes | None:
     Supports P2PKH (1...), P2SH (3...), and P2WPKH/P2WSH/P2TR (bc1...).
     Returns None if the address can't be decoded.
     """
-    if addr.startswith(("bc1", "nc1")):
+    lowered = addr.lower()
+    if lowered.startswith(("bc1", "nc1")):
         # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
-        # so normalize to bc1 and decode the identical data part.
-        program = _bech32_decode_to_program("bc1" + addr[3:])
+        # so normalize to bc1 and decode the identical data part. The case
+        # fold matters too: BIP-173 permits an all-uppercase address, which
+        # would otherwise fall through to the base58 decoder and be dropped.
+        program = _bech32_decode_to_program("bc1" + lowered[3:])
         if program is None:
             return None
         if len(program) == 20:
