@@ -137,3 +137,20 @@ def test_check_fails_closed_when_origin_cannot_be_refreshed(tmp_path: Path):
     )
     assert result.returncode == 2
     assert "freshness is unknown" in result.stderr
+
+
+def test_committed_manifest_rows_are_tab_separated_four_columns():
+    manifest = PROJECT_ROOT / "data-sources.tsv"
+    keys = []
+    for lineno, line in enumerate(manifest.read_text().splitlines(), start=1):
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        assert len(fields) == 4, f"line {lineno}: expected 4 tab-separated fields"
+        key, url, ref, subdir = fields
+        assert key not in keys, f"line {lineno}: duplicate key {key}"
+        keys.append(key)
+        assert url.startswith("https://")
+        assert ref == "HEAD" or (len(ref) == 40 and int(ref, 16) >= 0)
+        assert subdir.startswith("data/")
+    assert "stale-blocks" in keys and "mining-pools" in keys

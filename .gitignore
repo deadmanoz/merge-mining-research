@@ -87,3 +87,4 @@ results/analysis/error-blocks/by-chain/
 
 # Upstream public datasets fetched via scripts/fetch-data.sh
 data/stale-blocks/
+data/mining-pools/
