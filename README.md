@@ -216,7 +216,7 @@ repository and documented in
 [`docs/pool-attribution.md`](docs/pool-attribution.md). The
 observed-versus-expected stale-rate analysis, its methodology and threats to
 validity, and the propagation-era definitions live in the companion
-`stale_rate_analysis` repo.
+`stale_rate_analysis` repo (not yet published).
 
 The reusable logic lives in the core modules under `src/stale_blocks_analysis/`
 (`auxpow_parse`, `auxpow_chainid`, `btc_rpc`, `btc_classify`,

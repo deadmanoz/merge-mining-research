@@ -73,7 +73,8 @@ as a measure of who built a block, and therefore of who won or lost a
 propagation race, so both labels are carried and neither is discarded in favour
 of the other. The full treatment, including how the two are reported against
 each other and the threats to validity attaching to both, belongs to the
-methodology in the companion `stale_rate_analysis` repo.
+methodology in the companion `stale_rate_analysis` repo (a separate analysis
+repo, not yet published).
 
 ## Export contract
 

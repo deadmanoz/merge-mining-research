@@ -75,7 +75,7 @@ directions, not findings reported by the initial public release.
   dual tag-owner/template-producer attribution design, is documented in
   [`pool-attribution.md`](pool-attribution.md); the full study methodology and
   the propagation-era scheme are maintained in the companion
-  `stale_rate_analysis` repo.
+  `stale_rate_analysis` repo (not yet published).
 - **Mining-proxy and aggregator analysis.** AuxPoW pairs a Bitcoin coinbase with
   a sibling-chain coinbase for the same work. Comparing the two sides can reveal
   evidence consistent with a merge-mining proxy or aggregator between the
