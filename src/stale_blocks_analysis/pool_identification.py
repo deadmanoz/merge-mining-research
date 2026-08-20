@@ -230,8 +230,10 @@ def _build_runtime_pool_tables() -> tuple[list[tuple[bytes, str]], dict[bytes, s
             if h160 is not None:
                 upstream_addrs[h160] = entry["name"]
 
-    # Local additions go second so they only catch h160s upstream missed.
-    runtime_addrs = {**upstream_addrs, **LOCAL_OUTPUT_ADDR_POOLS}
+    # Local additions only catch h160s upstream missed: upstream is the
+    # later (winning) operand of the merge, so a colliding local override
+    # can never displace an upstream mapping.
+    runtime_addrs = {**LOCAL_OUTPUT_ADDR_POOLS, **upstream_addrs}
     return runtime_tags, runtime_addrs
 
 

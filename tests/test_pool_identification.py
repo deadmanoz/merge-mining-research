@@ -174,3 +174,32 @@ def test_tag_conflict_warns(pool_clone, capsys):
 
     assert "SharedTag" in captured.err
     assert result == "BetaPool"
+
+
+def test_local_override_never_displaces_upstream(tmp_path, monkeypatch):
+    from stale_blocks_analysis import pool_identification as pi
+    from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
+
+    upstream_addr = "3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9"
+    h160 = _b58_decode_to_hash160(upstream_addr)
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "upstream.json").write_text(
+        '{"id": "up", "name": "UpstreamPool", '
+        f'"addresses": ["{upstream_addr}"], "tags": [], "link": ""}}'.replace("}}", "}")
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    local_only = bytes.fromhex("00" * 20)
+    monkeypatch.setattr(
+        pi,
+        "LOCAL_OUTPUT_ADDR_POOLS",
+        {h160: "LocalCollider", local_only: "LocalOnly"},
+    )
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    spk_upstream = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+    spk_local = bytes([0x76, 0xA9, 0x14]) + local_only + bytes([0x88, 0xAC])
+
+    assert pi.identify_pool(b"no-tag", [(0, spk_upstream)]) == "UpstreamPool"
+    assert pi.identify_pool(b"no-tag", [(0, spk_local)]) == "LocalOnly"
