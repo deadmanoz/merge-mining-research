@@ -86,15 +86,17 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
 
         # Try .bin file first (primary source)
         path = BLOCKS_DIR / f"{b['height']}-{b['hash']}.bin"
-        if path.exists():
-            raw = path.read_bytes()
-            cb = parse_coinbase(raw)
+        has_bin = path.exists()
+        if has_bin:
+            cb = parse_coinbase(path.read_bytes())
             if cb:
                 b["pool"] = identify_pool(cb["scriptsig"], cb["outputs"])
-            else:
-                b["pool"] = "Unknown"
-            b["has_bin"] = True
-            continue
+                b["has_bin"] = True
+                continue
+            # Unparseable binary: fall through to the carried AuxPoW coinbase
+            # (when present) so an unusable file never makes attribution
+            # worse than having no binary at all. has_bin still records that
+            # the file exists.
 
         # AuxPoW source: use pre-parsed coinbase data
         sig_hex = b.pop("_scriptsig_hex", "")
@@ -124,6 +126,6 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
         else:
             b["pool"] = "Unknown"
 
-        b["has_bin"] = False
+        b["has_bin"] = has_bin
 
     return blocks

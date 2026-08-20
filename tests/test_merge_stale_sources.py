@@ -151,3 +151,51 @@ def test_addr_to_spk_decodes_syscoin_p2pkh_addresses():
 
     spk = _addr_to_spk(addr)
     assert spk == bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
+
+
+def test_addr_to_spk_decodes_namecoin_p2sh_and_bech32_addresses():
+    from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    p2sh = "6arxak7yK8CmKEc8M8TqekkAXErtjN5RVt"  # committed Namecoin output
+    h160 = _b58_decode_to_hash160(p2sh)
+    assert h160 is not None and len(h160) == 20
+    assert _addr_to_spk(p2sh) == bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+
+    # Namecoin bech32: same data part as the bc1 form, different HRP.
+    nc1 = "nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    bc1 = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    assert _addr_to_spk(nc1) == _addr_to_spk(bc1)
+    assert _addr_to_spk(nc1) is not None and _addr_to_spk(nc1)[:2] == b"\x00\x14"
+
+
+def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
+    tmp_path, monkeypatch
+):
+    from stale_blocks_analysis import stale_merge
+
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / f"700000-{'ab' * 32}.bin").write_bytes(b"truncated-garbage")
+
+    seen = {}
+
+    def fake_identify(sig, outputs=None):
+        seen["sig"] = sig
+        return "FallbackPool"
+
+    monkeypatch.setattr(stale_merge, "identify_pool", fake_identify)
+    rows = [
+        {
+            "height": 700000,
+            "hash": "ab" * 32,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+
+    out = stale_merge.tag_stale_blocks(rows)
+
+    assert out[0]["pool"] == "FallbackPool"
+    assert out[0]["has_bin"] is True
+    assert seen["sig"] == bytes.fromhex("deadbeef")

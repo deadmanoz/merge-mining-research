@@ -92,8 +92,10 @@ def _addr_to_spk(addr: str) -> bytes | None:
     Supports P2PKH (1...), P2SH (3...), and P2WPKH/P2WSH/P2TR (bc1...).
     Returns None if the address can't be decoded.
     """
-    if addr.startswith("bc1"):
-        program = _bech32_decode_to_program(addr)
+    if addr.startswith(("bc1", "nc1")):
+        # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
+        # so normalize to bc1 and decode the identical data part.
+        program = _bech32_decode_to_program("bc1" + addr[3:])
         if program is None:
             return None
         if len(program) == 20:
@@ -108,7 +110,8 @@ def _addr_to_spk(addr: str) -> bytes | None:
     # byte is chain cosmetics, the hash160 payload is the same)
     if addr.startswith(("1", "N", "S")):
         return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
-    elif addr.startswith("3") or addr.startswith("M"):  # P2SH (M prefix = Namecoin)
+    # P2SH (M and 6 prefixes = Namecoin)
+    elif addr.startswith(("3", "M", "6")):
         return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
     return None
 
