@@ -34,8 +34,10 @@ pin_checkout() {
             || echo "  (${key}: not on a fast-forwardable branch; left as-is)"
         return
     fi
-    if ! git -C "${dest}" diff --quiet HEAD 2>/dev/null; then
-        echo "  (${key} has uncommitted changes; left as-is. Pinned ref: ${ref})"
+    # status --porcelain, not diff: untracked files (an operator's
+    # in-progress pool registry edits) must also keep the clone untouched.
+    if [ -n "$(git -C "${dest}" status --porcelain 2>/dev/null)" ]; then
+        echo "  (${key} has local changes; left as-is. Pinned ref: ${ref})"
         return
     fi
     local on_branch

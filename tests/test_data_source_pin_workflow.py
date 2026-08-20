@@ -154,3 +154,22 @@ def test_committed_manifest_rows_are_tab_separated_four_columns():
         assert ref == "HEAD" or (len(ref) == 40 and int(ref, 16) >= 0)
         assert subdir.startswith("data/")
     assert "stale-blocks" in keys and "mining-pools" in keys
+
+
+def test_fetch_leaves_clone_with_untracked_files_untouched(tmp_path: Path):
+    env, seed, manifest, first = make_fixture(tmp_path)
+    clone = Path(env["DATA_SOURCES_ROOT"]) / "data" / "stale-blocks"
+
+    # Advance the remote and re-pin the manifest to the new commit.
+    second = commit_and_push(seed, "second", "height,hash,header\nnew,row,x\n")
+    manifest.write_text(manifest.read_text().replace(first, second))
+
+    # An untracked file is an operator's in-progress work: the clone must be
+    # left where it is, not moved to the new pin.
+    (clone / "untracked-edit.json").write_text("{}")
+    fetch = Path(__file__).resolve().parent.parent / "scripts" / "fetch-data.sh"
+    out = run("bash", str(fetch), cwd=Path(env["DATA_SOURCES_ROOT"]), env=env)
+
+    head = run("git", "rev-parse", "HEAD", cwd=clone).stdout.strip()
+    assert head == first
+    assert "local changes" in out.stdout

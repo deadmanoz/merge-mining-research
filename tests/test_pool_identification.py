@@ -158,22 +158,18 @@ def test_unknown_when_nothing_matches(pool_clone):
     assert pi.identify_pool(b"") == "Unknown"
 
 
-def test_tag_conflict_warns(pool_clone, capsys):
-    """Two pool files claiming the same tag emit a warning naming the tag on
-    stderr. The winner is deterministic: fetch_known_pools() processes files
-    in sorted-filename order and each later file overwrites the dict entry
-    for a shared key, so the alphabetically LAST file's pool wins (not the
-    first, despite the "first pool file wins" intuition one might expect from
-    a naive "first match sticks" reading of the loop)."""
+def test_conflicting_markers_fail_closed(pool_clone):
+    """Two pool files claiming the same tag stop the run: the winner would
+    otherwise depend on filename order, and a rename must never change
+    exported labels."""
+    import pytest
+
     _clone_dir, add_pool = pool_clone
     add_pool("a_alpha.json", pool_id="alpha", name="AlphaPool", tags=["SharedTag"])
     add_pool("b_beta.json", pool_id="beta", name="BetaPool", tags=["SharedTag"])
 
-    result = pi.identify_pool(b"xxSharedTagxx")
-    captured = capsys.readouterr()
-
-    assert "SharedTag" in captured.err
-    assert result == "BetaPool"
+    with pytest.raises(ValueError, match="SharedTag"):
+        pi.identify_pool(b"xxSharedTagxx")
 
 
 def test_local_override_never_displaces_upstream(tmp_path, monkeypatch):

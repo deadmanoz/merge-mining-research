@@ -13,7 +13,6 @@ enrichment dependencies.
 
 import hashlib
 import json
-import sys
 
 from .bitcoin_binary import _b58_decode_to_hash160, _bech32_decode_to_program
 from .config import LOCAL_MINING_POOLS_DIR
@@ -138,9 +137,9 @@ def fetch_known_pools() -> dict:
             f"Is this really a clone of bitcoin-data/mining-pools?"
         )
 
-    # Track conflicts where two different pool files claim the same tag or
-    # address. These would shadow each other depending on file read order —
-    # surface them so they can be resolved (ideally upstream).
+    # Two different pool files claiming the same tag or address would make
+    # the exported label depend on filename order, so conflicts stop the run
+    # instead of being resolved silently.
     tag_conflicts: list[tuple[str, str, str]] = []
     addr_conflicts: list[tuple[str, str, str]] = []
 
@@ -197,22 +196,16 @@ def fetch_known_pools() -> dict:
                 addr_conflicts.append((addr, payout_addresses[addr]["name"], name))
             payout_addresses[addr] = entry
 
-    if tag_conflicts:
-        print(
-            f"  Local mining-pools: {len(tag_conflicts)} tag conflict(s) across "
-            f"pool files (first 3):",
-            file=sys.stderr,
+    if tag_conflicts or addr_conflicts:
+        details = [f"tag {x!r}: {a} vs {b}" for x, a, b in tag_conflicts[:5]]
+        details += [f"address {x}: {a} vs {b}" for x, a, b in addr_conflicts[:5]]
+        raise ValueError(
+            "Conflicting pool markers in the registry: "
+            + "; ".join(details)
+            + ". Two pool files claim the same marker, so the exported label "
+            "would depend on filename order. Resolve the conflict (ideally "
+            "upstream) before attributing."
         )
-        for t, a, b in tag_conflicts[:3]:
-            print(f"    {t!r}: {a} vs {b}", file=sys.stderr)
-    if addr_conflicts:
-        print(
-            f"  Local mining-pools: {len(addr_conflicts)} address conflict(s) "
-            f"across pool files (first 3):",
-            file=sys.stderr,
-        )
-        for a, p1, p2 in addr_conflicts[:3]:
-            print(f"    {a}: {p1} vs {p2}", file=sys.stderr)
 
     print(
         f"  Pool data: {LOCAL_MINING_POOLS_DIR} "
