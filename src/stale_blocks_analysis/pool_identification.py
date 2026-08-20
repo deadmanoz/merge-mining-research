@@ -175,6 +175,20 @@ def fetch_known_pools() -> dict:
                     "the file; attribution refuses to run from a partial "
                     "registry."
                 )
+        for tag in pool["tags"]:
+            # Tags are matched as UTF-8 bytes, so the rule is on encoded
+            # length, not characters: a single byte like "/" appears in
+            # almost every coinbase and would claim every otherwise
+            # unmatched row, while F2Pool's one-character emoji tag is four
+            # bytes and perfectly specific.
+            if len(tag.encode("utf-8")) < 2:
+                raise ValueError(
+                    f"Malformed pool registry file {pool_file}: tag {tag!r} "
+                    "encodes to a single byte, which matches almost every "
+                    "coinbase. Use a more specific tag; attribution refuses "
+                    "to run from a registry that would over-claim."
+                )
+
         name = pool.get("name")
         link = pool.get("link", "") or ""
         if not isinstance(name, str) or not name.strip():

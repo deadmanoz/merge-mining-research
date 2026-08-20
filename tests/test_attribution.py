@@ -285,10 +285,31 @@ def test_stale_inputs_fingerprint_tracks_content(tmp_path, monkeypatch):
     assert attribution._stale_inputs_fingerprint() != first
 
 
-def test_require_blocks_archive_needs_actual_binaries(tmp_path, monkeypatch):
+def _git_archive(tmp_path, names):
+    """A blocks/ archive tracked by a real git checkout."""
+    import subprocess
+
+    clone = tmp_path / "stale-blocks"
+    blocks = clone / "blocks"
+    blocks.mkdir(parents=True)
+    for name in names:
+        (blocks / name).write_bytes(b"payload")
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "archive"],
+    ):
+        subprocess.run(cmd, cwd=clone, check=True)
+    return clone, blocks
+
+
+def test_require_blocks_archive_rejects_missing_and_empty(tmp_path, monkeypatch):
     import pytest
 
     monkeypatch.setattr(attribution, "BLOCKS_DIR", tmp_path / "missing")
+    monkeypatch.setattr(attribution, "STALE_DIR", tmp_path)
     with pytest.raises(FileNotFoundError, match="No block binaries"):
         attribution.require_blocks_archive()
 
@@ -298,7 +319,38 @@ def test_require_blocks_archive_needs_actual_binaries(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError, match="No block binaries"):
         attribution.require_blocks_archive()
 
-    (empty / "1-aa.bin").write_bytes(b"payload")
+
+def test_require_blocks_archive_rejects_an_incomplete_checkout(tmp_path, monkeypatch):
+    import pytest
+
+    clone, blocks = _git_archive(tmp_path, ["1-aa.bin", "2-bb.bin", "3-cc.bin"])
+    monkeypatch.setattr(attribution, "STALE_DIR", clone)
+    monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
+
+    # Complete archive: the pinned inventory and the disk agree.
+    attribution.require_blocks_archive()
+    assert attribution.archive_inventory() == (3, 3)
+
+    # A single present binary is NOT enough once the manifest says three.
+    (blocks / "2-bb.bin").unlink()
+    (blocks / "3-cc.bin").unlink()
+    with pytest.raises(FileNotFoundError, match="1 of 3 binaries"):
+        attribution.require_blocks_archive()
+
+    # ...unless the caller opts in explicitly.
+    attribution.require_blocks_archive(allow_partial=True)
+    assert attribution.archive_inventory() == (3, 1)
+
+
+def test_archive_inventory_without_a_git_checkout(tmp_path, monkeypatch):
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    (blocks / "1-aa.bin").write_bytes(b"payload")
+    monkeypatch.setattr(attribution, "STALE_DIR", tmp_path)
+    monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
+
+    # No manifest to compare against: expected is unknown, presence suffices.
+    assert attribution.archive_inventory() == (None, 1)
     attribution.require_blocks_archive()
 
 

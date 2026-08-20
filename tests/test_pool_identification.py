@@ -335,3 +335,19 @@ def test_nameless_registry_entries_fail_closed(tmp_path, monkeypatch):
     # runtime tables while the export still looks complete.
     with pytest.raises(ValueError, match="'name' must be a non-empty string"):
         pi.identify_pool(b"xx/Ghost/yy")
+
+
+def test_single_byte_tags_fail_closed_but_multibyte_ones_pass(pool_clone):
+    """A one-byte tag like "/" matches almost every coinbase, so it is
+    rejected; F2Pool's one-character emoji tag is four bytes and stays
+    valid, which is why the rule is on encoded length, not characters."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("emoji.json", pool_id="f2", name="F2Pool", tags=["\U0001f41f"])
+    assert pi.identify_pool("xx\U0001f41fyy".encode()) == "F2Pool"
+
+    add_pool("slash.json", pool_id="bad", name="SlashPool", tags=["/"])
+    pi.reset_runtime_pool_tables()
+    with pytest.raises(ValueError, match="single byte"):
+        pi.identify_pool(b"anything/here")

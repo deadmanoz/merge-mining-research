@@ -226,7 +226,9 @@ def apply_template_producers(stale: list[dict]) -> None:
             s["template_producer"] = tag
 
 
-def load_attributed_stales(min_height: int = 0) -> list[dict]:
+def load_attributed_stales(
+    min_height: int = 0, allow_partial: bool = False
+) -> list[dict]:
     """Load, merge, tag, and attribute the merge-mining-recovered stales.
 
     The record set is this repo's own evidence: AuxPoW-recovered direct
@@ -238,7 +240,7 @@ def load_attributed_stales(min_height: int = 0) -> list[dict]:
     *min_height* is passed verbatim to every loader as a plain height floor;
     the default of 0 admits everything available.
     """
-    require_blocks_archive()
+    require_blocks_archive(allow_partial=allow_partial)
     # Rebuild the identification tables from disk so this run's labels match
     # the dataset state the meta sidecar records, even in a long-lived
     # process that edited the registry clone since the previous run.
@@ -330,21 +332,52 @@ def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
     return h.hexdigest()
 
 
-def require_blocks_archive() -> None:
-    """Stop when the fetched blocks/ archive is missing.
+def archive_inventory() -> tuple[int | None, int]:
+    """Expected and present block-binary counts for the fetched archive.
+
+    Expected is what the clone tracks at its current commit, which is the
+    only manifest of what a complete archive looks like. It is None when
+    the clone is not a git checkout, where no manifest exists to compare
+    against.
+    """
+    present = sum(1 for _ in BLOCKS_DIR.glob("*.bin"))
+    proc = subprocess.run(
+        ["git", "-C", str(STALE_DIR), "ls-files", "blocks/"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None, present
+    expected = sum(1 for line in proc.stdout.splitlines() if line.endswith(".bin"))
+    return expected, present
+
+
+def require_blocks_archive(allow_partial: bool = False) -> None:
+    """Stop when the fetched blocks/ archive is missing or incomplete.
 
     The census clone's raw blocks are a coinbase source for recovered
-    headers; running without them silently produces weaker labels, so both
-    the CLI and library callers (the companion analysis repo) check this
-    before assembling a record set.
+    headers, and a binary that is merely absent downgrades that row to
+    AuxPoW-only evidence without any visible failure. Both the CLI and
+    library callers (the companion analysis repo) check this before
+    assembling a record set. *allow_partial* attributes from whatever is
+    present, which the meta sidecar then records.
     """
-    if next(BLOCKS_DIR.glob("*.bin"), None) is None:
+    expected, present = archive_inventory()
+    if present == 0:
         raise FileNotFoundError(
             f"No block binaries under {BLOCKS_DIR} — run "
             "./scripts/fetch-data.sh to clone the pinned "
             "bitcoin-data/stale-blocks dataset. Its blocks/ binaries are a "
             "coinbase source for recovered headers; an empty or missing "
             "archive would silently produce weaker labels."
+        )
+    if expected is not None and present < expected and not allow_partial:
+        raise FileNotFoundError(
+            f"Incomplete block archive: {present} of {expected} binaries "
+            f"tracked at the {STALE_DIR} checkout are present. The missing "
+            "ones would silently fall back to AuxPoW-only evidence. Run "
+            "./scripts/fetch-data.sh, or pass --allow-partial to attribute "
+            "from what is present (recorded in the meta sidecar)."
         )
 
 
@@ -397,7 +430,10 @@ def _pinned_ref(key: str) -> str | None:
 
 
 def write_attribution_meta(
-    stale: list[dict], csv_path: Path, min_height: int = 0
+    stale: list[dict],
+    csv_path: Path,
+    min_height: int = 0,
+    allow_partial: bool = False,
 ) -> Path:
     """Record the dataset state the export was produced from.
 
@@ -408,6 +444,7 @@ def write_attribution_meta(
     dataset, plus the same for the stale-blocks clone and the per-basis row
     counts.
     """
+    _archive_expected, _archive_present = archive_inventory()
     meta = {
         "min_height": min_height,
         "rows": len(stale),
@@ -430,6 +467,13 @@ def write_attribution_meta(
             "pinned_ref": _pinned_ref("stale-blocks"),
             "state": _clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
+            "archive": {
+                "expected": _archive_expected,
+                "present": _archive_present,
+                "partial": _archive_expected is not None
+                and _archive_present < _archive_expected,
+                "allow_partial": allow_partial,
+            },
         },
     }
     meta_path = csv_path.with_suffix(".meta.json")
@@ -479,6 +523,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help=(
+            "attribute from an incomplete block archive; missing binaries "
+            "fall back to AuxPoW-only evidence and the sidecar records it"
+        ),
+    )
+    ap.add_argument(
         "--output",
         type=Path,
         default=ATTRIBUTIONS_CSV,
@@ -491,11 +543,15 @@ def main() -> None:
     args = _build_arg_parser().parse_args()
 
     try:
-        stale = load_attributed_stales(min_height=args.min_height)
+        stale = load_attributed_stales(
+            min_height=args.min_height, allow_partial=args.allow_partial
+        )
     except (FileNotFoundError, ValueError) as exc:
         sys.exit(str(exc))
     dump_attributions_csv(stale, args.output)
-    meta_path = write_attribution_meta(stale, args.output, args.min_height)
+    meta_path = write_attribution_meta(
+        stale, args.output, args.min_height, args.allow_partial
+    )
     print(f"Meta -> {meta_path}")
     _warn_on_unpinned_registry(meta_path)
 

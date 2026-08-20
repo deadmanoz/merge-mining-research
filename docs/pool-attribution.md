@@ -111,7 +111,15 @@ validity attaching to both, belong to the methodology in the companion
 
 `python -m stale_blocks_analysis.attribution` (or `just attribute`) labels
 the merge-mining-recovered stale corpus and writes the export to
-`results/analysis/pool-attribution/stale-block-attributions.csv`:
+`results/analysis/pool-attribution/stale-block-attributions.csv`.
+
+It first checks that the fetched block archive is complete, comparing what
+is on disk against what the clone tracks at its current commit, because a
+missing binary downgrades that row to AuxPoW-only evidence with nothing
+visible in the output. Pass `--allow-partial` to attribute from an
+incomplete archive anyway; the sidecar records that choice and the counts.
+
+The export columns are:
 
 ```
 height,hash,source,pool,template_producer,attribution_basis,has_bin
