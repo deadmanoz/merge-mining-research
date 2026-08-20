@@ -33,20 +33,14 @@ LOCAL_POOL_TAGS: list[tuple[bytes, str]] = []
 
 
 # Hand-curated coinbase output address (hash160) overrides for pools the
-# upstream canonical dataset doesn't cover, or where local has better
-# identification than upstream's "(unidentified)" labels. Runs after upstream
-# in identify_pool(), so upstream wins on conflicts.
+# upstream canonical dataset doesn't cover. Runs after upstream in
+# identify_pool(), so upstream wins on conflicts.
 #
-# Current local additions:
-# - DEMAND: three repeated P2WPKH payout scripts across 305 UUID-style
-#   mainchain coinbases in cache/.mainchain-pool-cache.json (heights
-#   873,376-944,650), plus the stale block at 926,981. Investigation note:
-#   docs/investigations/demand-pool-identification.md
-LOCAL_OUTPUT_ADDR_POOLS: dict[bytes, str] = {
-    bytes.fromhex("ad8a761c91820f9f0e3348df6da789c27db0fc92"): "DEMAND",
-    bytes.fromhex("6060b75aca3b8381cf9993f89f7525e47ec9c2b9"): "DEMAND",
-    bytes.fromhex("7f68244f0f3feee545ad27831adac0732d7bba6f"): "DEMAND",
-}
+# Contract: an entry here must cite committed, publicly auditable evidence.
+# Overrides whose research trail lives outside this repo are not carried;
+# the preferred route for new identifications is an upstream contribution to
+# bitcoin-data/mining-pools, which lands here on the next pin bump.
+LOCAL_OUTPUT_ADDR_POOLS: dict[bytes, str] = {}
 
 
 # ── KIT pool name mapping ────────────────────────────────────────────────
