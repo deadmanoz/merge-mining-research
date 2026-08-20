@@ -112,10 +112,31 @@ def auxpow_loader_roster() -> list[tuple[str, Callable]]:
 
 
 def apply_attribution_basis(stale: list[dict]) -> None:
-    """Record whether coinbase identification produced a real pool label."""
+    """Record whether coinbase identification produced a real pool label.
+
+    Only labels that identification actually produced (the record carries a
+    `_pool_match` from `tag_stale_blocks`) can become `coinbase`. A record
+    labelled by the caller before tagging must also carry its own
+    `attribution_basis`, which is preserved; without one there is no way to
+    know what kind of evidence the label rests on, so that is an error
+    rather than a guess.
+    """
     for s in stale:
+        if s.get("attribution_basis"):
+            continue
+        match = s.get("_pool_match")
+        if s.get("pool") and s["pool"] != "Unknown" and match is None:
+            raise ValueError(
+                f"pre-tagged record ({s.get('height')}, {s.get('hash')}) has "
+                "no attribution_basis; callers that label records before "
+                "tagging must also say what kind of evidence the label "
+                "rests on"
+            )
+        identified = match in ("tag", "op_return", "address")
         s["attribution_basis"] = (
-            "coinbase" if s.get("pool") and s["pool"] != "Unknown" else "unattributed"
+            "coinbase"
+            if s.get("pool") and s["pool"] != "Unknown" and identified
+            else "unattributed"
         )
 
 
@@ -212,6 +233,7 @@ def load_attributed_stales(min_height: int = 0) -> list[dict]:
     *min_height* is passed verbatim to every loader as a plain height floor;
     the default of 0 admits everything available.
     """
+    require_blocks_archive()
     # Rebuild the identification tables from disk so this run's labels match
     # the dataset state the meta sidecar records, even in a long-lived
     # process that edited the registry clone since the previous run.
@@ -258,6 +280,23 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
         for r in stale:
             writer.writerow({c: r.get(c) for c in ATTRIBUTION_COLUMNS})
     print(f"CSV -> {path}")
+
+
+def require_blocks_archive() -> None:
+    """Stop when the fetched blocks/ archive is missing.
+
+    The census clone's raw blocks are a coinbase source for recovered
+    headers; running without them silently produces weaker labels, so both
+    the CLI and library callers (the companion analysis repo) check this
+    before assembling a record set.
+    """
+    if not BLOCKS_DIR.is_dir():
+        raise FileNotFoundError(
+            f"Missing {BLOCKS_DIR} — run ./scripts/fetch-data.sh to clone "
+            "the pinned bitcoin-data/stale-blocks dataset. Its blocks/ "
+            "binaries are a coinbase source for recovered headers; running "
+            "without them would silently produce weaker labels."
+        )
 
 
 def _stale_inputs_fingerprint() -> str:
@@ -398,15 +437,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
-    if not BLOCKS_DIR.is_dir():
-        sys.exit(
-            f"Missing {BLOCKS_DIR} — run ./scripts/fetch-data.sh to clone the "
-            "pinned bitcoin-data/stale-blocks dataset. Its blocks/ binaries "
-            "are a coinbase source for recovered headers; running without "
-            "them would silently produce weaker labels."
-        )
-
-    stale = load_attributed_stales(min_height=args.min_height)
+    try:
+        stale = load_attributed_stales(min_height=args.min_height)
+    except (FileNotFoundError, ValueError) as exc:
+        sys.exit(str(exc))
     dump_attributions_csv(stale, args.output)
     meta_path = write_attribution_meta(stale, args.output, args.min_height)
     print(f"Meta -> {meta_path}")

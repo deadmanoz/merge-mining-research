@@ -30,20 +30,39 @@ def test_roster_resolves_the_public_loader_for_each_chain() -> None:
         assert fn is expected, key
 
 
-def test_attribution_basis_marks_only_real_coinbase_labels() -> None:
+def test_attribution_basis_marks_only_identified_labels() -> None:
     records = [
-        {"height": 1, "hash": "a", "pool": "P1"},
-        {"height": 2, "hash": "b", "pool": "Unknown"},
-        {"height": 3, "hash": "c"},
+        {"height": 1, "hash": "a", "pool": "P1", "_pool_match": "tag"},
+        {"height": 2, "hash": "b", "pool": "P2", "_pool_match": "address"},
+        {"height": 3, "hash": "c", "pool": "Unknown", "_pool_match": "none"},
+        {"height": 4, "hash": "d"},
+        # A caller-labelled record keeps the basis the caller supplied.
+        {
+            "height": 5,
+            "hash": "e",
+            "pool": "External",
+            "attribution_basis": "rsk_historical",
+        },
     ]
 
     apply_attribution_basis(records)
 
     assert [r["attribution_basis"] for r in records] == [
         "coinbase",
+        "coinbase",
         "unattributed",
         "unattributed",
+        "rsk_historical",
     ]
+
+
+def test_caller_labelled_record_without_a_basis_is_an_error() -> None:
+    import pytest
+
+    records = [{"height": 9, "hash": "f", "pool": "External"}]
+
+    with pytest.raises(ValueError, match="no attribution_basis"):
+        apply_attribution_basis(records)
 
 
 def _write_rsk_csv(path) -> None:
@@ -77,7 +96,13 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
         # The registry's literal "Unknown" sentinel is not an attribution.
         {"height": 400, "hash": "ddd", "source": "rsk", "pool": "Unknown"},
         # An RSK row with grafted coinbase evidence keeps its coinbase label.
-        {"height": 500, "hash": "eee", "source": "rsk", "pool": "F2Pool"},
+        {
+            "height": 500,
+            "hash": "eee",
+            "source": "rsk",
+            "pool": "F2Pool",
+            "_pool_match": "tag",
+        },
     ]
     apply_attribution_basis(records)
 
