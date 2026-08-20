@@ -238,7 +238,7 @@ def test_non_array_registry_fields_fail_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
     monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
 
-    with pytest.raises(ValueError, match="array of strings"):
+    with pytest.raises(ValueError, match="array of non-empty strings"):
         pi.identify_pool(b"anything")
 
 
