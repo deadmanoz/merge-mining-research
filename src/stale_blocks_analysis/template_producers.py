@@ -5,11 +5,11 @@ a block's template. A pool's stratum endpoint can serve jobs stamped with
 another pool's coinbase tag, so the coinbase's on-chain tag identifies who
 *owns* the tag, not necessarily who *built* the block. `fold_template_producer`
 takes a tag-owner label (as emitted by coinbase identification against the
-pinned `bitcoin-data/mining-pools` registry) and, inside an evidence-dated
-height window, folds it forward into the label for the entity that actually
-produced the block template. Outside any matching window the tag-owner label
-passes through unchanged, so the fold only ever narrows or relabels attribution
-where the underlying measurement evidence supports it.
+pinned `bitcoin-data/mining-pools` registry) and, inside the height window
+its cited measurements cover, folds it into the label for the entity that
+actually produced the block template. Outside any matching window the
+tag-owner label is returned unchanged, so a label only ever changes where
+the cited measurements support it.
 
 See `docs/pool-attribution.md` ("Dual attribution: tag owner and template
 producer") for how this fits into the broader attribution pipeline, and the
@@ -40,17 +40,17 @@ from __future__ import annotations
 #     performs.
 #
 # (c) No rows for non-custodial-template pools (Ocean.xyz, P2Pool). Their
-#     tags pass through unchanged: this table carries only measurement-backed
-#     cross-entity proxy relationships, and the non-custodial
+#     tags are left as-is: every row in this table is a measured proxy
+#     relationship between two named pools, and the non-custodial
 #     characterization is prose in docs/pool-attribution.md (the registry
 #     also has no P2Pool entry, so that tag_label could never match).
 #
-# (d) Fold windows END at their evidence horizon: `valid_to_height` is the
-#     first DAA epoch start on/after the last date the cited measurement
-#     documents the relationship (per data/bitcoin-epoch-reference), so a
-#     tag after the horizon passes through unfolded until newer evidence
-#     lands and the cap is raised. A proxy relationship is a positive claim;
-#     it is not extended past its measurements. Every row is capped.
+# (d) Every row has an end height: `valid_to_height` is the first DAA epoch
+#     start on/after the last date the cited measurement documents the
+#     relationship (per data/bitcoin-epoch-reference). Nothing here knows
+#     whether a proxy arrangement continued after the cited data ends, so a
+#     tag from a later block is left as-is until newer published
+#     measurements extend the row.
 TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "AntPool",
@@ -62,9 +62,8 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and is capped at 895104, the first DAA "
-            "epoch start after April 2025, the horizon of blog/015's cluster "
-            "documentation."
+            "operating through 2023, and ends at 895104, the first DAA epoch "
+            "start after April 2025, the last period blog/015 documents."
         ),
     },
     {
@@ -77,9 +76,8 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and is capped at 895104, the first DAA "
-            "epoch start after April 2025, the horizon of blog/015's cluster "
-            "documentation."
+            "operating through 2023, and ends at 895104, the first DAA epoch "
+            "start after April 2025, the last period blog/015 documents."
         ),
     },
     {
@@ -92,9 +90,8 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and is capped at 895104, the first DAA "
-            "epoch start after April 2025, the horizon of blog/015's cluster "
-            "documentation."
+            "operating through 2023, and ends at 895104, the first DAA epoch "
+            "start after April 2025, the last period blog/015 documents."
         ),
     },
     {
@@ -115,9 +112,9 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "Binance Pool endpoint switched from SpiderPool to the "
             "AntPool-Poolin-BTC.com template on 2024-08-23 (0xB10C obs 12); "
             "height 858816 = first DAA epoch start on/after the switch date "
-            "per data/bitcoin-epoch-reference. Capped at 895104 with the "
-            "other cluster rows (blog/015 documents the cluster's operation "
-            "into early 2025)."
+            "per data/bitcoin-epoch-reference. Ends at 895104 with the other "
+            "cluster rows (blog/015 documents the cluster's operation into "
+            "early 2025)."
         ),
     },
     {
@@ -129,8 +126,8 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "SigmaPool stratum endpoint proxies the SecPool endpoint, "
             "publishing 'Mined by SecPool' jobs (0xB10C obs 12). No "
             "Sigmapool.com-tagged blocks observed on-chain; row documents the "
-            "direction for any future tag. Capped at 862848, the first DAA "
-            "epoch start after the obs-12 stratum window ends (2024-09-12)."
+            "direction for any future tag. Ends at 862848, the first DAA epoch "
+            "start after the obs-12 stratum window ends (2024-09-12)."
         ),
     },
 )
@@ -141,7 +138,7 @@ def fold_template_producer(tag: str, height: int) -> str:
 
     Returns the matching `TEMPLATE_PRODUCER_MAP` entry's `template_producer`
     when `tag` equals that entry's `tag_label` and `height` falls inside its
-    evidence-dated window (`valid_from_height` inclusive, `valid_to_height`
+    window (`valid_from_height` inclusive, `valid_to_height`
     exclusive; `None` means open-ended). Otherwise `tag` is returned
     unchanged, including for `"Unknown"`, which never matches any row and
     always passes through as `"Unknown"`.

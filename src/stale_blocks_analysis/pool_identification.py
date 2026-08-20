@@ -316,7 +316,7 @@ def pool_dataset_fingerprint() -> str:
 def identify_pool_detailed(
     sig: bytes | None, outputs: list[tuple[int, bytes]] | None = None
 ) -> tuple[str, str]:
-    """Identify a pool and report which evidence path matched.
+    """Identify a pool and report what kind of evidence matched.
 
     Returns ``(name, method)`` with method one of ``"tag"`` (scriptSig tag),
     ``"op_return"`` (tag found in a coinbase OP_RETURN output),

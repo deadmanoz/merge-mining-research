@@ -101,7 +101,7 @@ def test_tag_labels_match_pinned_registry_names() -> None:
         )
 
 
-def test_cluster_folds_end_at_their_evidence_horizon() -> None:
+def test_cluster_folds_end_when_their_cited_measurements_end() -> None:
     antpool = next(
         e
         for e in template_producers.TEMPLATE_PRODUCER_MAP
@@ -112,9 +112,9 @@ def test_cluster_folds_end_at_their_evidence_horizon() -> None:
     assert fold_template_producer("AntPool", cap - 1) == "AntPool & friends"
     assert fold_template_producer("AntPool", cap) == "AntPool"
     # The committed corpus contains an AntPool-tagged stale at 946,470
-    # (April 2026), past every measurement the table cites: passthrough.
+    # (April 2026), later than any measurement the table cites: left as-is.
     assert fold_template_producer("AntPool", 946_470) == "AntPool"
-    # Every row is capped: a proxy claim never outruns its measurements.
+    # Every row has an end height: no fold extends past its measurements.
     open_rows = [
         e["tag_label"]
         for e in template_producers.TEMPLATE_PRODUCER_MAP
