@@ -353,16 +353,21 @@ def test_require_blocks_archive_rejects_an_incomplete_checkout(tmp_path, monkeyp
     attribution.require_blocks_archive(allow_partial=True)
 
 
-def test_archive_inventory_without_a_git_checkout(tmp_path, monkeypatch):
+def test_unverifiable_archive_requires_opt_in(tmp_path, monkeypatch):
     blocks = tmp_path / "blocks"
     blocks.mkdir()
     (blocks / "1-aa.bin").write_bytes(b"payload")
     monkeypatch.setattr(attribution, "STALE_DIR", tmp_path)
     monkeypatch.setattr(attribution, "BLOCKS_DIR", blocks)
 
-    # No manifest to compare against: expected is unknown, presence suffices.
+    import pytest
+
+    # No manifest to compare against, so completeness is unverifiable: the
+    # run stops unless the caller opts in.
     assert attribution.archive_inventory() == (None, {"1-aa.bin"})
-    attribution.require_blocks_archive()
+    with pytest.raises(FileNotFoundError, match="Cannot verify"):
+        attribution.require_blocks_archive()
+    attribution.require_blocks_archive(allow_partial=True)
 
 
 def test_repository_inputs_fingerprint_tracks_content(tmp_path):

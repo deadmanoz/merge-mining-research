@@ -351,3 +351,27 @@ def test_single_byte_tags_fail_closed_but_multibyte_ones_pass(pool_clone):
     pi.reset_runtime_pool_tables()
     with pytest.raises(ValueError, match="single byte"):
         pi.identify_pool(b"anything/here")
+
+
+def test_undecodable_payout_address_fails_closed(pool_clone):
+    """An address that cannot be decoded would vanish from the runtime
+    table and quietly weaken that pool's attribution, so it stops the run.
+    A valid P2WSH address is NOT junk: it decodes but is not hash160-shaped,
+    so it is carried in the registry and simply unusable for the lookup
+    (the pinned registry contains one, for Foundry USA)."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    add_pool(
+        "p2wsh.json",
+        pool_id="fu",
+        name="FoundryLike",
+        tags=["/FoundryLike/"],
+        addresses=["bc1qwzrryqr3ja8w7hnja2spmkgfdcgvqwp5swz4af4ngsjecfz0w0pqud7k38"],
+    )
+    assert pi.identify_pool(b"xx/FoundryLike/yy") == "FoundryLike"
+
+    add_pool("junk.json", pool_id="junk", name="JunkPool", addresses=["not an address"])
+    pi.reset_runtime_pool_tables()
+    with pytest.raises(ValueError, match="does not decode"):
+        pi.identify_pool(b"anything")

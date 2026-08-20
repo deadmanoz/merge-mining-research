@@ -59,6 +59,7 @@ import argparse
 import csv
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -91,6 +92,11 @@ ATTRIBUTIONS_CSV = (
     RESULTS_DIR / "analysis" / "pool-attribution" / "stale-block-attributions.csv"
 )
 ATTRIBUTIONS_CSV.parent.mkdir(parents=True, exist_ok=True)
+
+# The declared vocabulary of the attribution_basis column. Consumers group
+# by it, so a caller-supplied value outside this set would silently break
+# their grouping.
+ATTRIBUTION_BASES = ("coinbase", "rsk_historical", "unattributed")
 
 ATTRIBUTION_COLUMNS = [
     "height",
@@ -127,7 +133,23 @@ def apply_attribution_basis(stale: list[dict]) -> None:
     rather than a guess.
     """
     for s in stale:
-        if s.get("attribution_basis"):
+        supplied = s.get("attribution_basis")
+        if supplied:
+            if supplied not in ATTRIBUTION_BASES:
+                raise ValueError(
+                    f"record ({s.get('height')}, {s.get('hash')}) carries "
+                    f"attribution_basis {supplied!r}, which is not one of "
+                    f"{', '.join(ATTRIBUTION_BASES)}"
+                )
+            labelled = bool(s.get("pool")) and s["pool"] != "Unknown"
+            if labelled != (supplied != "unattributed"):
+                raise ValueError(
+                    f"record ({s.get('height')}, {s.get('hash')}) has "
+                    f"pool={s.get('pool')!r} with "
+                    f"attribution_basis={supplied!r}; an unattributed row "
+                    "carries no pool label and a labelled row is never "
+                    "unattributed"
+                )
             continue
         match = s.get("_pool_match")
         if s.get("pool") and s["pool"] != "Unknown" and match is None:
@@ -287,7 +309,6 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
         writer.writeheader()
         for r in stale:
             writer.writerow({c: r.get(c) for c in ATTRIBUTION_COLUMNS})
-    print(f"CSV -> {path}")
 
 
 def _repository_input_files() -> list[Path]:
@@ -403,6 +424,15 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
             "coinbase source for recovered headers; an empty or missing "
             "archive would silently produce weaker labels."
         )
+    if expected is None and not allow_partial:
+        raise FileNotFoundError(
+            f"Cannot verify the block archive at {STALE_DIR}: it is not a "
+            "git checkout, so there is no tracked manifest to compare "
+            "against and missing binaries would silently fall back to "
+            "AuxPoW-only evidence. Run ./scripts/fetch-data.sh to fetch the "
+            "pinned clone, or pass --allow-partial to attribute from an "
+            "unverifiable archive (recorded in the meta sidecar)."
+        )
     missing = sorted(expected - present) if expected is not None else []
     if missing and not allow_partial:
         shown = ", ".join(missing[:3])
@@ -506,6 +536,7 @@ def write_attribution_meta(
             "state": _clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
             "archive": {
+                "verifiable": _expected_names is not None,
                 "expected": (
                     len(_expected_names) if _expected_names is not None else None
                 ),
@@ -544,6 +575,36 @@ def _warn_on_unpinned_registry(meta_path: Path) -> None:
             "recorded in the .meta.json sidecar, not the pin.",
             file=sys.stderr,
         )
+
+
+def publish_attribution_artifacts(
+    stale: list[dict],
+    csv_path: Path,
+    min_height: int = 0,
+    allow_partial: bool = False,
+) -> tuple[Path, Path]:
+    """Write the export and its sidecar, replacing the previous pair together.
+
+    Both files are built in a staging directory and moved into place only
+    once both succeed, so an interrupted rerun can never leave a new CSV
+    beside the previous run's provenance. This mirrors the staged-artifact
+    rule the monitor-evidence build already follows.
+    """
+    meta_path = csv_path.with_suffix(".meta.json")
+    staging = csv_path.parent / f".{csv_path.stem}.staging"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        staged_csv = staging / csv_path.name
+        dump_attributions_csv(stale, staged_csv)
+        staged_meta = write_attribution_meta(
+            stale, staged_csv, min_height, allow_partial
+        )
+        staged_csv.replace(csv_path)
+        staged_meta.replace(meta_path)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return csv_path, meta_path
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -588,10 +649,10 @@ def main() -> None:
         )
     except (FileNotFoundError, ValueError) as exc:
         sys.exit(str(exc))
-    dump_attributions_csv(stale, args.output)
-    meta_path = write_attribution_meta(
+    csv_path, meta_path = publish_attribution_artifacts(
         stale, args.output, args.min_height, args.allow_partial
     )
+    print(f"CSV  -> {csv_path}")
     print(f"Meta -> {meta_path}")
     _warn_on_unpinned_registry(meta_path)
 

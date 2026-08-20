@@ -105,6 +105,19 @@ def _norm_pool_name(name: str) -> str:
     return s
 
 
+def _decode_payout_address(addr: str) -> bytes | None:
+    """Witness program or hash160 for a payout address, None if it is junk.
+
+    A well-formed address that is not hash160-shaped (P2WSH, P2TR) decodes
+    fine and is simply unusable for the 20-byte lookup; the pinned registry
+    contains such an address, so "decodes" and "is usable" are deliberately
+    different questions.
+    """
+    if addr.startswith("bc1"):
+        return _bech32_decode_to_program(addr)
+    return _b58_decode_to_hash160(addr)
+
+
 def fetch_known_pools() -> dict:
     """Load the pool identification dataset from $LOCAL_MINING_POOLS_DIR.
 
@@ -189,6 +202,17 @@ def fetch_known_pools() -> dict:
                     "to run from a registry that would over-claim."
                 )
 
+        for addr in pool["addresses"]:
+            # An address that does not decode would be dropped from the
+            # runtime table, quietly weakening that pool's attribution.
+            if _decode_payout_address(addr) is None:
+                raise ValueError(
+                    f"Malformed pool registry file {pool_file}: payout "
+                    f"address {addr!r} does not decode as base58check or "
+                    "bech32. Fix or remove the file; attribution refuses to "
+                    "run from a registry whose markers it cannot read."
+                )
+
         name = pool.get("name")
         link = pool.get("link", "") or ""
         if not isinstance(name, str) or not name.strip():
@@ -261,14 +285,12 @@ def _build_runtime_pool_tables() -> tuple[list[tuple[bytes, str]], dict[bytes, s
     # a {hash160: name} dict.
     upstream_addrs: dict[bytes, str] = {}
     for addr, entry in data["payout_addresses"].items():
-        if addr.startswith("bc1"):
-            program = _bech32_decode_to_program(addr)
-            if program is not None and len(program) == 20:
-                upstream_addrs[program] = entry["name"]
-        else:
-            h160 = _b58_decode_to_hash160(addr)
-            if h160 is not None:
-                upstream_addrs[h160] = entry["name"]
+        # Every address here decoded during loading; only hash160-shaped
+        # ones can back the 20-byte output lookup, so P2WSH/P2TR payout
+        # addresses are carried in the registry but not in this table.
+        program = _decode_payout_address(addr)
+        if program is not None and len(program) == 20:
+            upstream_addrs[program] = entry["name"]
 
     # Local additions only catch h160s upstream missed: upstream is the
     # later (winning) operand of the merge, so a colliding local override
