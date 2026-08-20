@@ -259,7 +259,9 @@ def _pinned_ref(key: str) -> str | None:
     return None
 
 
-def write_attribution_meta(stale: list[dict], csv_path: Path) -> Path:
+def write_attribution_meta(
+    stale: list[dict], csv_path: Path, min_height: int = 0
+) -> Path:
     """Record the dataset state the export was produced from.
 
     The registry is read from its working tree on every run (a local fork is
@@ -270,6 +272,7 @@ def write_attribution_meta(stale: list[dict], csv_path: Path) -> Path:
     counts.
     """
     meta = {
+        "min_height": min_height,
         "rows": len(stale),
         "attribution_basis_counts": dict(
             sorted(Counter(s.get("attribution_basis") for s in stale).items())
@@ -350,7 +353,7 @@ def main() -> None:
 
     stale = load_attributed_stales(min_height=args.min_height)
     dump_attributions_csv(stale, args.output)
-    meta_path = write_attribution_meta(stale, args.output)
+    meta_path = write_attribution_meta(stale, args.output, args.min_height)
     print(f"Meta -> {meta_path}")
     _warn_on_unpinned_registry(meta_path)
 

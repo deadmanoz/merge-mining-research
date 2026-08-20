@@ -217,12 +217,13 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     ]
     csv_path = tmp_path / "stale-block-attributions.csv"
 
-    meta_path = attribution.write_attribution_meta(stale, csv_path)
+    meta_path = attribution.write_attribution_meta(stale, csv_path, min_height=147_168)
 
     assert meta_path.name == "stale-block-attributions.meta.json"
     import json
 
     meta = json.loads(meta_path.read_text())
+    assert meta["min_height"] == 147_168
     assert meta["rows"] == 2
     assert meta["attribution_basis_counts"] == {"coinbase": 1, "unattributed": 1}
     assert meta["mining_pools"]["pinned_ref"] == "a" * 40
