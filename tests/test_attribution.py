@@ -253,6 +253,8 @@ def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
         {"height": 2, "hash": "bb", "attribution_basis": "unattributed"},
     ]
     csv_path = tmp_path / "stale-block-attributions.csv"
+    # The sidecar hashes the CSV it describes, so the artifact must exist.
+    csv_path.write_text("height,hash\n1,aa\n")
 
     meta_path = attribution.write_attribution_meta(stale, csv_path, min_height=147_168)
 
@@ -429,3 +431,45 @@ def test_unknown_sentinel_does_not_bypass_identification(monkeypatch):
     # The sentinel is not a label: the carried coinbase is still read.
     assert out[0]["pool"] == "FoundPool"
     assert out[0]["_pool_match"] == "tag"
+
+
+def test_sidecar_carries_the_csv_hash_so_mixed_pairs_are_detectable(
+    tmp_path, monkeypatch
+):
+    import hashlib
+
+    monkeypatch.setattr(attribution, "_clone_state", lambda p: None)
+    monkeypatch.setattr(attribution, "_pinned_ref", lambda key: None)
+    monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fp")
+    monkeypatch.setattr(attribution, "_stale_inputs_fingerprint", lambda: "sfp")
+    monkeypatch.setattr(attribution, "_repository_inputs_fingerprint", lambda: "rfp")
+    monkeypatch.setattr(attribution, "archive_inventory", lambda: (set(), set()))
+    stale = [
+        {
+            "height": 1,
+            "hash": "aa",
+            "source": "namecoin",
+            "pool": "P1",
+            "template_producer": "P1",
+            "attribution_basis": "coinbase",
+            "has_bin": False,
+        }
+    ]
+
+    csv_path, meta_path = attribution.publish_attribution_artifacts(
+        stale, tmp_path / "stale-block-attributions.csv"
+    )
+
+    import json
+
+    meta = json.loads(meta_path.read_text())
+    on_disk = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+    assert meta["artifact"]["csv_sha256"] == on_disk
+    assert meta["artifact"]["csv_name"] == csv_path.name
+
+    # A CSV from a different run no longer matches its neighbour's sidecar.
+    csv_path.write_text("height,hash\n9,zz\n")
+    assert (
+        hashlib.sha256(csv_path.read_bytes()).hexdigest()
+        != meta["artifact"]["csv_sha256"]
+    )

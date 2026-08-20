@@ -105,6 +105,70 @@ def _norm_pool_name(name: str) -> str:
     return s
 
 
+_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _bech32_polymod(values: list[int]) -> int:
+    generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+    chk = 1
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1FFFFFF) << 5 ^ value
+        for i in range(5):
+            chk ^= generator[i] if ((top >> i) & 1) else 0
+    return chk
+
+
+def _payout_address_problem(addr: str) -> str | None:
+    """Why *addr* is unusable as a registry marker, or None if it is sound.
+
+    The shared decoders in bitcoin_binary deliberately skip checksums,
+    because their callers only need the payload bytes. A registry marker is
+    different: a mistyped address that still decodes registers the wrong
+    hash160, so that pool's real payouts stop matching and its rows quietly
+    weaken. Checksums are therefore verified here, without changing the
+    shared decoders that the recovery pipeline also uses.
+    """
+    if addr != addr.strip() or not addr:
+        return "has surrounding whitespace"
+    if addr.lower().startswith("bc1"):
+        lowered = addr.lower()
+        if addr != lowered and addr != addr.upper():
+            return "mixes upper and lower case"
+        pos = lowered.rfind("1")
+        hrp, data = lowered[:pos], lowered[pos + 1 :]
+        if len(data) < 6 or any(c not in _BECH32_CHARSET for c in data):
+            return "is not valid bech32"
+        values = (
+            [ord(c) >> 5 for c in hrp]
+            + [0]
+            + [ord(c) & 31 for c in hrp]
+            + [_BECH32_CHARSET.index(c) for c in data]
+        )
+        checksum = _bech32_polymod(values)
+        witness_version = _BECH32_CHARSET.index(data[0])
+        expected = 1 if witness_version == 0 else 0x2BC830A3
+        if checksum != expected:
+            return "fails its bech32 checksum"
+        return None
+    num = 0
+    for ch in addr:
+        index = _B58_ALPHABET.find(ch)
+        if index < 0:
+            return "contains non-base58 characters"
+        num = num * 58 + index
+    raw = num.to_bytes((num.bit_length() + 7) // 8, "big")
+    raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
+    if len(raw) < 5:
+        return "is too short to carry a checksum"
+    body, checksum_bytes = raw[:-4], raw[-4:]
+    digest = hashlib.sha256(hashlib.sha256(body).digest()).digest()
+    if digest[:4] != checksum_bytes:
+        return "fails its base58check checksum"
+    return None
+
+
 def _decode_payout_address(addr: str) -> bytes | None:
     """Witness program or hash160 for a payout address, None if it is junk.
 
@@ -203,14 +267,18 @@ def fetch_known_pools() -> dict:
                 )
 
         for addr in pool["addresses"]:
-            # An address that does not decode would be dropped from the
-            # runtime table, quietly weakening that pool's attribution.
-            if _decode_payout_address(addr) is None:
+            # A marker that does not decode would be dropped from the
+            # runtime table, and one that decodes to the wrong bytes is
+            # worse: both quietly weaken that pool's attribution.
+            problem = _payout_address_problem(addr)
+            if problem is None and _decode_payout_address(addr) is None:
+                problem = "does not decode to a usable payload"
+            if problem is not None:
                 raise ValueError(
                     f"Malformed pool registry file {pool_file}: payout "
-                    f"address {addr!r} does not decode as base58check or "
-                    "bech32. Fix or remove the file; attribution refuses to "
-                    "run from a registry whose markers it cannot read."
+                    f"address {addr!r} {problem}. Fix or remove the file; "
+                    "attribution refuses to run from a registry whose "
+                    "markers it cannot trust."
                 )
 
         name = pool.get("name")

@@ -373,5 +373,23 @@ def test_undecodable_payout_address_fails_closed(pool_clone):
 
     add_pool("junk.json", pool_id="junk", name="JunkPool", addresses=["not an address"])
     pi.reset_runtime_pool_tables()
-    with pytest.raises(ValueError, match="does not decode"):
+    with pytest.raises(ValueError, match="non-base58 characters"):
+        pi.identify_pool(b"anything")
+
+
+def test_mistyped_addresses_fail_their_checksums(pool_clone):
+    """The shared decoders skip checksums by design, so a mistyped address
+    would decode to the wrong hash160 and silently stop matching that
+    pool's real payouts. Registry markers are checksum-verified here."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    # BIP-173 test vector with its final character mutated.
+    add_pool(
+        "typo.json",
+        pool_id="typo",
+        name="TypoPool",
+        addresses=["bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5"],
+    )
+    with pytest.raises(ValueError, match="bech32 checksum"):
         pi.identify_pool(b"anything")

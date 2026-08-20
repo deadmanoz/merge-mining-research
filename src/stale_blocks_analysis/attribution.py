@@ -510,10 +510,19 @@ def write_attribution_meta(
     counts.
     """
     _expected_names, _present_names = archive_inventory()
+    # The sidecar describes a specific CSV, so it carries that CSV's own
+    # hash. Publishing two files can never be one atomic act, but this
+    # makes a mismatched pair detectable by any consumer rather than
+    # silently believable.
+    _csv_digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
     _archive_missing = (
         sorted(_expected_names - _present_names) if _expected_names is not None else []
     )
     meta = {
+        "artifact": {
+            "csv_name": csv_path.name,
+            "csv_sha256": _csv_digest,
+        },
         "min_height": min_height,
         "rows": len(stale),
         "attribution_basis_counts": dict(
@@ -586,9 +595,14 @@ def publish_attribution_artifacts(
     """Write the export and its sidecar, replacing the previous pair together.
 
     Both files are built in a staging directory and moved into place only
-    once both succeed, so an interrupted rerun can never leave a new CSV
-    beside the previous run's provenance. This mirrors the staged-artifact
-    rule the monitor-evidence build already follows.
+    once both succeed, so a failed run cannot leave a half-written pair.
+    This mirrors the staged-artifact rule the monitor-evidence build
+    already follows.
+
+    Two files cannot be swapped in one atomic act, so the sidecar also
+    carries the CSV's own hash: a reader that finds a mismatch knows it is
+    looking at a mixed pair from an interrupted rerun, rather than
+    trusting provenance that describes different labels.
     """
     meta_path = csv_path.with_suffix(".meta.json")
     staging = csv_path.parent / f".{csv_path.stem}.staging"
