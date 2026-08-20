@@ -281,3 +281,20 @@ def test_stale_inputs_fingerprint_tracks_content(tmp_path, monkeypatch):
 
     (blocks / "1-aa.bin").write_bytes(b"editedbytes")
     assert attribution._stale_inputs_fingerprint() != first
+
+
+def test_require_blocks_archive_needs_actual_binaries(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(attribution, "BLOCKS_DIR", tmp_path / "missing")
+    with pytest.raises(FileNotFoundError, match="No block binaries"):
+        attribution.require_blocks_archive()
+
+    empty = tmp_path / "blocks"
+    empty.mkdir()
+    monkeypatch.setattr(attribution, "BLOCKS_DIR", empty)
+    with pytest.raises(FileNotFoundError, match="No block binaries"):
+        attribution.require_blocks_archive()
+
+    (empty / "1-aa.bin").write_bytes(b"payload")
+    attribution.require_blocks_archive()

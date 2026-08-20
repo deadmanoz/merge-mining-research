@@ -240,7 +240,8 @@ the Bitcoin parent coinbase scriptsig and output scripts from the AuxPoW proof.
 RSK is the exception: its recovery artifacts preserve the RSK miner address and
 historical `pool_label`, rather than the Bitcoin parent coinbase transaction.
 
-The attribution layer fetches the pinned `bitcoin-data/mining-pools` registry,
+The attribution layer reads the pinned `bitcoin-data/mining-pools` registry
+(fetched by `scripts/fetch-data.sh`),
 runs the shared coinbase-to-pool matcher over the merge-mining-recovered
 stales, and emits an attribution export as a gitignored run product; see
 [`pool-attribution.md`](pool-attribution.md) for the layer and its export

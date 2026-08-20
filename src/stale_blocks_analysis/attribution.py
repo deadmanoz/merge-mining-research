@@ -290,12 +290,13 @@ def require_blocks_archive() -> None:
     the CLI and library callers (the companion analysis repo) check this
     before assembling a record set.
     """
-    if not BLOCKS_DIR.is_dir():
+    if next(BLOCKS_DIR.glob("*.bin"), None) is None:
         raise FileNotFoundError(
-            f"Missing {BLOCKS_DIR} — run ./scripts/fetch-data.sh to clone "
-            "the pinned bitcoin-data/stale-blocks dataset. Its blocks/ "
-            "binaries are a coinbase source for recovered headers; running "
-            "without them would silently produce weaker labels."
+            f"No block binaries under {BLOCKS_DIR} — run "
+            "./scripts/fetch-data.sh to clone the pinned "
+            "bitcoin-data/stale-blocks dataset. Its blocks/ binaries are a "
+            "coinbase source for recovered headers; an empty or missing "
+            "archive would silently produce weaker labels."
         )
 
 
