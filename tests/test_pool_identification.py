@@ -222,3 +222,48 @@ def test_malformed_registry_file_fails_closed(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="broken.json"):
         pi.identify_pool(b"xx/Good/yy")
+
+
+def test_non_array_registry_fields_fail_closed(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi
+
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "bad.json").write_text(
+        '{"id": "b", "name": "BadPool", "addresses": [], "tags": "/BadPool/"}'
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    with pytest.raises(ValueError, match="array of strings"):
+        pi.identify_pool(b"anything")
+
+
+def test_reset_runtime_pool_tables_picks_up_registry_edits(tmp_path, monkeypatch):
+    from stale_blocks_analysis import pool_identification as pi
+
+    first = tmp_path / "first"
+    (first / "pools").mkdir(parents=True)
+    (first / "pools" / "p.json").write_text(
+        '{"id": "p", "name": "FirstPool", "addresses": [], "tags": ["/Tag/"]}'
+    )
+    second = tmp_path / "second"
+    (second / "pools").mkdir(parents=True)
+    (second / "pools" / "p.json").write_text(
+        '{"id": "p", "name": "SecondPool", "addresses": [], "tags": ["/Tag/"]}'
+    )
+
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", first)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+    assert pi.identify_pool(b"xx/Tag/yy") == "FirstPool"
+
+    # A registry change without a reset keeps serving the cached tables.
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", second)
+    assert pi.identify_pool(b"xx/Tag/yy") == "FirstPool"
+
+    pi.reset_runtime_pool_tables()
+    assert pi.identify_pool(b"xx/Tag/yy") == "SecondPool"

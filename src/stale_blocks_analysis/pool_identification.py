@@ -158,6 +158,21 @@ def fetch_known_pools() -> dict:
                 "remove the file; attribution refuses to run from a partial "
                 "registry."
             ) from exc
+        for field in ("tags", "addresses"):
+            value = pool.get(field)
+            if value is not None and (
+                not isinstance(value, list)
+                or any(not isinstance(item, str) for item in value)
+            ):
+                # A string value would be iterated per character and register
+                # overbroad one-character tags (a "/" tag matches almost
+                # every coinbase), so schema errors fail closed like
+                # unparseable JSON does.
+                raise ValueError(
+                    f"Malformed pool registry file {pool_file}: {field!r} "
+                    "must be an array of strings. Fix or remove the file; "
+                    "attribution refuses to run from a partial registry."
+                )
         name = pool.get("name")
         link = pool.get("link", "") or ""
         if not name:
@@ -251,6 +266,21 @@ def _ensure_runtime_pool_tables() -> tuple[list[tuple[bytes, str]], dict[bytes, 
     if _RUNTIME_POOL_TAGS is None or _RUNTIME_OUTPUT_ADDR_POOLS is None:
         _RUNTIME_POOL_TAGS, _RUNTIME_OUTPUT_ADDR_POOLS = _build_runtime_pool_tables()
     return _RUNTIME_POOL_TAGS, _RUNTIME_OUTPUT_ADDR_POOLS
+
+
+def reset_runtime_pool_tables() -> None:
+    """Drop the cached runtime tables so the next call rebuilds from disk.
+
+    The tables are cached per process for identification speed. A long-lived
+    process (notebook, the companion analysis library) that edits or checks
+    out the mining-pools clone between runs would otherwise identify against
+    stale tables while the meta sidecar records the NEW dataset fingerprint;
+    every attribution run resets the cache first so labels always match the
+    recorded provenance.
+    """
+    global _RUNTIME_POOL_TAGS, _RUNTIME_OUTPUT_ADDR_POOLS
+    _RUNTIME_POOL_TAGS = None
+    _RUNTIME_OUTPUT_ADDR_POOLS = None
 
 
 def pool_dataset_fingerprint() -> str:

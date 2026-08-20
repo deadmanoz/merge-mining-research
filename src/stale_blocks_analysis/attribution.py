@@ -66,7 +66,7 @@ from .config import (
     STALE_CSV,
     STALE_DIR,
 )
-from .pool_identification import pool_dataset_fingerprint
+from .pool_identification import pool_dataset_fingerprint, reset_runtime_pool_tables
 from .stale_blocks import load_stale_csv, load_stale_descendants
 from .stale_merge import merge_stale_sources, tag_stale_blocks
 from .template_producers import fold_template_producer
@@ -184,6 +184,11 @@ def load_attributed_stales(min_height: int = 0) -> list[dict]:
     *min_height* is passed verbatim to every loader as a plain height floor;
     the default of 0 admits everything available.
     """
+    # Rebuild the identification tables from disk so this run's labels match
+    # the dataset state the meta sidecar records, even in a long-lived
+    # process that edited the registry clone since the previous run.
+    reset_runtime_pool_tables()
+
     print("Loading stale block records ...")
     stale = load_stale_csv(min_height=min_height)
     print(f"  {len(stale)} stale blocks at height >= {min_height:,}")
