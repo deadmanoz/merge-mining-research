@@ -5,8 +5,9 @@ This repository contributes newly recovered Bitcoin stale-block headers to
 The exact upstream baseline used by this project is pinned in
 `data-sources.tsv` so novelty and deduplication results remain reproducible.
 
-Mining-pool attribution is planned as a later research phase. It is not part of
-the current analysis pipeline or upstreaming workflow.
+Mining-pool attribution is a separate layer over the recovery outputs (see
+[`pool-attribution.md`](pool-attribution.md)). It is not part of
+the upstreaming workflow.
 
 ## What gets contributed
 

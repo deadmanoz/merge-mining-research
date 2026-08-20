@@ -535,9 +535,12 @@ or merely catalogued evidence), and the chain-liveness axis is `active` /
 negligible sub-Bitcoin difficulty). These are independent axes; the
 merge-mining-monitor uses the same vocabulary.
 
-**Pool labels**: unified pool attribution is planned future work. The current
-public pipeline preserves coinbase evidence but does not depend on
-`bitcoin-data/mining-pools` or emit a shared pool-label column. RSK's committed
+**Pool labels**: unified pool attribution is implemented as a separate layer
+(see [`pool-attribution.md`](pool-attribution.md)): `just attribute` matches
+coinbase evidence against the pinned `bitcoin-data/mining-pools` registry and
+emits a per-stale-block export with `pool`, `template_producer`, and
+`attribution_basis` columns as a gitignored run product. No committed dataset
+carries a shared pool-label column. RSK's committed
 source data is a historical exception because it already carries miner-address
 labels; consumers should not treat that chain-specific field as a completed
 cross-chain attribution dataset.
