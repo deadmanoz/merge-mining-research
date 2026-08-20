@@ -39,21 +39,18 @@ from __future__ import annotations
 #     for the companion stale-rate methodology, not a template fold this table
 #     performs.
 #
-# (c) No P2Pool row. The bitcoin-data/mining-pools registry has no P2Pool
-#     entry, so a "P2Pool" `tag_label` could never match a coinbase-identified
-#     tag owner in the first place. Non-custodial P2Pool attribution stays
-#     documented in prose in docs/pool-attribution.md rather than in this
-#     table.
+# (c) No rows for non-custodial-template pools (Ocean.xyz, P2Pool). Their
+#     tags pass through unchanged: this table carries only measurement-backed
+#     cross-entity proxy relationships, and the non-custodial
+#     characterization is prose in docs/pool-attribution.md (the registry
+#     also has no P2Pool entry, so that tag_label could never match).
 #
 # (d) Fold windows END at their evidence horizon: `valid_to_height` is the
 #     first DAA epoch start on/after the last date the cited measurement
 #     documents the relationship (per data/bitcoin-epoch-reference), so a
 #     tag after the horizon passes through unfolded until newer evidence
 #     lands and the cap is raised. A proxy relationship is a positive claim;
-#     it is not extended past its measurements. The one open-ended row is
-#     Ocean.xyz, whose label annotates the same entity's structural
-#     template-construction model rather than asserting a cross-entity
-#     proxy relationship.
+#     it is not extended past its measurements. Every row is capped.
 TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "AntPool",
@@ -134,19 +131,6 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "Sigmapool.com-tagged blocks observed on-chain; row documents the "
             "direction for any future tag. Capped at 862848, the first DAA "
             "epoch start after the obs-12 stratum window ends (2024-09-12)."
-        ),
-    },
-    {
-        # Open-ended by design: this row annotates Ocean.xyz's own structural
-        # template-construction model (non-custodial), not a cross-entity
-        # proxy relationship that a stratum measurement window bounds.
-        "tag_label": "Ocean.xyz",
-        "template_producer": "Ocean.xyz (non-custodial template)",
-        "valid_from_height": 840_672,
-        "valid_to_height": None,
-        "evidence": (
-            "Non-custodial template construction; labelled rather than folded "
-            "into a pool identity (methodology, companion analysis repo)."
         ),
     },
 )

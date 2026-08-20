@@ -56,10 +56,10 @@ def test_unknown_always_passes_through() -> None:
 
 
 def test_ocean_xyz_registry_name_not_shorthand() -> None:
-    # Regression guard: the row key must be the registry name "Ocean.xyz",
-    # not a shorthand like "Ocean", or the fold silently never matches.
-    result = fold_template_producer("Ocean.xyz", 850_000)
-    assert result.startswith("Ocean.xyz (non-custodial")
+    # Non-custodial-template pools are deliberately NOT table rows: their
+    # tags pass through unchanged at every height (see table note (c)).
+    for height in (700_000, 850_000, 950_000):
+        assert fold_template_producer("Ocean.xyz", height) == "Ocean.xyz"
 
 
 def test_table_integrity() -> None:
@@ -114,10 +114,10 @@ def test_cluster_folds_end_at_their_evidence_horizon() -> None:
     # The committed corpus contains an AntPool-tagged stale at 946,470
     # (April 2026), past every measurement the table cites: passthrough.
     assert fold_template_producer("AntPool", 946_470) == "AntPool"
-    # The only open-ended row annotates the same entity, not a proxy.
+    # Every row is capped: a proxy claim never outruns its measurements.
     open_rows = [
         e["tag_label"]
         for e in template_producers.TEMPLATE_PRODUCER_MAP
         if e["valid_to_height"] is None
     ]
-    assert open_rows == ["Ocean.xyz"]
+    assert open_rows == []

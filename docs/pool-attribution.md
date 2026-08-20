@@ -69,7 +69,10 @@ the `template_producer` column unfolded rather than upgraded to a
 template-producer claim. Fold windows also end at their evidence horizon: a
 proxy relationship is a positive claim, so a tag dated after the last
 measurement the table cites passes through unfolded until newer evidence
-raises the cap. The two have
+raises the cap. Non-custodial-template pools (Ocean.xyz's DATUM model,
+P2Pool) are not table rows at all: their tags pass through unchanged, since
+the table carries only measurement-backed cross-entity proxy relationships,
+and the non-custodial characterization is recorded here as prose. The two have
 diverged materially since roughly 2021 to 2023, because proxy pooling and
 template sharing decouple the coinbase tag from the entity that built the
 block: 0xB10C's stratum-job measurements show near-identical templates across
