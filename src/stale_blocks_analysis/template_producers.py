@@ -44,44 +44,60 @@ from __future__ import annotations
 #     tag owner in the first place. Non-custodial P2Pool attribution stays
 #     documented in prose in docs/pool-attribution.md rather than in this
 #     table.
+#
+# (d) Fold windows END at their evidence horizon: `valid_to_height` is the
+#     first DAA epoch start on/after the last date the cited measurement
+#     documents the relationship (per data/bitcoin-epoch-reference), so a
+#     tag after the horizon passes through unfolded until newer evidence
+#     lands and the cap is raised. A proxy relationship is a positive claim;
+#     it is not extended past its measurements. The one open-ended row is
+#     Ocean.xyz, whose label annotates the same entity's structural
+#     template-construction model rather than asserting a cross-entity
+#     proxy relationship.
 TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "AntPool",
         "template_producer": "AntPool & friends",
         "valid_from_height": 774_144,
-        "valid_to_height": None,
+        "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023."
+            "operating through 2023, and is capped at 895104, the first DAA "
+            "epoch start after April 2025, the horizon of blog/015's cluster "
+            "documentation."
         ),
     },
     {
         "tag_label": "Poolin",
         "template_producer": "AntPool & friends",
         "valid_from_height": 774_144,
-        "valid_to_height": None,
+        "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023."
+            "operating through 2023, and is capped at 895104, the first DAA "
+            "epoch start after April 2025, the horizon of blog/015's cluster "
+            "documentation."
         ),
     },
     {
         "tag_label": "BTC.com",
         "template_producer": "AntPool & friends",
         "valid_from_height": 774_144,
-        "valid_to_height": None,
+        "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
             "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
             "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
             "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023."
+            "operating through 2023, and is capped at 895104, the first DAA "
+            "epoch start after April 2025, the horizon of blog/015's cluster "
+            "documentation."
         ),
     },
     {
@@ -97,27 +113,33 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "tag_label": "Binance Pool",
         "template_producer": "AntPool & friends",
         "valid_from_height": 858_816,
-        "valid_to_height": None,
+        "valid_to_height": 895_104,
         "evidence": (
             "Binance Pool endpoint switched from SpiderPool to the "
             "AntPool-Poolin-BTC.com template on 2024-08-23 (0xB10C obs 12); "
             "height 858816 = first DAA epoch start on/after the switch date "
-            "per data/bitcoin-epoch-reference."
+            "per data/bitcoin-epoch-reference. Capped at 895104 with the "
+            "other cluster rows (blog/015 documents the cluster's operation "
+            "into early 2025)."
         ),
     },
     {
         "tag_label": "Sigmapool.com",
         "template_producer": "SecPool",
         "valid_from_height": 840_672,
-        "valid_to_height": None,
+        "valid_to_height": 862_848,
         "evidence": (
             "SigmaPool stratum endpoint proxies the SecPool endpoint, "
             "publishing 'Mined by SecPool' jobs (0xB10C obs 12). No "
             "Sigmapool.com-tagged blocks observed on-chain; row documents the "
-            "direction for any future tag."
+            "direction for any future tag. Capped at 862848, the first DAA "
+            "epoch start after the obs-12 stratum window ends (2024-09-12)."
         ),
     },
     {
+        # Open-ended by design: this row annotates Ocean.xyz's own structural
+        # template-construction model (non-custodial), not a cross-entity
+        # proxy relationship that a stratum measurement window bounds.
         "tag_label": "Ocean.xyz",
         "template_producer": "Ocean.xyz (non-custodial template)",
         "valid_from_height": 840_672,

@@ -27,8 +27,8 @@ def test_passthrough_outside_window_and_for_unmapped_tags() -> None:
 
 
 def test_boundary_semantics_inclusive_from_exclusive_to(monkeypatch) -> None:
-    # All committed rows are open-ended (valid_to_height=None), so a synthetic
-    # closed-window entry is required to exercise both boundary edges.
+    # A synthetic closed-window entry exercises both boundary edges without
+    # coupling the test to any committed row's specific window.
     synthetic_map = (
         {
             "tag_label": "TestPool",
@@ -99,3 +99,25 @@ def test_tag_labels_match_pinned_registry_names() -> None:
             f"tag_label {entry['tag_label']!r} not found in pinned "
             "bitcoin-data/mining-pools registry"
         )
+
+
+def test_cluster_folds_end_at_their_evidence_horizon() -> None:
+    antpool = next(
+        e
+        for e in template_producers.TEMPLATE_PRODUCER_MAP
+        if e["tag_label"] == "AntPool"
+    )
+    cap = antpool["valid_to_height"]
+    assert cap is not None
+    assert fold_template_producer("AntPool", cap - 1) == "AntPool & friends"
+    assert fold_template_producer("AntPool", cap) == "AntPool"
+    # The committed corpus contains an AntPool-tagged stale at 946,470
+    # (April 2026), past every measurement the table cites: passthrough.
+    assert fold_template_producer("AntPool", 946_470) == "AntPool"
+    # The only open-ended row annotates the same entity, not a proxy.
+    open_rows = [
+        e["tag_label"]
+        for e in template_producers.TEMPLATE_PRODUCER_MAP
+        if e["valid_to_height"] is None
+    ]
+    assert open_rows == ["Ocean.xyz"]
