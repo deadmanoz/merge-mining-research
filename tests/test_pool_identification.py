@@ -591,3 +591,38 @@ def test_non_bitcoin_base58_markers_fail_closed(pool_clone):
     )
     with pytest.raises(ValueError, match="not a Bitcoin address"):
         pi.identify_pool(b"anything")
+
+
+def test_segwit_markers_must_use_the_bitcoin_hrp(pool_clone):
+    """The bech32 checksum covers the HRP, so an address encoded under a
+    different prefix validates against that prefix. Text beginning 'bc1q'
+    is not proof of the Bitcoin HRP: here the real prefix is 'bc1qevil',
+    and without the check its program would be registered as a mainnet
+    P2WPKH target."""
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi_mod
+
+    charset = pi_mod._BECH32_CHARSET
+    program = bytes(range(20))
+    acc, bits, values = 0, 0, []
+    for byte in program:
+        acc = (acc << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            values.append((acc >> bits) & 31)
+    data = [0] + values
+    hrp = "bc1qevil"
+    pre = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp] + data
+    polymod = pi_mod._bech32_polymod(pre + [0] * 6) ^ 1
+    checksum = [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+    addr = hrp + "1" + "".join(charset[d] for d in data + checksum)
+
+    assert addr.lower().startswith("bc1q")  # the text alone looks like mainnet
+    assert "not Bitcoin mainnet" in (pi_mod._payout_address_problem(addr) or "")
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("hrp.json", pool_id="hrp", name="HrpPool", addresses=[addr])
+    with pytest.raises(ValueError, match="not Bitcoin mainnet"):
+        pi.identify_pool(b"anything")

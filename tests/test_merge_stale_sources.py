@@ -269,7 +269,7 @@ def test_addr_to_spk_reads_the_version_byte_not_the_leading_character():
 
     # Namecoin v52, both spellings, are P2PKH.
     assert _addr_to_spk("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU")[:3] == p2pkh
-    assert _addr_to_spk("N9rGYRHTvLTQGtHTGvzWnKUgZgqTJgqRfW")[:3] == p2pkh
+    assert _addr_to_spk("NF3a1m3MzdUh2FgTyVCZezT7BPynKnT7HD")[:3] == p2pkh
     # Namecoin v13 is P2SH.
     assert _addr_to_spk("6arxak7yK8CmKEc8M8TqekkAXErtjN5RVt")[:2] == p2sh
     # Syscoin v63 is P2PKH; Bitcoin v0/v5 are P2PKH/P2SH.
@@ -292,3 +292,26 @@ def test_namecoin_m_address_pays_its_registry_pool():
 
     spk = _addr_to_spk("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU")
     assert identify_pool(b"no-tag-here", [(0, spk)]) == "AntPool"
+
+
+def test_namecoin_addresses_spelled_nc1_are_base58_not_bech32():
+    """A Namecoin version-52 address can be spelled 'NC1...'. Case-folding
+    it into the bech32 branch discarded its payout evidence: 17 outputs in
+    the committed inputs are spelled that way."""
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    spk = _addr_to_spk("NC1hnGBkMuyh7Tk4TqszXXT3a6pxXPCANL")
+    assert spk is not None and spk[:3] == b"\x76\xa9\x14"
+
+    # A genuine Namecoin bech32 address still takes the bech32 path.
+    bech32 = _addr_to_spk("nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+    assert bech32 is not None and bech32[:2] == b"\x00\x14"
+
+
+def test_base58_checksum_is_verified():
+    """A mistyped address must not decode to a wrong-but-plausible script."""
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    good = "12dRugNcdxK39288NjcDV4GX7rMsKCGn6B"
+    assert _addr_to_spk(good) is not None
+    assert _addr_to_spk(good[:-1] + ("C" if good[-1] != "C" else "D")) is None

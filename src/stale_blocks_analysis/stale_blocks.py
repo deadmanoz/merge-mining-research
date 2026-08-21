@@ -20,6 +20,7 @@ _bech32_decode_to_program).
 """
 
 import csv
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -109,6 +110,9 @@ def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
     raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
     if len(raw) != 25:
         return None
+    body, checksum = raw[:-4], raw[-4:]
+    if hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4] != checksum:
+        return None
     return raw[0], raw[1:21]
 
 
@@ -120,6 +124,19 @@ def _addr_to_spk(addr: str) -> bytes | None:
     Returns None if the address cannot be decoded or its version byte is
     not one this project has seen in committed data.
     """
+    # Base58 first: a Namecoin address can be *spelled* "NC1..." (there are
+    # 17 such outputs in the committed inputs), and case-folding it into the
+    # bech32 branch would discard its payout evidence. A real bech32 address
+    # will not pass a base58check, so the order is safe.
+    decoded = _b58_decode_versioned(addr)
+    if decoded is not None:
+        version, h160 = decoded
+        if version in _P2PKH_VERSIONS:
+            return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
+        if version in _P2SH_VERSIONS:
+            return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+        return None
+
     lowered = addr.lower()
     if lowered.startswith(("bc1", "nc1")):
         # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
@@ -134,14 +151,6 @@ def _addr_to_spk(addr: str) -> bytes | None:
         elif len(program) == 32:
             return bytes([0x51, 0x20]) + program  # P2TR
         return None
-    decoded = _b58_decode_versioned(addr)
-    if decoded is None:
-        return None
-    version, h160 = decoded
-    if version in _P2PKH_VERSIONS:
-        return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
-    if version in _P2SH_VERSIONS:
-        return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
     return None
 
 

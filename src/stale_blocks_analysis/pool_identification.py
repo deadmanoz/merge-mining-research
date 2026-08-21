@@ -143,6 +143,11 @@ def _payout_address_problem(addr: str) -> str | None:
             return "mixes upper and lower case"
         pos = lowered.rfind("1")
         hrp, data = lowered[:pos], lowered[pos + 1 :]
+        if hrp != "bc":
+            # The checksum is computed over the HRP, so an address encoded
+            # for another network validates against its own prefix and
+            # would then be registered as a Bitcoin P2WPKH target.
+            return f"uses the {hrp!r} prefix, which is not Bitcoin mainnet"
         if len(data) < 6 or any(c not in _BECH32_CHARSET for c in data):
             return "is not valid bech32"
         values = (

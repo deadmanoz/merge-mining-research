@@ -396,15 +396,24 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
     staged.mkdir()
     for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
         spec = _LOADER_SPECS.get(key)
-        cols = ["classification", "validation_status"]
+        cols = [
+            "classification",
+            "validation_status",
+            "coinbase_scriptsig_hex",
+            "coinbase_outputs",
+        ]
         cols += (
             [spec.height_col, spec.hash_col]
             if spec
             else ["btc_height", "btc_header_hash"]
         )
+        if key == "rsk":
+            cols.append("pool_label")
         (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
     descendants = tmp_path / "stale_descendants.csv"
-    descendants.write_text("height\n")
+    descendants.write_text(
+        "classification,validation_status,btc_height,btc_header_hash\n"
+    )
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
 
@@ -529,15 +538,24 @@ def test_truncated_loader_input_stops_the_run(tmp_path, monkeypatch):
     staged.mkdir()
     for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
         spec = _LOADER_SPECS.get(key)
-        cols = ["classification", "validation_status"]
+        cols = [
+            "classification",
+            "validation_status",
+            "coinbase_scriptsig_hex",
+            "coinbase_outputs",
+        ]
         cols += (
             [spec.height_col, spec.hash_col]
             if spec
             else ["btc_height", "btc_header_hash"]
         )
+        if key == "rsk":
+            cols.append("pool_label")
         (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
     descendants = tmp_path / "stale_descendants.csv"
-    descendants.write_text("height\n")
+    descendants.write_text(
+        "classification,validation_status,btc_height,btc_header_hash\n"
+    )
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
     attribution.require_committed_inputs()

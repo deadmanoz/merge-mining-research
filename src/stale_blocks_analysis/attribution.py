@@ -458,14 +458,35 @@ def require_committed_inputs() -> None:
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
             path = VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
             spec = _LOADER_SPECS.get(key)
-            required = {"classification", "validation_status"}
+            # Every column an attribution path actually consumes, not just
+            # the identity ones: a CSV that keeps its identity columns but
+            # loses the coinbase evidence still yields rows, silently
+            # weakened to Unknown.
+            required = {
+                "classification",
+                "validation_status",
+                "coinbase_scriptsig_hex",
+                "coinbase_outputs",
+            }
             if spec is not None:
                 required |= {spec.height_col, spec.hash_col}
+            if key == "rsk":
+                required.add("pool_label")
             with open(path, newline="") as f:
                 header = next(csv.reader(f), [])
             absent = sorted(required - set(header))
             if absent:
                 unreadable.append(f"{path.name} (no {', '.join(absent)})")
+        with open(STALE_DESCENDANTS_CSV, newline="") as f:
+            descendant_header = set(next(csv.reader(f), []))
+        descendant_absent = sorted(
+            {"classification", "validation_status", "btc_height", "btc_header_hash"}
+            - descendant_header
+        )
+        if descendant_absent:
+            unreadable.append(
+                f"{STALE_DESCENDANTS_CSV.name} (no {', '.join(descendant_absent)})"
+            )
         if unreadable:
             raise FileNotFoundError(
                 f"{len(unreadable)} committed loader input(s) are present but "
@@ -503,10 +524,12 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
             "coinbase source for recovered headers; an empty or missing "
             "archive would silently produce weaker labels."
         )
-    if expected is None and not allow_partial:
+    # An empty tracked inventory is not a complete archive: a checkout that
+    # tracks no binaries tells us nothing about what should be present.
+    if not expected and not allow_partial:
         raise FileNotFoundError(
-            f"Cannot verify the block archive at {STALE_DIR}: it is not a "
-            "git checkout, so there is no tracked manifest to compare "
+            f"Cannot verify the block archive at {STALE_DIR}: it tracks no "
+            "block binaries at HEAD, so there is no manifest to compare "
             "against and missing binaries would silently fall back to "
             "AuxPoW-only evidence. Run ./scripts/fetch-data.sh to fetch the "
             "pinned clone, or pass --allow-partial to attribute from an "
@@ -658,7 +681,9 @@ def publish_attribution_artifacts(
     looking at a mixed pair from an interrupted rerun, rather than
     trusting provenance that describes different labels.
     """
-    min_height = getattr(stale, "min_height", None) or min_height
+    batch_floor = getattr(stale, "min_height", None)
+    if batch_floor is not None:
+        min_height = batch_floor
     meta_path = csv_path.with_suffix(".meta.json")
     staging = csv_path.parent / f".{csv_path.stem}.staging"
     shutil.rmtree(staging, ignore_errors=True)
