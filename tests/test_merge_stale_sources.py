@@ -172,10 +172,18 @@ def test_addr_to_spk_decodes_namecoin_p2sh_and_bech32_addresses():
 def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     tmp_path, monkeypatch
 ):
+    """A file that really contains the named block but whose coinbase does
+    not parse falls back to the carried AuxPoW evidence; has_bin still
+    records that the file was there."""
     from stale_blocks_analysis import stale_merge
+    from stale_blocks_analysis.bitcoin_binary import sha256d
 
+    # An 80-byte header of arbitrary bytes, addressed by its own hash, so
+    # the file genuinely contains the block it names.
+    header = bytes(range(80))
+    block_hash = sha256d(header)[::-1].hex()
     monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
-    (tmp_path / f"700000-{'ab' * 32}.bin").write_bytes(b"truncated-garbage")
+    (tmp_path / f"700000-{block_hash}.bin").write_bytes(header + b"not-a-tx")
 
     seen = {}
 
@@ -187,7 +195,7 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     rows = [
         {
             "height": 700000,
-            "hash": "ab" * 32,
+            "hash": block_hash,
             "source": "auxpow",
             "_scriptsig_hex": "deadbeef",
             "_outputs_str": "",
@@ -199,6 +207,21 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     assert out[0]["pool"] == "FallbackPool"
     assert out[0]["has_bin"] is True
     assert seen["sig"] == bytes.fromhex("deadbeef")
+
+
+def test_tag_stale_blocks_rejects_a_binary_holding_another_block(tmp_path, monkeypatch):
+    """A misplaced but parseable file would label a row from the wrong
+    block's coinbase, so the archive is checked against the file name."""
+    import pytest
+
+    from stale_blocks_analysis import stale_merge
+
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / f"700000-{'ab' * 32}.bin").write_bytes(bytes(range(80)) + b"x")
+    rows = [{"height": 700000, "hash": "ab" * 32, "source": "auxpow"}]
+
+    with pytest.raises(ValueError, match="does not contain the block it names"):
+        stale_merge.tag_stale_blocks(rows)
 
 
 def test_primary_exact_duplicates_are_dropped_first_wins():

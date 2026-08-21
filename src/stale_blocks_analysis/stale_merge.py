@@ -11,7 +11,7 @@ Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
 pool_identification (identify_pool_detailed), stale_blocks (_addr_to_spk).
 """
 
-from .bitcoin_binary import parse_coinbase
+from .bitcoin_binary import parse_coinbase, sha256d
 from .config import BLOCKS_DIR
 from .pool_identification import identify_pool_detailed
 from .stale_blocks import _addr_to_spk
@@ -107,7 +107,20 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
         path = BLOCKS_DIR / f"{b['height']}-{b['hash']}.bin"
         has_bin = path.exists()
         if has_bin:
-            cb = parse_coinbase(path.read_bytes())
+            raw = path.read_bytes()
+            # The file name claims a block; the bytes must agree. A
+            # misplaced but parseable binary would otherwise label an
+            # unrelated stale row from the wrong coinbase.
+            header_hash = sha256d(raw[:80])[::-1].hex() if len(raw) >= 80 else None
+            if header_hash != b["hash"]:
+                raise ValueError(
+                    f"Block archive file {path.name} does not contain the "
+                    f"block it names (header hashes to {header_hash}). "
+                    "Re-fetch the pinned bitcoin-data/stale-blocks clone; "
+                    "attribution refuses to label a row from another "
+                    "block's coinbase."
+                )
+            cb = parse_coinbase(raw)
             if cb:
                 b["pool"], b["_pool_match"] = identify_pool_detailed(
                     cb["scriptsig"], cb["outputs"]

@@ -83,7 +83,7 @@ from .config import (
     VALIDATED_STALES_DIR,
 )
 from .pool_identification import pool_dataset_fingerprint, reset_runtime_pool_tables
-from .stale_blocks import load_stale_descendants
+from .stale_blocks import _LOADER_SPECS, load_stale_descendants
 from .stale_merge import merge_stale_sources, tag_stale_blocks
 from .template_producers import fold_template_producer
 
@@ -293,13 +293,14 @@ def load_attributed_stales(
     apply_rsk_historical_labels(stale)
     apply_template_producers(stale)
 
-    # Bind provenance to this load. Publication can happen much later in a
+    # Bind provenance to this batch. Publication can happen much later in a
     # library caller, by which time the registry or the archive may have
     # moved; the sidecar must describe the state that produced these
     # labels, not the state at write time.
-    global _LOAD_PROVENANCE
-    _LOAD_PROVENANCE = _capture_provenance(allow_partial)
-    return stale
+    batch = AttributedStales(stale)
+    batch.min_height = min_height
+    batch.provenance = _capture_provenance(allow_partial)
+    return batch
 
 
 def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> None:
@@ -386,7 +387,18 @@ def archive_inventory() -> tuple[set[str] | None, set[str]]:
     return expected, present
 
 
-_LOAD_PROVENANCE: dict | None = None
+class AttributedStales(list):
+    """The attributed records, carrying what produced them.
+
+    A plain list to every consumer, but it also remembers the height floor
+    that bounded it and a snapshot of the inputs that were read. Binding
+    those to the batch rather than to module state means a caller can load
+    twice and publish either one without the second load's provenance
+    landing on the first one's CSV.
+    """
+
+    min_height: int = 0
+    provenance: dict | None = None
 
 
 def _capture_provenance(allow_partial: bool) -> dict:
@@ -438,6 +450,29 @@ def require_committed_inputs() -> None:
     ]
     if not STALE_DESCENDANTS_CSV.exists():
         missing.append(STALE_DESCENDANTS_CSV)
+    if not missing:
+        # Presence is not enough: a zero-byte or header-truncated CSV
+        # yields no rows and is indistinguishable in the export from a
+        # chain that genuinely recovered none.
+        unreadable = []
+        for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
+            path = VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
+            spec = _LOADER_SPECS.get(key)
+            required = {"classification", "validation_status"}
+            if spec is not None:
+                required |= {spec.height_col, spec.hash_col}
+            with open(path, newline="") as f:
+                header = next(csv.reader(f), [])
+            absent = sorted(required - set(header))
+            if absent:
+                unreadable.append(f"{path.name} (no {', '.join(absent)})")
+        if unreadable:
+            raise FileNotFoundError(
+                f"{len(unreadable)} committed loader input(s) are present but "
+                f"unreadable: {'; '.join(unreadable[:3])}. A truncated input "
+                "silently shrinks the export instead of failing. Restore the "
+                "file(s) from the checkout."
+            )
     if missing:
         shown = ", ".join(p.name for p in missing[:3])
         raise FileNotFoundError(
@@ -553,7 +588,12 @@ def write_attribution_meta(
     dataset, plus the same for the stale-blocks clone and the per-basis row
     counts.
     """
-    provenance = _LOAD_PROVENANCE or _capture_provenance(allow_partial)
+    # The batch knows what produced it; the arguments are the fallback for
+    # a caller that assembled records itself.
+    provenance = getattr(stale, "provenance", None) or _capture_provenance(
+        allow_partial
+    )
+    min_height = getattr(stale, "min_height", None) or min_height
     # The sidecar describes a specific CSV, so it carries that CSV's own
     # hash. Publishing two files can never be one atomic act, but this
     # makes a mismatched pair detectable by any consumer rather than
@@ -618,6 +658,7 @@ def publish_attribution_artifacts(
     looking at a mixed pair from an interrupted rerun, rather than
     trusting provenance that describes different labels.
     """
+    min_height = getattr(stale, "min_height", None) or min_height
     meta_path = csv_path.with_suffix(".meta.json")
     staging = csv_path.parent / f".{csv_path.stem}.staging"
     shutil.rmtree(staging, ignore_errors=True)

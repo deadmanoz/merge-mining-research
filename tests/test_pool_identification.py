@@ -532,3 +532,62 @@ def test_only_witness_v0_addresses_back_the_hash160_lookup(pool_clone):
     # not be attributed to the v1 address's owner.
     v0_spk = b"\x00\x14" + program
     assert pi.identify_pool(b"no-tag", [(0, v0_spk)]) == "Unknown"
+
+
+def test_non_canonical_segwit_padding_fails_closed(pool_clone):
+    """BIP-173 requires the 5-to-8 bit conversion to leave fewer than five
+    bits, all zero. The shared decoder discards them, so an address with an
+    extra padding group would decode to a valid-looking program."""
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi_mod
+
+    charset = pi_mod._BECH32_CHARSET
+    program = bytes(range(20))
+    acc, bits, values = 0, 0, []
+    for byte in program:
+        acc = (acc << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            values.append((acc >> bits) & 31)
+    # One extra all-zero group: not canonical padding.
+    data = [0] + values + [0]
+    hrp = "bc"
+    pre = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp] + data
+    polymod = pi_mod._bech32_polymod(pre + [0] * 6) ^ 1
+    checksum = [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+    addr = "bc1" + "".join(charset[d] for d in data + checksum)
+
+    assert pi_mod._payout_address_problem(addr) == "has non-canonical SegWit padding"
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("pad.json", pool_id="pad", name="PadPool", addresses=[addr])
+    with pytest.raises(ValueError, match="non-canonical SegWit padding"):
+        pi.identify_pool(b"anything")
+
+
+def test_pool_name_whitespace_fails_closed(pool_clone):
+    """'AntPool ' would export as a second pool and split the group."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("ws.json", pool_id="ws", name="AntPool ", tags=["/WS/"])
+    with pytest.raises(ValueError, match="surrounding whitespace"):
+        pi.identify_pool(b"xx/WS/yy")
+
+
+def test_non_bitcoin_base58_markers_fail_closed(pool_clone):
+    """A checksum-valid Namecoin address would pass every other check and
+    then produce no runtime script, silently dropping the marker."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    add_pool(
+        "nmc.json",
+        pool_id="nmc",
+        name="NmcPool",
+        addresses=["MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU"],
+    )
+    with pytest.raises(ValueError, match="not a Bitcoin address"):
+        pi.identify_pool(b"anything")

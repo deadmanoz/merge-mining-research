@@ -390,10 +390,19 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
 
     from stale_blocks_analysis.config import CHAINS_BY_AUXPOW_ACTIVATION
 
+    from stale_blocks_analysis.stale_blocks import _LOADER_SPECS
+
     staged = tmp_path / "validated-stales"
     staged.mkdir()
     for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
-        (staged / f"{key}_validated_stales.csv").write_text("btc_height\n")
+        spec = _LOADER_SPECS.get(key)
+        cols = ["classification", "validation_status"]
+        cols += (
+            [spec.height_col, spec.hash_col]
+            if spec
+            else ["btc_height", "btc_header_hash"]
+        )
+        (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
     descendants = tmp_path / "stale_descendants.csv"
     descendants.write_text("height\n")
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
@@ -473,3 +482,69 @@ def test_sidecar_carries_the_csv_hash_so_mixed_pairs_are_detectable(
         hashlib.sha256(csv_path.read_bytes()).hexdigest()
         != meta["artifact"]["csv_sha256"]
     )
+
+
+def test_each_batch_carries_its_own_provenance_and_floor(tmp_path, monkeypatch):
+    """Two loads must not share one provenance slot: publishing the first
+    batch after loading a second has to record the first batch's inputs."""
+    batch_a = attribution.AttributedStales(
+        [
+            {
+                "height": 1,
+                "hash": "aa",
+                "source": "namecoin",
+                "pool": "P1",
+                "template_producer": "P1",
+                "attribution_basis": "coinbase",
+                "has_bin": False,
+            }
+        ]
+    )
+    batch_a.min_height = 147_168
+    batch_a.provenance = {"mining_pools": {"marker": "A"}}
+
+    batch_b = attribution.AttributedStales(list(batch_a))
+    batch_b.min_height = 500_000
+    batch_b.provenance = {"mining_pools": {"marker": "B"}}
+
+    # Publishing A after B was loaded still records A's state and floor.
+    csv_path, meta_path = attribution.publish_attribution_artifacts(
+        batch_a, tmp_path / "stale-block-attributions.csv"
+    )
+
+    import json
+
+    meta = json.loads(meta_path.read_text())
+    assert meta["mining_pools"]["marker"] == "A"
+    assert meta["min_height"] == 147_168
+
+
+def test_truncated_loader_input_stops_the_run(tmp_path, monkeypatch):
+    import pytest
+
+    from stale_blocks_analysis.config import CHAINS_BY_AUXPOW_ACTIVATION
+    from stale_blocks_analysis.stale_blocks import _LOADER_SPECS
+
+    staged = tmp_path / "validated-stales"
+    staged.mkdir()
+    for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
+        spec = _LOADER_SPECS.get(key)
+        cols = ["classification", "validation_status"]
+        cols += (
+            [spec.height_col, spec.hash_col]
+            if spec
+            else ["btc_height", "btc_header_hash"]
+        )
+        (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
+    descendants = tmp_path / "stale_descendants.csv"
+    descendants.write_text("height\n")
+    monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
+    monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
+    attribution.require_committed_inputs()
+
+    # Present but header-truncated: yields no rows, exactly like a chain
+    # that genuinely recovered none.
+    first_key = CHAINS_BY_AUXPOW_ACTIVATION[0][0]
+    (staged / f"{first_key}_validated_stales.csv").write_text("")
+    with pytest.raises(FileNotFoundError, match="present but"):
+        attribution.require_committed_inputs()

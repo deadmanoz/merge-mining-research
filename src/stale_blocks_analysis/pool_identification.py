@@ -160,6 +160,19 @@ def _payout_address_problem(addr: str) -> str | None:
         expected = 1 if witness_version == 0 else 0x2BC830A3
         if checksum != expected:
             return "fails its bech32 checksum"
+        # Strict 5-to-8 bit conversion: BIP-173 forbids leftover bits that
+        # form another group, and requires the padding bits to be zero. The
+        # shared decoder discards them, so an address with extra or
+        # non-zero padding would decode to a valid-looking program.
+        payload = [_BECH32_CHARSET.index(c) for c in data[:-6]][1:]
+        acc = bits = 0
+        for value in payload:
+            acc = (acc << 5) | value
+            bits += 5
+            if bits >= 8:
+                bits -= 8
+        if bits >= 5 or (acc & ((1 << bits) - 1)):
+            return "has non-canonical SegWit padding"
         program = _bech32_decode_to_program(lowered)
         if program is None:
             return "does not decode to a witness program"
@@ -174,6 +187,7 @@ def _payout_address_problem(addr: str) -> str | None:
         if index < 0:
             return "contains non-base58 characters"
         num = num * 58 + index
+
     raw = num.to_bytes((num.bit_length() + 7) // 8, "big")
     raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
     if len(raw) < 5:
@@ -182,6 +196,11 @@ def _payout_address_problem(addr: str) -> str | None:
     digest = hashlib.sha256(hashlib.sha256(body).digest()).digest()
     if digest[:4] != checksum_bytes:
         return "fails its base58check checksum"
+    # Registry markers are Bitcoin addresses. A checksum-valid address from
+    # another chain would pass every check above and then produce no
+    # runtime script, silently dropping that pool's marker.
+    if body[0] not in (0, 5):
+        return f"uses base58 version {body[0]}, which is not a Bitcoin address"
     return None
 
 
@@ -335,6 +354,14 @@ def fetch_known_pools() -> dict:
 
         name = pool.get("name")
         link = pool.get("link", "") or ""
+        if isinstance(name, str) and name != name.strip():
+            # A trailing space makes a second, near-identical pool label
+            # that splits the group in downstream analysis.
+            raise ValueError(
+                f"Malformed pool registry file {pool_file}: name {name!r} has "
+                "surrounding whitespace. Fix or remove the file; attribution "
+                "refuses to run from a registry that would split a pool."
+            )
         if isinstance(name, str) and name.strip().lower() == "unknown":
             # Downstream treats this label as the no-match sentinel, so a
             # pool claiming it would have its successful matches exported
