@@ -412,3 +412,69 @@ def test_uppercase_bech32_payout_address_is_accepted(pool_clone):
     assert pi.identify_pool(b"xx/UpperPool/yy") == "UpperPool"
     program = pi._decode_payout_address("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")
     assert program is not None and len(program) == 20
+
+
+def test_invalid_segwit_witness_versions_fail_closed(pool_clone):
+    """SegWit defines versions 0-16. A checksummed bech32m marker above that
+    is not a valid address, but every nonzero version used to be accepted."""
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi_mod
+
+    # Build a v17 address that carries a correct bech32m checksum.
+    charset = pi_mod._BECH32_CHARSET
+    hrp, data = "bc", [17] + [0] * 32
+    values = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp] + data
+    polymod = pi_mod._bech32_polymod(values + [0] * 6) ^ 0x2BC830A3
+    checksum = [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+    addr = "bc1" + "".join(charset[d] for d in data + checksum)
+    assert pi_mod._payout_address_problem(addr) == (
+        "has witness version 17, which SegWit does not define"
+    )
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("v17.json", pool_id="v17", name="V17Pool", addresses=[addr])
+    with pytest.raises(ValueError, match="witness version 17"):
+        pi.identify_pool(b"anything")
+
+
+def test_case_variant_addresses_are_one_marker_for_conflicts(pool_clone):
+    """Two spellings of the same address decode to one lookup key, so two
+    pools claiming them are in conflict even though the text differs."""
+    import pytest
+
+    lower = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    _clone_dir, add_pool = pool_clone
+    add_pool("a_lower.json", pool_id="a", name="LowerPool", addresses=[lower])
+    add_pool("b_upper.json", pool_id="b", name="UpperPool", addresses=[lower.upper()])
+
+    with pytest.raises(ValueError, match="Conflicting pool markers"):
+        pi.identify_pool(b"anything")
+
+
+def test_only_complete_script_templates_are_read_as_payouts(pool_clone):
+    """A nonstandard script that merely starts like P2PKH must not have 20
+    arbitrary bytes read out of it and matched against a registry marker."""
+    from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
+
+    addr = "3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9"
+    h160 = _b58_decode_to_hash160(addr)
+    _clone_dir, add_pool = pool_clone
+    add_pool("t.json", pool_id="t", name="TemplatePool", addresses=[addr])
+
+    real_p2sh = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+    assert pi.identify_pool(b"no-tag", [(0, real_p2sh)]) == "TemplatePool"
+
+    # Same length and leading opcode, wrong trailing byte: not a P2SH script.
+    malformed = bytes([0xA9, 0x14]) + h160 + bytes([0x88])
+    assert pi.identify_pool(b"no-tag", [(0, malformed)]) == "Unknown"
+
+
+def test_op_return_markers_come_only_from_the_registry(pool_clone):
+    """The matcher carried a hard-coded 1hash.com marker that bypassed the
+    registry and returned a label the registry itself spells differently."""
+    _clone_dir, add_pool = pool_clone
+    add_pool("other.json", pool_id="o", name="OtherPool", tags=["/OtherPool/"])
+
+    # Not in this registry state, so it must not be attributed.
+    assert pi.identify_pool(b"no-tag", [(0, b"\x6a" + b"1hash.com")]) == "Unknown"

@@ -146,11 +146,22 @@ def _payout_address_problem(addr: str) -> str | None:
             + [ord(c) & 31 for c in hrp]
             + [_BECH32_CHARSET.index(c) for c in data]
         )
-        checksum = _bech32_polymod(values)
         witness_version = _BECH32_CHARSET.index(data[0])
+        if witness_version > 16:
+            return (
+                f"has witness version {witness_version}, which SegWit does not define"
+            )
+        checksum = _bech32_polymod(values)
         expected = 1 if witness_version == 0 else 0x2BC830A3
         if checksum != expected:
             return "fails its bech32 checksum"
+        program = _bech32_decode_to_program(lowered)
+        if program is None:
+            return "does not decode to a witness program"
+        if witness_version == 0 and len(program) not in (20, 32):
+            return f"is witness v0 with a {len(program)}-byte program"
+        if not 2 <= len(program) <= 40:
+            return f"has a {len(program)}-byte witness program"
         return None
     num = 0
     for ch in addr:
@@ -223,6 +234,11 @@ def fetch_known_pools() -> dict:
     # instead of being resolved silently.
     tag_conflicts: list[tuple[str, str, str]] = []
     addr_conflicts: list[tuple[str, str, str]] = []
+    # Conflicts are detected on the DECODED payload, not the address text:
+    # the same output can be written in more than one valid spelling (an
+    # all-uppercase bech32 address, say), and those spellings collide only
+    # once the runtime table keys them by bytes.
+    addr_owner: dict[str, str] = {}
 
     for pool_file in pool_files:
         try:
@@ -302,8 +318,11 @@ def fetch_known_pools() -> dict:
                 tag_conflicts.append((tag, coinbase_tags[tag]["name"], name))
             coinbase_tags[tag] = entry
         for addr in pool["addresses"]:
-            if addr in payout_addresses and payout_addresses[addr]["name"] != name:
-                addr_conflicts.append((addr, payout_addresses[addr]["name"], name))
+            decoded = _decode_payout_address(addr)
+            key = decoded.hex() if decoded is not None else addr
+            if key in addr_owner and addr_owner[key] != name:
+                addr_conflicts.append((addr, addr_owner[key], name))
+            addr_owner[key] = name
             payout_addresses[addr] = entry
 
     if tag_conflicts or addr_conflicts:
@@ -442,18 +461,25 @@ def identify_pool_detailed(
                 for tag, name in pool_tags:
                     if tag in spk:
                         return name, "op_return"
-                # Check for "1hash.com" in OP_RETURN specifically
-                if b"1hash.com" in spk:
-                    return "1hash.com", "op_return"
 
         # 3. Output address matching (last resort for tagless miners)
         for _value, spk in outputs:
+            # The whole canonical template must match, not just its first
+            # opcode and length: a nonstandard script that merely starts
+            # like one would otherwise have 20 arbitrary bytes read out of
+            # it and could collide with a registry marker.
             h160 = None
-            if len(spk) == 25 and spk[0] == 0x76:  # P2PKH
+            if (
+                len(spk) == 25
+                and spk[:3] == b"\x76\xa9\x14"
+                and spk[23:] == b"\x88\xac"
+            ):  # P2PKH: DUP HASH160 <20> EQUALVERIFY CHECKSIG
                 h160 = spk[3:23]
-            elif len(spk) == 23 and spk[0] == 0xA9:  # P2SH
+            elif (
+                len(spk) == 23 and spk[:2] == b"\xa9\x14" and spk[22:] == b"\x87"
+            ):  # P2SH: HASH160 <20> EQUAL
                 h160 = spk[2:22]
-            elif len(spk) == 22 and spk[0] == 0x00:  # P2WPKH
+            elif len(spk) == 22 and spk[:2] == b"\x00\x14":  # P2WPKH: v0 <20>
                 h160 = spk[2:]
             if h160 and h160 in addr_pools:
                 return addr_pools[h160], "address"
