@@ -397,7 +397,9 @@ class AttributedStales(list):
     landing on the first one's CSV.
     """
 
-    min_height: int = 0
+    # None means "not bound by a load": a batch a caller assembled itself
+    # has no floor of its own, and zero is a real floor, not an absence.
+    min_height: int | None = None
     provenance: dict | None = None
 
 

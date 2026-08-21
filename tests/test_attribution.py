@@ -568,3 +568,37 @@ def test_truncated_loader_input_stops_the_run(tmp_path, monkeypatch):
     (staged / f"{first_key}_validated_stales.csv").write_text("")
     with pytest.raises(FileNotFoundError, match="present but"):
         attribution.require_committed_inputs()
+
+
+def test_directly_constructed_batch_does_not_claim_a_floor(tmp_path):
+    """A batch a caller assembled has no floor of its own, so the caller's
+    argument must survive; zero is a real floor, not an absence."""
+    batch = attribution.AttributedStales(
+        [
+            {
+                "height": 500_000,
+                "hash": "aa",
+                "source": "namecoin",
+                "pool": "P1",
+                "template_producer": "P1",
+                "attribution_basis": "coinbase",
+                "has_bin": False,
+            }
+        ]
+    )
+    assert batch.min_height is None
+
+    _csv_path, meta_path = attribution.publish_attribution_artifacts(
+        batch, tmp_path / "stale-block-attributions.csv", min_height=147_168
+    )
+
+    import json
+
+    assert json.loads(meta_path.read_text())["min_height"] == 147_168
+
+    # A batch that really was loaded at zero keeps zero.
+    batch.min_height = 0
+    _csv_path, meta_path = attribution.publish_attribution_artifacts(
+        batch, tmp_path / "zero.csv", min_height=147_168
+    )
+    assert json.loads(meta_path.read_text())["min_height"] == 0
