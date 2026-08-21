@@ -15,6 +15,7 @@ import hashlib
 import json
 
 from .bitcoin_binary import _b58_decode_to_hash160, _bech32_decode_to_program
+from .coinbase_markers import parse_op_return_payload
 from .config import LOCAL_MINING_POOLS_DIR
 
 # ── Local pool overrides ──────────────────────────────────────────────────
@@ -31,7 +32,8 @@ from .config import LOCAL_MINING_POOLS_DIR
 LOCAL_POOL_TAGS: list[tuple[bytes, str]] = []
 
 
-# Hand-curated coinbase output address (hash160) overrides for pools the
+# Hand-curated coinbase output overrides, keyed by complete scriptPubKey,
+# for pools the
 # upstream canonical dataset doesn't cover. Runs after upstream in
 # identify_pool(), so upstream wins on conflicts.
 #
@@ -180,6 +182,33 @@ def _payout_address_problem(addr: str) -> str | None:
     digest = hashlib.sha256(hashlib.sha256(body).digest()).digest()
     if digest[:4] != checksum_bytes:
         return "fails its base58check checksum"
+    return None
+
+
+def _payout_script(addr: str) -> bytes | None:
+    """Canonical scriptPubKey a payout address pays to, if this table can
+    match it.
+
+    Markers are keyed by the whole script rather than by the hash160,
+    because the same 20 bytes under different templates are different
+    payment targets: a P2PKH and a P2SH address sharing a payload must not
+    overwrite each other or claim each other's outputs. Address types this
+    lookup cannot match (P2WSH, P2TR, witness v1+) return None and are
+    carried in the registry unused.
+    """
+    lowered = addr.lower()
+    if lowered.startswith("bc1"):
+        program = _bech32_decode_to_program(addr)
+        if program is None or not lowered.startswith("bc1q") or len(program) != 20:
+            return None
+        return b"\x00\x14" + program  # P2WPKH: v0 <20>
+    h160 = _b58_decode_to_hash160(addr)
+    if h160 is None:
+        return None
+    if addr.startswith("1"):
+        return b"\x76\xa9\x14" + h160 + b"\x88\xac"  # P2PKH
+    if addr.startswith("3"):
+        return b"\xa9\x14" + h160 + b"\x87"  # P2SH
     return None
 
 
@@ -391,21 +420,11 @@ def _build_runtime_pool_tables() -> tuple[list[tuple[bytes, str]], dict[bytes, s
     # a {hash160: name} dict.
     upstream_addrs: dict[bytes, str] = {}
     for addr, entry in data["payout_addresses"].items():
-        # Every address here decoded during loading. This table is matched
-        # only against OP_0 <20> outputs, so it takes hash160-shaped
-        # payloads from base58 addresses and from witness v0 (bc1q) alone:
-        # a v1+ address with a 20-byte program encodes a different script,
-        # and registering it here would both miss its real payout and
-        # falsely claim the v0 output with the same payload.
-        program = _decode_payout_address(addr)
-        if program is None or len(program) != 20:
-            continue
-        lowered = addr.lower()
-        if lowered.startswith("bc1") and not lowered.startswith("bc1q"):
-            continue
-        upstream_addrs[program] = entry["name"]
+        script = _payout_script(addr)
+        if script is not None:
+            upstream_addrs[script] = entry["name"]
 
-    # Local additions only catch h160s upstream missed: upstream is the
+    # Local additions only catch scripts upstream missed: upstream is the
     # later (winning) operand of the merge, so a colliding local override
     # can never displace an upstream mapping.
     runtime_addrs = {**LOCAL_OUTPUT_ADDR_POOLS, **upstream_addrs}
@@ -476,35 +495,25 @@ def identify_pool_detailed(
         if tag in sig:
             return name, "tag"
 
-    # 2. OP_RETURN data in coinbase outputs (e.g. "Mined by 1hash.com")
+    # 2. OP_RETURN data in coinbase outputs (e.g. "Mined by 1hash.com").
+    #    Only the pushed payload is searched: matching raw script bytes
+    #    would let a push-length byte or an opcode form part of a tag.
     if outputs:
         for _value, spk in outputs:
-            if len(spk) >= 3 and spk[0] == 0x6A:  # OP_RETURN
+            payload = parse_op_return_payload(spk)
+            if payload:
                 for tag, name in pool_tags:
-                    if tag in spk:
+                    if tag in payload:
                         return name, "op_return"
 
-        # 3. Output address matching (last resort for tagless miners)
+        # 3. Payout script matching (last resort for tagless miners). The
+        #    table is keyed by complete canonical scripts, so only a real
+        #    P2PKH, P2SH, or P2WPKH output matches, and each address type
+        #    matches only its own outputs.
         for _value, spk in outputs:
-            # The whole canonical template must match, not just its first
-            # opcode and length: a nonstandard script that merely starts
-            # like one would otherwise have 20 arbitrary bytes read out of
-            # it and could collide with a registry marker.
-            h160 = None
-            if (
-                len(spk) == 25
-                and spk[:3] == b"\x76\xa9\x14"
-                and spk[23:] == b"\x88\xac"
-            ):  # P2PKH: DUP HASH160 <20> EQUALVERIFY CHECKSIG
-                h160 = spk[3:23]
-            elif (
-                len(spk) == 23 and spk[:2] == b"\xa9\x14" and spk[22:] == b"\x87"
-            ):  # P2SH: HASH160 <20> EQUAL
-                h160 = spk[2:22]
-            elif len(spk) == 22 and spk[:2] == b"\x00\x14":  # P2WPKH: v0 <20>
-                h160 = spk[2:]
-            if h160 and h160 in addr_pools:
-                return addr_pools[h160], "address"
+            name = addr_pools.get(spk)
+            if name:
+                return name, "address"
 
     return "Unknown", "none"
 

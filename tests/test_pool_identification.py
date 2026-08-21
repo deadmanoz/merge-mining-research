@@ -104,7 +104,8 @@ def test_op_return_tag_scan(pool_clone):
     _clone_dir, add_pool = pool_clone
     add_pool("opret.json", pool_id="opret", name="OpReturnPool", tags=["TAGX"])
 
-    outputs = [(0, b"\x6a" + b"TAGX")]  # OP_RETURN push containing the tag
+    # OP_RETURN, push length, payload: the tag lives in the pushed data.
+    outputs = [(0, b"\x6a" + bytes([4]) + b"TAGX")]
     assert pi.identify_pool(b"no tag in here", outputs) == "OpReturnPool"
 
 
@@ -186,10 +187,14 @@ def test_local_override_never_displaces_upstream(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
     local_only = bytes.fromhex("00" * 20)
+    # The override table is keyed by complete scriptPubKey, like the
+    # upstream table it merges with.
+    upstream_script = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+    local_script = bytes([0x76, 0xA9, 0x14]) + local_only + bytes([0x88, 0xAC])
     monkeypatch.setattr(
         pi,
         "LOCAL_OUTPUT_ADDR_POOLS",
-        {h160: "LocalCollider", local_only: "LocalOnly"},
+        {upstream_script: "LocalCollider", local_script: "LocalOnly"},
     )
     monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
     monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
@@ -282,7 +287,8 @@ def test_identify_pool_detailed_reports_the_match_method(tmp_path, monkeypatch):
     monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
 
     spk_addr = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
-    op_return = (0, b"\x6a" + b"/MethodPool/")
+    tag = b"/MethodPool/"
+    op_return = (0, b"\x6a" + bytes([len(tag)]) + tag)
 
     assert pi.identify_pool_detailed(b"xx/MethodPool/yy") == ("MethodPool", "tag")
     assert pi.identify_pool_detailed(b"no-tag", [op_return]) == (
@@ -477,7 +483,9 @@ def test_op_return_markers_come_only_from_the_registry(pool_clone):
     add_pool("other.json", pool_id="o", name="OtherPool", tags=["/OtherPool/"])
 
     # Not in this registry state, so it must not be attributed.
-    assert pi.identify_pool(b"no-tag", [(0, b"\x6a" + b"1hash.com")]) == "Unknown"
+    marker = b"1hash.com"
+    op_return = b"\x6a" + bytes([len(marker)]) + marker
+    assert pi.identify_pool(b"no-tag", [(0, op_return)]) == "Unknown"
 
 
 def test_unknown_is_reserved_and_cannot_name_a_pool(pool_clone):

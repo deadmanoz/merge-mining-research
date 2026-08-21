@@ -232,3 +232,40 @@ def test_addr_to_spk_accepts_uppercase_bech32():
     lower = upper.lower()
     assert _addr_to_spk(upper) == _addr_to_spk(lower)
     assert _addr_to_spk(upper)[:2] == b"\x00\x14"
+
+
+def test_addr_to_spk_reads_the_version_byte_not_the_leading_character():
+    """Namecoin's P2PKH version (52) renders as both 'N' and 'M' depending
+    on the payload, so typing by leading character mistyped every 'M'
+    address as P2SH: 3,146 outputs in the committed loader inputs. The
+    script type comes from the version byte instead."""
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    p2pkh = b"\x76\xa9\x14"
+    p2sh = b"\xa9\x14"
+
+    # Namecoin v52, both spellings, are P2PKH.
+    assert _addr_to_spk("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU")[:3] == p2pkh
+    assert _addr_to_spk("N9rGYRHTvLTQGtHTGvzWnKUgZgqTJgqRfW")[:3] == p2pkh
+    # Namecoin v13 is P2SH.
+    assert _addr_to_spk("6arxak7yK8CmKEc8M8TqekkAXErtjN5RVt")[:2] == p2sh
+    # Syscoin v63 is P2PKH; Bitcoin v0/v5 are P2PKH/P2SH.
+    assert _addr_to_spk("SfYHFxiGv4mRtUfQVHxfMWknEt53Bjj286")[:3] == p2pkh
+    assert _addr_to_spk("12dRugNcdxK39288NjcDV4GX7rMsKCGn6B")[:3] == p2pkh
+    assert _addr_to_spk("3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9")[:2] == p2sh
+
+
+def test_namecoin_m_address_pays_its_registry_pool():
+    """An 'M'-spelled Namecoin re-encoding of AntPool's own P2PKH payout
+    must resolve to AntPool once the script type is right."""
+    import pytest
+
+    from stale_blocks_analysis.config import LOCAL_MINING_POOLS_DIR
+    from stale_blocks_analysis.pool_identification import identify_pool
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    if not (LOCAL_MINING_POOLS_DIR / "pools").is_dir():
+        pytest.skip("mining-pools clone not fetched")
+
+    spk = _addr_to_spk("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU")
+    assert identify_pool(b"no-tag-here", [(0, spk)]) == "AntPool"

@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Literal
 
 from .bitcoin_binary import (
-    _b58_decode_to_hash160,
     _bech32_decode_to_program,
 )
 from .config import (
@@ -86,11 +85,40 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
     return rows
 
 
-def _addr_to_spk(addr: str) -> bytes | None:
-    """Convert a Bitcoin address string to its scriptPubKey bytes.
+# Base58 version bytes seen in the committed loader outputs. Child-chain
+# RPCs re-encode the Bitcoin parent coinbase's outputs with their OWN
+# version bytes, so the script type must be read from the version, not from
+# the leading character: Namecoin's P2PKH version (52) renders as both "N"
+# and "M" depending on the payload, and reading "M" as P2SH mistypes 3,146
+# committed outputs.
+_P2PKH_VERSIONS = frozenset({0, 52, 63})  # Bitcoin, Namecoin, Syscoin
+_P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
 
-    Supports P2PKH (1...), P2SH (3...), and P2WPKH/P2WSH/P2TR (bc1...).
-    Returns None if the address can't be decoded.
+_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
+    """Version byte and 20-byte payload of a base58check address."""
+    num = 0
+    for ch in addr:
+        index = _B58_ALPHABET.find(ch)
+        if index < 0:
+            return None
+        num = num * 58 + index
+    raw = num.to_bytes((num.bit_length() + 7) // 8, "big")
+    raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
+    if len(raw) != 25:
+        return None
+    return raw[0], raw[1:21]
+
+
+def _addr_to_spk(addr: str) -> bytes | None:
+    """Convert an address string to the Bitcoin scriptPubKey it represents.
+
+    Handles Bitcoin addresses and the child-chain re-encodings of Bitcoin
+    parent-coinbase outputs that the loader CSVs carry (Namecoin, Syscoin).
+    Returns None if the address cannot be decoded or its version byte is
+    not one this project has seen in committed data.
     """
     lowered = addr.lower()
     if lowered.startswith(("bc1", "nc1")):
@@ -106,15 +134,13 @@ def _addr_to_spk(addr: str) -> bytes | None:
         elif len(program) == 32:
             return bytes([0x51, 0x20]) + program  # P2TR
         return None
-    h160 = _b58_decode_to_hash160(addr)
-    if h160 is None:
+    decoded = _b58_decode_versioned(addr)
+    if decoded is None:
         return None
-    # P2PKH (N prefix = Namecoin, S prefix = Syscoin; the base58 version
-    # byte is chain cosmetics, the hash160 payload is the same)
-    if addr.startswith(("1", "N", "S")):
+    version, h160 = decoded
+    if version in _P2PKH_VERSIONS:
         return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
-    # P2SH (M and 6 prefixes = Namecoin)
-    elif addr.startswith(("3", "M", "6")):
+    if version in _P2SH_VERSIONS:
         return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
     return None
 

@@ -292,6 +292,13 @@ def load_attributed_stales(
     apply_attribution_basis(stale)
     apply_rsk_historical_labels(stale)
     apply_template_producers(stale)
+
+    # Bind provenance to this load. Publication can happen much later in a
+    # library caller, by which time the registry or the archive may have
+    # moved; the sidecar must describe the state that produced these
+    # labels, not the state at write time.
+    global _LOAD_PROVENANCE
+    _LOAD_PROVENANCE = _capture_provenance(allow_partial)
     return stale
 
 
@@ -377,6 +384,43 @@ def archive_inventory() -> tuple[set[str] | None, set[str]]:
         if line.endswith(".bin")
     }
     return expected, present
+
+
+_LOAD_PROVENANCE: dict | None = None
+
+
+def _capture_provenance(allow_partial: bool) -> dict:
+    """Snapshot the state of every input this run reads."""
+    expected_names, present_names = archive_inventory()
+    missing = (
+        sorted(expected_names - present_names) if expected_names is not None else []
+    )
+    return {
+        "mining_pools": {
+            "pinned_ref": _pinned_ref("mining-pools"),
+            "state": _clone_state(LOCAL_MINING_POOLS_DIR),
+            "dataset_fingerprint": pool_dataset_fingerprint(),
+        },
+        "repository": {
+            "state": _clone_state(PROJECT_ROOT),
+            "input_fingerprint": _repository_inputs_fingerprint(),
+        },
+        "stale_blocks": {
+            "pinned_ref": _pinned_ref("stale-blocks"),
+            "state": _clone_state(STALE_DIR),
+            "input_fingerprint": _stale_inputs_fingerprint(),
+            "archive": {
+                "verifiable": expected_names is not None,
+                "expected": (
+                    len(expected_names) if expected_names is not None else None
+                ),
+                "present": len(present_names),
+                "missing": len(missing),
+                "partial": bool(missing),
+                "allow_partial": allow_partial,
+            },
+        },
+    }
 
 
 def require_committed_inputs() -> None:
@@ -509,52 +553,22 @@ def write_attribution_meta(
     dataset, plus the same for the stale-blocks clone and the per-basis row
     counts.
     """
-    _expected_names, _present_names = archive_inventory()
+    provenance = _LOAD_PROVENANCE or _capture_provenance(allow_partial)
     # The sidecar describes a specific CSV, so it carries that CSV's own
     # hash. Publishing two files can never be one atomic act, but this
     # makes a mismatched pair detectable by any consumer rather than
     # silently believable.
-    _csv_digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
-    _archive_missing = (
-        sorted(_expected_names - _present_names) if _expected_names is not None else []
-    )
     meta = {
         "artifact": {
             "csv_name": csv_path.name,
-            "csv_sha256": _csv_digest,
+            "csv_sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
         },
         "min_height": min_height,
         "rows": len(stale),
         "attribution_basis_counts": dict(
             sorted(Counter(s.get("attribution_basis") for s in stale).items())
         ),
-        "mining_pools": {
-            "pinned_ref": _pinned_ref("mining-pools"),
-            "state": _clone_state(LOCAL_MINING_POOLS_DIR),
-            "dataset_fingerprint": pool_dataset_fingerprint(),
-        },
-        # The export also depends on the committed loader inputs and the
-        # attribution code itself, so record this repository's own state
-        # and the content of exactly the files it consumes.
-        "repository": {
-            "state": _clone_state(PROJECT_ROOT),
-            "input_fingerprint": _repository_inputs_fingerprint(),
-        },
-        "stale_blocks": {
-            "pinned_ref": _pinned_ref("stale-blocks"),
-            "state": _clone_state(STALE_DIR),
-            "input_fingerprint": _stale_inputs_fingerprint(),
-            "archive": {
-                "verifiable": _expected_names is not None,
-                "expected": (
-                    len(_expected_names) if _expected_names is not None else None
-                ),
-                "present": len(_present_names),
-                "missing": len(_archive_missing),
-                "partial": bool(_archive_missing),
-                "allow_partial": allow_partial,
-            },
-        },
+        **provenance,
     }
     meta_path = csv_path.with_suffix(".meta.json")
     with open(meta_path, "w", newline="") as f:
