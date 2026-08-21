@@ -493,3 +493,43 @@ def test_parse_coinbase_rejects_a_truncated_output_script():
     assert parse_coinbase(header + b"\x01" + complete) is not None
     # One byte of the declared 25-byte script: not a parsed block.
     assert parse_coinbase(header + b"\x01" + tx + b"\x76") is None
+
+
+def test_untracked_archive_binary_is_not_trusted(tmp_path, monkeypatch):
+    """The completeness check compares tracked names, so a stray file
+    passes as a complete archive; without this it would be trusted on its
+    header alone and could carry a replaced body."""
+    import pytest
+
+    from stale_blocks_analysis import stale_merge
+    from stale_blocks_analysis.bitcoin_binary import sha256d
+
+    header = bytes(range(80))
+    block_hash = sha256d(header)[::-1].hex()
+    name = f"700000-{block_hash}.bin"
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / name).write_bytes(header + b"body")
+
+    rows = [
+        {
+            "height": 700000,
+            "hash": block_hash,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+    # A non-empty map that does not list this file: the archive is a git
+    # checkout, and this binary is not part of it.
+    blobs = {"999999-" + "ff" * 32 + ".bin": "0" * 40}
+
+    with pytest.raises(ValueError, match="not tracked at the checkout"):
+        stale_merge.tag_stale_blocks(list(rows), archive_blobs=blobs)
+
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FallbackPool", "tag")
+    )
+    out = stale_merge.tag_stale_blocks(
+        list(rows), allow_partial=True, archive_blobs=blobs
+    )
+    assert out[0]["pool"] == "FallbackPool"

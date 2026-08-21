@@ -141,7 +141,22 @@ def tag_stale_blocks(
             # attacker-or-corruption-controlled tags. When the archive is a
             # git checkout, the file must also equal its tracked blob.
             expected_blob = (archive_blobs or {}).get(path.name)
-            if expected_blob is not None and _git_blob_sha1(raw) != expected_blob:
+            if archive_blobs and expected_blob is None:
+                # Present but untracked: the completeness check compares
+                # tracked names, so a stray file passes as a complete
+                # archive and would be trusted on its header alone.
+                if not allow_partial:
+                    raise ValueError(
+                        f"Block archive file {path.name} is not tracked at "
+                        "the checkout's HEAD. Re-fetch the pinned "
+                        "bitcoin-data/stale-blocks clone, or pass "
+                        "--allow-partial to attribute from the carried "
+                        "AuxPoW evidence instead."
+                    )
+                cb = None
+                b["has_bin"] = True
+                raw = b""
+            elif expected_blob is not None and _git_blob_sha1(raw) != expected_blob:
                 if not allow_partial:
                     raise ValueError(
                         f"Block archive file {path.name} differs from the "

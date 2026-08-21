@@ -480,7 +480,10 @@ def require_committed_inputs() -> None:
         unreadable = []
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
             path = VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
-            spec = _LOADER_SPECS.get(key)
+            # RSK has no spec and bitcoin-vault's is keyed with an
+            # underscore, so a plain lookup silently skipped the identity
+            # columns for exactly those two chains.
+            spec = _LOADER_SPECS.get(key) or _LOADER_SPECS.get(key.replace("-", "_"))
             # Every column an attribution path actually consumes, not just
             # the identity ones: a CSV that keeps its identity columns but
             # loses the coinbase evidence still yields rows, silently
@@ -491,8 +494,13 @@ def require_committed_inputs() -> None:
                 "coinbase_scriptsig_hex",
                 "coinbase_outputs",
             }
-            if spec is not None:
-                required |= {spec.height_col, spec.hash_col}
+            # Every chain is identified the same way; the spec only says
+            # so explicitly where one exists.
+            required |= (
+                {spec.height_col, spec.hash_col}
+                if spec is not None
+                else {"btc_height", "btc_header_hash"}
+            )
             if key == "rsk":
                 required.add("pool_label")
             with open(path, newline="") as f:
