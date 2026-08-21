@@ -16,13 +16,17 @@ resolve_dest() {
     local key="$1" subdir="$2"
     case "${key}" in
         stale-blocks) printf '%s' "${STALE_BLOCKS_DIR:-${PROJECT_ROOT}/${subdir}}" ;;
+        mining-pools) printf '%s' "${LOCAL_MINING_POOLS_DIR:-${PROJECT_ROOT}/${subdir}}" ;;
         *)            printf '%s' "${PROJECT_ROOT}/${subdir}" ;;
     esac
 }
 
 latest_commit() {
     local key="$1" dest="$2"
-    if [ ! -d "${dest}/.git" ]; then
+    # A linked worktree's .git is a file, not a directory. Test for either
+    # form rather than asking git, whose search walks up and would call an
+    # empty directory inside this repository a clone.
+    if [ ! -e "${dest}/.git" ]; then
         echo "${key}: clone missing at ${dest}; run scripts/fetch-data.sh first" >&2
         return 2
     fi

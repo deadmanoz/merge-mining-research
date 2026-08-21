@@ -22,6 +22,7 @@ resolve_dest() {
     local key="$1" subdir="$2"
     case "${key}" in
         stale-blocks) printf '%s' "${STALE_BLOCKS_DIR:-${PROJECT_ROOT}/${subdir}}" ;;
+        mining-pools) printf '%s' "${LOCAL_MINING_POOLS_DIR:-${PROJECT_ROOT}/${subdir}}" ;;
         *)            printf '%s' "${PROJECT_ROOT}/${subdir}" ;;
     esac
 }
@@ -33,8 +34,10 @@ pin_checkout() {
             || echo "  (${key}: not on a fast-forwardable branch; left as-is)"
         return
     fi
-    if ! git -C "${dest}" diff --quiet HEAD 2>/dev/null; then
-        echo "  (${key} has uncommitted changes; left as-is. Pinned ref: ${ref})"
+    # status --porcelain, not diff: untracked files (an operator's
+    # in-progress pool registry edits) must also keep the clone untouched.
+    if [ -n "$(git -C "${dest}" status --porcelain 2>/dev/null)" ]; then
+        echo "  (${key} has local changes; left as-is. Pinned ref: ${ref})"
         return
     fi
     local on_branch
@@ -56,7 +59,10 @@ fetch_one() {
     local dest
     dest="$(resolve_dest "${key}" "${subdir}")"
 
-    if [ ! -d "${dest}/.git" ]; then
+    # A linked worktree's .git is a file, not a directory. Test for either
+    # form rather than asking git, whose search walks up and would call an
+    # empty directory inside this repository a clone.
+    if [ ! -e "${dest}/.git" ]; then
         echo "Cloning ${key} (${url}) into ${dest}"
         mkdir -p "$(dirname "${dest}")"
         git clone "${url}" "${dest}"

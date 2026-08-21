@@ -234,14 +234,20 @@ obtained.
 
 ## Pool attribution
 
-Pool attribution is a planned later analysis phase, not a dependency of the
-current public recovery pipeline. For that future work, most chains preserve
+Pool attribution is a separate layer over the recovery outputs, not a
+dependency of the recovery pipeline itself. Most chains preserve
 the Bitcoin parent coinbase scriptsig and output scripts from the AuxPoW proof.
 RSK is the exception: its recovery artifacts preserve the RSK miner address and
 historical `pool_label`, rather than the Bitcoin parent coinbase transaction.
 
-The current pipeline does not fetch `bitcoin-data/mining-pools`, run a shared
-coinbase-to-pool matcher, or emit a unified pool-attributed stale-event dataset.
+The attribution layer reads the pinned `bitcoin-data/mining-pools` registry
+(fetched by `scripts/fetch-data.sh`),
+runs the shared coinbase-to-pool matcher over the merge-mining-recovered
+stales, and emits an attribution export as a gitignored run product; see
+[`pool-attribution.md`](pool-attribution.md) for the layer and its export
+contract. No attribution results are committed, and the observed-vs-expected
+analysis over those labels lives in the companion `stale_rate_analysis` repo
+(not yet published).
 
 ## Limitations
 

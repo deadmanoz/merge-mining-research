@@ -155,9 +155,13 @@ and monitor artifacts now carry the authenticated bundle, and
 rows. Source details and the authentication contract are recorded in
 [`child-header-hydration.md`](child-header-hydration.md).
 
-Mining-pool attribution is a planned later phase. The current public pipeline
-retains coinbase evidence where available but does not fetch a pool registry or
-emit a pool-attributed stale-event dataset.
+Mining-pool attribution is a separate layer over the recovery outputs:
+`just attribute` reads the pool registry that `scripts/fetch-data.sh`
+fetched and labels the
+merge-mining-recovered stales, writing an export as a gitignored run product
+(see [`pool-attribution.md`](pool-attribution.md)). The upstream census is
+not labelled here. No attribution results are
+committed.
 
 The full extraction/classification/reconciliation sequence is not encoded in
 the `justfile`; only selected evidence exports are. The public repository

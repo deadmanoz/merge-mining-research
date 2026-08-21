@@ -137,3 +137,39 @@ def test_check_fails_closed_when_origin_cannot_be_refreshed(tmp_path: Path):
     )
     assert result.returncode == 2
     assert "freshness is unknown" in result.stderr
+
+
+def test_committed_manifest_rows_are_tab_separated_four_columns():
+    manifest = PROJECT_ROOT / "data-sources.tsv"
+    keys = []
+    for lineno, line in enumerate(manifest.read_text().splitlines(), start=1):
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        assert len(fields) == 4, f"line {lineno}: expected 4 tab-separated fields"
+        key, url, ref, subdir = fields
+        assert key not in keys, f"line {lineno}: duplicate key {key}"
+        keys.append(key)
+        assert url.startswith("https://")
+        assert ref == "HEAD" or (len(ref) == 40 and int(ref, 16) >= 0)
+        assert subdir.startswith("data/")
+    assert "stale-blocks" in keys and "mining-pools" in keys
+
+
+def test_fetch_leaves_clone_with_untracked_files_untouched(tmp_path: Path):
+    env, seed, manifest, first = make_fixture(tmp_path)
+    clone = Path(env["DATA_SOURCES_ROOT"]) / "data" / "stale-blocks"
+
+    # Advance the remote and re-pin the manifest to the new commit.
+    second = commit_and_push(seed, "second", "height,hash,header\nnew,row,x\n")
+    manifest.write_text(manifest.read_text().replace(first, second))
+
+    # An untracked file is an operator's in-progress work: the clone must be
+    # left where it is, not moved to the new pin.
+    (clone / "untracked-edit.json").write_text("{}")
+    fetch = Path(__file__).resolve().parent.parent / "scripts" / "fetch-data.sh"
+    out = run("bash", str(fetch), cwd=Path(env["DATA_SOURCES_ROOT"]), env=env)
+
+    head = run("git", "rev-parse", "HEAD", cwd=clone).stdout.strip()
+    assert head == first
+    assert "local changes" in out.stdout

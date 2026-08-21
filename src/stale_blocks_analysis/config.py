@@ -36,6 +36,22 @@ STALE_DIR = Path(os.environ.get("STALE_BLOCKS_DIR", DATA_DIR / "stale-blocks"))
 STALE_CSV = STALE_DIR / "stale-blocks.csv"
 BLOCKS_DIR = STALE_DIR / "blocks"
 
+# Pool identity dataset: a local clone of bitcoin-data/mining-pools, pinned in
+# data-sources.tsv and cloned by scripts/fetch-data.sh (default
+# data/mining-pools under the project root; override with the
+# LOCAL_MINING_POOLS_DIR environment variable).
+# Lineage: blockchain/Blockchain-Known-Pools -> btccom/Blockchain-Known-Pools
+#          -> 0xB10C/known-mining-pools -> bitcoin-data/mining-pools.
+# The attribution layer reads per-pool JSON files directly from pools/ on
+# whichever commit is checked out, including uncommitted edits, on every run:
+# no cache, no staleness check, no network fetch. If the clone is missing,
+# pool identification raises with a clear error pointing at how to clone it,
+# deliberately failing fast rather than falling back to a stale cache or
+# hitting the network unpredictably.
+LOCAL_MINING_POOLS_DIR = Path(
+    os.environ.get("LOCAL_MINING_POOLS_DIR", DATA_DIR / "mining-pools")
+)
+
 # Compact, committed Bitcoin retarget-epoch reference data fetched from a
 # public Esplora-compatible API. Unlike CACHE_DIR, this is reproducible input
 # data and is safe to consume in CI without access to an operator's node.

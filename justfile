@@ -65,6 +65,13 @@ monitor-evidence *ARGS:
 child-header-coverage *ARGS:
     {{python}} scripts/reports/report_child_header_coverage.py {{ARGS}}
 
+# ── Pool attribution ────────────────────────────────────────────────────
+
+# Build the per-stale-block attribution export (gitignored run product;
+# see docs/pool-attribution.md for the column contract).
+attribute *ARGS:
+    {{python}} -m stale_blocks_analysis.attribution {{ARGS}}
+
 # ── Tests ───────────────────────────────────────────────────────────────
 
 test:

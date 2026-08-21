@@ -71,7 +71,11 @@ directions, not findings reported by the initial public release.
   chosen ranges, pool attribution, incomplete recovery coverage, changing pool
   identities, and small samples explicit. Time-period or propagation-era splits
   will be introduced only where the boundary is technically justified and the
-  sample supports it.
+  sample supports it. The attribution layer implemented here, including the
+  dual tag-owner/template-producer attribution design, is documented in
+  [`pool-attribution.md`](pool-attribution.md); the full study methodology and
+  the propagation-era scheme are maintained in the companion
+  `stale_rate_analysis` repo (not yet published).
 - **Mining-proxy and aggregator analysis.** AuxPoW pairs a Bitcoin coinbase with
   a sibling-chain coinbase for the same work. Comparing the two sides can reveal
   evidence consistent with a merge-mining proxy or aggregator between the

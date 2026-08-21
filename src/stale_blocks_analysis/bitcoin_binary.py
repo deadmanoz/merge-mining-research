@@ -48,6 +48,11 @@ def _parse_coinbase_tx_at(raw: bytes, off: int) -> dict | None:
             value = struct.unpack_from("<Q", raw, off)[0]
             off += 8
             spk_len, off = _varint(raw, off)
+            # Slicing past the end truncates silently, so a block cut short
+            # inside a declared script would yield a short scriptPubKey and
+            # still look parsed. Bounds-check like the scriptSig above.
+            if off + spk_len > len(raw):
+                return None
             spk = raw[off : off + spk_len]
             off += spk_len
             outputs.append((value, spk))

@@ -20,12 +20,12 @@ _bech32_decode_to_program).
 """
 
 import csv
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from .bitcoin_binary import (
-    _b58_decode_to_hash160,
     _bech32_decode_to_program,
 )
 from .config import (
@@ -86,28 +86,132 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
     return rows
 
 
-def _addr_to_spk(addr: str) -> bytes | None:
-    """Convert a Bitcoin address string to its scriptPubKey bytes.
+# Base58 version bytes seen in the committed loader outputs. Child-chain
+# RPCs re-encode the Bitcoin parent coinbase's outputs with their OWN
+# version bytes, so the script type must be read from the version, not from
+# the leading character: Namecoin's P2PKH version (52) renders as both "N"
+# and "M" depending on the payload, and reading "M" as P2SH mistypes 3,146
+# committed outputs.
+_P2PKH_VERSIONS = frozenset({0, 52, 63})  # Bitcoin, Namecoin, Syscoin
+_P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
 
-    Supports P2PKH (1...), P2SH (3...), and P2WPKH/P2WSH/P2TR (bc1...).
-    Returns None if the address can't be decoded.
+_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
+    """Version byte and 20-byte payload of a base58check address."""
+    num = 0
+    for ch in addr:
+        index = _B58_ALPHABET.find(ch)
+        if index < 0:
+            return None
+        num = num * 58 + index
+    raw = num.to_bytes((num.bit_length() + 7) // 8, "big")
+    raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
+    if len(raw) != 25:
+        return None
+    body, checksum = raw[:-4], raw[-4:]
+    if hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4] != checksum:
+        return None
+    return raw[0], raw[1:21]
+
+
+def _bech32_encoding_ok(addr: str) -> bool:
+    """Whether a lowercased bech32/bech32m address is well formed.
+
+    Checks the checksum against the address's OWN human-readable prefix
+    (bc or nc), the constant matching its witness version, and BIP-173's
+    padding rule, none of which `_bech32_decode_to_program` verifies.
     """
-    if addr.startswith("bc1"):
-        program = _bech32_decode_to_program(addr)
+    pos = addr.rfind("1")
+    if pos < 1:
+        return False
+    hrp, data = addr[:pos], addr[pos + 1 :]
+    if len(data) < 7 or any(c not in _BECH32_CHARSET for c in data):
+        return False
+    values = (
+        [ord(c) >> 5 for c in hrp]
+        + [0]
+        + [ord(c) & 31 for c in hrp]
+        + [_BECH32_CHARSET.index(c) for c in data]
+    )
+    generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+    chk = 1
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1FFFFFF) << 5 ^ value
+        for i in range(5):
+            chk ^= generator[i] if ((top >> i) & 1) else 0
+    version = _BECH32_CHARSET.index(data[0])
+    if chk != (1 if version == 0 else 0x2BC830A3):
+        return False
+    # Padding: the 5-bit program must convert to whole bytes with fewer
+    # than 5 leftover bits, all zero. The decoder silently drops them, so
+    # several distinct data parts would otherwise yield one script.
+    leftover = (len(data[1:-6]) * 5) % 8
+    if leftover >= 5:
+        return False
+    return not (leftover and _BECH32_CHARSET.index(data[-7]) & ((1 << leftover) - 1))
+
+
+def _addr_to_spk(addr: str) -> bytes | None:
+    """Convert an address string to the Bitcoin scriptPubKey it represents.
+
+    Handles Bitcoin addresses and the child-chain re-encodings of Bitcoin
+    parent-coinbase outputs that the loader CSVs carry (Namecoin, Syscoin).
+    Returns None if the address cannot be decoded or its version byte is
+    not one this project has seen in committed data.
+    """
+    # Base58 first: a Namecoin address can be *spelled* "NC1..." (there are
+    # 17 such outputs in the committed inputs), and case-folding it into the
+    # bech32 branch would discard its payout evidence. A real bech32 address
+    # will not pass a base58check, so the order is safe.
+    decoded = _b58_decode_versioned(addr)
+    if decoded is not None:
+        version, h160 = decoded
+        if version in _P2PKH_VERSIONS:
+            return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
+        if version in _P2SH_VERSIONS:
+            return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+        return None
+
+    lowered = addr.lower()
+    # The separator is the LAST "1" (the data charset has no "1"), so match
+    # on the parsed prefix rather than on "starts with bc1": an address
+    # encoded for the HRP "bc1evil" checksums against that HRP and would
+    # otherwise decode into an ordinary Bitcoin script.
+    hrp = lowered[: lowered.rfind("1")] if "1" in lowered else ""
+    if hrp in ("bc", "nc"):
+        # The shared decoder skips the checksum, so a mutated address would
+        # rebuild the same canonical script and could match a real payout
+        # marker. Verify against the address's OWN prefix before converting.
+        if addr != lowered and addr != addr.upper():
+            return None
+        if not _bech32_encoding_ok(lowered):
+            return None
+        # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
+        # so normalize to bc1 and decode the identical data part. The case
+        # fold matters too: BIP-173 permits an all-uppercase address, which
+        # would otherwise fall through to the base58 decoder and be dropped.
+        program = _bech32_decode_to_program("bc1" + lowered[3:])
         if program is None:
             return None
-        if len(program) == 20:
-            return bytes([0x00, 0x14]) + program  # P2WPKH
-        elif len(program) == 32:
-            return bytes([0x51, 0x20]) + program  # P2TR
-        return None
-    h160 = _b58_decode_to_hash160(addr)
-    if h160 is None:
-        return None
-    if addr.startswith("1") or addr.startswith("N"):  # P2PKH (N prefix = Namecoin)
-        return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
-    elif addr.startswith("3") or addr.startswith("M"):  # P2SH (M prefix = Namecoin)
-        return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
+        # The decoder drops the witness version, but the script depends on
+        # it: reconstructing every 20-byte program as OP_0 would let a v1
+        # address impersonate a P2WPKH marker, and every 32-byte program as
+        # OP_1 would mistype a v0 P2WSH output as Taproot.
+        separator = lowered.rfind("1")
+        data = lowered[separator + 1 :]
+        if not data or data[0] not in _BECH32_CHARSET:
+            return None
+        version = _BECH32_CHARSET.index(data[0])
+        if version > 16 or not 2 <= len(program) <= 40:
+            return None
+        if version == 0 and len(program) not in (20, 32):
+            return None
+        opcode = 0x00 if version == 0 else 0x50 + version
+        return bytes([opcode, len(program)]) + program
     return None
 
 
