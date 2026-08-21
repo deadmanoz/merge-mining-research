@@ -177,7 +177,12 @@ def _addr_to_spk(addr: str) -> bytes | None:
         return None
 
     lowered = addr.lower()
-    if lowered.startswith(("bc1", "nc1")):
+    # The separator is the LAST "1" (the data charset has no "1"), so match
+    # on the parsed prefix rather than on "starts with bc1": an address
+    # encoded for the HRP "bc1evil" checksums against that HRP and would
+    # otherwise decode into an ordinary Bitcoin script.
+    hrp = lowered[: lowered.rfind("1")] if "1" in lowered else ""
+    if hrp in ("bc", "nc"):
         # The shared decoder skips the checksum, so a mutated address would
         # rebuild the same canonical script and could match a real payout
         # marker. Verify against the address's OWN prefix before converting.

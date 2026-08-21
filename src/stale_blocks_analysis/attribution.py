@@ -288,6 +288,7 @@ def load_attributed_stales(
     stale = tag_stale_blocks(
         stale, allow_partial=allow_partial, archive_blobs=archive_blob_map()
     )
+    rejected = sum(1 for s in stale if s.pop("_bin_rejected", False))
     n_bin = sum(1 for s in stale if s["has_bin"])
     print(f"  {n_bin} binaries parsed, {len(stale) - n_bin} without binary")
 
@@ -301,7 +302,7 @@ def load_attributed_stales(
     # labels, not the state at write time.
     batch = AttributedStales(stale)
     batch.min_height = min_height
-    batch.provenance = _capture_provenance(allow_partial)
+    batch.provenance = _capture_provenance(allow_partial, rejected)
     return batch
 
 
@@ -422,7 +423,7 @@ class AttributedStales(list):
     provenance: dict | None = None
 
 
-def _capture_provenance(allow_partial: bool) -> dict:
+def _capture_provenance(allow_partial: bool, rejected: int = 0) -> dict:
     """Snapshot the state of every input this run reads."""
     expected_names, present_names = archive_inventory()
     missing = (
@@ -451,7 +452,11 @@ def _capture_provenance(allow_partial: bool) -> dict:
                 ),
                 "present": len(present_names),
                 "missing": len(missing),
-                "partial": bool(missing),
+                # A binary that was present but rejected leaves its row on
+                # the same weaker evidence as an absent one, so the run is
+                # partial even when every tracked name is on disk.
+                "rejected": rejected,
+                "partial": bool(missing) or bool(rejected),
                 "allow_partial": allow_partial,
             },
         },

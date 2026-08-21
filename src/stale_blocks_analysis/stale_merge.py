@@ -108,9 +108,17 @@ def tag_stale_blocks(
     """Parse .bin files and tag each block with its pool name.
 
     For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
-    scriptsig hex and output addresses carried in the record. A tracked
-    binary that holds the wrong block, or whose coinbase will not parse,
-    stops the run unless *allow_partial* permits the AuxPoW fallback. Records that
+    scriptsig hex and output addresses carried in the record.
+
+    *archive_blobs* maps each archived filename to the blob the checkout
+    tracks for it, and is what makes a binary usable: the header proves
+    which block a file claims, but only the blob proves its body was not
+    replaced. A binary the manifest does not cover is unauthenticated,
+    whether because the file is untracked or because no manifest was
+    supplied at all, and an unauthenticated, mismatched, misplaced, or
+    unparseable binary stops the run unless *allow_partial* permits the
+    AuxPoW fallback. Rejected rows carry `_bin_rejected` so a caller can
+    report the run as degraded, and read `has_bin=False`. Records that
     arrive pre-tagged (pool already set by a caller that labels before
     tagging) skip identification entirely; in this repo's own assembly no
     record arrives pre-tagged — RSK rows enter untagged and receive their
@@ -141,24 +149,27 @@ def tag_stale_blocks(
             # attacker-or-corruption-controlled tags. When the archive is a
             # git checkout, the file must also equal its tracked blob.
             expected_blob = (archive_blobs or {}).get(path.name)
-            if archive_blobs and expected_blob is None:
-                # Present but untracked: the completeness check compares
-                # tracked names, so a stray file passes as a complete
-                # archive and would be trusted on its header alone.
+            if expected_blob is None:
+                # Unauthenticated: either the file is not tracked, or no
+                # manifest exists to track it against. Both leave the body
+                # unverified, so neither may be trusted.
+                reason = (
+                    "is not tracked at the checkout's HEAD"
+                    if archive_blobs
+                    else "cannot be authenticated: the archive supplied no "
+                    "tracked-blob manifest to check it against"
+                )
                 if not allow_partial:
                     raise ValueError(
-                        f"Block archive file {path.name} is not tracked at "
-                        "the checkout's HEAD. Re-fetch the pinned "
-                        "bitcoin-data/stale-blocks clone, or pass "
+                        f"Block archive file {path.name} {reason}. Re-fetch "
+                        "the pinned bitcoin-data/stale-blocks clone, or pass "
                         "--allow-partial to attribute from the carried "
                         "AuxPoW evidence instead."
                     )
-                # The binary was rejected, so it did not supply this
-                # row's coinbase: has_bin records the path actually taken.
-                cb = None
+                b["_bin_rejected"] = True
                 has_bin = False
                 raw = b""
-            elif expected_blob is not None and _git_blob_sha1(raw) != expected_blob:
+            elif _git_blob_sha1(raw) != expected_blob:
                 if not allow_partial:
                     raise ValueError(
                         f"Block archive file {path.name} differs from the "
@@ -167,20 +178,27 @@ def tag_stale_blocks(
                         "--allow-partial to attribute from the carried "
                         "AuxPoW evidence instead."
                     )
-                # The binary was rejected, so it did not supply this
-                # row's coinbase: has_bin records the path actually taken.
-                cb = None
+                b["_bin_rejected"] = True
                 has_bin = False
                 raw = b""
             header_hash = sha256d(raw[:80])[::-1].hex() if len(raw) >= 80 else None
             if raw and header_hash != b["hash"]:
-                raise ValueError(
-                    f"Block archive file {path.name} does not contain the "
-                    f"block it names (header hashes to {header_hash}). "
-                    "Re-fetch the pinned bitcoin-data/stale-blocks clone; "
-                    "attribution refuses to label a row from another "
-                    "block's coinbase."
-                )
+                # A misplaced binary is the same class of fault as a
+                # mismatched blob, and partial mode is the operator saying
+                # to proceed on degraded evidence, so it falls back too
+                # rather than aborting a run the other branches allow.
+                if not allow_partial:
+                    raise ValueError(
+                        f"Block archive file {path.name} does not contain "
+                        f"the block it names (header hashes to "
+                        f"{header_hash}). Re-fetch the pinned "
+                        "bitcoin-data/stale-blocks clone; attribution "
+                        "refuses to label a row from another block's "
+                        "coinbase."
+                    )
+                b["_bin_rejected"] = True
+                has_bin = False
+                raw = b""
             cb = parse_coinbase(raw) if raw else None
             if cb:
                 b["pool"], b["_pool_match"] = identify_pool_detailed(
@@ -202,6 +220,8 @@ def tag_stale_blocks(
                     "--allow-partial to attribute from the carried AuxPoW "
                     "evidence instead."
                 )
+            if raw:
+                b["_bin_rejected"] = True
             has_bin = False
 
         # AuxPoW source: use pre-parsed coinbase data

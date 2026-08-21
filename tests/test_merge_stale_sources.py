@@ -173,9 +173,9 @@ def test_addr_to_spk_decodes_namecoin_p2sh_and_bech32_addresses():
 def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     tmp_path, monkeypatch
 ):
-    """A file that really contains the named block but whose coinbase does
-    not parse falls back to the carried AuxPoW evidence; has_bin still
-    records that the file was there."""
+    """A file that really contains the named block, and matches the blob
+    tracked for it, but whose coinbase does not parse falls back to the
+    carried AuxPoW evidence."""
     from stale_blocks_analysis import stale_merge
     from stale_blocks_analysis.bitcoin_binary import sha256d
 
@@ -184,7 +184,12 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     header = bytes(range(80))
     block_hash = sha256d(header)[::-1].hex()
     monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
-    (tmp_path / f"700000-{block_hash}.bin").write_bytes(header + b"not-a-tx")
+    payload = header + b"not-a-tx"
+    name = f"700000-{block_hash}.bin"
+    (tmp_path / name).write_bytes(payload)
+    # Authenticated: this test is about an unparseable body, not about a
+    # file the manifest does not vouch for.
+    blobs = {name: stale_merge._git_blob_sha1(payload)}
 
     seen = {}
 
@@ -208,9 +213,9 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     import pytest
 
     with pytest.raises(ValueError, match="will not parse"):
-        stale_merge.tag_stale_blocks(rows)
+        stale_merge.tag_stale_blocks(rows, archive_blobs=blobs)
 
-    out = stale_merge.tag_stale_blocks(rows, allow_partial=True)
+    out = stale_merge.tag_stale_blocks(rows, allow_partial=True, archive_blobs=blobs)
 
     assert out[0]["pool"] == "FallbackPool"
     # The binary was rejected, so it did not supply this coinbase.
@@ -226,11 +231,36 @@ def test_tag_stale_blocks_rejects_a_binary_holding_another_block(tmp_path, monke
     from stale_blocks_analysis import stale_merge
 
     monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
-    (tmp_path / f"700000-{'ab' * 32}.bin").write_bytes(bytes(range(80)) + b"x")
-    rows = [{"height": 700000, "hash": "ab" * 32, "source": "auxpow"}]
+    payload = bytes(range(80)) + b"x"
+    name = f"700000-{'ab' * 32}.bin"
+    (tmp_path / name).write_bytes(payload)
+    # Tracked and authentic, so only the name-versus-header check can
+    # reject it: this is a misplaced file, not a tampered one.
+    blobs = {name: stale_merge._git_blob_sha1(payload)}
+    rows = [
+        {
+            "height": 700000,
+            "hash": "ab" * 32,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
 
     with pytest.raises(ValueError, match="does not contain the block it names"):
-        stale_merge.tag_stale_blocks(rows)
+        stale_merge.tag_stale_blocks([dict(r) for r in rows], archive_blobs=blobs)
+
+    # Partial mode is the operator accepting degraded evidence, so a
+    # misplaced binary falls back like every other rejected one rather
+    # than aborting the run.
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FallbackPool", "tag")
+    )
+    out = stale_merge.tag_stale_blocks(
+        [dict(r) for r in rows], allow_partial=True, archive_blobs=blobs
+    )
+    assert out[0]["pool"] == "FallbackPool"
+    assert out[0]["has_bin"] is False
 
 
 def test_primary_exact_duplicates_are_dropped_first_wins():
@@ -557,3 +587,82 @@ def test_child_chain_bech32_checksums_are_verified():
     assert _addr_to_spk("nc1" + valid[3:]) is None
     # Non-zero padding bits (BIP-173 invalid-address vector).
     assert _addr_to_spk("bc1zw508d6qejxtdg4y5r3zarvaryvqyzf3du") is None
+
+
+def test_binaries_are_unusable_without_a_blob_manifest(tmp_path, monkeypatch):
+    """An empty or absent manifest authenticates nothing, so a binary it
+    does not cover is as unverified as an untracked one: the header proves
+    which block a file claims, never that its body was not replaced."""
+    import pytest
+
+    from stale_blocks_analysis import stale_merge
+    from stale_blocks_analysis.bitcoin_binary import sha256d
+
+    header = bytes(range(80))
+    block_hash = sha256d(header)[::-1].hex()
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / f"700000-{block_hash}.bin").write_bytes(header + b"body")
+    rows = [
+        {
+            "height": 700000,
+            "hash": block_hash,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+
+    for manifest in ({}, None):
+        with pytest.raises(ValueError, match="cannot be authenticated"):
+            stale_merge.tag_stale_blocks(
+                [dict(r) for r in rows], archive_blobs=manifest
+            )
+
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FallbackPool", "tag")
+    )
+    out = stale_merge.tag_stale_blocks(
+        [dict(r) for r in rows], allow_partial=True, archive_blobs={}
+    )
+    assert out[0]["pool"] == "FallbackPool"
+    assert out[0]["has_bin"] is False
+    assert out[0]["_bin_rejected"] is True
+
+
+def test_child_chain_bech32_requires_an_exact_hrp():
+    """An address encoded for the HRP 'bc1evil' checksums against that HRP,
+    so a prefix test would decode it into an ordinary Bitcoin script."""
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+    def polymod(values):
+        gen = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+        chk = 1
+        for v in values:
+            top = chk >> 25
+            chk = (chk & 0x1FFFFFF) << 5 ^ v
+            for i in range(5):
+                chk ^= gen[i] if ((top >> i) & 1) else 0
+        return chk
+
+    def encode(hrp, program):
+        acc = bits = 0
+        data = [0]
+        for byte in program:
+            acc = (acc << 8) | byte
+            bits += 8
+            while bits >= 5:
+                bits -= 5
+                data.append((acc >> bits) & 31)
+        expanded = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
+        pm = polymod(expanded + data + [0] * 6) ^ 1
+        checksum = [(pm >> 5 * (5 - i)) & 31 for i in range(6)]
+        return hrp + "1" + "".join(charset[d] for d in data + checksum)
+
+    program = bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6")
+    assert _addr_to_spk(encode("bc", program)) is not None
+    assert _addr_to_spk(encode("nc", program)) is not None
+    # Valid checksums over prefixes that merely start with bc1/nc1.
+    assert _addr_to_spk(encode("bc1evil", program)) is None
+    assert _addr_to_spk(encode("nc1evil", program)) is None
