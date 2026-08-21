@@ -81,7 +81,10 @@ KIT_POOL_MAP: dict[str, str] = {
     "xbtc.exx.com&bw.com;": "BW.com",
     "185.24.97.11": "Unknown",
     "52.8.223.185": "Unknown",
-    "1Hash": "1hash.com",
+    # The registry's canonical name for this pool is "1Hash", which is what
+    # coinbase identification returns; mapping the KIT census name to a
+    # different spelling would split one pool across two labels.
+    "1Hash": "1Hash",
 }
 
 
@@ -303,6 +306,16 @@ def fetch_known_pools() -> dict:
 
         name = pool.get("name")
         link = pool.get("link", "") or ""
+        if isinstance(name, str) and name.strip().lower() == "unknown":
+            # Downstream treats this label as the no-match sentinel, so a
+            # pool claiming it would have its successful matches exported
+            # as unattributed.
+            raise ValueError(
+                f"Malformed pool registry file {pool_file}: 'Unknown' is the "
+                "reserved no-match label and cannot name a pool. Fix or "
+                "remove the file; attribution refuses to run from a registry "
+                "that would mislabel its own matches."
+            )
         if not isinstance(name, str) or not name.strip():
             # Skipping would silently drop the file's tags and addresses
             # from the runtime tables while the export still looks
@@ -318,8 +331,10 @@ def fetch_known_pools() -> dict:
                 tag_conflicts.append((tag, coinbase_tags[tag]["name"], name))
             coinbase_tags[tag] = entry
         for addr in pool["addresses"]:
-            decoded = _decode_payout_address(addr)
-            key = decoded.hex() if decoded is not None else addr
+            # Case-fold bech32 so its two valid spellings are one marker;
+            # the folded form still encodes the witness version, so
+            # different scripts stay distinct.
+            key = addr.lower() if addr.lower().startswith("bc1") else addr
             if key in addr_owner and addr_owner[key] != name:
                 addr_conflicts.append((addr, addr_owner[key], name))
             addr_owner[key] = name
@@ -376,12 +391,19 @@ def _build_runtime_pool_tables() -> tuple[list[tuple[bytes, str]], dict[bytes, s
     # a {hash160: name} dict.
     upstream_addrs: dict[bytes, str] = {}
     for addr, entry in data["payout_addresses"].items():
-        # Every address here decoded during loading; only hash160-shaped
-        # ones can back the 20-byte output lookup, so P2WSH/P2TR payout
-        # addresses are carried in the registry but not in this table.
+        # Every address here decoded during loading. This table is matched
+        # only against OP_0 <20> outputs, so it takes hash160-shaped
+        # payloads from base58 addresses and from witness v0 (bc1q) alone:
+        # a v1+ address with a 20-byte program encodes a different script,
+        # and registering it here would both miss its real payout and
+        # falsely claim the v0 output with the same payload.
         program = _decode_payout_address(addr)
-        if program is not None and len(program) == 20:
-            upstream_addrs[program] = entry["name"]
+        if program is None or len(program) != 20:
+            continue
+        lowered = addr.lower()
+        if lowered.startswith("bc1") and not lowered.startswith("bc1q"):
+            continue
+        upstream_addrs[program] = entry["name"]
 
     # Local additions only catch h160s upstream missed: upstream is the
     # later (winning) operand of the merge, so a colliding local override

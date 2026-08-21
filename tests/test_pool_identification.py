@@ -478,3 +478,49 @@ def test_op_return_markers_come_only_from_the_registry(pool_clone):
 
     # Not in this registry state, so it must not be attributed.
     assert pi.identify_pool(b"no-tag", [(0, b"\x6a" + b"1hash.com")]) == "Unknown"
+
+
+def test_unknown_is_reserved_and_cannot_name_a_pool(pool_clone):
+    """A pool named 'Unknown' would match successfully and then be exported
+    as unattributed, because downstream reads that label as the sentinel."""
+    import pytest
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("sentinel.json", pool_id="s", name="Unknown", tags=["/Sentinel/"])
+
+    with pytest.raises(ValueError, match="reserved no-match label"):
+        pi.identify_pool(b"xx/Sentinel/yy")
+
+
+def test_only_witness_v0_addresses_back_the_hash160_lookup(pool_clone):
+    """The payout table is matched against OP_0 <20> outputs, so a v1+
+    address with a 20-byte program must not be registered against them."""
+    from stale_blocks_analysis import pool_identification as pi_mod
+
+    charset = pi_mod._BECH32_CHARSET
+    program = bytes(range(20))
+    # 8-bit -> 5-bit for the data part, then a bech32m checksum for v1.
+    acc, bits, values = 0, 0, []
+    for byte in program:
+        acc = (acc << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            values.append((acc >> bits) & 31)
+    if bits:
+        values.append((acc << (5 - bits)) & 31)
+    data = [1] + values
+    hrp = "bc"
+    pre = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp] + data
+    polymod = pi_mod._bech32_polymod(pre + [0] * 6) ^ 0x2BC830A3
+    checksum = [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+    v1_addr = "bc1" + "".join(charset[d] for d in data + checksum)
+    assert pi_mod._payout_address_problem(v1_addr) is None
+
+    _clone_dir, add_pool = pool_clone
+    add_pool("v1.json", pool_id="v1", name="V1Pool", addresses=[v1_addr])
+
+    # A v0 output carrying the same program is a different script and must
+    # not be attributed to the v1 address's owner.
+    v0_spk = b"\x00\x14" + program
+    assert pi.identify_pool(b"no-tag", [(0, v0_spk)]) == "Unknown"
