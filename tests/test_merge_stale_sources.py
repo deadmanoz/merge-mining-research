@@ -202,7 +202,14 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
         }
     ]
 
-    out = stale_merge.tag_stale_blocks(rows)
+    # A corrupt tracked file stops a normal run: the filename inventory
+    # still reports it present, so a silent fallback would hide it.
+    import pytest
+
+    with pytest.raises(ValueError, match="will not parse"):
+        stale_merge.tag_stale_blocks(rows)
+
+    out = stale_merge.tag_stale_blocks(rows, allow_partial=True)
 
     assert out[0]["pool"] == "FallbackPool"
     assert out[0]["has_bin"] is True

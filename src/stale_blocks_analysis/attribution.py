@@ -285,7 +285,7 @@ def load_attributed_stales(
         stale = merge_stale_sources(stale, descendants)
 
     print("Parsing stale block binaries ...")
-    stale = tag_stale_blocks(stale)
+    stale = tag_stale_blocks(stale, allow_partial=allow_partial)
     n_bin = sum(1 for s in stale if s["has_bin"])
     print(f"  {n_bin} binaries parsed, {len(stale) - n_bin} without binary")
 

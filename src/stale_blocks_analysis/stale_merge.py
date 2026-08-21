@@ -93,11 +93,13 @@ def merge_stale_sources(
     return merged
 
 
-def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
+def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[dict]:
     """Parse .bin files and tag each block with its pool name.
 
     For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
-    scriptsig hex and output addresses carried in the record. Records that
+    scriptsig hex and output addresses carried in the record. A tracked
+    binary that holds the wrong block, or whose coinbase will not parse,
+    stops the run unless *allow_partial* permits the AuxPoW fallback. Records that
     arrive pre-tagged (pool already set by a caller that labels before
     tagging) skip identification entirely; in this repo's own assembly no
     record arrives pre-tagged — RSK rows enter untagged and receive their
@@ -138,10 +140,20 @@ def tag_stale_blocks(blocks: list[dict]) -> list[dict]:
                 )
                 b["has_bin"] = True
                 continue
-            # Unparseable binary: fall through to the carried AuxPoW coinbase
-            # (when present) so an unusable file never makes attribution
-            # worse than having no binary at all. has_bin still records that
-            # the file exists.
+            # A tracked file whose body will not parse is a corrupt
+            # archive, not an absent one: the filename inventory still
+            # reports it present, so falling back silently would hide it
+            # behind provenance that claims a complete archive. Partial
+            # mode is the deliberate way to proceed on the carried AuxPoW
+            # coinbase instead.
+            if not allow_partial:
+                raise ValueError(
+                    f"Block archive file {path.name} contains the right "
+                    "block but its coinbase will not parse. Re-fetch the "
+                    "pinned bitcoin-data/stale-blocks clone, or pass "
+                    "--allow-partial to attribute from the carried AuxPoW "
+                    "evidence instead."
+                )
 
         # AuxPoW source: use pre-parsed coinbase data
         sig_hex = b.pop("_scriptsig_hex", "")
