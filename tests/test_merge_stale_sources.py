@@ -465,3 +465,31 @@ def test_outputs_alone_are_enough_to_identify(monkeypatch):
     assert out[0]["pool"] == "OutputsOnlyPool"
     assert seen["sig"] == b""
     assert seen["outputs"] is not None
+
+
+def test_parse_coinbase_rejects_a_truncated_output_script():
+    """Slicing past the end of a buffer truncates silently in Python, so a
+    block cut short inside a declared scriptPubKey would otherwise return a
+    short script and look successfully parsed."""
+    import struct
+
+    from stale_blocks_analysis.bitcoin_binary import parse_coinbase
+
+    header = bytes(80)
+    tx = (
+        bytes(4)  # version
+        + b"\x01"  # input count
+        + bytes(32)  # prev hash
+        + b"\xff\xff\xff\xff"  # prev index
+        + b"\x04"  # scriptSig length
+        + b"\xaa\xbb\xcc\xdd"  # scriptSig
+        + b"\xff\xff\xff\xff"  # sequence
+        + b"\x01"  # output count
+        + struct.pack("<Q", 5_000_000_000)  # value
+        + b"\x19"  # declares a 25-byte scriptPubKey
+    )
+    complete = tx + b"\x76\xa9\x14" + bytes(20) + b"\x88\xac"
+
+    assert parse_coinbase(header + b"\x01" + complete) is not None
+    # One byte of the declared 25-byte script: not a parsed block.
+    assert parse_coinbase(header + b"\x01" + tx + b"\x76") is None
