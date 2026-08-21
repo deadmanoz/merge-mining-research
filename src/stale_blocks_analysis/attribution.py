@@ -607,7 +607,14 @@ def _stale_inputs_fingerprint() -> str:
     if BLOCKS_DIR.is_dir():
         for f in sorted(BLOCKS_DIR.glob("*.bin")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            try:
+                h.update(f.read_bytes())
+            except OSError:
+                # A partial run reached here despite an unusable binary, so
+                # re-reading it must not abort provenance capture. The
+                # marker keeps the digest distinct from both an absent file
+                # and an empty one.
+                h.update(b"<unreadable>")
     return h.hexdigest()
 
 

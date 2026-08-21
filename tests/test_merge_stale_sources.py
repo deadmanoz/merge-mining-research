@@ -666,3 +666,39 @@ def test_child_chain_bech32_requires_an_exact_hrp():
     # Valid checksums over prefixes that merely start with bc1/nc1.
     assert _addr_to_spk(encode("bc1evil", program)) is None
     assert _addr_to_spk(encode("nc1evil", program)) is None
+
+
+def test_unreadable_binary_falls_back_in_partial_mode(tmp_path, monkeypatch):
+    """A listed binary can be unreadable or replaced by a directory, which
+    partial mode promises to fall back from like any other unusable one."""
+    import pytest
+
+    from stale_blocks_analysis import stale_merge
+
+    block_hash = "cd" * 32
+    name = f"700000-{block_hash}.bin"
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / name).mkdir()  # a directory where a file is listed
+    blobs = {name: "0" * 40}
+    rows = [
+        {
+            "height": 700000,
+            "hash": block_hash,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="cannot be read"):
+        stale_merge.tag_stale_blocks([dict(r) for r in rows], archive_blobs=blobs)
+
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FallbackPool", "tag")
+    )
+    out = stale_merge.tag_stale_blocks(
+        [dict(r) for r in rows], allow_partial=True, archive_blobs=blobs
+    )
+    assert out[0]["pool"] == "FallbackPool"
+    assert out[0]["has_bin"] is False
+    assert out[0]["_bin_rejected"] is True

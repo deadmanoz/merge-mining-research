@@ -640,3 +640,25 @@ def test_non_object_registry_document_fails_closed(pool_clone):
 
     with pytest.raises(ValueError, match="top level is list"):
         pi.identify_pool(b"anything")
+
+
+def test_duplicate_registry_keys_fail_closed(tmp_path, monkeypatch):
+    """json.loads keeps the last of a repeated key, so a file with two
+    `tags` members would drop the real markers and still pass every schema
+    check, weakening that pool's rows while the export looked complete."""
+    import pytest
+
+    from stale_blocks_analysis import pool_identification as pi
+
+    pools = tmp_path / "pools"
+    pools.mkdir()
+    (pools / "dupe.json").write_text(
+        '{"id": "d", "name": "DupePool", "addresses": [],'
+        ' "tags": ["/Real/"], "tags": ["/Decoy/"]}'
+    )
+    monkeypatch.setattr(pi, "LOCAL_MINING_POOLS_DIR", tmp_path)
+    monkeypatch.setattr(pi, "_RUNTIME_POOL_TAGS", None)
+    monkeypatch.setattr(pi, "_RUNTIME_OUTPUT_ADDR_POOLS", None)
+
+    with pytest.raises(ValueError, match="dupe.json"):
+        pi.identify_pool(b"xx/Real/yy")

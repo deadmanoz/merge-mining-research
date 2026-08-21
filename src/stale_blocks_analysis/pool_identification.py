@@ -253,6 +253,22 @@ def _decode_payout_address(addr: str) -> bytes | None:
     return _b58_decode_to_hash160(addr)
 
 
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    """Object hook rejecting duplicate members.
+
+    `json.loads` keeps the last of a repeated key, so a file carrying two
+    `tags` members would drop the real markers and still pass every
+    schema check below, weakening that pool's rows to a lesser match or
+    to Unknown while the export looked complete.
+    """
+    out: dict = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
 def fetch_known_pools() -> dict:
     """Load the pool identification dataset from $LOCAL_MINING_POOLS_DIR.
 
@@ -298,8 +314,8 @@ def fetch_known_pools() -> dict:
 
     for pool_file in pool_files:
         try:
-            pool = json.loads(pool_file.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            pool = json.loads(pool_file.read_text(), object_pairs_hook=_unique_keys)
+        except (ValueError, OSError) as exc:
             # Fail closed: a skipped file would silently demote its pool's
             # blocks to Unknown (or weaker matches) while the export still
             # looks complete. This bites hardest in the supported dirty

@@ -139,7 +139,23 @@ def tag_stale_blocks(
         path = BLOCKS_DIR / f"{b['height']}-{b['hash']}.bin"
         has_bin = path.exists()
         if has_bin:
-            raw = path.read_bytes()
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                # Unreadable, replaced by a directory, or removed between
+                # the check and the read: unusable like any other rejected
+                # binary, and partial mode promises a fallback for those.
+                if not allow_partial:
+                    raise ValueError(
+                        f"Block archive file {path.name} cannot be read "
+                        f"({exc}). Re-fetch the pinned "
+                        "bitcoin-data/stale-blocks clone, or pass "
+                        "--allow-partial to attribute from the carried "
+                        "AuxPoW evidence instead."
+                    ) from exc
+                b["_bin_rejected"] = True
+                has_bin = False
+                raw = b""
             # The file name claims a block; the bytes must agree. A
             # misplaced but parseable binary would otherwise label an
             # unrelated stale row from the wrong coinbase.
