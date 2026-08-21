@@ -56,7 +56,7 @@ returns header identity only); the historical registry label is joined
 afterwards: any merged row whose `(height, hash)` matches an accepted RSK
 stale observation and whose coinbase evidence produced no attribution
 receives the label, regardless of which source's row survived the merge, so
-coinbase evidence always wins over the historical registry. The `has_bin` column records which coinbase path a row took.
+coinbase evidence always wins over the historical registry. The `has_bin` column records which coinbase path a row took, so a binary that was present but rejected reads as `false`: the label came from the weaker AuxPoW evidence, and a partial run should not look like a complete one.
 
 ## RSK: historical labels only
 

@@ -117,6 +117,44 @@ def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
     return raw[0], raw[1:21]
 
 
+def _bech32_encoding_ok(addr: str) -> bool:
+    """Whether a lowercased bech32/bech32m address is well formed.
+
+    Checks the checksum against the address's OWN human-readable prefix
+    (bc or nc), the constant matching its witness version, and BIP-173's
+    padding rule, none of which `_bech32_decode_to_program` verifies.
+    """
+    pos = addr.rfind("1")
+    if pos < 1:
+        return False
+    hrp, data = addr[:pos], addr[pos + 1 :]
+    if len(data) < 7 or any(c not in _BECH32_CHARSET for c in data):
+        return False
+    values = (
+        [ord(c) >> 5 for c in hrp]
+        + [0]
+        + [ord(c) & 31 for c in hrp]
+        + [_BECH32_CHARSET.index(c) for c in data]
+    )
+    generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+    chk = 1
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1FFFFFF) << 5 ^ value
+        for i in range(5):
+            chk ^= generator[i] if ((top >> i) & 1) else 0
+    version = _BECH32_CHARSET.index(data[0])
+    if chk != (1 if version == 0 else 0x2BC830A3):
+        return False
+    # Padding: the 5-bit program must convert to whole bytes with fewer
+    # than 5 leftover bits, all zero. The decoder silently drops them, so
+    # several distinct data parts would otherwise yield one script.
+    leftover = (len(data[1:-6]) * 5) % 8
+    if leftover >= 5:
+        return False
+    return not (leftover and _BECH32_CHARSET.index(data[-7]) & ((1 << leftover) - 1))
+
+
 def _addr_to_spk(addr: str) -> bytes | None:
     """Convert an address string to the Bitcoin scriptPubKey it represents.
 
@@ -140,6 +178,13 @@ def _addr_to_spk(addr: str) -> bytes | None:
 
     lowered = addr.lower()
     if lowered.startswith(("bc1", "nc1")):
+        # The shared decoder skips the checksum, so a mutated address would
+        # rebuild the same canonical script and could match a real payout
+        # marker. Verify against the address's OWN prefix before converting.
+        if addr != lowered and addr != addr.upper():
+            return None
+        if not _bech32_encoding_ok(lowered):
+            return None
         # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
         # so normalize to bc1 and decode the identical data part. The case
         # fold matters too: BIP-173 permits an all-uppercase address, which

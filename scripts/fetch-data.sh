@@ -59,7 +59,10 @@ fetch_one() {
     local dest
     dest="$(resolve_dest "${key}" "${subdir}")"
 
-    if [ ! -d "${dest}/.git" ]; then
+    # A linked worktree's .git is a file, not a directory. Test for either
+    # form rather than asking git, whose search walks up and would call an
+    # empty directory inside this repository a clone.
+    if [ ! -e "${dest}/.git" ]; then
         echo "Cloning ${key} (${url}) into ${dest}"
         mkdir -p "$(dirname "${dest}")"
         git clone "${url}" "${dest}"

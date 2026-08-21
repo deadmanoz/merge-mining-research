@@ -162,8 +162,9 @@ def test_addr_to_spk_decodes_namecoin_p2sh_and_bech32_addresses():
     assert h160 is not None and len(h160) == 20
     assert _addr_to_spk(p2sh) == bytes([0xA9, 0x14]) + h160 + bytes([0x87])
 
-    # Namecoin bech32: same data part as the bc1 form, different HRP.
-    nc1 = "nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    # Namecoin bech32: same witness program as the bc1 form, and so the
+    # same script, but its own checksum over the "nc" prefix.
+    nc1 = "nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kttkktk"
     bc1 = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
     assert _addr_to_spk(nc1) == _addr_to_spk(bc1)
     assert _addr_to_spk(nc1) is not None and _addr_to_spk(nc1)[:2] == b"\x00\x14"
@@ -212,7 +213,8 @@ def test_tag_stale_blocks_uses_auxpow_fallback_when_binary_unparseable(
     out = stale_merge.tag_stale_blocks(rows, allow_partial=True)
 
     assert out[0]["pool"] == "FallbackPool"
-    assert out[0]["has_bin"] is True
+    # The binary was rejected, so it did not supply this coinbase.
+    assert out[0]["has_bin"] is False
     assert seen["sig"] == bytes.fromhex("deadbeef")
 
 
@@ -311,7 +313,7 @@ def test_namecoin_addresses_spelled_nc1_are_base58_not_bech32():
     assert spk is not None and spk[:3] == b"\x76\xa9\x14"
 
     # A genuine Namecoin bech32 address still takes the bech32 path.
-    bech32 = _addr_to_spk("nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+    bech32 = _addr_to_spk("nc1qw508d6qejxtdg4y5r3zarvary0c5xw7kttkktk")
     assert bech32 is not None and bech32[:2] == b"\x00\x14"
 
 
@@ -434,7 +436,8 @@ def test_archive_file_must_match_its_tracked_blob(tmp_path, monkeypatch):
         list(rows), allow_partial=True, archive_blobs=blobs
     )
     assert out[0]["pool"] == "FallbackPool"
-    assert out[0]["has_bin"] is True
+    # The binary was rejected, so it did not supply this coinbase.
+    assert out[0]["has_bin"] is False
 
 
 def test_outputs_alone_are_enough_to_identify(monkeypatch):
@@ -533,3 +536,24 @@ def test_untracked_archive_binary_is_not_trusted(tmp_path, monkeypatch):
         list(rows), allow_partial=True, archive_blobs=blobs
     )
     assert out[0]["pool"] == "FallbackPool"
+
+
+def test_child_chain_bech32_checksums_are_verified():
+    """The shared decoder skips the checksum and the padding rule, so a
+    mutated address would rebuild the same canonical script and could match
+    a real payout marker."""
+    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+
+    valid = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    assert _addr_to_spk(valid) is not None
+    assert _addr_to_spk(valid.upper()) == _addr_to_spk(valid)
+
+    # Mutated checksum character.
+    assert _addr_to_spk(valid[:-1] + ("q" if valid[-1] != "q" else "p")) is None
+    # Mixed case, which BIP-173 forbids because it breaks the checksum.
+    assert _addr_to_spk("BC1Q" + valid[4:]) is None
+    # A checksum computed over the wrong prefix: this is the bc1 data part
+    # spelled nc1, which is how the fold used to accept it.
+    assert _addr_to_spk("nc1" + valid[3:]) is None
+    # Non-zero padding bits (BIP-173 invalid-address vector).
+    assert _addr_to_spk("bc1zw508d6qejxtdg4y5r3zarvaryvqyzf3du") is None

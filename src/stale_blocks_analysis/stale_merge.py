@@ -153,8 +153,10 @@ def tag_stale_blocks(
                         "--allow-partial to attribute from the carried "
                         "AuxPoW evidence instead."
                     )
+                # The binary was rejected, so it did not supply this
+                # row's coinbase: has_bin records the path actually taken.
                 cb = None
-                b["has_bin"] = True
+                has_bin = False
                 raw = b""
             elif expected_blob is not None and _git_blob_sha1(raw) != expected_blob:
                 if not allow_partial:
@@ -165,8 +167,10 @@ def tag_stale_blocks(
                         "--allow-partial to attribute from the carried "
                         "AuxPoW evidence instead."
                     )
+                # The binary was rejected, so it did not supply this
+                # row's coinbase: has_bin records the path actually taken.
                 cb = None
-                b["has_bin"] = True
+                has_bin = False
                 raw = b""
             header_hash = sha256d(raw[:80])[::-1].hex() if len(raw) >= 80 else None
             if raw and header_hash != b["hash"]:
@@ -198,6 +202,7 @@ def tag_stale_blocks(
                     "--allow-partial to attribute from the carried AuxPoW "
                     "evidence instead."
                 )
+            has_bin = False
 
         # AuxPoW source: use pre-parsed coinbase data
         sig_hex = b.pop("_scriptsig_hex", "")

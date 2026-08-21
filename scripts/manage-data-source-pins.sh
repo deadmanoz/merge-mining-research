@@ -23,7 +23,10 @@ resolve_dest() {
 
 latest_commit() {
     local key="$1" dest="$2"
-    if [ ! -d "${dest}/.git" ]; then
+    # A linked worktree's .git is a file, not a directory. Test for either
+    # form rather than asking git, whose search walks up and would call an
+    # empty directory inside this repository a clone.
+    if [ ! -e "${dest}/.git" ]; then
         echo "${key}: clone missing at ${dest}; run scripts/fetch-data.sh first" >&2
         return 2
     fi
