@@ -64,9 +64,20 @@ def merge_stale_sources(
             if not pri.get("_scriptsig_hex") and b.get("_scriptsig_hex"):
                 pri["_scriptsig_hex"] = b["_scriptsig_hex"]
                 filled = True
-            if not pri.get("_outputs_str") and b.get("_outputs_str"):
-                pri["_outputs_str"] = b["_outputs_str"]
-                filled = True
+            # Outputs are unioned, not just filled. Chains describe the
+            # same coinbase differently: a Namecoin RPC yields decoded
+            # payout addresses (dropping OP_RETURN and P2PK), while ixcoin
+            # and i0coin yield complete raw scripts. Keeping only the first
+            # observation's list discards a tag another chain preserved.
+            if b.get("_outputs_str"):
+                existing = [
+                    e for e in (pri.get("_outputs_str") or "").split(";") if e.strip()
+                ]
+                incoming = [e for e in b["_outputs_str"].split(";") if e.strip()]
+                unioned = existing + [e for e in incoming if e not in existing]
+                if unioned != existing:
+                    pri["_outputs_str"] = ";".join(unioned)
+                    filled = True
             if filled:
                 pri.setdefault("_outputs_str", "")
                 enriched += 1

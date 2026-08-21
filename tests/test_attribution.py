@@ -412,7 +412,8 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
         (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
     descendants = tmp_path / "stale_descendants.csv"
     descendants.write_text(
-        "classification,validation_status,btc_height,btc_header_hash\n"
+        "classification,validation_status,btc_height,btc_header_hash,"
+        "coinbase_scriptsig_hex,coinbase_outputs\n"
     )
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
@@ -554,7 +555,8 @@ def test_truncated_loader_input_stops_the_run(tmp_path, monkeypatch):
         (staged / f"{key}_validated_stales.csv").write_text(",".join(cols) + "\n")
     descendants = tmp_path / "stale_descendants.csv"
     descendants.write_text(
-        "classification,validation_status,btc_height,btc_header_hash\n"
+        "classification,validation_status,btc_height,btc_header_hash,"
+        "coinbase_scriptsig_hex,coinbase_outputs\n"
     )
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)

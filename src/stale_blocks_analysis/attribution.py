@@ -422,7 +422,9 @@ def _capture_provenance(allow_partial: bool) -> dict:
             "state": _clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
             "archive": {
-                "verifiable": expected_names is not None,
+                # An empty tracked inventory proves nothing about what
+                # should be present, so it is not a verified archive.
+                "verifiable": bool(expected_names),
                 "expected": (
                     len(expected_names) if expected_names is not None else None
                 ),
@@ -480,7 +482,14 @@ def require_committed_inputs() -> None:
         with open(STALE_DESCENDANTS_CSV, newline="") as f:
             descendant_header = set(next(csv.reader(f), []))
         descendant_absent = sorted(
-            {"classification", "validation_status", "btc_height", "btc_header_hash"}
+            {
+                "classification",
+                "validation_status",
+                "btc_height",
+                "btc_header_hash",
+                "coinbase_scriptsig_hex",
+                "coinbase_outputs",
+            }
             - descendant_header
         )
         if descendant_absent:
@@ -616,7 +625,9 @@ def write_attribution_meta(
     provenance = getattr(stale, "provenance", None) or _capture_provenance(
         allow_partial
     )
-    min_height = getattr(stale, "min_height", None) or min_height
+    batch_floor = getattr(stale, "min_height", None)
+    if batch_floor is not None:
+        min_height = batch_floor
     # The sidecar describes a specific CSV, so it carries that CSV's own
     # hash. Publishing two files can never be one atomic act, but this
     # makes a mismatched pair detectable by any consumer rather than

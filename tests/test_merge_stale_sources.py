@@ -315,3 +315,77 @@ def test_base58_checksum_is_verified():
     good = "12dRugNcdxK39288NjcDV4GX7rMsKCGn6B"
     assert _addr_to_spk(good) is not None
     assert _addr_to_spk(good[:-1] + ("C" if good[-1] != "C" else "D")) is None
+
+
+def test_duplicate_observations_union_their_outputs():
+    """Chains describe the same coinbase differently: a Namecoin RPC gives
+    decoded addresses (dropping OP_RETURN and P2PK), ixcoin gives raw
+    scripts. Keeping only the first list discards evidence another chain
+    preserved, so the lists are unioned."""
+    primary = [
+        {
+            "height": 162_012,
+            "hash": "aa",
+            "source": "namecoin",
+            "_scriptsig_hex": "aabb",
+            "_outputs_str": "NGDwrUEyBNkfxtrE7SK53f2fcTDq9YRSHC",
+        }
+    ]
+    auxpow = [
+        {
+            "height": 162_012,
+            "hash": "aa",
+            "source": "ixcoin",
+            "_scriptsig_hex": "aabb",
+            "_outputs_str": "6a0b4d696e6564206279205831;41049e4a",
+        }
+    ]
+
+    merged = merge_stale_sources(primary, auxpow)
+
+    entries = merged[0]["_outputs_str"].split(";")
+    assert "NGDwrUEyBNkfxtrE7SK53f2fcTDq9YRSHC" in entries
+    assert "6a0b4d696e6564206279205831" in entries
+    assert "41049e4a" in entries
+    # A repeated observation adds nothing.
+    again = merge_stale_sources(merged, auxpow)
+    assert again[0]["_outputs_str"] == merged[0]["_outputs_str"]
+
+
+def test_addr_to_spk_keeps_the_witness_version():
+    """A 20-byte program is only P2WPKH at witness v0; reconstructing every
+    20-byte program as OP_0 would let a v1 address impersonate a P2WPKH
+    marker."""
+    from stale_blocks_analysis.stale_blocks import _BECH32_CHARSET, _addr_to_spk
+
+    v0 = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    assert _addr_to_spk(v0)[:2] == b"\x00\x14"
+
+    # Same 20-byte program re-encoded at witness v1 must not become OP_0.
+    program = _addr_to_spk(v0)[2:]
+    acc, bits, values = 0, 0, []
+    for byte in program:
+        acc = (acc << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            values.append((acc >> bits) & 31)
+    data = [1] + values
+
+    def polymod(vals):
+        gen = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
+        chk = 1
+        for v in vals:
+            top = chk >> 25
+            chk = (chk & 0x1FFFFFF) << 5 ^ v
+            for i in range(5):
+                chk ^= gen[i] if ((top >> i) & 1) else 0
+        return chk
+
+    hrp = "bc"
+    pre = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp] + data
+    pm = polymod(pre + [0] * 6) ^ 0x2BC830A3
+    checksum = [(pm >> 5 * (5 - i)) & 31 for i in range(6)]
+    v1 = "bc1" + "".join(_BECH32_CHARSET[d] for d in data + checksum)
+
+    assert _addr_to_spk(v1)[:2] == b"\x51\x14"

@@ -96,6 +96,7 @@ _P2PKH_VERSIONS = frozenset({0, 52, 63})  # Bitcoin, Namecoin, Syscoin
 _P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
 
 _B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
 
 def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
@@ -146,11 +147,21 @@ def _addr_to_spk(addr: str) -> bytes | None:
         program = _bech32_decode_to_program("bc1" + lowered[3:])
         if program is None:
             return None
-        if len(program) == 20:
-            return bytes([0x00, 0x14]) + program  # P2WPKH
-        elif len(program) == 32:
-            return bytes([0x51, 0x20]) + program  # P2TR
-        return None
+        # The decoder drops the witness version, but the script depends on
+        # it: reconstructing every 20-byte program as OP_0 would let a v1
+        # address impersonate a P2WPKH marker, and every 32-byte program as
+        # OP_1 would mistype a v0 P2WSH output as Taproot.
+        separator = lowered.rfind("1")
+        data = lowered[separator + 1 :]
+        if not data or data[0] not in _BECH32_CHARSET:
+            return None
+        version = _BECH32_CHARSET.index(data[0])
+        if version > 16 or not 2 <= len(program) <= 40:
+            return None
+        if version == 0 and len(program) not in (20, 32):
+            return None
+        opcode = 0x00 if version == 0 else 0x50 + version
+        return bytes([opcode, len(program)]) + program
     return None
 
 
