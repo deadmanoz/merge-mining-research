@@ -620,3 +620,22 @@ def test_rejected_binaries_make_the_sidecar_report_a_partial_archive():
     ]
     assert degraded["rejected"] == 2
     assert degraded["partial"] is True
+
+
+def test_an_unverifiable_archive_is_reported_as_partial(monkeypatch):
+    """Nothing is missing when nothing is known to be expected, so a run
+    against an archive with no manifest could report a complete one while
+    falling back to AuxPoW evidence throughout."""
+    from stale_blocks_analysis import attribution
+
+    for expected in (None, set()):
+        monkeypatch.setattr(
+            attribution, "archive_inventory", lambda e=expected: (e, {"a.bin"})
+        )
+        archive = attribution._capture_provenance(allow_partial=True)["stale_blocks"][
+            "archive"
+        ]
+        assert archive["verifiable"] is False
+        assert archive["missing"] == 0
+        assert archive["rejected"] == 0
+        assert archive["partial"] is True

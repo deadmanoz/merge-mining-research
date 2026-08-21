@@ -454,9 +454,11 @@ def _capture_provenance(allow_partial: bool, rejected: int = 0) -> dict:
                 "missing": len(missing),
                 # A binary that was present but rejected leaves its row on
                 # the same weaker evidence as an absent one, so the run is
-                # partial even when every tracked name is on disk.
+                # partial even when every tracked name is on disk. So is a
+                # run with no manifest to compare against: nothing is
+                # missing only because nothing is known to be expected.
                 "rejected": rejected,
-                "partial": bool(missing) or bool(rejected),
+                "partial": bool(missing) or bool(rejected) or not expected_names,
                 "allow_partial": allow_partial,
             },
         },
