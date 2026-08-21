@@ -626,3 +626,17 @@ def test_segwit_markers_must_use_the_bitcoin_hrp(pool_clone):
     add_pool("hrp.json", pool_id="hrp", name="HrpPool", addresses=[addr])
     with pytest.raises(ValueError, match="not Bitcoin mainnet"):
         pi.identify_pool(b"anything")
+
+
+def test_non_object_registry_document_fails_closed(pool_clone):
+    """Valid JSON of the wrong shape must name the file, not raise an
+    AttributeError that escapes the CLI's error handling as a traceback."""
+    import pytest
+
+    clone_dir, add_pool = pool_clone
+    # add_pool creates pools/ on first use; the malformed file goes beside it.
+    add_pool("ok.json", pool_id="ok", name="OkPool", tags=["/OkPool/"])
+    (clone_dir / "pools" / "list.json").write_text("[]")
+
+    with pytest.raises(ValueError, match="top level is list"):
+        pi.identify_pool(b"anything")

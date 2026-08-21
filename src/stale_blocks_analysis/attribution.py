@@ -285,7 +285,9 @@ def load_attributed_stales(
         stale = merge_stale_sources(stale, descendants)
 
     print("Parsing stale block binaries ...")
-    stale = tag_stale_blocks(stale, allow_partial=allow_partial)
+    stale = tag_stale_blocks(
+        stale, allow_partial=allow_partial, archive_blobs=archive_blob_map()
+    )
     n_bin = sum(1 for s in stale if s["has_bin"])
     print(f"  {n_bin} binaries parsed, {len(stale) - n_bin} without binary")
 
@@ -351,6 +353,23 @@ def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
             h.update(f.name.encode())
             h.update(f.read_bytes())
     return h.hexdigest()
+
+
+def archive_blob_map() -> dict[str, str]:
+    """Tracked blob name for each archived binary at the checkout's HEAD."""
+    proc = subprocess.run(
+        ["git", "-C", str(STALE_DIR), "ls-tree", "-r", "HEAD", "blocks/"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return {}
+    blobs: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        meta, _, name = line.partition("\t")
+        if name.endswith(".bin"):
+            blobs[name.rsplit("/", 1)[-1]] = meta.split()[2]
+    return blobs
 
 
 def archive_inventory() -> tuple[set[str] | None, set[str]]:

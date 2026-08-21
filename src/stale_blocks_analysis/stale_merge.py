@@ -11,6 +11,8 @@ Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
 pool_identification (identify_pool_detailed), stale_blocks (_addr_to_spk).
 """
 
+import hashlib
+
 from .bitcoin_binary import parse_coinbase, sha256d
 from .config import BLOCKS_DIR
 from .pool_identification import identify_pool_detailed
@@ -93,7 +95,16 @@ def merge_stale_sources(
     return merged
 
 
-def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[dict]:
+def _git_blob_sha1(data: bytes) -> str:
+    """Git's object name for *data*, to compare against a tracked blob."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def tag_stale_blocks(
+    blocks: list[dict],
+    allow_partial: bool = False,
+    archive_blobs: dict[str, str] | None = None,
+) -> list[dict]:
     """Parse .bin files and tag each block with its pool name.
 
     For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
@@ -124,8 +135,26 @@ def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[di
             # The file name claims a block; the bytes must agree. A
             # misplaced but parseable binary would otherwise label an
             # unrelated stale row from the wrong coinbase.
+            # The header proves which block this is, but not that the body
+            # was not replaced: parse_coinbase only decodes fields, so a
+            # corrupted body with an intact header would supply
+            # attacker-or-corruption-controlled tags. When the archive is a
+            # git checkout, the file must also equal its tracked blob.
+            expected_blob = (archive_blobs or {}).get(path.name)
+            if expected_blob is not None and _git_blob_sha1(raw) != expected_blob:
+                if not allow_partial:
+                    raise ValueError(
+                        f"Block archive file {path.name} differs from the "
+                        "blob tracked at the checkout's HEAD. Re-fetch the "
+                        "pinned bitcoin-data/stale-blocks clone, or pass "
+                        "--allow-partial to attribute from the carried "
+                        "AuxPoW evidence instead."
+                    )
+                cb = None
+                b["has_bin"] = True
+                raw = b""
             header_hash = sha256d(raw[:80])[::-1].hex() if len(raw) >= 80 else None
-            if header_hash != b["hash"]:
+            if raw and header_hash != b["hash"]:
                 raise ValueError(
                     f"Block archive file {path.name} does not contain the "
                     f"block it names (header hashes to {header_hash}). "
@@ -133,7 +162,7 @@ def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[di
                     "attribution refuses to label a row from another "
                     "block's coinbase."
                 )
-            cb = parse_coinbase(raw)
+            cb = parse_coinbase(raw) if raw else None
             if cb:
                 b["pool"], b["_pool_match"] = identify_pool_detailed(
                     cb["scriptsig"], cb["outputs"]
@@ -146,7 +175,7 @@ def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[di
             # behind provenance that claims a complete archive. Partial
             # mode is the deliberate way to proceed on the carried AuxPoW
             # coinbase instead.
-            if not allow_partial:
+            if raw and not allow_partial:
                 raise ValueError(
                     f"Block archive file {path.name} contains the right "
                     "block but its coinbase will not parse. Re-fetch the "
@@ -159,8 +188,8 @@ def tag_stale_blocks(blocks: list[dict], allow_partial: bool = False) -> list[di
         sig_hex = b.pop("_scriptsig_hex", "")
         outputs_str = b.pop("_outputs_str", "")
 
-        if sig_hex:
-            scriptsig = bytes.fromhex(sig_hex)
+        scriptsig = bytes.fromhex(sig_hex) if sig_hex else b""
+        if scriptsig or outputs_str:
             # Build (value, scriptPubKey) tuples. Each entry is either a
             # base58/bech32 address (NMC, Syscoin loaders) or a raw
             # scriptPubKey hex string (Devcoin, ixcoin loaders, whose

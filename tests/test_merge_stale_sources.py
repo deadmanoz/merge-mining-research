@@ -396,3 +396,72 @@ def test_addr_to_spk_keeps_the_witness_version():
     v1 = "bc1" + "".join(_BECH32_CHARSET[d] for d in data + checksum)
 
     assert _addr_to_spk(v1)[:2] == b"\x51\x14"
+
+
+def test_archive_file_must_match_its_tracked_blob(tmp_path, monkeypatch):
+    """The header proves which block a file claims to be, not that its body
+    is intact: parse_coinbase only decodes fields, so a replaced body with
+    a correct header would supply corrupted tags and payout scripts."""
+    import pytest
+
+    from stale_blocks_analysis import stale_merge
+    from stale_blocks_analysis.bitcoin_binary import sha256d
+
+    header = bytes(range(80))
+    block_hash = sha256d(header)[::-1].hex()
+    name = f"700000-{block_hash}.bin"
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+    (tmp_path / name).write_bytes(header + b"replaced-body")
+
+    rows = [
+        {
+            "height": 700000,
+            "hash": block_hash,
+            "source": "auxpow",
+            "_scriptsig_hex": "deadbeef",
+            "_outputs_str": "",
+        }
+    ]
+    blobs = {name: "0" * 40}  # what HEAD tracks, which this file is not
+
+    with pytest.raises(ValueError, match="differs from the blob tracked"):
+        stale_merge.tag_stale_blocks(list(rows), archive_blobs=blobs)
+
+    monkeypatch.setattr(
+        stale_merge, "identify_pool_detailed", lambda *a, **k: ("FallbackPool", "tag")
+    )
+    out = stale_merge.tag_stale_blocks(
+        list(rows), allow_partial=True, archive_blobs=blobs
+    )
+    assert out[0]["pool"] == "FallbackPool"
+    assert out[0]["has_bin"] is True
+
+
+def test_outputs_alone_are_enough_to_identify(monkeypatch):
+    """scriptSig and outputs are independently optional evidence, so a
+    record carrying only outputs must still reach OP_RETURN and payout
+    matching instead of being forced to Unknown."""
+    from stale_blocks_analysis import stale_merge
+
+    seen = {}
+
+    def fake_identify(sig, outputs=None):
+        seen["sig"], seen["outputs"] = sig, outputs
+        return "OutputsOnlyPool", "address"
+
+    monkeypatch.setattr(stale_merge, "identify_pool_detailed", fake_identify)
+    rows = [
+        {
+            "height": 999999999,
+            "hash": "cd" * 32,
+            "source": "auxpow",
+            "_scriptsig_hex": "",
+            "_outputs_str": "12dRugNcdxK39288NjcDV4GX7rMsKCGn6B",
+        }
+    ]
+
+    out = stale_merge.tag_stale_blocks(rows)
+
+    assert out[0]["pool"] == "OutputsOnlyPool"
+    assert seen["sig"] == b""
+    assert seen["outputs"] is not None

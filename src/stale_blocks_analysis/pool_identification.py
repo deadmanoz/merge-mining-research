@@ -310,6 +310,16 @@ def fetch_known_pools() -> dict:
                 "remove the file; attribution refuses to run from a partial "
                 "registry."
             ) from exc
+        if not isinstance(pool, dict):
+            # Valid JSON, wrong shape: without this the field access below
+            # raises AttributeError and the CLI prints a traceback instead
+            # of naming the offending file.
+            raise ValueError(
+                f"Malformed pool registry file {pool_file}: top level is "
+                f"{type(pool).__name__}, expected an object. Fix or remove "
+                "the file; attribution refuses to run from a partial "
+                "registry."
+            )
         for field in ("tags", "addresses"):
             value = pool.get(field)
             if not isinstance(value, list) or any(
@@ -517,15 +527,18 @@ def identify_pool_detailed(
     consumers that make tag-evidence-only claims (the template-producer
     fold) gate on the method.
     """
-    if not sig:
+    if not sig and not outputs:
         return "Unknown", "none"
 
     pool_tags, addr_pools = _ensure_runtime_pool_tables()
 
-    # 1. ScriptSig tag matching
-    for tag, name in pool_tags:
-        if tag in sig:
-            return name, "tag"
+    # 1. ScriptSig tag matching. The scriptSig and the outputs are
+    #    independently optional evidence, so a record carrying only
+    #    outputs skips this stage rather than the whole identification.
+    if sig:
+        for tag, name in pool_tags:
+            if tag in sig:
+                return name, "tag"
 
     # 2. OP_RETURN data in coinbase outputs (e.g. "Mined by 1hash.com").
     #    Only the pushed payload is searched: matching raw script bytes
