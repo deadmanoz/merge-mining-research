@@ -18,6 +18,9 @@ in add-only monitor artifacts.
 
 Reject padded child-height encodings in ordinary monitor artifacts.
 
+Require exact ordinary headers, canonical count encodings, and stable summary
+row ordering during add-only publication updates.
+
 Keep add-only updates from introducing new stale, orphan, or canonical
 identities, preserve row scope in identity checks, and reject undeclared
 publication chains.

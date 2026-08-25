@@ -277,11 +277,18 @@ def _load_monitor_artifact_counts(
         required = set(MONITOR_EVIDENCE_FIELDS)
         if chain == "rsk":
             required.update(RSK_SIDECAR_EXPORT_FIELDS)
+        expected_fields = list(MONITOR_EVIDENCE_FIELDS)
+        if chain == "rsk":
+            expected_fields.extend(RSK_SIDECAR_EXPORT_FIELDS)
         missing = required - set(fieldnames)
         if missing:
             raise ValueError(
                 f"{path}: missing monitor-evidence fields: "
                 + ", ".join(sorted(missing))
+            )
+        if fieldnames != expected_fields:
+            raise ValueError(
+                f"{path}: monitor-evidence header must exactly match the {chain} schema"
             )
         for row_number, row in enumerate(reader, start=2):
             row_chain = row.get("chain") or ""
@@ -1880,14 +1887,20 @@ def _load_error_update_baseline(
             f"{committed_counts_path}: committed publication counts are missing"
         )
     with committed_counts_path.open(newline="") as handle:
-        committed_chains = {
-            (row.get("chain") or "").strip()
-            for row in csv.DictReader(handle)
-            if (row.get("chain") or "").strip()
-        }
-    if set(chains) != committed_chains:
+        committed_count_rows = list(csv.DictReader(handle))
+    committed_chains = [
+        (row.get("chain") or "").strip()
+        for row in committed_count_rows
+        if (row.get("chain") or "").strip()
+    ]
+    if set(chains) != set(committed_chains):
         raise ValueError(
             f"{counts_path}: add-only baseline chain set differs from the "
+            "committed publication"
+        )
+    if chains != committed_chains:
+        raise ValueError(
+            f"{counts_path}: add-only baseline chain order differs from the "
             "committed publication"
         )
     for row in count_rows:
@@ -1943,8 +1956,10 @@ def _load_error_update_baseline(
     manifest_chains = [
         item.get("chain") for item in manifest_counts if isinstance(item, dict)
     ]
-    if set(chains) != set(manifest_chains) or len(manifest_chains) != len(
-        set(manifest_chains)
+    if (
+        set(chains) != set(manifest_chains)
+        or len(manifest_chains) != len(set(manifest_chains))
+        or manifest_chains != chains
     ):
         raise ValueError(f"{manifest_path}: counts do not match the CSV baseline")
     for item in manifest_counts:
@@ -1983,11 +1998,10 @@ def _load_error_update_baseline(
                     f"{manifest_path}: {chain} {field} must be a nonnegative "
                     "manifest integer"
                 )
-            csv_value = int_or_none(str(csv_raw) if csv_raw is not None else "")
-            if csv_value is None or csv_value != manifest_raw:
+            if csv_raw is None or str(csv_raw) != str(manifest_raw):
                 raise ValueError(
-                    f"{manifest_path}: {chain} {field} does not match counts "
-                    f"({manifest_raw!r} != {csv_value!r})"
+                    f"{counts_path}: {chain} {field} must use the canonical "
+                    f"decimal encoding ({manifest_raw!r} != {csv_raw!r})"
                 )
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:

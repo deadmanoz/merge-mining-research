@@ -993,7 +993,7 @@ def test_error_aggregate_rejects_manifest_count_drift(
     manifest_path.write_text(json.dumps(manifest))
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    with pytest.raises(ValueError, match="manifest.*stale does not match counts"):
+    with pytest.raises(ValueError, match="canonical decimal encoding"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
