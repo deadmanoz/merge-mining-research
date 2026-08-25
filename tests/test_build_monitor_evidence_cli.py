@@ -162,6 +162,7 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                     "btc_height": "1",
                     "btc_header_hash": TEST_PARENT_HASH,
                     "btc_header_hex": TEST_PARENT_HEADER,
+                    "expected_nbits": "1a0e119a",
                     "child_height": "1",
                     "child_block_hash": "11" * 32,
                     "child_block_time": "1",
@@ -446,7 +447,7 @@ def test_monitor_artifact_rejects_mismatched_live_child_header(
         writer.writeheader()
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match="live-chain child fields"):
+    with pytest.raises(ValueError, match="child fields disagree"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 

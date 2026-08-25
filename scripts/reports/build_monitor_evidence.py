@@ -49,8 +49,10 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     ChildHeaderValidationError,
+    hash_meets_btc_difficulty,
     validate_available_child_header_fields,
 )
+from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
     load_stale_descendant_correction_keys,
     load_stale_descendant_observation_keys,
@@ -186,8 +188,13 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
                 )
-            classification = (row.get("classification") or "").strip().lower()
+            raw_classification = row.get("classification") or ""
+            classification = raw_classification.strip().lower()
             status = (row.get("validation_status") or "").strip()
+            if raw_classification != classification:
+                raise ValueError(
+                    f"{path}:{row_number}: classification vocabulary is not exact"
+                )
             raw_bucket = row.get("btc_stale_relevance") or ""
             raw_reason = row.get("relevance_reason") or ""
             bucket = raw_bucket.strip()
@@ -201,16 +208,30 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                 raise ValueError(
                     f"{path}:{row_number}: row lacks a valid Bitcoin parent hash"
                 )
-            if not verified_header_hex(
-                (row.get("btc_header_hex") or "").strip(), parent_hash
-            ):
+            parent_header_hex = (row.get("btc_header_hex") or "").strip()
+            try:
+                parent_header = bytes.fromhex(parent_header_hex)
+            except ValueError:
+                parent_header = b""
+            if len(parent_header) != 80:
+                raise ValueError(
+                    f"{path}:{row_number}: serialized Bitcoin parent header must "
+                    "be exactly 80 bytes"
+                )
+            if not verified_header_hex(parent_header_hex, parent_hash):
                 raise ValueError(
                     f"{path}:{row_number}: serialized Bitcoin parent header is "
                     "missing or does not match its hash"
                 )
-            parsed_header = parse_header_fields(
-                (row.get("btc_header_hex") or "").strip()
-            )
+            parsed_header = parse_header_fields(parent_header_hex)
+            if not hash_meets_btc_difficulty(
+                hash_from_header_bytes(parent_header),
+                int(parsed_header["bits"], 16),
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: Bitcoin parent header fails its "
+                    "encoded proof-of-work target"
+                )
             for field, parsed_field in (
                 ("btc_prev_hash", "prev_hash"),
                 ("btc_time", "time"),
@@ -223,6 +244,27 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                         f"{path}:{row_number}: {field} disagrees with "
                         "serialized Bitcoin parent header"
                     )
+            child_header_hex = (row.get("child_header_hex") or "").strip()
+            child_bundle = {
+                "child_block_hash": (row.get("child_block_hash") or "").strip(),
+                "child_header_hex": child_header_hex,
+                "child_block_time": (row.get("child_block_time") or "").strip(),
+                "child_nbits": (row.get("child_nbits") or "").strip(),
+            }
+            if any(child_bundle.values()):
+                spec = CHAIN_SPECS.get(chain)
+                try:
+                    validate_available_child_header_fields(
+                        child_bundle,
+                        nbits_from_header=(
+                            spec.child_nbits_from_header if spec else True
+                        ),
+                    )
+                except ChildHeaderValidationError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: child fields disagree with "
+                        f"serialized child header ({exc})"
+                    ) from exc
             if chain in LIVE_CHILD_IDENTITY_CHAINS and classification != "canonical":
                 child_height = int_or_none((row.get("child_height") or "").strip())
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
@@ -238,27 +280,23 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                         f"{path}:{row_number}: live-chain row lacks a verified "
                         "child identity"
                     )
-                child_header_hex = (row.get("child_header_hex") or "").strip()
-                if child_header_hex:
-                    child_bundle = {
-                        "child_block_hash": child_hash,
-                        "child_header_hex": child_header_hex,
-                        "child_block_time": child_time,
-                        "child_nbits": (row.get("child_nbits") or "").strip(),
-                    }
-                    spec = CHAIN_SPECS.get(chain)
-                    try:
-                        validate_available_child_header_fields(
-                            child_bundle,
-                            nbits_from_header=(
-                                spec.child_nbits_from_header if spec else True
-                            ),
-                        )
-                    except ChildHeaderValidationError as exc:
-                        raise ValueError(
-                            f"{path}:{row_number}: live-chain child fields "
-                            f"disagree with serialized child header ({exc})"
-                        ) from exc
+            requires_expected_nbits = classification == "stale" or (
+                classification == "stale_descendant"
+                and (row.get("artifact_scope") or "").strip()
+                == "stale_descendant_sidecar"
+            )
+            if requires_expected_nbits:
+                expected_nbits = row.get("expected_nbits") or ""
+                if (
+                    len(expected_nbits) != 8
+                    or expected_nbits != expected_nbits.lower()
+                    or any(char not in "0123456789abcdef" for char in expected_nbits)
+                    or expected_nbits != parsed_header["bits"]
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: {classification} row has invalid "
+                        "expected_nbits"
+                    )
             if classification == "canonical":
                 if status:
                     raise ValueError(
@@ -1232,6 +1270,12 @@ def _load_error_update_baseline(
                     f"{output_dir}: {chain} {field} does not match artifact "
                     f"({observed} != {minimum})"
                 )
+        error_block_count = int(expected.get("error_block") or "0")
+        if error_block_count != 0:
+            raise ValueError(
+                f"{output_dir}: {chain} ordinary artifact declares "
+                f"nonzero error_block count ({error_block_count})"
+            )
     aggregate_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
     if aggregate_path.is_file():
         baseline_identities = _load_error_observation_identity_sets(aggregate_path)

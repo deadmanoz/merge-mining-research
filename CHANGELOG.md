@@ -25,6 +25,10 @@ relevance tokens, and the ordinary status contract across every row type.
 Corroborate all published parent-header fields and any serialized live-chain
 child header during add-only preflight.
 
+Keep classification and serialized-header encodings exact, enforce self-PoW and
+confirmed expected-nBits contracts, and keep ordinary chains free of error
+observations.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and
