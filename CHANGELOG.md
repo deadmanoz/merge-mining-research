@@ -10,6 +10,9 @@ descendant occurrences during add-only updates.
 Bind ordinary artifact declarations to the manifest root, validate optional
 child heights exactly, and preserve deterministic ordinary-row ordering.
 
+Keep row chain tokens exact, preserve numeric manifest count types, and apply
+the selected error-block catalogue consistently during full publication.
+
 Keep add-only updates from introducing new stale, orphan, or canonical
 identities, preserve row scope in identity checks, and reject undeclared
 publication chains.

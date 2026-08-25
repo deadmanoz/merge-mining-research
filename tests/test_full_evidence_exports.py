@@ -1356,6 +1356,56 @@ def test_monitor_export_does_not_reclassify_stale_with_sidecar_height_mismatch(
     assert "reclassified_stale_descendant_observations=1" not in stats.notes
 
 
+def test_collect_source_rows_uses_selected_error_catalogue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import stale_blocks_analysis.full_evidence as full_evidence
+
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    source_path = tmp_path / "namecoin_stale_blocks.csv"
+    _write_csv(
+        source_path,
+        [
+            {
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    catalogue = tmp_path / "selected-error-blocks.csv"
+    catalogue.write_text("selected\n")
+    seen: list[Path] = []
+
+    def selected_keys(path: Path) -> set[tuple[int, str]]:
+        seen.append(path)
+        return {(656478, header_hash)}
+
+    monkeypatch.setattr(full_evidence, "load_stale_exclusion_keys", selected_keys)
+    monkeypatch.setattr(
+        full_evidence, "load_consensus_invalid_stale_keys", selected_keys
+    )
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=source_path,
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+
+    rows, stats = full_evidence.collect_source_rows(source, error_blocks_path=catalogue)
+
+    assert rows == []
+    assert stats.source_rows == 0
+    assert seen == [catalogue, catalogue]
+
+
 def test_monitor_export_does_not_reclassify_stale_without_sidecar_observation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

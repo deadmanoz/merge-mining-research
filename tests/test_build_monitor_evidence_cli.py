@@ -33,6 +33,26 @@ def _load_module():
     return module
 
 
+def _manifest_counts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    numeric_fields = {
+        "canonical",
+        "stale",
+        "stale_descendant",
+        "strict_btc_orphan",
+        "weak_btc_orphan",
+        "error_block",
+        "monitor_rows",
+        "source_rows",
+    }
+    return [
+        {
+            **row,
+            **{field: int(row[field]) for field in numeric_fields},
+        }
+        for row in rows
+    ]
+
+
 def _write_baseline(
     baseline_dir: Path,
     *,
@@ -215,7 +235,7 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                 "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
                 "strict_weak_verdicts_loaded": 0,
                 "artifacts": {"namecoin": count["artifact_path"]},
-                "counts": [count],
+                "counts": _manifest_counts([count]),
                 "strict_weak_verdicts_loaded": 0,
                 "validation_contract": {"profile": "legacy"},
             }
@@ -255,7 +275,7 @@ def _append_error_observation_baseline(
     manifest_path = output_dir / "monitor-evidence-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
-    manifest["counts"] = counts
+    manifest["counts"] = _manifest_counts(counts)
     manifest_path.write_text(json.dumps(manifest))
     (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
         "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
@@ -1251,6 +1271,49 @@ def test_error_aggregate_rejects_manifest_artifact_path_drift(
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
+def test_error_aggregate_rejects_padded_row_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    artifact = partial_dir / "namecoin_monitor_evidence.csv"
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["chain"] = " namecoin "
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="row chain"):
+        module._load_error_update_baseline(partial_dir)
+
+
+def test_error_aggregate_rejects_string_manifest_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    manifest_path = partial_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["counts"][0]["stale"] = "1"
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="must be a nonnegative manifest integer"):
+        module._load_error_update_baseline(partial_dir)
+
+
 def test_error_aggregate_rejects_dropped_ordinary_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1796,7 +1859,7 @@ def test_error_aggregate_rejects_truncated_aggregate_floor(
     manifest_path = output_dir / "monitor-evidence-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
-    manifest["counts"] = counts
+    manifest["counts"] = _manifest_counts(counts)
     manifest_path.write_text(json.dumps(manifest))
     (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
         "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"

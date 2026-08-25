@@ -284,7 +284,7 @@ def _load_monitor_artifact_counts(
                 + ", ".join(sorted(missing))
             )
         for row_number, row in enumerate(reader, start=2):
-            row_chain = (row.get("chain") or "").strip()
+            row_chain = row.get("chain") or ""
             if row_chain != chain:
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
@@ -1968,18 +1968,16 @@ def _load_error_update_baseline(
         for field in _MANIFEST_COUNT_FIELDS:
             csv_raw = row.get(field)
             manifest_raw = manifest_row.get(field)
+            if type(manifest_raw) is not int or manifest_raw < 0:
+                raise ValueError(
+                    f"{manifest_path}: {chain} {field} must be a nonnegative "
+                    "manifest integer"
+                )
             csv_value = int_or_none(str(csv_raw) if csv_raw is not None else "")
-            manifest_value = int_or_none(
-                str(manifest_raw) if manifest_raw is not None else ""
-            )
-            if (
-                csv_value is None
-                or manifest_value is None
-                or csv_value != manifest_value
-            ):
+            if csv_value is None or csv_value != manifest_raw:
                 raise ValueError(
                     f"{manifest_path}: {chain} {field} does not match counts "
-                    f"({manifest_value!r} != {csv_value!r})"
+                    f"({manifest_raw!r} != {csv_value!r})"
                 )
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:
