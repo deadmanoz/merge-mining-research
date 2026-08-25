@@ -174,7 +174,13 @@ def test_error_block_keys_are_absent_from_committed_publication_csvs() -> None:
     paths = [
         *sorted((REPO / "data" / "validated-stales").glob("*_validated_stales.csv")),
         *sorted((REPO / "results" / "per-chain-novelty").glob("*.csv")),
-        *sorted((REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")),
+        *(
+            path
+            for path in sorted(
+                (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
+            )
+            if path.name != "error-block-observations_monitor_evidence.csv"
+        ),
     ]
     found: list[tuple[Path, tuple[int, str]]] = []
     for path in paths:

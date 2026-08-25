@@ -58,6 +58,9 @@ strict-weak-orphans *ARGS:
 # `--allow-partial` (and may add `--skip-canonical`).
 #   just monitor-evidence --chain-archive-dir <private-chain-archive>/chains \
 #     --relevance-inventory <private-relevance-inventory.csv>
+# Add the recovered error-block witness ledger to an already complete
+# publication without rebuilding the ordinary per-chain LFS artifacts:
+#   just monitor-evidence --add-error-observations
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
 

@@ -1538,6 +1538,7 @@ MONITOR_COUNT_FIELDS = [
     "stale_descendant",
     "strict_btc_orphan",
     "weak_btc_orphan",
+    "error_block",
     "monitor_rows",
     "source_rows",
     "canonical_evidence_status",
@@ -1701,6 +1702,7 @@ def monitor_count_row(
         "stale_descendant": counts.get("stale_descendant", 0),
         "strict_btc_orphan": counts.get(RELEVANCE_STRICT_BTC_ORPHAN, 0),
         "weak_btc_orphan": counts.get(RELEVANCE_WEAK_BTC_ORPHAN, 0),
+        "error_block": 0,
         "monitor_rows": monitor_rows,
         "source_rows": stats.source_rows,
         "canonical_evidence_status": canonical_evidence_status(source, stats),
@@ -1718,6 +1720,7 @@ def build_monitor_evidence_exports(
     reported_relevance_inventory: str | None = None,
     include_canonical: bool = True,
     fail_on_missing_child_identity: bool = False,
+    include_error_observations: bool = False,
 ) -> dict[str, object]:
     """Write per-chain monitor-facing evidence CSVs plus a counts manifest.
 
@@ -1730,6 +1733,9 @@ def build_monitor_evidence_exports(
     and manifests when a caller writes to a temporary staging directory first.
     ``reported_relevance_inventory`` can supply a stable logical publication
     name while diagnostic callers retain the sanitized path they actually read.
+    ``include_error_observations`` is enabled only by a complete publication
+    build because the recovered witness ledger must agree with the catalogue;
+    diagnostic exports deliberately leave the aggregate absent.
     """
     logical_output_dir = reported_output_dir or output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1949,6 +1955,31 @@ def build_monitor_evidence_exports(
     sidecar = stale_descendant_source(data_dir)
     if sidecar is not None:
         export(sidecar, "stale-descendants_monitor_evidence.csv")
+
+    if include_error_observations:
+        # Imported lazily to keep the ordinary final-category projection free
+        # of the error aggregate's archive-only reconstruction dependency.
+        from .error_observations import (
+            error_observation_count_row,
+            write_error_observation_artifact,
+        )
+
+        error_artifact = write_error_observation_artifact(
+            output_dir,
+            data_dir=data_dir,
+        )
+        error_chain = str(error_artifact["artifact"])
+        error_path = error_artifact["path"]
+        assert isinstance(error_path, Path)
+        reported_error_path = logical_output_dir / error_path.name
+        artifacts[error_chain] = safe_path(reported_error_path)
+        count_rows.append(
+            error_observation_count_row(
+                error_artifact,
+                data_dir=data_dir,
+                artifact_path=reported_error_path,
+            )
+        )
 
     missing_descendant_observations = (
         descendant_observations - represented_descendant_observations

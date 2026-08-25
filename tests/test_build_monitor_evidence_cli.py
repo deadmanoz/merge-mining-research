@@ -136,6 +136,85 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
         module.main(["--allow-partial"])
 
 
+def test_error_aggregate_updates_only_its_metadata_and_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    output_dir.mkdir()
+    normal_artifact = output_dir / "namecoin_monitor_evidence.csv"
+    normal_artifact.write_bytes(b"existing normal evidence\n")
+    count = {
+        "chain": "namecoin",
+        "source_kind": "full_inventory",
+        "artifact_scope": "full_classifier_inventory",
+        "artifact_path": "results/monitor-evidence/namecoin_monitor_evidence.csv",
+        "source_path": "<chain-archive>/namecoin/classified/namecoin_stale_blocks.csv",
+        "canonical": 0,
+        "stale": 1,
+        "stale_descendant": 0,
+        "strict_btc_orphan": 0,
+        "weak_btc_orphan": 0,
+        "monitor_rows": 1,
+        "source_rows": 1,
+        "canonical_evidence_status": "not_applicable",
+        "notes": "",
+    }
+    with (output_dir / "monitor-evidence-counts.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(count))
+        writer.writeheader()
+        writer.writerow(count)
+    (output_dir / "monitor-evidence-manifest.json").write_text(
+        json.dumps(
+            {
+                "artifacts": {"namecoin": count["artifact_path"]},
+                "counts": [count],
+            }
+        )
+    )
+
+    def write_aggregate(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
+            "error aggregate\n"
+        )
+        return {
+            "rows": 2,
+            "parents": 1,
+            "source_chain_counts": {"namecoin": 2},
+            "child_field_availability": {"child_height": 2},
+            "rsk_complete_sidecars": 0,
+        }
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_aggregate)
+
+    module.main(
+        [
+            "--add-error-observations",
+            "--output-dir",
+            str(output_dir),
+            "--chain-archive-dir",
+            str(tmp_path / "archive"),
+        ]
+    )
+
+    assert normal_artifact.read_bytes() == b"existing normal evidence\n"
+    assert (
+        output_dir / "error-block-observations_monitor_evidence.csv"
+    ).read_text() == "error aggregate\n"
+    with (output_dir / "monitor-evidence-counts.csv").open(newline="") as handle:
+        counts = list(csv.DictReader(handle))
+    assert [row["chain"] for row in counts] == [
+        "namecoin",
+        "error-block-observations",
+    ]
+    assert [row["error_block"] for row in counts] == ["0", "2"]
+    manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
+    assert manifest["artifacts"]["error-block-observations"].endswith(
+        "error-block-observations_monitor_evidence.csv"
+    )
+    assert manifest["counts"][-1]["error_block"] == 2
+
+
 def test_late_vcash_validation_failure_preserves_existing_publication_set(
     tmp_path: Path,
 ) -> None:

@@ -338,6 +338,18 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
+`error-block-observations_monitor_evidence.csv` is a separate 73-row aggregate
+for the 33 catalogue parents. Its rows retain the original archive or
+live-observation source coordinates but use `classification=error_block` and
+the catalogue's consensus rejection reason. `expected_nbits` is the required
+epoch target, so it can intentionally differ from the header's `btc_bits` for
+a retarget violation. The compact recovered witness ledger lives at
+`data/error-blocks/error_block_observations.csv`; it is checked against the
+current parent catalogue before publication. Extending an already complete
+publication uses `just monitor-evidence --add-error-observations`, which
+replaces only this aggregate and the two metadata files. It does not rebuild
+the normal per-chain LFS artifacts.
+
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes
 `child_header_hex`, `child_block_time`, and `child_nbits`; rows from the 17

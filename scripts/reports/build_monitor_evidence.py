@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
+    MONITOR_COUNT_FIELDS,
     MONITOR_OUTPUT_DIR,
     REPORTED_RELEVANCE_INVENTORY,
     EvidenceSource,
@@ -36,6 +37,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     discover_unknown_sources,
     load_orphan_relevance_verdicts,
     normalize_evidence_row,
+    write_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
@@ -45,6 +47,11 @@ from stale_blocks_analysis.stale_blocks import (  # noqa: E402
 from stale_blocks_analysis.error_blocks import (  # noqa: E402
     load_consensus_invalid_stale_keys,
     load_stale_exclusion_keys,
+)
+from stale_blocks_analysis.error_observations import (  # noqa: E402
+    ERROR_OBSERVATION_ARTIFACT,
+    error_observation_count_row,
+    write_error_observation_artifact,
 )
 
 PUBLICATION_COUNTS = MONITOR_OUTPUT_DIR / "monitor-evidence-counts.csv"
@@ -97,6 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
             "archive and/or relevance inventory. Partial output can omit "
             "canonical and strict/weak observations and must not replace the "
             "committed publication artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--add-error-observations",
+        action="store_true",
+        help=(
+            "Add only the error-block witness aggregate to an existing complete "
+            "monitor publication. This does not rebuild ordinary chain artifacts."
         ),
     )
     return parser
@@ -855,6 +870,156 @@ def _publish_staged_artifacts(staging_dir: Path, output_dir: Path) -> None:
         raise
 
 
+def _load_error_update_baseline(
+    output_dir: Path,
+) -> tuple[list[dict[str, str]], dict[str, object]]:
+    """Load a complete normal publication before adding its error aggregate."""
+    counts_path = output_dir / PUBLICATION_COUNTS.name
+    manifest_path = output_dir / PUBLICATION_MANIFEST.name
+    if not counts_path.is_file() or not manifest_path.is_file():
+        raise ValueError(f"publication baseline is incomplete under {output_dir}")
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = set(MONITOR_COUNT_FIELDS) - {"error_block"}
+        missing = required - set(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{counts_path}: missing columns: {', '.join(sorted(missing))}"
+            )
+        count_rows = list(reader)
+    if not count_rows:
+        raise ValueError(f"{counts_path}: publication baseline is empty")
+    chains = [(row.get("chain") or "").strip() for row in count_rows]
+    if not all(chains) or len(chains) != len(set(chains)):
+        raise ValueError(f"{counts_path}: invalid or duplicate chain rows")
+    for row in count_rows:
+        row.setdefault("error_block", "0")
+
+    manifest = json.loads(manifest_path.read_text())
+    artifacts = manifest.get("artifacts")
+    manifest_counts = manifest.get("counts")
+    if not isinstance(artifacts, dict) or not isinstance(manifest_counts, list):
+        raise ValueError(f"{manifest_path}: missing artifacts or counts")
+    manifest_chains = [
+        item.get("chain") for item in manifest_counts if isinstance(item, dict)
+    ]
+    if set(chains) != set(manifest_chains) or len(manifest_chains) != len(
+        set(manifest_chains)
+    ):
+        raise ValueError(f"{manifest_path}: counts do not match the CSV baseline")
+    for item in manifest_counts:
+        assert isinstance(item, dict)
+        item.setdefault("error_block", 0)
+    return count_rows, manifest
+
+
+def _replace_or_append_count(
+    rows: list[dict[str, object]], count: dict[str, object]
+) -> list[dict[str, object]]:
+    """Replace this aggregate's existing row, keeping normal publication order."""
+    chain = str(count["chain"])
+    replaced = False
+    updated: list[dict[str, object]] = []
+    for row in rows:
+        if str(row.get("chain") or "") != chain:
+            updated.append(row)
+            continue
+        if replaced:
+            raise ValueError(f"duplicate {chain} count rows")
+        updated.append(count)
+        replaced = True
+    if not replaced:
+        updated.append(count)
+    return updated
+
+
+def _publish_error_observation_update(staging_dir: Path, output_dir: Path) -> None:
+    """Atomically replace the aggregate and its two publication metadata files."""
+    names = (
+        f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv",
+        PUBLICATION_COUNTS.name,
+        PUBLICATION_MANIFEST.name,
+    )
+    staged = [staging_dir / name for name in names]
+    missing = [str(path) for path in staged if not path.is_file()]
+    if missing:
+        raise ValueError("error-observation update lacks: " + ", ".join(missing))
+    backup_dir = staging_dir.parent / "previous"
+    backup_dir.mkdir()
+    moved_previous: list[tuple[Path, Path]] = []
+    installed: list[tuple[Path, Path]] = []
+    try:
+        for staged_path in staged:
+            destination = output_dir / staged_path.name
+            if destination.exists() or destination.is_symlink():
+                backup = backup_dir / staged_path.name
+                os.replace(destination, backup)
+                moved_previous.append((backup, destination))
+        for staged_path in sorted(staged, key=_publish_order):
+            destination = output_dir / staged_path.name
+            os.replace(staged_path, destination)
+            installed.append((destination, staged_path))
+    except BaseException:
+        for destination, staged_path in reversed(installed):
+            if destination.exists() or destination.is_symlink():
+                os.replace(destination, staged_path)
+        for backup, destination in reversed(moved_previous):
+            if backup.exists() or backup.is_symlink():
+                os.replace(backup, destination)
+        raise
+
+
+def build_error_observation_update(args: argparse.Namespace) -> dict[str, object]:
+    """Publish the sparse error aggregate without rebuilding normal artifacts."""
+    output_dir = args.output_dir.expanduser().resolve()
+    if not output_dir.is_dir():
+        raise ValueError(f"publication output directory is missing: {output_dir}")
+    count_rows, manifest = _load_error_update_baseline(output_dir)
+    transaction_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output_dir.name}.error-observations-", dir=output_dir.parent
+        )
+    )
+    staging_dir = transaction_dir / "staged"
+    staging_dir.mkdir()
+    try:
+        artifact = write_error_observation_artifact(
+            staging_dir,
+            data_dir=args.data_dir,
+        )
+        artifact_path = (
+            output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+        )
+        count = error_observation_count_row(
+            artifact,
+            data_dir=args.data_dir,
+            artifact_path=artifact_path,
+        )
+        updated_csv_counts = _replace_or_append_count(count_rows, count)
+        manifest_counts = manifest.get("counts")
+        assert isinstance(manifest_counts, list)
+        manifest["counts"] = _replace_or_append_count(manifest_counts, count)
+        artifacts = manifest.get("artifacts")
+        assert isinstance(artifacts, dict)
+        artifacts[str(count["chain"])] = str(count["artifact_path"])
+        write_csv(
+            staging_dir / PUBLICATION_COUNTS.name,
+            updated_csv_counts,
+            MONITOR_COUNT_FIELDS,
+        )
+        (staging_dir / PUBLICATION_MANIFEST.name).write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        )
+        _publish_error_observation_update(staging_dir, output_dir)
+        return {
+            "counts_csv": output_dir / PUBLICATION_COUNTS.name,
+            "manifest_json": output_dir / PUBLICATION_MANIFEST.name,
+            "error_observations": count["monitor_rows"],
+        }
+    finally:
+        shutil.rmtree(transaction_dir, ignore_errors=True)
+
+
 def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
     """Build in a same-filesystem staging directory, then publish the full set."""
     output_dir = args.output_dir.expanduser().resolve()
@@ -883,6 +1048,7 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             # row (the importer would silently drop it); a partial diagnostic
             # build reports the shortfall in the counts notes instead.
             fail_on_missing_child_identity=not args.allow_partial,
+            include_error_observations=not args.allow_partial,
         )
         _publish_staged_artifacts(staging_dir, output_dir)
         return summary
@@ -894,6 +1060,16 @@ def main(argv: list[str] | None = None) -> None:
     """Write the monitor-facing exports and print the manifest summary."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.add_error_observations:
+        if args.allow_partial or args.skip_canonical:
+            parser.error(
+                "--add-error-observations cannot be combined with partial-build options"
+            )
+        summary = build_error_observation_update(args)
+        print(f"wrote {summary['counts_csv']}")
+        print(f"wrote {summary['manifest_json']}")
+        print(f"error observations added: {summary['error_observations']}")
+        return
     validate_publication_inputs(args, parser)
     if args.allow_partial:
         print(
