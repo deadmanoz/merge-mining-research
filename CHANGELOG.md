@@ -71,6 +71,9 @@ Preserve primary classifications and live child timestamps, reject stale-gate
 fields on non-stale rows, validate canonical-coverage metadata, and keep the
 error aggregate under the baseline's logical publication root.
 
+Preserve serialized child-header fields in the ordinary floor and synchronize
+source provenance metadata across the counts CSV and manifest.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

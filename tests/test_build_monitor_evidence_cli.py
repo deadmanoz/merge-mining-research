@@ -916,6 +916,31 @@ def test_error_aggregate_rejects_manifest_artifact_scope_drift(
         module._load_error_update_baseline(partial_dir)
 
 
+def test_error_aggregate_rejects_manifest_provenance_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["source_path"] = "archive/changed.csv"
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="source_path does not match counts"):
+        module._load_error_update_baseline(partial_dir)
+
+
 def test_error_aggregate_rejects_manifest_artifact_path_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1172,6 +1197,43 @@ def test_identity_floor_preserves_live_child_timestamp(tmp_path: Path) -> None:
 
     write_artifact(committed_dir, "100")
     write_artifact(current_dir, "101")
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
+
+
+def test_identity_floor_preserves_serialized_child_header(tmp_path: Path) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, header_hex: str) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+            writer.writeheader()
+            row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+            row.update(
+                {
+                    "chain": "namecoin",
+                    "btc_height": "1",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "classification": "canonical",
+                    "child_block_hash": "11" * 32,
+                    "child_block_time": "100",
+                    "child_header_hex": header_hex,
+                    "child_nbits": "1d00ffff",
+                }
+            )
+            writer.writerow(row)
+
+    write_artifact(committed_dir, "00" * 80)
+    write_artifact(current_dir, "")
 
     with pytest.raises(ValueError, match="drops committed ordinary evidence"):
         module._validate_ordinary_monitor_identity_floor(

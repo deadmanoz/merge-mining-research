@@ -646,6 +646,8 @@ def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
         row.get("source_path") or "",
         row.get("source_row_number") or "",
         row.get("provenance") or "",
+        row.get("child_header_hex") or "",
+        row.get("child_nbits") or "",
         row.get("coinbase_scriptsig_hex") or "",
         row.get("coinbase_outputs") or "",
         row.get("full_coinbase_hex") or "",
@@ -1586,6 +1588,14 @@ def _load_error_update_baseline(
                 f"{manifest_path}: {chain} artifact scope does not match counts "
                 f"({manifest_scope!r} != {csv_scope!r})"
             )
+        for field in ("source_kind", "source_path", "notes"):
+            csv_value = (row.get(field) or "").strip()
+            manifest_value = str(manifest_row.get(field) or "").strip()
+            if csv_value != manifest_value:
+                raise ValueError(
+                    f"{manifest_path}: {chain} {field} does not match counts "
+                    f"({manifest_value!r} != {csv_value!r})"
+                )
         for field in _MANIFEST_COUNT_FIELDS:
             csv_raw = row.get(field)
             manifest_raw = manifest_row.get(field)
