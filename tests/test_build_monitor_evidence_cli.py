@@ -541,6 +541,24 @@ def test_monitor_artifact_rejects_malformed_child_height(tmp_path: Path) -> None
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_padded_btc_height(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_height"] = " 1 "
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="btc_height must be blank"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_mismatched_live_child_header(
     tmp_path: Path,
 ) -> None:
@@ -1269,6 +1287,51 @@ def test_error_aggregate_rejects_manifest_artifact_path_drift(
 
     with pytest.raises(ValueError, match="manifest and count artifact paths"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_count_scope_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+
+    def set_scope(directory: Path, scope: str) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = reader.fieldnames
+            rows = list(reader)
+        assert fieldnames is not None
+        rows[0]["artifact_scope"] = scope
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        counts_path = directory / "monitor-evidence-counts.csv"
+        with counts_path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = reader.fieldnames
+            counts = list(reader)
+        assert fieldnames is not None
+        counts[0]["artifact_scope"] = scope
+        with counts_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(counts)
+        manifest_path = directory / "monitor-evidence-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["counts"][0]["artifact_scope"] = scope
+        manifest_path.write_text(json.dumps(manifest))
+
+    set_scope(committed_dir, "partial_canonical_subset")
+    shutil.copytree(committed_dir, partial_dir)
+    set_scope(partial_dir, "canonical_blocks")
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="artifact_scope"):
+        module._load_error_update_baseline(partial_dir)
 
 
 def test_error_aggregate_rejects_padded_row_chain(

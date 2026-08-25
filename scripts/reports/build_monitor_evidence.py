@@ -321,6 +321,18 @@ def _load_monitor_artifact_counts(
                 raise ValueError(
                     f"{path}:{row_number}: relevance vocabulary is not exact"
                 )
+            raw_btc_height = row.get("btc_height") or ""
+            if raw_btc_height and (
+                raw_btc_height != raw_btc_height.strip()
+                or not raw_btc_height.isascii()
+                or not raw_btc_height.isdigit()
+                or str(int(raw_btc_height)) != raw_btc_height
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: btc_height must be blank or an "
+                    "exact unpadded non-negative decimal"
+                )
+            btc_height = int(raw_btc_height) if raw_btc_height else None
             parent_hash = row.get("btc_header_hash") or ""
             if not is_hash(parent_hash) or parent_hash != parent_hash.lower():
                 raise ValueError(
@@ -446,7 +458,6 @@ def _load_monitor_artifact_counts(
                         "child identity"
                     )
             if classification in {"stale", "stale_descendant"}:
-                btc_height = int_or_none((row.get("btc_height") or "").strip())
                 if btc_height is None or btc_height < 0:
                     raise ValueError(
                         f"{path}:{row_number}: {classification} row lacks a "
@@ -579,7 +590,6 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation has invalid relevance"
                     )
-                btc_height = int_or_none((row.get("btc_height") or "").strip())
                 if btc_height is None or btc_height < 0:
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation lacks a "
@@ -625,7 +635,6 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: orphan row has invalid status"
                     )
                 if bucket == "strict_btc_orphan":
-                    btc_height = int_or_none((row.get("btc_height") or "").strip())
                     if btc_height is None or btc_height < 0:
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row lacks a "
@@ -1957,7 +1966,7 @@ def _load_error_update_baseline(
                 f"{manifest_path}: {chain} artifact scope does not match counts "
                 f"({manifest_scope!r} != {csv_scope!r})"
             )
-        for field in ("source_kind", "source_path", "notes"):
+        for field in ("artifact_scope", "source_kind", "source_path", "notes"):
             csv_value = (row.get(field) or "").strip()
             manifest_value = str(manifest_row.get(field) or "").strip()
             if csv_value != manifest_value:
@@ -2086,7 +2095,7 @@ def _validate_add_only_baseline_floors(
         if row is None:
             problems.append(f"missing {chain}")
             continue
-        for field in ("source_kind", "source_path", "notes"):
+        for field in ("artifact_scope", "source_kind", "source_path", "notes"):
             observed_text = (row.get(field) or "").strip()
             committed_text = (expected.get(field) or "").strip()
             if observed_text != committed_text:
