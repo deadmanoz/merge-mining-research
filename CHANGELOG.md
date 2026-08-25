@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Keep error-observation publication updates fail-closed when an ordinary monitor
+artifact is missing or the regenerated aggregate falls below its existing
+floor. Require every recovered witness to carry an authenticated child hash,
+deriving it from the supplied child header when available.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

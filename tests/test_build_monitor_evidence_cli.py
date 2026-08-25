@@ -153,6 +153,7 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
         "stale_descendant": 0,
         "strict_btc_orphan": 0,
         "weak_btc_orphan": 0,
+        "error_block": 0,
         "monitor_rows": stale,
         "source_rows": stale,
         "canonical_evidence_status": "not_applicable",
@@ -238,6 +239,82 @@ def test_error_aggregate_rejects_partial_publication_baseline(
 
     with pytest.raises(ValueError, match="namecoin stale is below floor"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_missing_ordinary_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=1)
+    (partial_dir / "namecoin_monitor_evidence.csv").unlink()
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(
+        ValueError, match="namecoin monitor-evidence artifact is missing"
+    ):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_truncated_aggregate_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    counts_path = output_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        counts = list(reader)
+    assert fieldnames is not None
+    aggregate = {field: "0" for field in fieldnames}
+    aggregate.update(
+        {
+            "chain": "error-block-observations",
+            "source_kind": "error_block_catalogue",
+            "artifact_scope": "error-block-observations",
+            "artifact_path": (
+                "results/monitor-evidence/error-block-observations_monitor_evidence.csv"
+            ),
+            "error_block": "2",
+            "monitor_rows": "2",
+            "source_rows": "2",
+        }
+    )
+    counts.append(aggregate)
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(counts)
+    manifest_path = output_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
+    manifest["counts"] = counts
+    manifest_path.write_text(json.dumps(manifest))
+    (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
+        "old aggregate\n"
+    )
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
+
+    def write_truncated_aggregate(
+        staging_dir: Path, **_kwargs: object
+    ) -> dict[str, object]:
+        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
+            "new aggregate\n"
+        )
+        return {"rows": 1}
+
+    monkeypatch.setattr(
+        module, "write_error_observation_artifact", write_truncated_aggregate
+    )
+
+    with pytest.raises(
+        ValueError, match="error-block-observations monitor_rows is below floor"
+    ):
+        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
 
 
 def test_late_vcash_validation_failure_preserves_existing_publication_set(

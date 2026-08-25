@@ -939,6 +939,22 @@ def _load_error_update_baseline(
     for item in manifest_counts:
         assert isinstance(item, dict)
         item.setdefault("error_block", 0)
+    count_rows_by_chain = {row["chain"]: row for row in count_rows}
+    artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
+    for chain in artifact_chains:
+        declared = artifacts.get(chain)
+        if not isinstance(declared, str) or not declared.strip():
+            declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
+        expected_name = f"{chain}_monitor_evidence.csv"
+        if not isinstance(declared, str) or Path(declared).name != expected_name:
+            raise ValueError(
+                f"{output_dir}: {chain} has no valid declared monitor-evidence artifact"
+            )
+        artifact_path = output_dir / expected_name
+        if not artifact_path.is_file():
+            raise ValueError(
+                f"{output_dir}: {chain} monitor-evidence artifact is missing"
+            )
     _validate_add_only_baseline_floors(count_rows, counts_path)
     return count_rows, manifest
 
@@ -973,6 +989,42 @@ def _validate_add_only_baseline_floors(
         raise ValueError(
             f"{counts_path}: baseline is below committed publication floors: "
             + "; ".join(problems)
+        )
+
+
+def _validate_error_observation_update_floor(
+    count_rows: list[dict[str, str]], counts_path: Path, observed_rows: int
+) -> None:
+    """Reject an add-only aggregate that would reduce its existing floor."""
+    baseline = next(
+        (
+            row
+            for row in count_rows
+            if (row.get("chain") or "").strip() == ERROR_OBSERVATION_ARTIFACT
+        ),
+        None,
+    )
+    if baseline is None:
+        return
+    problems: list[str] = []
+    for field in ("error_block", "monitor_rows", "source_rows"):
+        value = baseline.get(field)
+        try:
+            expected = int(value or "")
+        except ValueError:
+            problems.append(
+                f"{ERROR_OBSERVATION_ARTIFACT} has invalid {field}: {value!r}"
+            )
+            continue
+        if observed_rows < expected:
+            problems.append(
+                f"{ERROR_OBSERVATION_ARTIFACT} {field} is below floor "
+                f"({observed_rows} < {expected})"
+            )
+    if problems:
+        raise ValueError(
+            f"{counts_path}: regenerated error-observation aggregate is below "
+            "the publication floor: " + "; ".join(problems)
         )
 
 
@@ -1049,6 +1101,14 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
         artifact = write_error_observation_artifact(
             staging_dir,
             data_dir=args.data_dir,
+        )
+        observed_rows = int_or_none(str(artifact.get("rows") or ""))
+        if observed_rows is None or observed_rows < 0:
+            raise ValueError("error-observation artifact has an invalid row count")
+        _validate_error_observation_update_floor(
+            count_rows,
+            output_dir / PUBLICATION_COUNTS.name,
+            observed_rows,
         )
         artifact_path = (
             output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"

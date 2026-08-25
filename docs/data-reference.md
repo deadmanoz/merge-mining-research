@@ -345,10 +345,14 @@ the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
 a retarget violation. The compact recovered witness ledger lives at
 `data/error-blocks/error_block_observations.csv`; it is checked against the
-current parent catalogue before publication. Extending an already complete
-publication uses `just monitor-evidence --add-error-observations`, which
-replaces only this aggregate and the two metadata files. It does not rebuild
-the normal per-chain LFS artifacts.
+current parent catalogue before publication. Every ledger row must identify its
+child either with a well-formed internal-order hash or with a serialized child
+header from which that hash can be authenticated. Extending an already
+complete publication uses `just monitor-evidence --add-error-observations`,
+which verifies that every ordinary artifact declared by the baseline is still
+present and that the regenerated aggregate does not fall below its existing
+floors before replacing only this aggregate and the two metadata files. It
+does not rebuild the normal per-chain LFS artifacts.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes

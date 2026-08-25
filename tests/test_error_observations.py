@@ -7,6 +7,7 @@ import pytest
 
 from stale_blocks_analysis.auxpow_chainid import (
     hash_from_display_hex,
+    hash_from_header_bytes,
     hash_to_internal_hex,
 )
 from stale_blocks_analysis.config import DATA_DIR
@@ -76,5 +77,65 @@ def test_error_observation_ledger_rejects_unmatched_child_header_hash(tmp_path) 
 
     with pytest.raises(
         ValueError, match="child_header_hex does not match child_block_hash"
+    ):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_derives_missing_child_hash_from_header(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "data"
+    shutil.copytree(DATA_DIR / "error-blocks", data_dir / "error-blocks")
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    witness = next(row for row in rows if row["child_header_hex"])
+    expected_hash = hash_from_header_bytes(
+        bytes.fromhex(witness["child_header_hex"])
+    ).hex()
+    witness["child_block_hash"] = ""
+
+    with ledger_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    output_rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    exported = next(
+        row
+        for row in output_rows
+        if row["chain"] == witness["chain"]
+        and row["child_height"] == witness["child_height"]
+        and row["btc_header_hash"] == witness["btc_header_hash"]
+    )
+    assert exported["child_block_hash"] == expected_hash
+
+
+def test_error_observation_ledger_rejects_missing_child_identity(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    shutil.copytree(DATA_DIR / "error-blocks", data_dir / "error-blocks")
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    rows[0]["child_block_hash"] = ""
+    rows[0]["child_header_hex"] = ""
+
+    with ledger_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(
+        ValueError, match="missing child_block_hash and child_header_hex"
     ):
         build_error_observation_rows(data_dir=data_dir)

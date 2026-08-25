@@ -7,7 +7,11 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from .auxpow_chainid import hash_from_display_hex, hash_to_internal_hex
+from .auxpow_chainid import (
+    hash_from_display_hex,
+    hash_from_header_bytes,
+    hash_to_internal_hex,
+)
 from .auxpow_parse import (
     ChildHeaderValidationError,
     validate_available_child_header_fields,
@@ -254,17 +258,23 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 )
             if child_hash_order == "display" and child_hash:
                 child_hash = hash_to_internal_hex(hash_from_display_hex(child_hash))
-            row["child_block_hash"] = child_hash
             child_header = (row.get("child_header_hex") or "").strip().lower()
+            child_header_bytes: bytes | None = None
             if child_header and len(child_header) != 160:
                 raise ValueError(f"{path}:{row_number}: malformed child_header_hex")
             if child_header:
                 try:
-                    bytes.fromhex(child_header)
+                    child_header_bytes = bytes.fromhex(child_header)
                 except ValueError as exc:
                     raise ValueError(
                         f"{path}:{row_number}: malformed child_header_hex"
                     ) from exc
+            if not child_hash and child_header_bytes is not None:
+                child_hash = hash_from_header_bytes(child_header_bytes).hex()
+            if not child_hash:
+                raise ValueError(
+                    f"{path}:{row_number}: missing child_block_hash and child_header_hex"
+                )
             child_time = (row.get("child_block_time") or "").strip()
             if child_time and int_or_none(child_time) is None:
                 raise ValueError(f"{path}:{row_number}: malformed child_block_time")
@@ -290,6 +300,7 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 raise ValueError(
                     f"{path}:{row_number}: invalid child header evidence: {exc}"
                 ) from exc
+            row["child_block_hash"] = child_hash
             key = (chain, child_height, block_hash)
             if key in observations:
                 raise ValueError(f"{path}:{row_number}: duplicate witness {key}")
