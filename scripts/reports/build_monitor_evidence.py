@@ -38,6 +38,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     int_or_none,
     is_hash,
     load_orphan_relevance_verdicts,
+    MONITOR_VALIDATION_CONTRACTS,
     normalize_evidence_row,
     write_csv,
 )
@@ -142,6 +143,10 @@ _ORDINARY_MONITOR_CATEGORIES = (
     "strict_btc_orphan",
     "weak_btc_orphan",
 )
+_ORPHAN_RELEVANCE_REASONS = {
+    "strict_height_nbits_match",
+    "timestamp_epoch_nbits_match",
+}
 
 
 def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
@@ -191,7 +196,11 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                         f"{path}:{row_number}: descendant observation has invalid status"
                     )
                 counts["stale_descendant"] += 1
-            elif bucket in {"strict_btc_orphan", "weak_btc_orphan"}:
+            elif (
+                classification == "unknown"
+                and bucket in {"strict_btc_orphan", "weak_btc_orphan"}
+                and reason in _ORPHAN_RELEVANCE_REASONS
+            ):
                 counts[bucket] += 1
             else:
                 raise ValueError(
@@ -1047,6 +1056,8 @@ def _load_error_update_baseline(
         row.setdefault("error_block", "0")
 
     manifest = json.loads(manifest_path.read_text())
+    manifest.pop("validation_contract", None)
+    manifest["validation_contracts"] = MONITOR_VALIDATION_CONTRACTS
     artifacts = manifest.get("artifacts")
     manifest_counts = manifest.get("counts")
     if not isinstance(artifacts, dict) or not isinstance(manifest_counts, list):

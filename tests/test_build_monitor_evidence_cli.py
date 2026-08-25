@@ -174,6 +174,7 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                 "artifacts": {"namecoin": count["artifact_path"]},
                 "counts": [count],
                 "strict_weak_verdicts_loaded": 0,
+                "validation_contract": {"profile": "legacy"},
             }
         )
     )
@@ -268,6 +269,10 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
     ]
     assert [row["error_block"] for row in counts] == ["0", "2"]
     manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
+    assert "validation_contract" not in manifest
+    assert manifest["validation_contracts"]["error-block-observations"]["profile"] == (
+        "error_observation_consensus_invalid_v1"
+    )
     assert manifest["artifacts"]["error-block-observations"].endswith(
         "error-block-observations_monitor_evidence.csv"
     )
@@ -319,6 +324,36 @@ def test_error_aggregate_rejects_truncated_ordinary_artifact(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="namecoin stale does not match artifact"):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=0)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=0)
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        counts = list(reader)
+    assert fieldnames is not None
+    counts[0]["strict_btc_orphan"] = "1"
+    counts[0]["monitor_rows"] = "1"
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(counts)
+    (partial_dir / "namecoin_monitor_evidence.csv").write_text(
+        "chain,classification,validation_status,btc_stale_relevance,relevance_reason\n"
+        "namecoin,near,,strict_btc_orphan,strict_height_nbits_match\n"
+    )
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="unsupported monitor classification"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 

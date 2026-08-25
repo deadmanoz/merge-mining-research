@@ -542,22 +542,39 @@
   "output_dir": "results/monitor-evidence",
   "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
   "strict_weak_verdicts_loaded": 21,
-  "validation_contract": {
-    "documentation": "docs/data-validity.md",
-    "full_block_consensus_validity_asserted": false,
-    "known_exception": {
-      "rsk": "coinbase-dependent checks unavailable from compressed proof"
+  "validation_contracts": {
+    "error-block-observations": {
+      "documentation": "docs/data-validity.md",
+      "parent_consensus_invalidity_asserted": true,
+      "profile": "error_observation_consensus_invalid_v1",
+      "required_checks": [
+        "parent_header_hash_and_fields",
+        "catalogued_consensus_rejection_reason",
+        "authenticated_child_identity",
+        "source_observation_coordinates"
+      ],
+      "valid_token_scope": "authenticated_witness_of_consensus_invalid_parent",
+      "valid_tokens": [
+        "VALID_ERROR_BLOCK"
+      ]
     },
-    "profile": "direct_stale_header_context_v1",
-    "required_checks": [
-      "candidate_header_hash_and_self_pow",
-      "active_chain_parent_and_expected_height",
-      "expected_nbits",
-      "median_time_past",
-      "historical_minimum_block_version",
-      "coinbase_scriptsig_length_when_available",
-      "bip34_coinbase_height_when_available"
-    ],
-    "valid_token_scope": "publication_gate_accepted_not_full_block_validity"
+    "ordinary_monitor_evidence": {
+      "documentation": "docs/data-validity.md",
+      "full_block_consensus_validity_asserted": false,
+      "known_exception": {
+        "rsk": "coinbase-dependent checks unavailable from compressed proof"
+      },
+      "profile": "direct_stale_header_context_v1",
+      "required_checks": [
+        "candidate_header_hash_and_self_pow",
+        "active_chain_parent_and_expected_height",
+        "expected_nbits",
+        "median_time_past",
+        "historical_minimum_block_version",
+        "coinbase_scriptsig_length_when_available",
+        "bip34_coinbase_height_when_available"
+      ],
+      "valid_token_scope": "publication_gate_accepted_not_full_block_validity"
+    }
   }
 }
