@@ -36,6 +36,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     discover_evidence_sources,
     discover_unknown_sources,
     int_or_none,
+    is_hash,
     load_orphan_relevance_verdicts,
     normalize_evidence_row,
     write_csv,
@@ -132,6 +133,123 @@ def _csv_row_count(path: Path) -> int:
     """Count data rows in a CSV without assuming one physical line per row."""
     with path.open(newline="") as handle:
         return sum(1 for _row in csv.DictReader(handle))
+
+
+_ORDINARY_MONITOR_CATEGORIES = (
+    "canonical",
+    "stale",
+    "stale_descendant",
+    "strict_btc_orphan",
+    "weak_btc_orphan",
+)
+
+
+def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
+    """Count and validate the published categories in one ordinary artifact."""
+    counts: Counter[str] = Counter()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {
+            "chain",
+            "classification",
+            "validation_status",
+            "btc_stale_relevance",
+            "relevance_reason",
+        }
+        missing = required - set(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{path}: missing monitor-evidence fields: {', '.join(sorted(missing))}"
+            )
+        for row_number, row in enumerate(reader, start=2):
+            row_chain = (row.get("chain") or "").strip()
+            if row_chain != chain:
+                raise ValueError(
+                    f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
+                )
+            classification = (row.get("classification") or "").strip().lower()
+            status = (row.get("validation_status") or "").strip()
+            bucket = (row.get("btc_stale_relevance") or "").strip()
+            reason = (row.get("relevance_reason") or "").strip()
+            if classification == "canonical":
+                counts["canonical"] += 1
+            elif classification == "stale":
+                if not status.startswith("VALID"):
+                    raise ValueError(
+                        f"{path}:{row_number}: stale row is not publication-valid"
+                    )
+                counts["stale"] += 1
+            elif classification == "stale_descendant":
+                if status != "VALID_STALE_DESCENDANT":
+                    raise ValueError(
+                        f"{path}:{row_number}: stale descendant row has invalid status"
+                    )
+                counts["stale_descendant"] += 1
+            elif classification == "unknown" and reason == "valid_stale_descendant":
+                if status != "VALID_STALE_DESCENDANT":
+                    raise ValueError(
+                        f"{path}:{row_number}: descendant observation has invalid status"
+                    )
+                counts["stale_descendant"] += 1
+            elif bucket in {"strict_btc_orphan", "weak_btc_orphan"}:
+                counts[bucket] += 1
+            else:
+                raise ValueError(
+                    f"{path}:{row_number}: unsupported monitor classification"
+                )
+    counts["monitor_rows"] = sum(
+        counts[category] for category in _ORDINARY_MONITOR_CATEGORIES
+    )
+    return counts
+
+
+def _load_error_observation_identity_sets(
+    path: Path,
+) -> tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]]:
+    """Load exact parent and witness identities from an error aggregate."""
+    parent_identities: set[tuple[int, str]] = set()
+    witness_identities: set[tuple[str, int, str, int, str]] = set()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {
+            "chain",
+            "child_height",
+            "child_block_hash",
+            "btc_height",
+            "btc_header_hash",
+        }
+        missing = required - set(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{path}: missing error-observation identity fields: "
+                + ", ".join(sorted(missing))
+            )
+        for row_number, row in enumerate(reader, start=2):
+            chain = (row.get("chain") or "").strip()
+            child_height = int_or_none((row.get("child_height") or "").strip())
+            btc_height = int_or_none((row.get("btc_height") or "").strip())
+            child_hash = (row.get("child_block_hash") or "").strip().lower()
+            parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+            if (
+                not chain
+                or child_height is None
+                or child_height < 0
+                or btc_height is None
+                or btc_height < 0
+                or not is_hash(child_hash)
+                or not is_hash(parent_hash)
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: malformed error-observation identity"
+                )
+            parent_identities.add((btc_height, parent_hash))
+            witness = (chain, child_height, child_hash, btc_height, parent_hash)
+            if witness in witness_identities:
+                raise ValueError(
+                    f"{path}:{row_number}: duplicate error-observation witness"
+                )
+            witness_identities.add(witness)
+    return parent_identities, witness_identities
 
 
 def _classification_counts(path: Path) -> Counter[str]:
@@ -901,7 +1019,11 @@ def _publish_staged_artifacts(staging_dir: Path, output_dir: Path) -> None:
 
 def _load_error_update_baseline(
     output_dir: Path,
-) -> tuple[list[dict[str, str]], dict[str, object]]:
+) -> tuple[
+    list[dict[str, str]],
+    dict[str, object],
+    tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
+]:
     """Load a complete normal publication before adding its error aggregate."""
     counts_path = output_dir / PUBLICATION_COUNTS.name
     manifest_path = output_dir / PUBLICATION_MANIFEST.name
@@ -955,8 +1077,32 @@ def _load_error_update_baseline(
             raise ValueError(
                 f"{output_dir}: {chain} monitor-evidence artifact is missing"
             )
+        expected = count_rows_by_chain.get(chain)
+        if expected is None:
+            raise ValueError(f"{output_dir}: {chain} artifact has no count row")
+        actual = _load_monitor_artifact_counts(artifact_path, chain)
+        for field in (*_ORDINARY_MONITOR_CATEGORIES, "monitor_rows"):
+            observed = actual[field]
+            minimum = int(expected.get(field) or "0")
+            if observed != minimum:
+                raise ValueError(
+                    f"{output_dir}: {chain} {field} does not match artifact "
+                    f"({observed} != {minimum})"
+                )
+    aggregate_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    if aggregate_path.is_file():
+        baseline_identities = _load_error_observation_identity_sets(aggregate_path)
+    elif (
+        aggregate := count_rows_by_chain.get(ERROR_OBSERVATION_ARTIFACT)
+    ) is not None and any(
+        int(aggregate.get(field) or "0") > 0
+        for field in ("error_block", "monitor_rows", "source_rows")
+    ):
+        raise ValueError(f"{output_dir}: error-observation artifact is missing")
+    else:
+        baseline_identities = (set(), set())
     _validate_add_only_baseline_floors(count_rows, counts_path)
-    return count_rows, manifest
+    return count_rows, manifest, baseline_identities
 
 
 def _validate_add_only_baseline_floors(
@@ -1028,6 +1174,27 @@ def _validate_error_observation_update_floor(
         )
 
 
+def _validate_error_observation_update_identities(
+    baseline: tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
+    regenerated: tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
+    counts_path: Path,
+) -> None:
+    """Reject an aggregate replacement that drops published exact identities."""
+    missing_parents = baseline[0] - regenerated[0]
+    missing_witnesses = baseline[1] - regenerated[1]
+    if not missing_parents and not missing_witnesses:
+        return
+    details: list[str] = []
+    if missing_parents:
+        details.append(f"missing {len(missing_parents)} published parent identities")
+    if missing_witnesses:
+        details.append(f"missing {len(missing_witnesses)} published witness identities")
+    raise ValueError(
+        f"{counts_path}: regenerated error-observation aggregate drops "
+        + "; ".join(details)
+    )
+
+
 def _replace_or_append_count(
     rows: list[dict[str, object]], count: dict[str, object]
 ) -> list[dict[str, object]]:
@@ -1089,7 +1256,7 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
     output_dir = args.output_dir.expanduser().resolve()
     if not output_dir.is_dir():
         raise ValueError(f"publication output directory is missing: {output_dir}")
-    count_rows, manifest = _load_error_update_baseline(output_dir)
+    count_rows, manifest, baseline_identities = _load_error_update_baseline(output_dir)
     transaction_dir = Path(
         tempfile.mkdtemp(
             prefix=f".{output_dir.name}.error-observations-", dir=output_dir.parent
@@ -1105,6 +1272,14 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
         observed_rows = int_or_none(str(artifact.get("rows") or ""))
         if observed_rows is None or observed_rows < 0:
             raise ValueError("error-observation artifact has an invalid row count")
+        regenerated_identities = _load_error_observation_identity_sets(
+            staging_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+        )
+        _validate_error_observation_update_identities(
+            baseline_identities,
+            regenerated_identities,
+            output_dir / PUBLICATION_COUNTS.name,
+        )
         _validate_error_observation_update_floor(
             count_rows,
             output_dir / PUBLICATION_COUNTS.name,

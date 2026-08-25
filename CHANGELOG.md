@@ -7,6 +7,11 @@ artifact is missing or the regenerated aggregate falls below its existing
 floor. Require every recovered witness to carry an authenticated child hash,
 deriving it from the supplied child header when available.
 
+Harden add-only error-observation updates by validating ordinary payload
+contents, preserving published parent and witness identities, rejecting
+duplicate child identities, and publishing separate validation contracts for
+ordinary evidence and consensus-invalid error observations.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

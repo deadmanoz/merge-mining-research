@@ -1763,7 +1763,8 @@ def test_monitor_export_reports_consensus_exclusions(
     assert namecoin["notes"] == "publication_exclusions=1"
 
     manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
-    assert manifest["validation_contract"] == {
+    contracts = manifest["validation_contracts"]
+    assert contracts["ordinary_monitor_evidence"] == {
         "profile": "direct_stale_header_context_v1",
         "valid_token_scope": "publication_gate_accepted_not_full_block_validity",
         "full_block_consensus_validity_asserted": False,
@@ -1779,6 +1780,19 @@ def test_monitor_export_reports_consensus_exclusions(
         "known_exception": {
             "rsk": "coinbase-dependent checks unavailable from compressed proof"
         },
+        "documentation": "docs/data-validity.md",
+    }
+    assert contracts["error-block-observations"] == {
+        "profile": "error_observation_consensus_invalid_v1",
+        "valid_tokens": ["VALID_ERROR_BLOCK"],
+        "valid_token_scope": "authenticated_witness_of_consensus_invalid_parent",
+        "parent_consensus_invalidity_asserted": True,
+        "required_checks": [
+            "parent_header_hash_and_fields",
+            "catalogued_consensus_rejection_reason",
+            "authenticated_child_identity",
+            "source_observation_coordinates",
+        ],
         "documentation": "docs/data-validity.md",
     }
 
