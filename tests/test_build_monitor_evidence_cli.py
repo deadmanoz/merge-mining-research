@@ -399,7 +399,25 @@ def test_monitor_artifact_rejects_missing_parent_hash(tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match="valid Bitcoin parent hash"):
+    with pytest.raises(ValueError, match="exact lowercase Bitcoin parent hash"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_noncanonical_parent_hash(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_header_hash"] = f" {TEST_PARENT_HASH.upper()}"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="exact lowercase Bitcoin parent hash"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
@@ -918,6 +936,41 @@ def test_identity_floor_preserves_nonempty_coinbase_evidence(tmp_path: Path) -> 
             writer.writerow(row)
 
     write_artifact(committed_dir, "aa")
+    write_artifact(current_dir, "")
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
+
+
+def test_identity_floor_preserves_rsk_sidecar_evidence(tmp_path: Path) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, miner: str) -> None:
+        artifact = directory / "rsk_monitor_evidence.csv"
+        fieldnames = MONITOR_EVIDENCE_FIELDS + module.RSK_SIDECAR_EXPORT_FIELDS
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            row = {field: "" for field in fieldnames}
+            row.update(
+                {
+                    "chain": "rsk",
+                    "btc_height": "1",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "classification": "canonical",
+                    "rsk_miner": miner,
+                }
+            )
+            writer.writerow(row)
+
+    write_artifact(committed_dir, "miner-a")
     write_artifact(current_dir, "")
 
     with pytest.raises(ValueError, match="drops committed ordinary evidence"):

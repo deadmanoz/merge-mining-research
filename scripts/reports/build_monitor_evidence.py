@@ -303,10 +303,11 @@ def _load_monitor_artifact_counts(
                 raise ValueError(
                     f"{path}:{row_number}: relevance vocabulary is not exact"
                 )
-            parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-            if not is_hash(parent_hash):
+            parent_hash = row.get("btc_header_hash") or ""
+            if not is_hash(parent_hash) or parent_hash != parent_hash.lower():
                 raise ValueError(
-                    f"{path}:{row_number}: row lacks a valid Bitcoin parent hash"
+                    f"{path}:{row_number}: row lacks an exact lowercase Bitcoin "
+                    "parent hash"
                 )
             parent_header_hex = row.get("btc_header_hex") or ""
             if (
@@ -627,13 +628,15 @@ def _load_ordinary_monitor_parent_identities(
     return identities
 
 
-def _coinbase_evidence_digest(row: dict[str, str]) -> str:
+def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
     """Digest the nonempty coinbase evidence preserved in an ordinary row."""
-    fields = (
+    fields = [
         row.get("coinbase_scriptsig_hex") or "",
         row.get("coinbase_outputs") or "",
         row.get("full_coinbase_hex") or "",
-    )
+    ]
+    if chain == "rsk":
+        fields.extend(row.get(field) or "" for field in RSK_SIDECAR_EXPORT_FIELDS)
     if not any(fields):
         return ""
     return hashlib.sha256("\x00".join(fields).encode()).hexdigest()
@@ -689,7 +692,7 @@ def _load_monitor_final_identity_sets(
                     parent_hash,
                     str(child_height) if child_height is not None else "",
                     child_hash if is_hash(child_hash) else "",
-                    _coinbase_evidence_digest(row),
+                    _coinbase_evidence_digest(row, chain),
                 )
                 identities.setdefault((chain, category), Counter())[key] += 1
     return identities
