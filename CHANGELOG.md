@@ -12,6 +12,9 @@ contents, preserving published parent and witness identities, rejecting
 duplicate child identities, and publishing separate validation contracts for
 ordinary evidence and consensus-invalid error observations.
 
+Require add-only ordinary artifacts to retain the complete monitor schema and
+the exact relevance axes emitted for each supported classification.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis.full_evidence import MONITOR_EVIDENCE_FIELDS
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "reports" / "build_monitor_evidence.py"
 
@@ -141,12 +143,22 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
 def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
     output_dir.mkdir()
     normal_artifact = output_dir / "namecoin_monitor_evidence.csv"
-    normal_artifact.write_text(
-        "chain,classification,validation_status,btc_stale_relevance,relevance_reason\n"
-        + "".join(
-            "namecoin,stale,VALID,,valid_direct_stale\n" for _index in range(stale)
-        )
-    )
+    with normal_artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+        writer.writeheader()
+        for _index in range(stale):
+            row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+            row.update(
+                {
+                    "chain": "namecoin",
+                    "source_kind": "full_inventory",
+                    "artifact_scope": "full_classifier_inventory",
+                    "classification": "stale",
+                    "validation_status": "VALID",
+                    "relevance_reason": "valid_direct_stale",
+                }
+            )
+            writer.writerow(row)
     count = {
         "chain": "namecoin",
         "source_kind": "full_inventory",
@@ -323,7 +335,32 @@ def test_error_aggregate_rejects_truncated_ordinary_artifact(
     )
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    with pytest.raises(ValueError, match="namecoin stale does not match artifact"):
+    with pytest.raises(ValueError, match="missing monitor-evidence fields"):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_invalid_relevance_on_confirmed_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=1)
+    artifact_path = partial_dir / "namecoin_monitor_evidence.csv"
+    with artifact_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["relevance_reason"] = "strict_height_nbits_match"
+    with artifact_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="stale row has invalid relevance"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
@@ -347,10 +384,23 @@ def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(counts)
-    (partial_dir / "namecoin_monitor_evidence.csv").write_text(
-        "chain,classification,validation_status,btc_stale_relevance,relevance_reason\n"
-        "namecoin,near,,strict_btc_orphan,strict_height_nbits_match\n"
-    )
+    with (partial_dir / "namecoin_monitor_evidence.csv").open(
+        "w", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+        writer.writeheader()
+        row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+        row.update(
+            {
+                "chain": "namecoin",
+                "source_kind": "full_inventory",
+                "artifact_scope": "full_classifier_inventory",
+                "classification": "near",
+                "btc_stale_relevance": "strict_btc_orphan",
+                "relevance_reason": "strict_height_nbits_match",
+            }
+        )
+        writer.writerow(row)
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="unsupported monitor classification"):

@@ -28,6 +28,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
     MONITOR_COUNT_FIELDS,
+    MONITOR_EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
     REPORTED_RELEVANCE_INVENTORY,
     EvidenceSource,
@@ -154,17 +155,12 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
     counts: Counter[str] = Counter()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
-        required = {
-            "chain",
-            "classification",
-            "validation_status",
-            "btc_stale_relevance",
-            "relevance_reason",
-        }
+        required = set(MONITOR_EVIDENCE_FIELDS)
         missing = required - set(reader.fieldnames or ())
         if missing:
             raise ValueError(
-                f"{path}: missing monitor-evidence fields: {', '.join(sorted(missing))}"
+                f"{path}: missing monitor-evidence fields: "
+                + ", ".join(sorted(missing))
             )
         for row_number, row in enumerate(reader, start=2):
             row_chain = (row.get("chain") or "").strip()
@@ -177,11 +173,19 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
             bucket = (row.get("btc_stale_relevance") or "").strip()
             reason = (row.get("relevance_reason") or "").strip()
             if classification == "canonical":
+                if bucket or reason:
+                    raise ValueError(
+                        f"{path}:{row_number}: canonical row has non-empty relevance"
+                    )
                 counts["canonical"] += 1
             elif classification == "stale":
                 if not status.startswith("VALID"):
                     raise ValueError(
                         f"{path}:{row_number}: stale row is not publication-valid"
+                    )
+                if bucket or reason != "valid_direct_stale":
+                    raise ValueError(
+                        f"{path}:{row_number}: stale row has invalid relevance"
                     )
                 counts["stale"] += 1
             elif classification == "stale_descendant":
@@ -189,11 +193,19 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                     raise ValueError(
                         f"{path}:{row_number}: stale descendant row has invalid status"
                     )
+                if bucket or reason != "valid_stale_descendant":
+                    raise ValueError(
+                        f"{path}:{row_number}: stale descendant has invalid relevance"
+                    )
                 counts["stale_descendant"] += 1
             elif classification == "unknown" and reason == "valid_stale_descendant":
                 if status != "VALID_STALE_DESCENDANT":
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation has invalid status"
+                    )
+                if bucket:
+                    raise ValueError(
+                        f"{path}:{row_number}: descendant observation has invalid relevance"
                     )
                 counts["stale_descendant"] += 1
             elif (
