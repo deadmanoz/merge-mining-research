@@ -38,6 +38,12 @@ Reject duplicate stale identities, revalidate strict orphan heights against
 the committed Bitcoin epoch targets, and require manifest and count metadata
 to name the same ordinary artifact path.
 
+Revalidate weak orphan timestamp/epoch evidence, require canonical serialized
+parent headers to use the exact lowercase wire encoding, preserve committed
+ordinary identities during add-only updates, and keep publication contracts in
+the shared configuration module. Refresh the validity methodology to describe
+the expanded preflight checks and their remaining contextual caveats.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

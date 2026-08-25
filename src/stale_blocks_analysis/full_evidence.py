@@ -27,6 +27,7 @@ from .config import (
     CHAIN_SPECS,
     DATA_DIR,
     HISTORICAL_CHILD_HEADER_CHAINS,
+    MONITOR_VALIDATION_CONTRACTS,
     PROJECT_ROOT,
     RESULTS_DIR,
     RELEVANCE_STRICT_BTC_ORPHAN,
@@ -1544,40 +1545,6 @@ MONITOR_COUNT_FIELDS = [
     "canonical_evidence_status",
     "notes",
 ]
-
-MONITOR_VALIDATION_CONTRACTS = {
-    "ordinary_monitor_evidence": {
-        "profile": "direct_stale_header_context_v1",
-        "valid_token_scope": "publication_gate_accepted_not_full_block_validity",
-        "full_block_consensus_validity_asserted": False,
-        "required_checks": [
-            "candidate_header_hash_and_self_pow",
-            "active_chain_parent_and_expected_height",
-            "expected_nbits",
-            "median_time_past",
-            "historical_minimum_block_version",
-            "coinbase_scriptsig_length_when_available",
-            "bip34_coinbase_height_when_available",
-        ],
-        "known_exception": {
-            "rsk": "coinbase-dependent checks unavailable from compressed proof"
-        },
-        "documentation": "docs/data-validity.md",
-    },
-    "error-block-observations": {
-        "profile": "error_observation_consensus_invalid_v1",
-        "valid_tokens": ["VALID_ERROR_BLOCK"],
-        "valid_token_scope": "authenticated_witness_of_consensus_invalid_parent",
-        "parent_consensus_invalidity_asserted": True,
-        "required_checks": [
-            "parent_header_hash_and_fields",
-            "catalogued_consensus_rejection_reason",
-            "authenticated_child_identity",
-            "source_observation_coordinates",
-        ],
-        "documentation": "docs/data-validity.md",
-    },
-}
 
 
 def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, tuple[str, str]]:

@@ -115,11 +115,16 @@ evidence labels. The Merge Mining Monitor verifies the serialized header, its
 published hash, and self-target proof of work, but its Rust CSV importer admits
 non-`unknown` classifications without replaying active-parent, height, `nBits`,
 median-time-past, coinbase-length, or BIP34 checks. It does not use
-`validation_status` as an independent consensus verdict. The manifest staging
-script only checks that a direct-stale row carries a `VALID`-prefixed token.
-Import acceptance therefore confirms the upstream publication contract, not
-independent full-block or contextual validation. Consumers must retain this
-distinction.
+`validation_status` as an independent consensus verdict. The monitor-evidence
+staging preflight is stricter than that importer: it requires the complete
+published schema, canonical lowercase serialized parent headers, authenticated
+parent fields and available child bundles, category/status/relevance contracts,
+duplicate-free confirmed stale identities, and the applicable strict-height or
+weak-timestamp epoch predicates. It also preserves committed ordinary
+identities during add-only updates. These checks still do not replay active
+parent, MTP, coinbase, or other contextual gates, so acceptance confirms the
+upstream publication contract rather than independent full-block validation.
+Consumers must retain this distinction.
 
 ## Namecoin release scope
 

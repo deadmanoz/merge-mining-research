@@ -12,6 +12,7 @@ scripts/analysis/classify_btc_stale_relevance.py.
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_right
 import csv
 import json
 import os
@@ -42,14 +43,15 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     int_or_none,
     is_hash,
     load_orphan_relevance_verdicts,
-    MONITOR_VALIDATION_CONTRACTS,
     normalize_evidence_row,
     parse_header_fields,
     verified_header_hex,
     write_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
+from stale_blocks_analysis.config import MONITOR_VALIDATION_CONTRACTS  # noqa: E402
 from stale_blocks_analysis.bitcoin_epoch_reference import (  # noqa: E402
+    HEADERS_FILENAME,
     RETARGET_INTERVAL,
     load_nbits_by_epoch,
 )
@@ -183,6 +185,53 @@ def _load_btc_nbits_by_epoch(data_dir: Path) -> dict[int, int]:
         ) from exc
 
 
+@lru_cache(maxsize=8)
+def _load_btc_epoch_headers(data_dir: Path) -> tuple[tuple[int, int, int], ...]:
+    """Load ``(time, height, nBits)`` rows for weak-orphan validation."""
+    path = data_dir / "bitcoin-epoch-reference" / HEADERS_FILENAME
+    try:
+        raw_rows = json.loads(path.read_text())
+        rows = tuple(
+            sorted(
+                (
+                    int(row["time"]),
+                    int(row["height"]),
+                    int(str(row["bits"]), 16),
+                )
+                for row in raw_rows
+                if isinstance(row, dict)
+            )
+        )
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"{data_dir}: Bitcoin epoch header reference is unavailable"
+        ) from exc
+    if not rows:
+        raise ValueError(f"{path}: Bitcoin epoch header reference is empty")
+    return rows
+
+
+def _weak_orphan_nbits_match(data_dir: Path, timestamp: int, nbits: int) -> bool:
+    """Check the classifier's timestamp and adjacent-epoch nBits predicate."""
+    rows = _load_btc_epoch_headers(data_dir)
+    times = [row[0] for row in rows]
+    index = bisect_right(times, timestamp) - 1
+    if index < 0 or index >= len(rows):
+        return False
+    epoch_height = rows[index][1]
+    allowed = {
+        row_bits
+        for _time, row_height, row_bits in rows
+        if row_height
+        in {
+            epoch_height - RETARGET_INTERVAL,
+            epoch_height,
+            epoch_height + RETARGET_INTERVAL,
+        }
+    }
+    return nbits in allowed
+
+
 def _is_ordinary_stale_status(status: str) -> bool:
     """Return whether a status belongs to the ordinary stale contract."""
     return status == "VALID" or status.startswith("VALID ")
@@ -230,7 +279,16 @@ def _load_monitor_artifact_counts(
                 raise ValueError(
                     f"{path}:{row_number}: row lacks a valid Bitcoin parent hash"
                 )
-            parent_header_hex = (row.get("btc_header_hex") or "").strip()
+            parent_header_hex = row.get("btc_header_hex") or ""
+            if (
+                len(parent_header_hex) != 160
+                or parent_header_hex != parent_header_hex.lower()
+                or any(char not in "0123456789abcdef" for char in parent_header_hex)
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: serialized Bitcoin parent header must "
+                    "be exactly 160 lowercase hexadecimal characters"
+                )
             try:
                 parent_header = bytes.fromhex(parent_header_hex)
             except ValueError:
@@ -415,6 +473,16 @@ def _load_monitor_artifact_counts(
                             f"{path}:{row_number}: strict orphan row nBits does "
                             "not match the Bitcoin target at btc_height"
                         )
+                else:
+                    if not _weak_orphan_nbits_match(
+                        data_dir,
+                        int(parsed_header["time"]),
+                        int(parsed_header["bits"], 16),
+                    ):
+                        raise ValueError(
+                            f"{path}:{row_number}: weak orphan row time and nBits "
+                            "do not match the Bitcoin epoch evidence"
+                        )
                 counts[bucket] += 1
             else:
                 raise ValueError(
@@ -493,6 +561,71 @@ def _load_ordinary_monitor_parent_identities(
                 if height is not None and height >= 0 and is_hash(parent_hash):
                     identities.add((height, parent_hash))
     return identities
+
+
+def _load_monitor_final_identity_sets(
+    output_dir: Path,
+) -> dict[tuple[str, str], set[tuple[str, str]]]:
+    """Load per-chain final-category identities from ordinary artifacts."""
+    identities: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
+        chain = path.name.removesuffix("_monitor_evidence.csv")
+        if chain == ERROR_OBSERVATION_ARTIFACT:
+            continue
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                classification = (row.get("classification") or "").strip().lower()
+                bucket = (row.get("btc_stale_relevance") or "").strip()
+                if classification == "canonical":
+                    category = "canonical"
+                elif classification == "stale":
+                    category = "stale"
+                elif classification == "stale_descendant":
+                    category = "stale_descendant"
+                elif classification == "unknown" and bucket in {
+                    "strict_btc_orphan",
+                    "weak_btc_orphan",
+                }:
+                    category = bucket
+                elif (
+                    classification == "unknown"
+                    and (row.get("relevance_reason") or "").strip()
+                    == "valid_stale_descendant"
+                ):
+                    category = "stale_descendant"
+                else:
+                    continue
+                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+                if not is_hash(parent_hash):
+                    raise ValueError(
+                        f"{path}:{row_number}: final row lacks a valid parent hash"
+                    )
+                raw_height = (row.get("btc_height") or "").strip()
+                height = int_or_none(raw_height)
+                if raw_height and (height is None or height < 0):
+                    raise ValueError(
+                        f"{path}:{row_number}: final row has an invalid Bitcoin height"
+                    )
+                key = (str(height) if height is not None else "", parent_hash)
+                identities.setdefault((chain, category), set()).add(key)
+    return identities
+
+
+def _validate_ordinary_monitor_identity_floor(output_dir: Path) -> None:
+    """Reject add-only updates that drop any committed final-category identity."""
+    committed = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
+    current = _load_monitor_final_identity_sets(output_dir)
+    missing: list[str] = []
+    for key, expected in committed.items():
+        dropped = expected - current.get(key, set())
+        if dropped:
+            chain, category = key
+            missing.append(f"{chain} {category}: {len(dropped)}")
+    if missing:
+        raise ValueError(
+            "add-only update drops committed ordinary evidence identities: "
+            + ", ".join(missing)
+        )
 
 
 def _classification_counts(path: Path) -> Counter[str]:
@@ -1384,6 +1517,7 @@ def _load_error_update_baseline(
     else:
         baseline_identities = (set(), set())
     _validate_add_only_baseline_floors(count_rows, counts_path)
+    _validate_ordinary_monitor_identity_floor(output_dir)
     return count_rows, manifest, baseline_identities
 
 

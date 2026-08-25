@@ -552,6 +552,55 @@ def test_monitor_artifact_rejects_strict_orphan_with_wrong_height_target(
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_weak_orphan_with_wrong_timestamp_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_weak_orphan_nbits_match", lambda *_args: False)
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0].update(
+        {
+            "classification": "unknown",
+            "validation_status": "",
+            "btc_stale_relevance": "weak_btc_orphan",
+            "relevance_reason": "timestamp_epoch_nbits_match",
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="weak orphan row time and nBits"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_noncanonical_parent_header_hex(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_header_hex"] = " ".join(rows[0]["btc_header_hex"])
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="160 lowercase hexadecimal"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_crossed_orphan_relevance_tuple(
     tmp_path: Path,
 ) -> None:
@@ -614,6 +663,31 @@ def test_error_aggregate_rejects_manifest_artifact_path_drift(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="manifest and count artifact paths"):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_dropped_ordinary_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    artifact = partial_dir / "namecoin_monitor_evidence.csv"
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_height"] = "2"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
