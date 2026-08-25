@@ -65,6 +65,7 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     validate_available_child_header_fields,
 )
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
+from stale_blocks_analysis.coinbase_markers import parse_bip34_height  # noqa: E402
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
     load_stale_descendant_correction_keys,
     load_stale_descendant_observation_keys,
@@ -258,12 +259,16 @@ def _load_monitor_artifact_counts(
     chain: str,
     *,
     data_dir: Path = DATA_DIR,
-    expected_artifact_scope: str = "",
+    expected_artifact_scope: str | frozenset[str] = "",
 ) -> Counter[str]:
     """Count and validate the published categories in one ordinary artifact."""
     counts: Counter[str] = Counter()
     stale_identities: set[tuple[int, str]] = set()
     btc_nbits_by_epoch: dict[int, int] | None = None
+    descendant_observations: frozenset[tuple[str, int, str]] | None = None
+    descendant_corrections: frozenset[tuple[int, str]] | None = None
+    descendant_exclusions: set[tuple[int, str]] | None = None
+    descendant_consensus_invalid: set[tuple[int, str]] | None = None
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         required = set(MONITOR_EVIDENCE_FIELDS)
@@ -281,13 +286,17 @@ def _load_monitor_artifact_counts(
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
                 )
-            if (
-                expected_artifact_scope
-                and (row.get("artifact_scope") or "").strip() != expected_artifact_scope
-            ):
+            row_scope = (row.get("artifact_scope") or "").strip()
+            if isinstance(expected_artifact_scope, str):
+                allowed_scopes = (
+                    {expected_artifact_scope} if expected_artifact_scope else set()
+                )
+            else:
+                allowed_scopes = {scope for scope in expected_artifact_scope if scope}
+            if allowed_scopes and row_scope not in allowed_scopes:
                 raise ValueError(
                     f"{path}:{row_number}: artifact scope disagrees with "
-                    f"the publication contract ({expected_artifact_scope!r})"
+                    f"the publication contract ({sorted(allowed_scopes)!r})"
                 )
             raw_classification = row.get("classification") or ""
             classification = raw_classification.strip().lower()
@@ -452,6 +461,11 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: {classification} row has invalid "
                         "expected_nbits"
                     )
+                if (row.get("rejection_reason") or "").strip():
+                    raise ValueError(
+                        f"{path}:{row_number}: accepted {classification} row has a "
+                        "rejection_reason"
+                    )
             elif any(
                 (row.get(field) or "")
                 for field in ("expected_nbits", "rejection_reason")
@@ -488,6 +502,38 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: stale descendant has invalid relevance"
                     )
+                if chain != _DESCENDANT_SIDECAR_CHAIN:
+                    if descendant_observations is None:
+                        sidecar = data_dir / "stale_descendants.csv"
+                        descendant_observations = (
+                            load_stale_descendant_observation_keys(sidecar)
+                        )
+                        descendant_corrections = load_stale_descendant_correction_keys(
+                            data_dir / "stale_descendant_corrections.csv"
+                        )
+                        exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
+                        descendant_exclusions = (
+                            load_stale_exclusion_keys(exclusions_path)
+                            if exclusions_path.is_file()
+                            else set()
+                        )
+                        descendant_consensus_invalid = (
+                            load_consensus_invalid_stale_keys(exclusions_path)
+                            if exclusions_path.is_file()
+                            else set()
+                        )
+                    descendant_key = (btc_height, parent_hash)
+                    if (
+                        (chain, btc_height, parent_hash) not in descendant_observations
+                        or descendant_key not in (descendant_corrections or set())
+                        or descendant_key in (descendant_exclusions or set())
+                        or descendant_key in (descendant_consensus_invalid or set())
+                    ):
+                        raise ValueError(
+                            f"{path}:{row_number}: stale descendant is not "
+                            "authenticated by the accepted sidecar and correction "
+                            "overlay"
+                        )
                 counts["stale_descendant"] += 1
             elif classification == "unknown" and reason == "valid_stale_descendant":
                 if status != "VALID_STALE_DESCENDANT":
@@ -503,6 +549,35 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation lacks a "
                         "nonnegative Bitcoin height"
+                    )
+                if descendant_observations is None:
+                    sidecar = data_dir / "stale_descendants.csv"
+                    descendant_observations = load_stale_descendant_observation_keys(
+                        sidecar
+                    )
+                    descendant_corrections = load_stale_descendant_correction_keys(
+                        data_dir / "stale_descendant_corrections.csv"
+                    )
+                    exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
+                    descendant_exclusions = (
+                        load_stale_exclusion_keys(exclusions_path)
+                        if exclusions_path.is_file()
+                        else set()
+                    )
+                    descendant_consensus_invalid = (
+                        load_consensus_invalid_stale_keys(exclusions_path)
+                        if exclusions_path.is_file()
+                        else set()
+                    )
+                descendant_key = (btc_height, parent_hash)
+                if (
+                    (chain, btc_height, parent_hash) not in descendant_observations
+                    or descendant_key in (descendant_exclusions or set())
+                    or descendant_key in (descendant_consensus_invalid or set())
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: descendant observation is not "
+                        "authenticated by the accepted sidecar"
                     )
                 counts["stale_descendant"] += 1
             elif (
@@ -548,6 +623,21 @@ def _load_monitor_artifact_counts(
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row nBits does "
                             "not match the Bitcoin target at btc_height"
+                        )
+                    scriptsig_hex = (row.get("coinbase_scriptsig_hex") or "").strip()
+                    try:
+                        scriptsig = bytes.fromhex(scriptsig_hex)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"{path}:{row_number}: strict orphan row has malformed "
+                            "coinbase scriptSig evidence"
+                        ) from exc
+                    decoded_height = parse_bip34_height(scriptsig)
+                    if decoded_height != btc_height:
+                        raise ValueError(
+                            f"{path}:{row_number}: strict orphan row BIP34 height "
+                            f"does not match btc_height ({decoded_height!r} != "
+                            f"{btc_height})"
                         )
                 else:
                     if not _weak_orphan_nbits_match(
@@ -652,6 +742,7 @@ def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
         row.get("source_path") or "",
         row.get("source_row_number") or "",
         row.get("provenance") or "",
+        row.get("rejection_reason") or "",
         row.get("child_header_hex") or "",
         row.get("child_nbits") or "",
         row.get("coinbase_scriptsig_hex") or "",
@@ -739,6 +830,76 @@ def _load_monitor_final_identity_sets(
                 )
                 identities.setdefault((chain, category), Counter())[key] += 1
     return identities
+
+
+def _validate_new_ordinary_row_provenance(
+    output_dir: Path,
+    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]],
+) -> None:
+    """Require source coordinates on ordinary rows newly added to a baseline."""
+    committed_cores = {
+        (chain, category, key[:6])
+        for (chain, category), rows in committed.items()
+        for key in rows
+    }
+    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
+        chain = path.name.removesuffix("_monitor_evidence.csv")
+        if chain == ERROR_OBSERVATION_ARTIFACT:
+            continue
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                classification = (row.get("classification") or "").strip().lower()
+                bucket = (row.get("btc_stale_relevance") or "").strip()
+                if classification == "canonical":
+                    category = "canonical"
+                elif classification == "stale":
+                    category = "stale"
+                elif classification == "stale_descendant":
+                    category = "stale_descendant"
+                elif classification == "unknown" and bucket in {
+                    "strict_btc_orphan",
+                    "weak_btc_orphan",
+                }:
+                    category = bucket
+                elif (
+                    classification == "unknown"
+                    and (row.get("relevance_reason") or "").strip()
+                    == "valid_stale_descendant"
+                ):
+                    category = "stale_descendant"
+                else:
+                    continue
+                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+                height = int_or_none((row.get("btc_height") or "").strip())
+                child_height = int_or_none((row.get("child_height") or "").strip())
+                child_hash = (row.get("child_block_hash") or "").strip().lower()
+                core = (
+                    classification,
+                    str(height) if height is not None else "",
+                    parent_hash,
+                    str(child_height) if child_height is not None else "",
+                    child_hash if is_hash(child_hash) else "",
+                    row.get("child_block_time") or "",
+                )
+                if (chain, category, core) in committed_cores:
+                    continue
+                source_kind = (row.get("source_kind") or "").strip()
+                source_path = (row.get("source_path") or "").strip()
+                provenance = (row.get("provenance") or "").strip()
+                source_row_number = int_or_none(
+                    (row.get("source_row_number") or "").strip()
+                )
+                if (
+                    not source_kind
+                    or not source_path
+                    or not provenance
+                    or source_row_number is None
+                    or source_row_number <= 0
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: newly admitted ordinary row lacks "
+                        "complete source provenance"
+                    )
 
 
 def _validate_ordinary_monitor_identity_floor(
@@ -1648,7 +1809,13 @@ def _load_error_update_baseline(
             artifact_path,
             chain,
             data_dir=data_dir,
-            expected_artifact_scope=(expected.get("artifact_scope") or "").strip(),
+            expected_artifact_scope=frozenset(
+                {
+                    (expected.get("artifact_scope") or "").strip(),
+                    "canonical_blocks",
+                    "partial_canonical_subset",
+                }
+            ),
         )
         expected_canonical_status = _expected_canonical_evidence_status(
             expected, actual["canonical"]
@@ -1695,9 +1862,11 @@ def _load_error_update_baseline(
     else:
         baseline_identities = (set(), set())
     _validate_add_only_baseline_floors(count_rows, counts_path)
+    committed_identities = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
+    _validate_new_ordinary_row_provenance(output_dir, committed_identities)
     _validate_ordinary_monitor_identity_floor(
         output_dir,
-        committed=_load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR),
+        committed=committed_identities,
     )
     return count_rows, manifest, baseline_identities
 
@@ -1716,6 +1885,14 @@ def _validate_add_only_baseline_floors(
         if row is None:
             problems.append(f"missing {chain}")
             continue
+        for field in ("source_kind", "source_path", "notes"):
+            observed_text = (row.get(field) or "").strip()
+            committed_text = (expected.get(field) or "").strip()
+            if observed_text != committed_text:
+                problems.append(
+                    f"{chain} {field} does not preserve the committed baseline "
+                    f"({observed_text!r} != {committed_text!r})"
+                )
         for field in PUBLICATION_FLOOR_FIELDS:
             value = row.get(field)
             try:

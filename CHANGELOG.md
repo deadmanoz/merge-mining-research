@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Authenticate strict orphan heights and descendant promotions against their
+source evidence, require provenance on newly admitted rows, preserve summary
+metadata, and accept the canonical companion scopes emitted by full exports.
+
 Keep direct-stale validation verdicts immutable, preserve the committed
 source-row total during add-only updates, and detect error-block overlaps by
 parent hash when ordinary height evidence is absent.
