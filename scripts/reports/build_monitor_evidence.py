@@ -19,6 +19,7 @@ import shutil
 import sys
 import tempfile
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -48,6 +49,10 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     write_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
+from stale_blocks_analysis.bitcoin_epoch_reference import (  # noqa: E402
+    RETARGET_INTERVAL,
+    load_nbits_by_epoch,
+)
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     ChildHeaderValidationError,
     hash_meets_btc_difficulty,
@@ -167,14 +172,29 @@ _MANIFEST_COUNT_FIELDS = (
 )
 
 
+@lru_cache(maxsize=8)
+def _load_btc_nbits_by_epoch(data_dir: Path) -> dict[int, int]:
+    """Load the committed Bitcoin epoch targets used by strict orphan rows."""
+    try:
+        return load_nbits_by_epoch(data_dir / "bitcoin-epoch-reference")
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"{data_dir}: Bitcoin epoch nBits reference is unavailable"
+        ) from exc
+
+
 def _is_ordinary_stale_status(status: str) -> bool:
     """Return whether a status belongs to the ordinary stale contract."""
     return status == "VALID" or status.startswith("VALID ")
 
 
-def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
+def _load_monitor_artifact_counts(
+    path: Path, chain: str, *, data_dir: Path = DATA_DIR
+) -> Counter[str]:
     """Count and validate the published categories in one ordinary artifact."""
     counts: Counter[str] = Counter()
+    stale_identities: set[tuple[int, str]] = set()
+    btc_nbits_by_epoch: dict[int, int] | None = None
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         required = set(MONITOR_EVIDENCE_FIELDS)
@@ -302,6 +322,13 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                         f"{path}:{row_number}: {classification} row lacks a "
                         "nonnegative Bitcoin height"
                     )
+                stale_identity = (btc_height, parent_hash)
+                if stale_identity in stale_identities:
+                    raise ValueError(
+                        f"{path}:{row_number}: duplicate {classification} identity "
+                        f"{stale_identity!r}"
+                    )
+                stale_identities.add(stale_identity)
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
                 and (row.get("artifact_scope") or "").strip()
@@ -368,6 +395,26 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                     raise ValueError(
                         f"{path}:{row_number}: orphan row has invalid status"
                     )
+                if bucket == "strict_btc_orphan":
+                    btc_height = int_or_none((row.get("btc_height") or "").strip())
+                    if btc_height is None or btc_height < 0:
+                        raise ValueError(
+                            f"{path}:{row_number}: strict orphan row lacks a "
+                            "nonnegative Bitcoin height"
+                        )
+                    if btc_nbits_by_epoch is None:
+                        btc_nbits_by_epoch = _load_btc_nbits_by_epoch(data_dir)
+                    expected_nbits = btc_nbits_by_epoch.get(
+                        (btc_height // RETARGET_INTERVAL) * RETARGET_INTERVAL
+                    )
+                    if (
+                        expected_nbits is None
+                        or int(parsed_header["bits"], 16) != expected_nbits
+                    ):
+                        raise ValueError(
+                            f"{path}:{row_number}: strict orphan row nBits does "
+                            "not match the Bitcoin target at btc_height"
+                        )
                 counts[bucket] += 1
             else:
                 raise ValueError(
@@ -1215,6 +1262,8 @@ def _publish_staged_artifacts(staging_dir: Path, output_dir: Path) -> None:
 
 def _load_error_update_baseline(
     output_dir: Path,
+    *,
+    data_dir: Path = DATA_DIR,
 ) -> tuple[
     list[dict[str, str]],
     dict[str, object],
@@ -1287,13 +1336,17 @@ def _load_error_update_baseline(
                 )
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:
-        declared = artifacts.get(chain)
-        if not isinstance(declared, str) or not declared.strip():
-            declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
         expected_name = f"{chain}_monitor_evidence.csv"
-        if not isinstance(declared, str) or Path(declared).name != expected_name:
+        expected_logical_path = f"results/monitor-evidence/{expected_name}"
+        manifest_declared = artifacts.get(chain)
+        count_declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
+        if (
+            manifest_declared != expected_logical_path
+            or count_declared != expected_logical_path
+        ):
             raise ValueError(
-                f"{output_dir}: {chain} has no valid declared monitor-evidence artifact"
+                f"{output_dir}: {chain} manifest and count artifact paths must "
+                f"both be {expected_logical_path!r}"
             )
         artifact_path = output_dir / expected_name
         if not artifact_path.is_file():
@@ -1303,7 +1356,7 @@ def _load_error_update_baseline(
         expected = count_rows_by_chain.get(chain)
         if expected is None:
             raise ValueError(f"{output_dir}: {chain} artifact has no count row")
-        actual = _load_monitor_artifact_counts(artifact_path, chain)
+        actual = _load_monitor_artifact_counts(artifact_path, chain, data_dir=data_dir)
         for field in (*_ORDINARY_MONITOR_CATEGORIES, "monitor_rows"):
             observed = actual[field]
             minimum = int(expected.get(field) or "0")
@@ -1485,7 +1538,9 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
     output_dir = args.output_dir.expanduser().resolve()
     if not output_dir.is_dir():
         raise ValueError(f"publication output directory is missing: {output_dir}")
-    count_rows, manifest, baseline_identities = _load_error_update_baseline(output_dir)
+    count_rows, manifest, baseline_identities = _load_error_update_baseline(
+        output_dir, data_dir=args.data_dir
+    )
     error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
     if error_blocks_path.is_file():
         ordinary_identities = _load_ordinary_monitor_parent_identities(

@@ -34,6 +34,10 @@ add-only validation, and refuse an error-observation update when its current
 error-block catalogue overlaps an ordinary monitor artifact that needs a full
 rebuild.
 
+Reject duplicate stale identities, revalidate strict orphan heights against
+the committed Bitcoin epoch targets, and require manifest and count metadata
+to name the same ordinary artifact path.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and
