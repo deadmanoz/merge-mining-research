@@ -531,7 +531,7 @@ def test_monitor_artifact_rejects_malformed_child_height(tmp_path: Path) -> None
         fieldnames = reader.fieldnames
         rows = list(reader)
     assert fieldnames is not None
-    rows[0]["child_height"] = "not-a-height"
+    rows[0]["child_height"] = "01"
     with artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()

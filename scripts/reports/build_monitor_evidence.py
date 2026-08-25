@@ -410,6 +410,7 @@ def _load_monitor_artifact_counts(
                 raw_child_height != raw_child_height.strip()
                 or not raw_child_height.isascii()
                 or not raw_child_height.isdigit()
+                or str(int(raw_child_height)) != raw_child_height
             ):
                 raise ValueError(
                     f"{path}:{row_number}: child_height must be blank or an "

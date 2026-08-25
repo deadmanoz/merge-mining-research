@@ -16,6 +16,8 @@ the selected error-block catalogue consistently during full publication.
 Preserve committed artifact scopes and require exact unpadded Bitcoin heights
 in add-only monitor artifacts.
 
+Reject padded child-height encodings in ordinary monitor artifacts.
+
 Keep add-only updates from introducing new stale, orphan, or canonical
 identities, preserve row scope in identity checks, and reject undeclared
 publication chains.
