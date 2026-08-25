@@ -7,6 +7,10 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from .auxpow_parse import (
+    ChildHeaderValidationError,
+    validate_available_child_header_fields,
+)
 from .config import CHAIN_SPECS, DATA_DIR
 from .full_evidence import (
     MONITOR_EVIDENCE_FIELDS,
@@ -260,6 +264,20 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                     path=path,
                     name="child_nbits",
                 )
+            try:
+                validate_available_child_header_fields(
+                    {
+                        "child_block_hash": child_hash,
+                        "child_header_hex": child_header,
+                        "child_block_time": child_time,
+                        "child_nbits": child_nbits,
+                    },
+                    nbits_from_header=CHAIN_SPECS[chain].child_nbits_from_header,
+                )
+            except ChildHeaderValidationError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: invalid child header evidence: {exc}"
+                ) from exc
             key = (chain, child_height, block_hash)
             if key in observations:
                 raise ValueError(f"{path}:{row_number}: duplicate witness {key}")

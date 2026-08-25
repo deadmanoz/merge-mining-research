@@ -41,6 +41,8 @@ from stale_blocks_analysis.full_evidence import MONITOR_OUTPUT_DIR  # noqa: E402
 DEFAULT_OUTPUT_DIR = RESULTS_DIR / "strict-weak-orphans"
 COUNTS_FIELDS = ["chain", "strict_btc_orphan", "weak_btc_orphan", "total"]
 STALE_DESCENDANTS_EXPORT = "stale-descendants_monitor_evidence.csv"
+ERROR_OBSERVATIONS_EXPORT = "error-block-observations_monitor_evidence.csv"
+NON_CHAIN_EXPORTS = frozenset({STALE_DESCENDANTS_EXPORT, ERROR_OBSERVATIONS_EXPORT})
 PARTIAL_CANONICAL_SCOPE = "partial_canonical_subset"
 STALE_ONLY_SCOPE = "stale_only_publication"
 INCOMPLETE_SCOPES = {PARTIAL_CANONICAL_SCOPE, STALE_ONLY_SCOPE}
@@ -65,7 +67,7 @@ def build_strict_weak_exports(
 ) -> dict[str, dict[str, int]]:
     """Write per-chain strict/weak CSVs; return per-chain bucket counts."""
     exports = sorted(monitor_evidence_dir.glob("*_monitor_evidence.csv"))
-    exports = [p for p in exports if p.name != STALE_DESCENDANTS_EXPORT]
+    exports = [p for p in exports if p.name not in NON_CHAIN_EXPORTS]
     if not exports:
         raise SystemExit(
             f"No <chain>_monitor_evidence.csv files under {monitor_evidence_dir}; "

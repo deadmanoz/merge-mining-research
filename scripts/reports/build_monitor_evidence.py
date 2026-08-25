@@ -538,6 +538,10 @@ def validate_publication_inputs(
             else set()
         )
         for chain, baseline_row in baseline.items():
+            # The full build regenerates this aggregate from its separately
+            # validated catalogue and witness ledger after canonical preflight.
+            if chain == ERROR_OBSERVATION_ARTIFACT:
+                continue
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
             expected_categories = {
                 category: int(baseline_row.get(category) or 0)

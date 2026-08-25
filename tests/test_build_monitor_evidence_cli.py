@@ -348,6 +348,27 @@ def test_vcash_baseline_accepts_standard_canonical_source(tmp_path: Path) -> Non
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
 
+def test_error_observation_baseline_does_not_require_canonical_source(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="error-block-observations",
+        source_kind="error_block_catalogue",
+        source_rows=73,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
 def test_canonical_baseline_requires_canonical_classified_rows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
