@@ -44,6 +44,10 @@ ordinary identities during add-only updates, and keep publication contracts in
 the shared configuration module. Refresh the validity methodology to describe
 the expanded preflight checks and their remaining contextual caveats.
 
+Reject weak verdicts beyond the epoch-reference horizon, require an immutable
+ordinary baseline for default-directory add-only updates, and accept the safe
+logical paths emitted for complete external publication directories.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

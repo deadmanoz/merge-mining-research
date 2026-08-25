@@ -124,7 +124,9 @@ weak-timestamp epoch predicates. It also preserves committed ordinary
 identities during add-only updates. These checks still do not replay active
 parent, MTP, coinbase, or other contextual gates, so acceptance confirms the
 upstream publication contract rather than independent full-block validation.
-Consumers must retain this distinction.
+Add-only updates also require an explicit output directory with an immutable
+ordinary-publication baseline; the command refuses to compare a default output
+directory with itself. Consumers must retain this distinction.
 
 ## Namecoin release scope
 

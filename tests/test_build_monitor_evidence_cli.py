@@ -581,6 +581,19 @@ def test_monitor_artifact_rejects_weak_orphan_with_wrong_timestamp_target(
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_weak_orphan_rejects_timestamp_beyond_epoch_reference_horizon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module,
+        "_load_btc_epoch_headers",
+        lambda _data_dir: ((100, 0, 1), (200, 2016, 2)),
+    )
+
+    assert not module._weak_orphan_nbits_match(tmp_path, 201, 2)
+
+
 def test_monitor_artifact_rejects_noncanonical_parent_header_hex(
     tmp_path: Path,
 ) -> None:
@@ -689,6 +702,59 @@ def test_error_aggregate_rejects_dropped_ordinary_identity(
 
     with pytest.raises(ValueError, match="drops committed ordinary evidence"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_default_directory_uses_immutable_identity_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    artifact = output_dir / "namecoin_monitor_evidence.csv"
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_height"] = "2"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
+
+    with pytest.raises(ValueError, match="immutable ordinary-publication baseline"):
+        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
+
+
+def test_error_aggregate_accepts_external_logical_artifact_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    logical_path = "<external>/namecoin_monitor_evidence.csv"
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["artifact_path"] = logical_path
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = partial_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["namecoin"] = logical_path
+    manifest["counts"][0]["artifact_path"] = logical_path
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    module._load_error_update_baseline(partial_dir)
 
 
 def test_monitor_artifact_rejects_error_block_status_on_stale_row(
@@ -804,7 +870,9 @@ def test_error_aggregate_rejects_truncated_aggregate_floor(
         "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
         f"namecoin,1,{'01' * 32},100,{'02' * 32}\n"
     )
-    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     def write_truncated_aggregate(
         staging_dir: Path, **_kwargs: object
@@ -834,7 +902,9 @@ def test_error_aggregate_rejects_replaced_published_identity(
     _append_error_observation_baseline(
         output_dir, child_hash="01" * 32, parent_hash="02" * 32
     )
-    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     def write_replacement(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
         (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(

@@ -215,6 +215,8 @@ def _weak_orphan_nbits_match(data_dir: Path, timestamp: int, nbits: int) -> bool
     """Check the classifier's timestamp and adjacent-epoch nBits predicate."""
     rows = _load_btc_epoch_headers(data_dir)
     times = [row[0] for row in rows]
+    if timestamp < times[0] or timestamp > times[-1]:
+        return False
     index = bisect_right(times, timestamp) - 1
     if index < 0 or index >= len(rows):
         return False
@@ -611,9 +613,14 @@ def _load_monitor_final_identity_sets(
     return identities
 
 
-def _validate_ordinary_monitor_identity_floor(output_dir: Path) -> None:
+def _validate_ordinary_monitor_identity_floor(
+    output_dir: Path,
+    *,
+    committed: dict[tuple[str, str], set[tuple[str, str]]] | None = None,
+) -> None:
     """Reject add-only updates that drop any committed final-category identity."""
-    committed = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
+    if committed is None:
+        committed = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
     current = _load_monitor_final_identity_sets(output_dir)
     missing: list[str] = []
     for key, expected in committed.items():
@@ -1470,16 +1477,19 @@ def _load_error_update_baseline(
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:
         expected_name = f"{chain}_monitor_evidence.csv"
-        expected_logical_path = f"results/monitor-evidence/{expected_name}"
+        permitted_paths = {
+            f"results/monitor-evidence/{expected_name}",
+            f"<external>/{expected_name}",
+        }
         manifest_declared = artifacts.get(chain)
         count_declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
         if (
-            manifest_declared != expected_logical_path
-            or count_declared != expected_logical_path
+            manifest_declared != count_declared
+            or manifest_declared not in permitted_paths
         ):
             raise ValueError(
                 f"{output_dir}: {chain} manifest and count artifact paths must "
-                f"both be {expected_logical_path!r}"
+                "agree on a permitted logical publication path"
             )
         artifact_path = output_dir / expected_name
         if not artifact_path.is_file():
@@ -1517,7 +1527,10 @@ def _load_error_update_baseline(
     else:
         baseline_identities = (set(), set())
     _validate_add_only_baseline_floors(count_rows, counts_path)
-    _validate_ordinary_monitor_identity_floor(output_dir)
+    _validate_ordinary_monitor_identity_floor(
+        output_dir,
+        committed=_load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR),
+    )
     return count_rows, manifest, baseline_identities
 
 
@@ -1672,6 +1685,11 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
     output_dir = args.output_dir.expanduser().resolve()
     if not output_dir.is_dir():
         raise ValueError(f"publication output directory is missing: {output_dir}")
+    if output_dir == MONITOR_OUTPUT_DIR.expanduser().resolve():
+        raise ValueError(
+            "add-only error-observation updates require an explicit output "
+            "directory with an immutable ordinary-publication baseline"
+        )
     count_rows, manifest, baseline_identities = _load_error_update_baseline(
         output_dir, data_dir=args.data_dir
     )
