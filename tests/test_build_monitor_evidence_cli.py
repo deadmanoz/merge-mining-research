@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ def _write_baseline(
     stale_descendant: int = 0,
     strict: int = 0,
     weak: int = 0,
+    error_block: int = 0,
     source_rows: int = 0,
     canonical_hashes: tuple[str, ...] | None = None,
 ) -> None:
@@ -38,9 +40,9 @@ def _write_baseline(
     baseline_dir.mkdir(parents=True)
     (baseline_dir / "monitor-evidence-counts.csv").write_text(
         "chain,source_kind,canonical,stale,stale_descendant,strict_btc_orphan,"
-        "weak_btc_orphan,monitor_rows,source_rows\n"
+        "weak_btc_orphan,error_block,monitor_rows,source_rows\n"
         f"{chain},{source_kind},{canonical},{stale},{stale_descendant},{strict},"
-        f"{weak},{canonical + stale + stale_descendant + strict + weak},"
+        f"{weak},{error_block},{canonical + stale + stale_descendant + strict + weak},"
         f"{source_rows}\n"
     )
     (baseline_dir / "monitor-evidence-manifest.json").write_text(
@@ -136,11 +138,7 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
         module.main(["--allow-partial"])
 
 
-def test_error_aggregate_updates_only_its_metadata_and_artifact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = _load_module()
-    output_dir = tmp_path / "monitor"
+def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
     output_dir.mkdir()
     normal_artifact = output_dir / "namecoin_monitor_evidence.csv"
     normal_artifact.write_bytes(b"existing normal evidence\n")
@@ -151,12 +149,12 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
         "artifact_path": "results/monitor-evidence/namecoin_monitor_evidence.csv",
         "source_path": "<chain-archive>/namecoin/classified/namecoin_stale_blocks.csv",
         "canonical": 0,
-        "stale": 1,
+        "stale": stale,
         "stale_descendant": 0,
         "strict_btc_orphan": 0,
         "weak_btc_orphan": 0,
-        "monitor_rows": 1,
-        "source_rows": 1,
+        "monitor_rows": stale,
+        "source_rows": stale,
         "canonical_evidence_status": "not_applicable",
         "notes": "",
     }
@@ -169,9 +167,22 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
             {
                 "artifacts": {"namecoin": count["artifact_path"]},
                 "counts": [count],
+                "strict_weak_verdicts_loaded": 0,
             }
         )
     )
+    return normal_artifact
+
+
+def test_error_aggregate_updates_only_its_metadata_and_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    normal_artifact = _write_add_only_baseline(output_dir, stale=1)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     def write_aggregate(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
         (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
@@ -213,6 +224,20 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
         "error-block-observations_monitor_evidence.csv"
     )
     assert manifest["counts"][-1]["error_block"] == 2
+
+
+def test_error_aggregate_rejects_partial_publication_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=0)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="namecoin stale is below floor"):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_late_vcash_validation_failure_preserves_existing_publication_set(
@@ -352,7 +377,7 @@ def test_error_observation_baseline_does_not_require_canonical_source(
     tmp_path: Path,
 ) -> None:
     module = _load_module()
-    data_dir = tmp_path / "data"
+    data_dir = module.DATA_DIR
     archive_dir = tmp_path / "archive"
     archive_dir.mkdir()
     baseline_dir = tmp_path / "baseline"
@@ -367,6 +392,32 @@ def test_error_observation_baseline_does_not_require_canonical_source(
     )
 
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_error_observation_baseline_refuses_regression(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="error-block-observations",
+        source_kind="error_block_catalogue",
+        error_block=34,
+        source_rows=74,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=module.DATA_DIR, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    error = capsys.readouterr().err
+    assert "error-block-observations source_rows is below" in error
+    assert "error-block-observations error_block is below" in error
 
 
 def test_canonical_baseline_requires_canonical_classified_rows(

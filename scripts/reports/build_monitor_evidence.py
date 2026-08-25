@@ -35,6 +35,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     discover_canonical_sources,
     discover_evidence_sources,
     discover_unknown_sources,
+    int_or_none,
     load_orphan_relevance_verdicts,
     normalize_evidence_row,
     write_csv,
@@ -50,6 +51,7 @@ from stale_blocks_analysis.error_blocks import (  # noqa: E402
 )
 from stale_blocks_analysis.error_observations import (  # noqa: E402
     ERROR_OBSERVATION_ARTIFACT,
+    build_error_observation_rows,
     error_observation_count_row,
     write_error_observation_artifact,
 )
@@ -58,6 +60,15 @@ PUBLICATION_COUNTS = MONITOR_OUTPUT_DIR / "monitor-evidence-counts.csv"
 PUBLICATION_MANIFEST = MONITOR_OUTPUT_DIR / "monitor-evidence-manifest.json"
 GENERATED_MONITOR_FILENAMES = frozenset(
     {PUBLICATION_COUNTS.name, PUBLICATION_MANIFEST.name}
+)
+PUBLICATION_FLOOR_FIELDS = (
+    "canonical",
+    "stale",
+    "stale_descendant",
+    "strict_btc_orphan",
+    "weak_btc_orphan",
+    "monitor_rows",
+    "source_rows",
 )
 
 
@@ -538,9 +549,31 @@ def validate_publication_inputs(
             else set()
         )
         for chain, baseline_row in baseline.items():
-            # The full build regenerates this aggregate from its separately
-            # validated catalogue and witness ledger after canonical preflight.
             if chain == ERROR_OBSERVATION_ARTIFACT:
+                try:
+                    error_rows, error_inventory = build_error_observation_rows(
+                        data_dir=args.data_dir
+                    )
+                except (OSError, ValueError) as exc:
+                    problems.append(str(exc))
+                    continue
+                for field in ("monitor_rows", "source_rows"):
+                    expected = int(baseline_row.get(field) or 0)
+                    if len(error_rows) < expected:
+                        problems.append(
+                            f"{chain} {field} is below the publication baseline "
+                            f"({len(error_rows)} < {expected})"
+                        )
+                expected_error_blocks = int_or_none(
+                    baseline_row.get("error_block") or "0"
+                )
+                if expected_error_blocks is None or expected_error_blocks < 0:
+                    problems.append(f"{chain} has invalid error_block baseline")
+                elif int(error_inventory["parents"]) < expected_error_blocks:
+                    problems.append(
+                        f"{chain} error_block is below the publication baseline "
+                        f"({error_inventory['parents']} < {expected_error_blocks})"
+                    )
                 continue
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
             expected_categories = {
@@ -914,7 +947,41 @@ def _load_error_update_baseline(
     for item in manifest_counts:
         assert isinstance(item, dict)
         item.setdefault("error_block", 0)
+    _validate_add_only_baseline_floors(count_rows, counts_path)
     return count_rows, manifest
+
+
+def _validate_add_only_baseline_floors(
+    count_rows: list[dict[str, str]], counts_path: Path
+) -> None:
+    """Reject a partial diagnostic export before publishing an add-only aggregate."""
+    committed, *_rest = _load_publication_baseline(MONITOR_OUTPUT_DIR)
+    actual = {str(row["chain"]): row for row in count_rows}
+    problems: list[str] = []
+    for chain, expected in committed.items():
+        if chain == ERROR_OBSERVATION_ARTIFACT:
+            continue
+        row = actual.get(chain)
+        if row is None:
+            problems.append(f"missing {chain}")
+            continue
+        for field in PUBLICATION_FLOOR_FIELDS:
+            value = row.get(field)
+            try:
+                observed = int(value or "")
+            except ValueError:
+                problems.append(f"{chain} has invalid {field}: {value!r}")
+                continue
+            minimum = int(expected[field])
+            if observed < minimum:
+                problems.append(
+                    f"{chain} {field} is below floor ({observed} < {minimum})"
+                )
+    if problems:
+        raise ValueError(
+            f"{counts_path}: baseline is below committed publication floors: "
+            + "; ".join(problems)
+        )
 
 
 def _replace_or_append_count(
