@@ -57,6 +57,10 @@ and timestamp-epoch evidence, preserve child-observation multiplicity in the
 immutable floor, and document the explicit disposable baseline for add-only
 publication updates.
 
+Synchronize artifact scopes across metadata, require descendant source heights,
+validate the RSK monitor sidecar schema, and preserve nonempty coinbase evidence
+in the ordinary publication floor.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 from bisect import bisect_right
 import csv
+import hashlib
 import json
 import os
 import shutil
@@ -35,6 +36,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     MONITOR_EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
     REPORTED_RELEVANCE_INVENTORY,
+    RSK_SIDECAR_EXPORT_FIELDS,
     EvidenceSource,
     build_monitor_evidence_exports,
     discover_canonical_sources,
@@ -264,6 +266,8 @@ def _load_monitor_artifact_counts(
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         required = set(MONITOR_EVIDENCE_FIELDS)
+        if chain == "rsk":
+            required.update(RSK_SIDECAR_EXPORT_FIELDS)
         missing = required - set(reader.fieldnames or ())
         if missing:
             raise ValueError(
@@ -482,6 +486,12 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation has invalid relevance"
                     )
+                btc_height = int_or_none((row.get("btc_height") or "").strip())
+                if btc_height is None or btc_height < 0:
+                    raise ValueError(
+                        f"{path}:{row_number}: descendant observation lacks a "
+                        "nonnegative Bitcoin height"
+                    )
                 counts["stale_descendant"] += 1
             elif (
                 classification == "unknown"
@@ -617,11 +627,23 @@ def _load_ordinary_monitor_parent_identities(
     return identities
 
 
+def _coinbase_evidence_digest(row: dict[str, str]) -> str:
+    """Digest the nonempty coinbase evidence preserved in an ordinary row."""
+    fields = (
+        row.get("coinbase_scriptsig_hex") or "",
+        row.get("coinbase_outputs") or "",
+        row.get("full_coinbase_hex") or "",
+    )
+    if not any(fields):
+        return ""
+    return hashlib.sha256("\x00".join(fields).encode()).hexdigest()
+
+
 def _load_monitor_final_identity_sets(
     output_dir: Path,
-) -> dict[tuple[str, str], Counter[tuple[str, str, str, str]]]:
+) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]]:
     """Load per-chain final-category identities from ordinary artifacts."""
-    identities: dict[tuple[str, str], Counter[tuple[str, str, str, str]]] = {}
+    identities: dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]] = {}
     for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
         chain = path.name.removesuffix("_monitor_evidence.csv")
         if chain == ERROR_OBSERVATION_ARTIFACT:
@@ -667,6 +689,7 @@ def _load_monitor_final_identity_sets(
                     parent_hash,
                     str(child_height) if child_height is not None else "",
                     child_hash if is_hash(child_hash) else "",
+                    _coinbase_evidence_digest(row),
                 )
                 identities.setdefault((chain, category), Counter())[key] += 1
     return identities
@@ -675,7 +698,8 @@ def _load_monitor_final_identity_sets(
 def _validate_ordinary_monitor_identity_floor(
     output_dir: Path,
     *,
-    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str]]] | None = None,
+    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]]
+    | None = None,
 ) -> None:
     """Reject add-only updates that drop any committed final-category identity."""
     if committed is None:
@@ -1517,6 +1541,13 @@ def _load_error_update_baseline(
         manifest_row = manifest_counts_by_chain.get(chain)
         if manifest_row is None:
             raise ValueError(f"{manifest_path}: {chain} has no manifest count row")
+        csv_scope = (row.get("artifact_scope") or "").strip()
+        manifest_scope = str(manifest_row.get("artifact_scope") or "").strip()
+        if not csv_scope or csv_scope != manifest_scope:
+            raise ValueError(
+                f"{manifest_path}: {chain} artifact scope does not match counts "
+                f"({manifest_scope!r} != {csv_scope!r})"
+            )
         for field in _MANIFEST_COUNT_FIELDS:
             csv_raw = row.get(field)
             manifest_raw = manifest_row.get(field)
