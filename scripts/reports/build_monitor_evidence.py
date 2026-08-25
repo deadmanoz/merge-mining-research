@@ -21,6 +21,7 @@ import shutil
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
@@ -47,7 +48,6 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     load_orphan_relevance_verdicts,
     normalize_evidence_row,
     parse_header_fields,
-    safe_path,
     verified_header_hex,
     write_csv,
 )
@@ -393,6 +393,17 @@ def _load_monitor_artifact_counts(
                 "child_block_time": raw_child_bundle["child_block_time"],
                 "child_nbits": raw_child_bundle["child_nbits"],
             }
+            raw_child_height = row.get("child_height") or ""
+            if raw_child_height and (
+                raw_child_height != raw_child_height.strip()
+                or not raw_child_height.isascii()
+                or not raw_child_height.isdigit()
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: child_height must be blank or an "
+                    "exact non-negative integer"
+                )
+            child_height = int(raw_child_height) if raw_child_height else None
             spec = CHAIN_SPECS.get(chain)
             if chain in HISTORICAL_CHILD_HEADER_CHAINS:
                 try:
@@ -421,7 +432,6 @@ def _load_monitor_artifact_counts(
                         f"serialized child header ({exc})"
                     ) from exc
             if chain in LIVE_CHILD_IDENTITY_CHAINS and classification != "canonical":
-                child_height = int_or_none((row.get("child_height") or "").strip())
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
                 child_time = (row.get("child_block_time") or "").strip()
                 if (
@@ -816,13 +826,10 @@ def _expected_canonical_evidence_status(
     return "no_canonical_rows_in_discovered_artifact"
 
 
-def _load_monitor_final_identity_sets(
+def _iter_monitor_final_identity_keys(
     output_dir: Path,
-) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]:
-    """Load per-chain final-category identities from ordinary artifacts."""
-    identities: dict[
-        tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]
-    ] = {}
+) -> Iterator[tuple[str, str, tuple[str, str, str, str, str, str, str]]]:
+    """Yield ordered final-category identities from ordinary artifacts."""
     for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
         chain = path.name.removesuffix("_monitor_evidence.csv")
         if chain == ERROR_OBSERVATION_ARTIFACT:
@@ -872,8 +879,34 @@ def _load_monitor_final_identity_sets(
                     row.get("child_block_time") or "",
                     _coinbase_evidence_digest(row, chain),
                 )
-                identities.setdefault((chain, category), Counter())[key] += 1
+                yield chain, category, key
+
+
+def _load_monitor_final_identity_sets(
+    output_dir: Path,
+) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]:
+    """Load per-chain final-category identities from ordinary artifacts."""
+    identities: dict[
+        tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]
+    ] = {}
+    for chain, category, key in _iter_monitor_final_identity_keys(output_dir):
+        identities.setdefault((chain, category), Counter())[key] += 1
     return identities
+
+
+def _load_monitor_final_identity_sequences(
+    output_dir: Path,
+) -> dict[
+    str,
+    tuple[tuple[str, tuple[str, str, str, str, str, str, str]], ...],
+]:
+    """Load ordered final-category identities from each ordinary artifact."""
+    identities: dict[
+        str, list[tuple[str, tuple[str, str, str, str, str, str, str]]]
+    ] = {}
+    for chain, category, key in _iter_monitor_final_identity_keys(output_dir):
+        identities.setdefault(chain, []).append((category, key))
+    return {chain: tuple(rows) for chain, rows in identities.items()}
 
 
 def _validate_new_ordinary_row_provenance(
@@ -1001,8 +1034,13 @@ def _validate_ordinary_monitor_identity_floor(
     *,
     committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]
     | None = None,
+    committed_sequences: dict[
+        str, tuple[tuple[str, tuple[str, str, str, str, str, str, str]], ...]
+    ]
+    | None = None,
 ) -> None:
     """Reject add-only updates that drop any committed final-category identity."""
+    loaded_committed = committed is None
     if committed is None:
         committed = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
     current = _load_monitor_final_identity_sets(output_dir)
@@ -1017,6 +1055,20 @@ def _validate_ordinary_monitor_identity_floor(
             "add-only update drops committed ordinary evidence identities: "
             + ", ".join(missing)
         )
+    if loaded_committed and committed_sequences is None:
+        committed_sequences = _load_monitor_final_identity_sequences(MONITOR_OUTPUT_DIR)
+    if committed_sequences is not None:
+        current_sequences = _load_monitor_final_identity_sequences(output_dir)
+        reordered = [
+            chain
+            for chain, expected in committed_sequences.items()
+            if current_sequences.get(chain, ()) != expected
+        ]
+        if reordered:
+            raise ValueError(
+                "add-only update changes committed ordinary evidence row ordering: "
+                + ", ".join(sorted(reordered))
+            )
 
 
 def _classification_counts(path: Path) -> Counter[str]:
@@ -1932,16 +1984,12 @@ def _load_error_update_baseline(
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:
         expected_name = f"{chain}_monitor_evidence.csv"
-        permitted_paths = {
-            f"results/monitor-evidence/{expected_name}",
-            f"<external>/{expected_name}",
-            safe_path(output_dir / expected_name, chain=chain),
-        }
+        expected_logical_path = f"{logical_root}/{expected_name}"
         manifest_declared = artifacts.get(chain)
         count_declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
         if (
             manifest_declared != count_declared
-            or manifest_declared not in permitted_paths
+            or manifest_declared != expected_logical_path
         ):
             raise ValueError(
                 f"{output_dir}: {chain} manifest and count artifact paths must "
@@ -2013,11 +2061,15 @@ def _load_error_update_baseline(
         baseline_identities = (set(), set())
     _validate_add_only_baseline_floors(count_rows, counts_path)
     committed_identities = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
+    committed_identity_sequences = _load_monitor_final_identity_sequences(
+        MONITOR_OUTPUT_DIR
+    )
     _validate_new_ordinary_row_provenance(output_dir, committed_identities)
     _validate_orphan_parent_overlaps(output_dir)
     _validate_ordinary_monitor_identity_floor(
         output_dir,
         committed=committed_identities,
+        committed_sequences=committed_identity_sequences,
     )
     return count_rows, manifest, baseline_identities
 

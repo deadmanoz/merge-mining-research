@@ -503,6 +503,24 @@ def test_monitor_artifact_rejects_padded_child_header_field(tmp_path: Path) -> N
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_malformed_child_height(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["child_height"] = "not-a-height"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="child_height must be blank"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_mismatched_live_child_header(
     tmp_path: Path,
 ) -> None:
@@ -1296,6 +1314,40 @@ def test_identity_floor_preserves_child_observation_multiplicity(
         )
 
 
+def test_identity_floor_preserves_ordinary_row_order(tmp_path: Path) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    _write_add_only_baseline(committed_dir, stale=2)
+    shutil.copytree(committed_dir, current_dir)
+
+    def set_child_hashes(directory: Path, hashes: tuple[str, str]) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = reader.fieldnames
+            rows = list(reader)
+        assert fieldnames is not None
+        for row, child_hash in zip(rows, hashes, strict=True):
+            row["child_block_hash"] = child_hash
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    set_child_hashes(committed_dir, ("11" * 32, "22" * 32))
+    set_child_hashes(current_dir, ("22" * 32, "11" * 32))
+
+    with pytest.raises(ValueError, match="row ordering"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+            committed_sequences=module._load_monitor_final_identity_sequences(
+                committed_dir
+            ),
+        )
+
+
 def test_identity_floor_preserves_nonempty_coinbase_evidence(tmp_path: Path) -> None:
     module = _load_module()
     committed_dir = tmp_path / "committed"
@@ -1553,7 +1605,7 @@ def test_error_aggregate_default_directory_uses_immutable_identity_snapshot(
         module.main(["--add-error-observations", "--output-dir", str(output_dir)])
 
 
-def test_error_aggregate_accepts_external_logical_artifact_paths(
+def test_error_aggregate_rejects_external_logical_artifact_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_module()
@@ -1580,20 +1632,16 @@ def test_error_aggregate_accepts_external_logical_artifact_paths(
     manifest_path.write_text(json.dumps(manifest))
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    module._load_error_update_baseline(partial_dir)
+    with pytest.raises(ValueError, match="artifact paths must agree"):
+        module._load_error_update_baseline(partial_dir)
 
 
-def test_error_aggregate_accepts_project_relative_logical_artifact_paths(
+def test_error_aggregate_rejects_project_relative_logical_artifact_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_module()
     project_root = tmp_path / "project"
     monkeypatch.setattr(module, "PROJECT_ROOT", project_root)
-    monkeypatch.setattr(
-        module,
-        "safe_path",
-        lambda path, chain="": f"results/release-candidate/{path.name}",
-    )
     committed_dir = tmp_path / "committed"
     _write_add_only_baseline(committed_dir, stale=1)
     partial_dir = project_root / "results" / "release-candidate"
@@ -1618,7 +1666,8 @@ def test_error_aggregate_accepts_project_relative_logical_artifact_paths(
     manifest_path.write_text(json.dumps(manifest))
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    module._load_error_update_baseline(partial_dir)
+    with pytest.raises(ValueError, match="artifact paths must agree"):
+        module._load_error_update_baseline(partial_dir)
 
 
 def test_monitor_artifact_rejects_scope_mismatch_for_sidecar_contract(
