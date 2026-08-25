@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
+    HISTORICAL_CHILD_HEADER_CHAINS,
     LIVE_CHILD_IDENTITY_CHAINS,
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
@@ -50,6 +51,7 @@ from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     ChildHeaderValidationError,
     hash_meets_btc_difficulty,
+    validate_child_header_fields,
     validate_available_child_header_fields,
 )
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
@@ -251,8 +253,21 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                 "child_block_time": (row.get("child_block_time") or "").strip(),
                 "child_nbits": (row.get("child_nbits") or "").strip(),
             }
-            if any(child_bundle.values()):
-                spec = CHAIN_SPECS.get(chain)
+            spec = CHAIN_SPECS.get(chain)
+            if chain in HISTORICAL_CHILD_HEADER_CHAINS:
+                try:
+                    validate_child_header_fields(
+                        child_bundle,
+                        nbits_from_header=(
+                            spec.child_nbits_from_header if spec else True
+                        ),
+                    )
+                except ChildHeaderValidationError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: historical child fields are not "
+                        f"a complete authenticated bundle ({exc})"
+                    ) from exc
+            elif any(child_bundle.values()):
                 try:
                     validate_available_child_header_fields(
                         child_bundle,
@@ -279,6 +294,13 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                     raise ValueError(
                         f"{path}:{row_number}: live-chain row lacks a verified "
                         "child identity"
+                    )
+            if classification in {"stale", "stale_descendant"}:
+                btc_height = int_or_none((row.get("btc_height") or "").strip())
+                if btc_height is None or btc_height < 0:
+                    raise ValueError(
+                        f"{path}:{row_number}: {classification} row lacks a "
+                        "nonnegative Bitcoin height"
                     )
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
@@ -404,6 +426,26 @@ def _load_error_observation_identity_sets(
                 )
             witness_identities.add(witness)
     return parent_identities, witness_identities
+
+
+def _load_ordinary_monitor_parent_identities(
+    output_dir: Path, count_rows: list[dict[str, str]]
+) -> set[tuple[int, str]]:
+    """Return published ordinary parent identities with usable heights."""
+    identities: set[tuple[int, str]] = set()
+    for count_row in count_rows:
+        chain = (count_row.get("chain") or "").strip()
+        if not chain or chain == ERROR_OBSERVATION_ARTIFACT:
+            continue
+        artifact_path = output_dir / f"{chain}_monitor_evidence.csv"
+        with artifact_path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                height = int_or_none((row.get("btc_height") or "").strip())
+                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+                if height is not None and height >= 0 and is_hash(parent_hash):
+                    identities.add((height, parent_hash))
+    return identities
 
 
 def _classification_counts(path: Path) -> Counter[str]:
@@ -1444,6 +1486,21 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
     if not output_dir.is_dir():
         raise ValueError(f"publication output directory is missing: {output_dir}")
     count_rows, manifest, baseline_identities = _load_error_update_baseline(output_dir)
+    error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
+    if error_blocks_path.is_file():
+        ordinary_identities = _load_ordinary_monitor_parent_identities(
+            output_dir, count_rows
+        )
+        consensus_invalid_identities = load_consensus_invalid_stale_keys(
+            error_blocks_path
+        )
+        overlap = ordinary_identities & consensus_invalid_identities
+        if overlap:
+            raise ValueError(
+                "add-only error-observation update cannot proceed: ordinary "
+                f"monitor artifacts overlap {len(overlap)} current error-block "
+                "parent identities; run a full publication rebuild"
+            )
     transaction_dir = Path(
         tempfile.mkdtemp(
             prefix=f".{output_dir.name}.error-observations-", dir=output_dir.parent

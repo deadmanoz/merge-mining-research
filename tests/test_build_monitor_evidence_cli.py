@@ -451,6 +451,72 @@ def test_monitor_artifact_rejects_mismatched_live_child_header(
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_incomplete_historical_child_bundle(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["chain"] = "devcoin"
+    rows[0]["child_header_hex"] = ""
+    rows[0]["child_nbits"] = ""
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="historical child fields"):
+        module._load_monitor_artifact_counts(artifact, "devcoin")
+
+
+@pytest.mark.parametrize(
+    ("classification", "validation_status", "artifact_scope", "reason"),
+    [
+        ("stale", "VALID", "full_classifier_inventory", "valid_direct_stale"),
+        (
+            "stale_descendant",
+            "VALID_STALE_DESCENDANT",
+            "stale_descendant_sidecar",
+            "valid_stale_descendant",
+        ),
+    ],
+)
+def test_monitor_artifact_rejects_confirmed_row_without_btc_height(
+    tmp_path: Path,
+    classification: str,
+    validation_status: str,
+    artifact_scope: str,
+    reason: str,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0].update(
+        {
+            "btc_height": "",
+            "classification": classification,
+            "validation_status": validation_status,
+            "artifact_scope": artifact_scope,
+            "relevance_reason": reason,
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_crossed_orphan_relevance_tuple(
     tmp_path: Path,
 ) -> None:
@@ -652,6 +718,35 @@ def test_error_aggregate_rejects_replaced_published_identity(
 
     with pytest.raises(ValueError, match="drops missing 1 published parent identities"):
         module.main(["--add-error-observations", "--output-dir", str(output_dir)])
+
+
+def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+    data_dir = tmp_path / "data"
+    error_blocks = data_dir / "error-blocks" / "error_blocks.csv"
+    error_blocks.parent.mkdir(parents=True)
+    error_blocks.write_text(
+        f"height,hash,classification\n1,{TEST_PARENT_HASH},error_block\n"
+    )
+
+    with pytest.raises(ValueError, match="ordinary monitor artifacts overlap"):
+        module.main(
+            [
+                "--add-error-observations",
+                "--output-dir",
+                str(output_dir),
+                "--data-dir",
+                str(data_dir),
+            ]
+        )
 
 
 def test_late_vcash_validation_failure_preserves_existing_publication_set(

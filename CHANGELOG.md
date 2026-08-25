@@ -29,6 +29,11 @@ Keep classification and serialized-header encodings exact, enforce self-PoW and
 confirmed expected-nBits contracts, and keep ordinary chains free of error
 observations.
 
+Require historical child-header bundles and confirmed stale heights during
+add-only validation, and refuse an error-observation update when its current
+error-block catalogue overlaps an ordinary monitor artifact that needs a full
+rebuild.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and
