@@ -64,6 +64,9 @@ in the ordinary publication floor.
 Preserve RSK sidecar payloads in the same floor digest and reject noncanonical
 uppercase or padded Bitcoin parent-hash encodings during add-only preflight.
 
+Bind stale-descendant expected-nBits validation to the dedicated sidecar chain
+contract and preserve normalized source provenance in the ordinary floor.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

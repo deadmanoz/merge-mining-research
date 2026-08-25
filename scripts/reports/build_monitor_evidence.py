@@ -169,6 +169,7 @@ _ORPHAN_RELEVANCE_REASONS = {
     "strict_btc_orphan": "strict_height_nbits_match",
     "weak_btc_orphan": "timestamp_epoch_nbits_match",
 }
+_DESCENDANT_SIDECAR_CHAIN = "stale-descendants"
 _MANIFEST_COUNT_FIELDS = (
     *_ORDINARY_MONITOR_CATEGORIES,
     "error_block",
@@ -433,8 +434,11 @@ def _load_monitor_artifact_counts(
                 stale_identities.add(stale_identity)
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
-                and (row.get("artifact_scope") or "").strip()
-                == "stale_descendant_sidecar"
+                and (
+                    chain == _DESCENDANT_SIDECAR_CHAIN
+                    or (row.get("artifact_scope") or "").strip()
+                    == "stale_descendant_sidecar"
+                )
             )
             if requires_expected_nbits:
                 expected_nbits = row.get("expected_nbits") or ""
@@ -629,8 +633,12 @@ def _load_ordinary_monitor_parent_identities(
 
 
 def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
-    """Digest the nonempty coinbase evidence preserved in an ordinary row."""
+    """Digest preserved provenance and evidence fields in an ordinary row."""
     fields = [
+        row.get("source_kind") or "",
+        row.get("source_path") or "",
+        row.get("source_row_number") or "",
+        row.get("provenance") or "",
         row.get("coinbase_scriptsig_hex") or "",
         row.get("coinbase_outputs") or "",
         row.get("full_coinbase_hex") or "",

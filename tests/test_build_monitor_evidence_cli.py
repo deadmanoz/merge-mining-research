@@ -617,6 +617,36 @@ def test_monitor_artifact_rejects_descendant_observation_without_btc_height(
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_binds_descendant_sidecar_to_chain_contract(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0].update(
+        {
+            "chain": "stale-descendants",
+            "btc_height": "227931",
+            "expected_nbits": "",
+            "classification": "stale_descendant",
+            "validation_status": "VALID_STALE_DESCENDANT",
+            "artifact_scope": "full_classifier_inventory",
+            "relevance_reason": "valid_stale_descendant",
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="invalid expected_nbits"):
+        module._load_monitor_artifact_counts(artifact, "stale-descendants")
+
+
 def test_monitor_artifact_rejects_duplicate_stale_identity(tmp_path: Path) -> None:
     module = _load_module()
     artifact = _write_add_only_baseline(tmp_path / "monitor", stale=2)
@@ -971,6 +1001,43 @@ def test_identity_floor_preserves_rsk_sidecar_evidence(tmp_path: Path) -> None:
             writer.writerow(row)
 
     write_artifact(committed_dir, "miner-a")
+    write_artifact(current_dir, "")
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
+
+
+def test_identity_floor_preserves_row_provenance(tmp_path: Path) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, source_path: str) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+            writer.writeheader()
+            row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+            row.update(
+                {
+                    "chain": "namecoin",
+                    "btc_height": "1",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "classification": "canonical",
+                    "source_kind": "full_inventory",
+                    "source_path": source_path,
+                    "source_row_number": "7",
+                    "provenance": "archive",
+                }
+            )
+            writer.writerow(row)
+
+    write_artifact(committed_dir, "archive/namecoin.csv")
     write_artifact(current_dir, "")
 
     with pytest.raises(ValueError, match="drops committed ordinary evidence"):
