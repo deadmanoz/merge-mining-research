@@ -145,9 +145,20 @@ _ORDINARY_MONITOR_CATEGORIES = (
     "weak_btc_orphan",
 )
 _ORPHAN_RELEVANCE_REASONS = {
-    "strict_height_nbits_match",
-    "timestamp_epoch_nbits_match",
+    "strict_btc_orphan": "strict_height_nbits_match",
+    "weak_btc_orphan": "timestamp_epoch_nbits_match",
 }
+_MANIFEST_COUNT_FIELDS = (
+    *_ORDINARY_MONITOR_CATEGORIES,
+    "error_block",
+    "monitor_rows",
+    "source_rows",
+)
+
+
+def _is_ordinary_stale_status(status: str) -> bool:
+    """Return whether a status belongs to the ordinary stale contract."""
+    return status == "VALID" or status.startswith("VALID ")
 
 
 def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
@@ -172,6 +183,10 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
             status = (row.get("validation_status") or "").strip()
             bucket = (row.get("btc_stale_relevance") or "").strip()
             reason = (row.get("relevance_reason") or "").strip()
+            if not is_hash((row.get("btc_header_hash") or "").strip().lower()):
+                raise ValueError(
+                    f"{path}:{row_number}: row lacks a valid Bitcoin parent hash"
+                )
             if classification == "canonical":
                 if bucket or reason:
                     raise ValueError(
@@ -179,9 +194,9 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                     )
                 counts["canonical"] += 1
             elif classification == "stale":
-                if not status.startswith("VALID"):
+                if not _is_ordinary_stale_status(status):
                     raise ValueError(
-                        f"{path}:{row_number}: stale row is not publication-valid"
+                        f"{path}:{row_number}: stale row has invalid ordinary status"
                     )
                 if bucket or reason != "valid_direct_stale":
                     raise ValueError(
@@ -211,7 +226,7 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
             elif (
                 classification == "unknown"
                 and bucket in {"strict_btc_orphan", "weak_btc_orphan"}
-                and reason in _ORPHAN_RELEVANCE_REASONS
+                and reason == _ORPHAN_RELEVANCE_REASONS[bucket]
             ):
                 counts[bucket] += 1
             else:
@@ -1085,6 +1100,31 @@ def _load_error_update_baseline(
         assert isinstance(item, dict)
         item.setdefault("error_block", 0)
     count_rows_by_chain = {row["chain"]: row for row in count_rows}
+    manifest_counts_by_chain = {
+        str(item["chain"]): item
+        for item in manifest_counts
+        if isinstance(item, dict) and item.get("chain")
+    }
+    for chain, row in count_rows_by_chain.items():
+        manifest_row = manifest_counts_by_chain.get(chain)
+        if manifest_row is None:
+            raise ValueError(f"{manifest_path}: {chain} has no manifest count row")
+        for field in _MANIFEST_COUNT_FIELDS:
+            csv_raw = row.get(field)
+            manifest_raw = manifest_row.get(field)
+            csv_value = int_or_none(str(csv_raw) if csv_raw is not None else "")
+            manifest_value = int_or_none(
+                str(manifest_raw) if manifest_raw is not None else ""
+            )
+            if (
+                csv_value is None
+                or manifest_value is None
+                or csv_value != manifest_value
+            ):
+                raise ValueError(
+                    f"{manifest_path}: {chain} {field} does not match counts "
+                    f"({manifest_value!r} != {csv_value!r})"
+                )
     artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
     for chain in artifact_chains:
         declared = artifacts.get(chain)

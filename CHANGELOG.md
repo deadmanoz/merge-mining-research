@@ -15,6 +15,10 @@ ordinary evidence and consensus-invalid error observations.
 Require add-only ordinary artifacts to retain the complete monitor schema and
 the exact relevance axes emitted for each supported classification.
 
+Reject add-only rows without a Bitcoin parent hash, crossed orphan verdict
+tuples, manifest count drift, or error-observation validation tokens in stale
+rows.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and
