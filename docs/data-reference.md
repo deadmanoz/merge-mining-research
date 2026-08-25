@@ -348,7 +348,8 @@ a retarget violation. The compact recovered witness ledger lives at
 current parent catalogue before publication. Every ledger row must identify its
 child either with a well-formed internal-order hash or with a serialized child
 header from which that hash can be authenticated. Extending an already
-complete publication uses `just monitor-evidence --add-error-observations`,
+complete publication uses `just monitor-evidence --add-error-observations --output-dir <disposable-baseline-dir>` after copying the complete publication
+into that disposable baseline directory,
 which verifies that every ordinary artifact declared by the baseline is still
 present and that the regenerated aggregate does not fall below its existing
 floors before replacing only this aggregate and the two metadata files. It

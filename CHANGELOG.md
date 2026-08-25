@@ -52,6 +52,11 @@ Derive project-relative artifact paths from the selected publication directory
 and validate each row's artifact scope against the count/manifest contract so
 stale-descendant sidecar checks cannot be bypassed by editing row metadata.
 
+Require exact decoded parent and child encodings, recheck strict-orphan BIP34
+and timestamp-epoch evidence, preserve child-observation multiplicity in the
+immutable floor, and document the explicit disposable baseline for add-only
+publication updates.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

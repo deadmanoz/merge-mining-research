@@ -10,7 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from stale_blocks_analysis.full_evidence import MONITOR_EVIDENCE_FIELDS
+from stale_blocks_analysis.full_evidence import (
+    MONITOR_EVIDENCE_FIELDS,
+    parse_header_fields,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "reports" / "build_monitor_evidence.py"
@@ -148,6 +151,7 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
 
 def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
     output_dir.mkdir()
+    parent_fields = parse_header_fields(TEST_PARENT_HEADER)
     normal_artifact = output_dir / "namecoin_monitor_evidence.csv"
     with normal_artifact.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
@@ -162,6 +166,10 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                     "btc_height": "1",
                     "btc_header_hash": TEST_PARENT_HASH,
                     "btc_header_hex": TEST_PARENT_HEADER,
+                    "btc_prev_hash": parent_fields["prev_hash"],
+                    "btc_time": parent_fields["time"],
+                    "btc_bits": parent_fields["bits"],
+                    "btc_nonce": parent_fields["nonce"],
                     "expected_nbits": "1a0e119a",
                     "child_height": "1",
                     "child_block_hash": "11" * 32,
@@ -431,6 +439,42 @@ def test_monitor_artifact_rejects_mismatched_parent_field(tmp_path: Path) -> Non
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_blank_parent_header_field(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_time"] = ""
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="btc_time disagrees"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_padded_child_header_field(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["child_block_time"] = " 1"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="exact unpadded encodings"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_mismatched_live_child_header(
     tmp_path: Path,
 ) -> None:
@@ -526,7 +570,7 @@ def test_monitor_artifact_rejects_duplicate_stale_identity(tmp_path: Path) -> No
 
 
 def test_monitor_artifact_rejects_strict_orphan_with_wrong_height_target(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_module()
     artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
@@ -535,8 +579,18 @@ def test_monitor_artifact_rejects_strict_orphan_with_wrong_height_target(
         fieldnames = reader.fieldnames
         rows = list(reader)
     assert fieldnames is not None
+    parent_fields = parse_header_fields(TEST_PARENT_HEADER)
+    monkeypatch.setattr(
+        module,
+        "_load_btc_epoch_headers",
+        lambda _data_dir: ((int(parent_fields["time"]), 227808, 0x1A0E119A),),
+    )
+    monkeypatch.setattr(
+        module, "_load_btc_nbits_by_epoch", lambda _data_dir: {227808: 0x1D00FFFF}
+    )
     rows[0].update(
         {
+            "btc_height": "227931",
             "classification": "unknown",
             "validation_status": "",
             "btc_stale_relevance": "strict_btc_orphan",
@@ -549,6 +603,40 @@ def test_monitor_artifact_rejects_strict_orphan_with_wrong_height_target(
         writer.writerows(rows)
 
     with pytest.raises(ValueError, match="does not match the Bitcoin target"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_strict_orphan_with_mismatched_height_epoch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    parent_fields = parse_header_fields(TEST_PARENT_HEADER)
+    monkeypatch.setattr(
+        module,
+        "_load_btc_epoch_headers",
+        lambda _data_dir: ((int(parent_fields["time"]), 229824, 0x1A0E119A),),
+    )
+    rows[0].update(
+        {
+            "btc_height": "227931",
+            "classification": "unknown",
+            "validation_status": "",
+            "btc_stale_relevance": "strict_btc_orphan",
+            "relevance_reason": "strict_height_nbits_match",
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="does not match the Bitcoin header timestamp"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
@@ -702,6 +790,44 @@ def test_error_aggregate_rejects_dropped_ordinary_identity(
 
     with pytest.raises(ValueError, match="drops committed ordinary evidence"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_identity_floor_preserves_child_observation_multiplicity(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, child_hashes: tuple[str, ...]) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+            writer.writeheader()
+            for child_hash in child_hashes:
+                row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+                row.update(
+                    {
+                        "chain": "namecoin",
+                        "btc_height": "1",
+                        "btc_header_hash": TEST_PARENT_HASH,
+                        "classification": "canonical",
+                        "child_height": "1",
+                        "child_block_hash": child_hash,
+                    }
+                )
+                writer.writerow(row)
+
+    write_artifact(committed_dir, ("11" * 32, "22" * 32))
+    write_artifact(current_dir, ("11" * 32, "11" * 32))
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
 
 
 def test_error_aggregate_default_directory_uses_immutable_identity_snapshot(
@@ -860,6 +986,7 @@ def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
         writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
         writer.writeheader()
         row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+        parent_fields = parse_header_fields(TEST_PARENT_HEADER)
         row.update(
             {
                 "chain": "namecoin",
@@ -867,6 +994,10 @@ def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
                 "artifact_scope": "full_classifier_inventory",
                 "btc_header_hash": TEST_PARENT_HASH,
                 "btc_header_hex": TEST_PARENT_HEADER,
+                "btc_prev_hash": parent_fields["prev_hash"],
+                "btc_time": parent_fields["time"],
+                "btc_bits": parent_fields["bits"],
+                "btc_nonce": parent_fields["nonce"],
                 "child_height": "1",
                 "child_block_hash": "11" * 32,
                 "child_block_time": "1",
