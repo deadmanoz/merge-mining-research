@@ -19,6 +19,9 @@ Reject add-only rows without a Bitcoin parent hash, crossed orphan verdict
 tuples, manifest count drift, or error-observation validation tokens in stale
 rows.
 
+Also verify serialized parent headers, live-chain child identities, exact raw
+relevance tokens, and the ordinary status contract across every row type.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

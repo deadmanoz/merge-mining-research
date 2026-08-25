@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     DEFAULT_RELEVANCE_INVENTORY,
+    LIVE_CHILD_IDENTITY_CHAINS,
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
@@ -41,6 +42,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     load_orphan_relevance_verdicts,
     MONITOR_VALIDATION_CONTRACTS,
     normalize_evidence_row,
+    verified_header_hex,
     write_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
@@ -181,13 +183,46 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                 )
             classification = (row.get("classification") or "").strip().lower()
             status = (row.get("validation_status") or "").strip()
-            bucket = (row.get("btc_stale_relevance") or "").strip()
-            reason = (row.get("relevance_reason") or "").strip()
-            if not is_hash((row.get("btc_header_hash") or "").strip().lower()):
+            raw_bucket = row.get("btc_stale_relevance") or ""
+            raw_reason = row.get("relevance_reason") or ""
+            bucket = raw_bucket.strip()
+            reason = raw_reason.strip()
+            if raw_bucket != bucket or raw_reason != reason:
+                raise ValueError(
+                    f"{path}:{row_number}: relevance vocabulary is not exact"
+                )
+            parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+            if not is_hash(parent_hash):
                 raise ValueError(
                     f"{path}:{row_number}: row lacks a valid Bitcoin parent hash"
                 )
+            if not verified_header_hex(
+                (row.get("btc_header_hex") or "").strip(), parent_hash
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: serialized Bitcoin parent header is "
+                    "missing or does not match its hash"
+                )
+            if chain in LIVE_CHILD_IDENTITY_CHAINS and classification != "canonical":
+                child_height = int_or_none((row.get("child_height") or "").strip())
+                child_hash = (row.get("child_block_hash") or "").strip().lower()
+                child_time = (row.get("child_block_time") or "").strip()
+                if (
+                    child_height is None
+                    or child_height < 0
+                    or not is_hash(child_hash)
+                    or not child_time.isdigit()
+                    or int(child_time) <= 0
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: live-chain row lacks a verified "
+                        "child identity"
+                    )
             if classification == "canonical":
+                if status:
+                    raise ValueError(
+                        f"{path}:{row_number}: canonical row has invalid status"
+                    )
                 if bucket or reason:
                     raise ValueError(
                         f"{path}:{row_number}: canonical row has non-empty relevance"
@@ -228,6 +263,10 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                 and bucket in {"strict_btc_orphan", "weak_btc_orphan"}
                 and reason == _ORPHAN_RELEVANCE_REASONS[bucket]
             ):
+                if status:
+                    raise ValueError(
+                        f"{path}:{row_number}: orphan row has invalid status"
+                    )
                 counts[bucket] += 1
             else:
                 raise ValueError(

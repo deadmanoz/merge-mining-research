@@ -14,6 +14,12 @@ from stale_blocks_analysis.full_evidence import MONITOR_EVIDENCE_FIELDS
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "reports" / "build_monitor_evidence.py"
+TEST_PARENT_HASH = "0000000000000a0101e3939b59d526806e0545ee95e7b947b8233ed42bb1b5e7"
+TEST_PARENT_HEADER = (
+    "01000000b7206e118a8f33910ac281a57f7d0deb234be7cfe9f0f648a80d000000000000"
+    "4ef56ab98f9aabaa381960242e408d1bdd75cc6aee049ded0f3e81b02122a7d8215cd44e9a"
+    "110e1ac8cae712"
+)
 
 
 def _load_module():
@@ -154,7 +160,11 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                     "source_kind": "full_inventory",
                     "artifact_scope": "full_classifier_inventory",
                     "btc_height": "1",
-                    "btc_header_hash": "00" * 31 + "01",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "btc_header_hex": TEST_PARENT_HEADER,
+                    "child_height": "1",
+                    "child_block_hash": "11" * 32,
+                    "child_block_time": "1",
                     "classification": "stale",
                     "validation_status": "VALID",
                     "relevance_reason": "valid_direct_stale",
@@ -384,6 +394,24 @@ def test_monitor_artifact_rejects_missing_parent_hash(tmp_path: Path) -> None:
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_mismatched_parent_header(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_header_hex"] = "00" * 80
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="serialized Bitcoin parent header"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_crossed_orphan_relevance_tuple(
     tmp_path: Path,
 ) -> None:
@@ -485,7 +513,11 @@ def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
                 "chain": "namecoin",
                 "source_kind": "full_inventory",
                 "artifact_scope": "full_classifier_inventory",
-                "btc_header_hash": "00" * 31 + "01",
+                "btc_header_hash": TEST_PARENT_HASH,
+                "btc_header_hex": TEST_PARENT_HEADER,
+                "child_height": "1",
+                "child_block_hash": "11" * 32,
+                "child_block_time": "1",
                 "classification": "near",
                 "btc_stale_relevance": "strict_btc_orphan",
                 "relevance_reason": "strict_height_nbits_match",
