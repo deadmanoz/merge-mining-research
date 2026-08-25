@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Keep fallback strict-height verdicts limited to committed evidence, preserve
+relevance metadata, reject uncorroborated canonical additions and duplicate
+schema columns, and prevent orphan verdicts from overlapping known final
+parents.
+
 Authenticate strict orphan heights and descendant promotions against their
 source evidence, require provenance on newly admitted rows, preserve summary
 metadata, and accept the canonical companion scopes emitted by full exports.

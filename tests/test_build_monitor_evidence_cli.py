@@ -212,6 +212,8 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
                 "output_dir": "results/monitor-evidence",
                 "counts_csv": "results/monitor-evidence/monitor-evidence-counts.csv",
                 "manifest_json": "results/monitor-evidence/monitor-evidence-manifest.json",
+                "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
+                "strict_weak_verdicts_loaded": 0,
                 "artifacts": {"namecoin": count["artifact_path"]},
                 "counts": [count],
                 "strict_weak_verdicts_loaded": 0,
@@ -1186,7 +1188,7 @@ def test_error_aggregate_requires_provenance_on_new_ordinary_rows(
             path.write_text(json.dumps(manifest))
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    with pytest.raises(ValueError, match="newly admitted ordinary row lacks"):
+    with pytest.raises(ValueError, match="newly admitted canonical identity"):
         module._load_error_update_baseline(partial_dir)
 
 

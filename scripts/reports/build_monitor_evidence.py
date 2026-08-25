@@ -271,10 +271,13 @@ def _load_monitor_artifact_counts(
     descendant_consensus_invalid: set[tuple[int, str]] | None = None
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        if len(fieldnames) != len(set(fieldnames)):
+            raise ValueError(f"{path}: monitor-evidence schema has duplicate columns")
         required = set(MONITOR_EVIDENCE_FIELDS)
         if chain == "rsk":
             required.update(RSK_SIDECAR_EXPORT_FIELDS)
-        missing = required - set(reader.fieldnames or ())
+        missing = required - set(fieldnames)
         if missing:
             raise ValueError(
                 f"{path}: missing monitor-evidence fields: "
@@ -919,7 +922,22 @@ def _validate_new_ordinary_row_provenance(
                 )
                 core_key = (chain, category, core)
                 current_core_counts[core_key] += 1
-                if current_core_counts[core_key] <= committed_core_counts[core_key]:
+                is_new = current_core_counts[core_key] > committed_core_counts[core_key]
+                if is_new and category == "canonical":
+                    raise ValueError(
+                        f"{path}:{row_number}: newly admitted canonical identity "
+                        "must be corroborated by a full publication rebuild"
+                    )
+                if (
+                    is_new
+                    and category == "strict_btc_orphan"
+                    and not (row.get("coinbase_scriptsig_hex") or "").strip()
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: newly admitted strict orphan lacks "
+                        "verifiable strict-height evidence"
+                    )
+                if not is_new:
                     continue
                 source_kind = (row.get("source_kind") or "").strip()
                 source_path = (row.get("source_path") or "").strip()
@@ -938,6 +956,40 @@ def _validate_new_ordinary_row_provenance(
                         f"{path}:{row_number}: newly admitted ordinary row lacks "
                         "complete source provenance"
                     )
+
+
+def _validate_orphan_parent_overlaps(output_dir: Path) -> None:
+    """Reject orphan verdicts whose parent is already a known final state."""
+    known_final_parent_hashes: set[str] = set()
+    orphan_rows: list[tuple[Path, int, str]] = []
+    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
+        if path.name == f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv":
+            continue
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                classification = (row.get("classification") or "").strip().lower()
+                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+                if classification in {"canonical", "stale", "stale_descendant"}:
+                    if is_hash(parent_hash):
+                        known_final_parent_hashes.add(parent_hash)
+                elif (
+                    classification == "unknown"
+                    and (row.get("relevance_reason") or "").strip()
+                    == "valid_stale_descendant"
+                ):
+                    if is_hash(parent_hash):
+                        known_final_parent_hashes.add(parent_hash)
+                elif classification == "unknown" and (
+                    row.get("btc_stale_relevance") or ""
+                ).strip() in {"strict_btc_orphan", "weak_btc_orphan"}:
+                    if is_hash(parent_hash):
+                        orphan_rows.append((path, row_number, parent_hash))
+    for path, row_number, parent_hash in orphan_rows:
+        if parent_hash in known_final_parent_hashes:
+            raise ValueError(
+                f"{path}:{row_number}: orphan verdict overlaps a known final-state "
+                f"parent {parent_hash}"
+            )
 
 
 def _validate_ordinary_monitor_identity_floor(
@@ -1766,14 +1818,28 @@ def _load_error_update_baseline(
             f"{committed_manifest_path}: committed publication manifest is missing"
         )
     committed_manifest = json.loads(committed_manifest_path.read_text())
-    for field in ("output_dir", "counts_csv", "manifest_json"):
+    for field in (
+        "output_dir",
+        "counts_csv",
+        "manifest_json",
+        "relevance_inventory",
+        "strict_weak_verdicts_loaded",
+    ):
         current_value = manifest.get(field)
         committed_value = committed_manifest.get(field)
-        if (
-            not isinstance(current_value, str)
-            or not isinstance(committed_value, str)
-            or current_value != committed_value
-        ):
+        if field == "strict_weak_verdicts_loaded":
+            matches = (
+                isinstance(current_value, int)
+                and isinstance(committed_value, int)
+                and current_value == committed_value
+            )
+        else:
+            matches = (
+                isinstance(current_value, str)
+                and isinstance(committed_value, str)
+                and current_value == committed_value
+            )
+        if not matches:
             raise ValueError(
                 f"{manifest_path}: top-level {field} does not preserve the "
                 "committed logical publication path"
@@ -1928,6 +1994,7 @@ def _load_error_update_baseline(
     _validate_add_only_baseline_floors(count_rows, counts_path)
     committed_identities = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
     _validate_new_ordinary_row_provenance(output_dir, committed_identities)
+    _validate_orphan_parent_overlaps(output_dir)
     _validate_ordinary_monitor_identity_floor(
         output_dir,
         committed=committed_identities,
