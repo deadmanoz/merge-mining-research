@@ -4,6 +4,9 @@
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
+Preserve retained expected-nBits evidence and authenticate newly admitted
+descendant occurrences during add-only updates.
+
 Keep add-only updates from introducing new stale, orphan, or canonical
 identities, preserve row scope in identity checks, and reject undeclared
 publication chains.

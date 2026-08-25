@@ -786,6 +786,7 @@ def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
         row.get("artifact_scope") or "",
         row.get("provenance") or "",
         row.get("rejection_reason") or "",
+        row.get("expected_nbits") or "",
         row.get("child_header_hex") or "",
         row.get("child_nbits") or "",
         row.get("coinbase_scriptsig_hex") or "",
@@ -932,6 +933,7 @@ def _validate_new_ordinary_row_provenance(
                 if is_new and category in {
                     "canonical",
                     "stale",
+                    "stale_descendant",
                     "strict_btc_orphan",
                     "weak_btc_orphan",
                 }:
