@@ -452,6 +452,13 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: {classification} row has invalid "
                         "expected_nbits"
                     )
+            elif any(
+                (row.get(field) or "")
+                for field in ("expected_nbits", "rejection_reason")
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: non-stale row has stale-gate fields"
+                )
             if classification == "canonical":
                 if status:
                     raise ValueError(
@@ -650,11 +657,29 @@ def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
     return hashlib.sha256("\x00".join(fields).encode()).hexdigest()
 
 
+def _expected_canonical_evidence_status(
+    row: dict[str, str], canonical_count: int
+) -> str:
+    """Return the only canonical-coverage status valid for a count row."""
+    source_kind = (row.get("source_kind") or "").strip()
+    if source_kind == "missing":
+        return "not_checked_missing_source"
+    if source_kind == "stale_descendant_sidecar":
+        return "not_applicable"
+    if canonical_count > 0:
+        return "canonical_retained"
+    if source_kind == "validated_stales":
+        return "canonical_rows_not_represented_stale_only_publication_path"
+    return "no_canonical_rows_in_discovered_artifact"
+
+
 def _load_monitor_final_identity_sets(
     output_dir: Path,
-) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]]:
+) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]:
     """Load per-chain final-category identities from ordinary artifacts."""
-    identities: dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]] = {}
+    identities: dict[
+        tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]
+    ] = {}
     for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
         chain = path.name.removesuffix("_monitor_evidence.csv")
         if chain == ERROR_OBSERVATION_ARTIFACT:
@@ -696,10 +721,12 @@ def _load_monitor_final_identity_sets(
                 child_height = int_or_none((row.get("child_height") or "").strip())
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
                 key = (
+                    classification,
                     str(height) if height is not None else "",
                     parent_hash,
                     str(child_height) if child_height is not None else "",
                     child_hash if is_hash(child_hash) else "",
+                    row.get("child_block_time") or "",
                     _coinbase_evidence_digest(row, chain),
                 )
                 identities.setdefault((chain, category), Counter())[key] += 1
@@ -709,7 +736,7 @@ def _load_monitor_final_identity_sets(
 def _validate_ordinary_monitor_identity_floor(
     output_dir: Path,
     *,
-    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str]]]
+    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]
     | None = None,
 ) -> None:
     """Reject add-only updates that drop any committed final-category identity."""
@@ -1607,6 +1634,24 @@ def _load_error_update_baseline(
             data_dir=data_dir,
             expected_artifact_scope=(expected.get("artifact_scope") or "").strip(),
         )
+        expected_canonical_status = _expected_canonical_evidence_status(
+            expected, actual["canonical"]
+        )
+        count_canonical_status = (
+            expected.get("canonical_evidence_status") or ""
+        ).strip()
+        manifest_canonical_status = str(
+            manifest_counts_by_chain[chain].get("canonical_evidence_status") or ""
+        ).strip()
+        if (
+            count_canonical_status != manifest_canonical_status
+            or count_canonical_status != expected_canonical_status
+        ):
+            raise ValueError(
+                f"{output_dir}: {chain} canonical evidence status is invalid "
+                f"({count_canonical_status!r}, {manifest_canonical_status!r}; "
+                f"expected {expected_canonical_status!r})"
+            )
         for field in (*_ORDINARY_MONITOR_CATEGORIES, "monitor_rows"):
             observed = actual[field]
             minimum = int(expected.get(field) or "0")
@@ -1787,6 +1832,25 @@ def _publish_error_observation_update(staging_dir: Path, output_dir: Path) -> No
         raise
 
 
+def _logical_error_observation_artifact_path(
+    count_rows: list[dict[str, str]],
+) -> Path:
+    """Derive the aggregate's logical root from ordinary artifact metadata."""
+    logical_paths = {
+        Path(str(row.get("artifact_path") or "")).parent
+        for row in count_rows
+        if row.get("chain") != ERROR_OBSERVATION_ARTIFACT
+        and (row.get("artifact_path") or "").strip()
+    }
+    if len(logical_paths) != 1:
+        raise ValueError(
+            "ordinary artifact metadata does not provide one logical publication root"
+        )
+    return next(iter(logical_paths)) / (
+        f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    )
+
+
 def build_error_observation_update(args: argparse.Namespace) -> dict[str, object]:
     """Publish the sparse error aggregate without rebuilding normal artifacts."""
     output_dir = args.output_dir.expanduser().resolve()
@@ -1843,9 +1907,7 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
             output_dir / PUBLICATION_COUNTS.name,
             observed_rows,
         )
-        artifact_path = (
-            output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
-        )
+        artifact_path = _logical_error_observation_artifact_path(count_rows)
         count = error_observation_count_row(
             artifact,
             data_dir=args.data_dir,

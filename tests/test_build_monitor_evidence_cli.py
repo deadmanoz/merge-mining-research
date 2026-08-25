@@ -194,7 +194,7 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
         "error_block": 0,
         "monitor_rows": stale,
         "source_rows": stale,
-        "canonical_evidence_status": "not_applicable",
+        "canonical_evidence_status": "no_canonical_rows_in_discovered_artifact",
         "notes": "",
     }
     with (output_dir / "monitor-evidence-counts.csv").open("w", newline="") as handle:
@@ -603,6 +603,7 @@ def test_monitor_artifact_rejects_descendant_observation_without_btc_height(
     rows[0].update(
         {
             "btc_height": "",
+            "expected_nbits": "",
             "classification": "unknown",
             "validation_status": "VALID_STALE_DESCENDANT",
             "relevance_reason": "valid_stale_descendant",
@@ -614,6 +615,30 @@ def test_monitor_artifact_rejects_descendant_observation_without_btc_height(
         writer.writerows(rows)
 
     with pytest.raises(ValueError, match="descendant observation lacks"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_stale_fields_on_canonical_row(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0].update(
+        {
+            "classification": "canonical",
+            "validation_status": "",
+            "expected_nbits": "1a0e119a",
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="non-stale row has stale-gate fields"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
@@ -677,6 +702,7 @@ def test_monitor_artifact_rejects_strict_orphan_with_wrong_height_target(
     rows[0].update(
         {
             "btc_height": "227931",
+            "expected_nbits": "",
             "classification": "unknown",
             "validation_status": "",
             "btc_stale_relevance": "strict_btc_orphan",
@@ -711,6 +737,7 @@ def test_monitor_artifact_rejects_strict_orphan_with_mismatched_height_epoch(
     rows[0].update(
         {
             "btc_height": "227931",
+            "expected_nbits": "",
             "classification": "unknown",
             "validation_status": "",
             "btc_stale_relevance": "strict_btc_orphan",
@@ -742,6 +769,7 @@ def test_monitor_artifact_rejects_weak_orphan_with_wrong_timestamp_target(
         {
             "classification": "unknown",
             "validation_status": "",
+            "expected_nbits": "",
             "btc_stale_relevance": "weak_btc_orphan",
             "relevance_reason": "timestamp_epoch_nbits_match",
         }
@@ -802,6 +830,7 @@ def test_monitor_artifact_rejects_crossed_orphan_relevance_tuple(
         {
             "classification": "unknown",
             "validation_status": "",
+            "expected_nbits": "",
             "btc_stale_relevance": "strict_btc_orphan",
             "relevance_reason": "timestamp_epoch_nbits_match",
         }
@@ -831,6 +860,35 @@ def test_error_aggregate_rejects_manifest_count_drift(
 
     with pytest.raises(ValueError, match="manifest.*stale does not match counts"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_invalid_canonical_coverage_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["canonical_evidence_status"] = "not_applicable"
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = partial_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["counts"][0]["canonical_evidence_status"] = "not_applicable"
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="canonical evidence status is invalid"):
+        module._load_error_update_baseline(partial_dir)
 
 
 def test_error_aggregate_rejects_manifest_artifact_scope_drift(
@@ -1045,6 +1103,97 @@ def test_identity_floor_preserves_row_provenance(tmp_path: Path) -> None:
             current_dir,
             committed=module._load_monitor_final_identity_sets(committed_dir),
         )
+
+
+def test_identity_floor_preserves_descendant_primary_classification(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, classification: str) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+            writer.writeheader()
+            row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+            row.update(
+                {
+                    "chain": "namecoin",
+                    "btc_height": "1",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "classification": classification,
+                    "validation_status": "VALID_STALE_DESCENDANT"
+                    if classification == "stale_descendant"
+                    else "",
+                    "relevance_reason": "valid_stale_descendant",
+                }
+            )
+            writer.writerow(row)
+
+    write_artifact(committed_dir, "unknown")
+    write_artifact(current_dir, "stale_descendant")
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
+
+
+def test_identity_floor_preserves_live_child_timestamp(tmp_path: Path) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    current_dir = tmp_path / "current"
+    committed_dir.mkdir()
+    current_dir.mkdir()
+
+    def write_artifact(directory: Path, child_time: str) -> None:
+        artifact = directory / "namecoin_monitor_evidence.csv"
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MONITOR_EVIDENCE_FIELDS)
+            writer.writeheader()
+            row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
+            row.update(
+                {
+                    "chain": "namecoin",
+                    "btc_height": "1",
+                    "btc_header_hash": TEST_PARENT_HASH,
+                    "classification": "canonical",
+                    "child_height": "1",
+                    "child_block_hash": "11" * 32,
+                    "child_block_time": child_time,
+                }
+            )
+            writer.writerow(row)
+
+    write_artifact(committed_dir, "100")
+    write_artifact(current_dir, "101")
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._validate_ordinary_monitor_identity_floor(
+            current_dir,
+            committed=module._load_monitor_final_identity_sets(committed_dir),
+        )
+
+
+def test_logical_error_artifact_path_uses_baseline_root(tmp_path: Path) -> None:
+    module = _load_module()
+    logical = module._logical_error_observation_artifact_path(
+        [
+            {
+                "chain": "namecoin",
+                "artifact_path": "results/release-candidate/namecoin_monitor_evidence.csv",
+            }
+        ]
+    )
+
+    assert logical.as_posix() == (
+        "results/release-candidate/error-block-observations_monitor_evidence.csv"
+    )
 
 
 def test_error_aggregate_default_directory_uses_immutable_identity_snapshot(
