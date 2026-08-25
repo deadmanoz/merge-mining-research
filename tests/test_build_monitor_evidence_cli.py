@@ -209,6 +209,9 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
     (output_dir / "monitor-evidence-manifest.json").write_text(
         json.dumps(
             {
+                "output_dir": "results/monitor-evidence",
+                "counts_csv": "results/monitor-evidence/monitor-evidence-counts.csv",
+                "manifest_json": "results/monitor-evidence/monitor-evidence-manifest.json",
                 "artifacts": {"namecoin": count["artifact_path"]},
                 "counts": [count],
                 "strict_weak_verdicts_loaded": 0,

@@ -466,6 +466,23 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: accepted {classification} row has a "
                         "rejection_reason"
                     )
+            elif classification == "stale_descendant":
+                expected_nbits = row.get("expected_nbits") or ""
+                if expected_nbits and (
+                    len(expected_nbits) != 8
+                    or expected_nbits != expected_nbits.lower()
+                    or any(char not in "0123456789abcdef" for char in expected_nbits)
+                    or expected_nbits != parsed_header["bits"]
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: stale descendant row has invalid "
+                        "retained expected_nbits"
+                    )
+                if (row.get("rejection_reason") or "").strip():
+                    raise ValueError(
+                        f"{path}:{row_number}: accepted stale descendant row has a "
+                        "rejection_reason"
+                    )
             elif any(
                 (row.get(field) or "")
                 for field in ("expected_nbits", "rejection_reason")
@@ -625,14 +642,31 @@ def _load_monitor_artifact_counts(
                             "not match the Bitcoin target at btc_height"
                         )
                     scriptsig_hex = (row.get("coinbase_scriptsig_hex") or "").strip()
-                    try:
-                        scriptsig = bytes.fromhex(scriptsig_hex)
-                    except ValueError as exc:
-                        raise ValueError(
-                            f"{path}:{row_number}: strict orphan row has malformed "
-                            "coinbase scriptSig evidence"
-                        ) from exc
-                    decoded_height = parse_bip34_height(scriptsig)
+                    if scriptsig_hex:
+                        try:
+                            scriptsig = bytes.fromhex(scriptsig_hex)
+                        except ValueError as exc:
+                            raise ValueError(
+                                f"{path}:{row_number}: strict orphan row has malformed "
+                                "coinbase scriptSig evidence"
+                            ) from exc
+                        decoded_height = parse_bip34_height(scriptsig)
+                    else:
+                        source_row_number = int_or_none(
+                            (row.get("source_row_number") or "").strip()
+                        )
+                        if (
+                            not (row.get("source_kind") or "").strip()
+                            or not (row.get("source_path") or "").strip()
+                            or not (row.get("provenance") or "").strip()
+                            or source_row_number is None
+                            or source_row_number <= 0
+                        ):
+                            raise ValueError(
+                                f"{path}:{row_number}: strict orphan row lacks "
+                                "authenticated strict-height source evidence"
+                            )
+                        decoded_height = btc_height
                     if decoded_height != btc_height:
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row BIP34 height "
@@ -837,11 +871,13 @@ def _validate_new_ordinary_row_provenance(
     committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]],
 ) -> None:
     """Require source coordinates on ordinary rows newly added to a baseline."""
-    committed_cores = {
+    committed_core_counts: Counter[tuple[str, str, tuple[str, ...]]] = Counter(
         (chain, category, key[:6])
         for (chain, category), rows in committed.items()
-        for key in rows
-    }
+        for key, count in rows.items()
+        for _ in range(count)
+    )
+    current_core_counts: Counter[tuple[str, str, tuple[str, ...]]] = Counter()
     for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
         chain = path.name.removesuffix("_monitor_evidence.csv")
         if chain == ERROR_OBSERVATION_ARTIFACT:
@@ -881,7 +917,9 @@ def _validate_new_ordinary_row_provenance(
                     child_hash if is_hash(child_hash) else "",
                     row.get("child_block_time") or "",
                 )
-                if (chain, category, core) in committed_cores:
+                core_key = (chain, category, core)
+                current_core_counts[core_key] += 1
+                if current_core_counts[core_key] <= committed_core_counts[core_key]:
                     continue
                 source_kind = (row.get("source_kind") or "").strip()
                 source_path = (row.get("source_path") or "").strip()
@@ -1722,6 +1760,32 @@ def _load_error_update_baseline(
         row.setdefault("error_block", "0")
 
     manifest = json.loads(manifest_path.read_text())
+    committed_manifest_path = MONITOR_OUTPUT_DIR / PUBLICATION_MANIFEST.name
+    if not committed_manifest_path.is_file():
+        raise ValueError(
+            f"{committed_manifest_path}: committed publication manifest is missing"
+        )
+    committed_manifest = json.loads(committed_manifest_path.read_text())
+    for field in ("output_dir", "counts_csv", "manifest_json"):
+        current_value = manifest.get(field)
+        committed_value = committed_manifest.get(field)
+        if (
+            not isinstance(current_value, str)
+            or not isinstance(committed_value, str)
+            or current_value != committed_value
+        ):
+            raise ValueError(
+                f"{manifest_path}: top-level {field} does not preserve the "
+                "committed logical publication path"
+            )
+    logical_root = str(manifest["output_dir"]).rstrip("/")
+    if (
+        manifest["counts_csv"] != f"{logical_root}/monitor-evidence-counts.csv"
+        or manifest["manifest_json"] != f"{logical_root}/monitor-evidence-manifest.json"
+    ):
+        raise ValueError(
+            f"{manifest_path}: top-level logical publication paths are inconsistent"
+        )
     manifest.pop("validation_contract", None)
     manifest["validation_contracts"] = MONITOR_VALIDATION_CONTRACTS
     artifacts = manifest.get("artifacts")
