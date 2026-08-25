@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from .auxpow_chainid import hash_from_display_hex, hash_to_internal_hex
 from .auxpow_parse import (
     ChildHeaderValidationError,
     validate_available_child_header_fields,
@@ -34,6 +35,7 @@ _LEDGER_FIELDS = {
     "chain",
     "child_height",
     "child_block_hash",
+    "child_block_hash_order",
     "child_header_hex",
     "child_block_time",
     "child_nbits",
@@ -243,6 +245,16 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
             child_hash = normalize_hash(row.get("child_block_hash"))
             if child_hash and not is_hash(child_hash):
                 raise ValueError(f"{path}:{row_number}: malformed child_block_hash")
+            child_hash_order = _required(
+                row, "child_block_hash_order", row_number=row_number, path=path
+            ).lower()
+            if child_hash_order not in {"display", "internal"}:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed child_block_hash_order"
+                )
+            if child_hash_order == "display" and child_hash:
+                child_hash = hash_to_internal_hex(hash_from_display_hex(child_hash))
+            row["child_block_hash"] = child_hash
             child_header = (row.get("child_header_hex") or "").strip().lower()
             if child_header and len(child_header) != 160:
                 raise ValueError(f"{path}:{row_number}: malformed child_header_hex")
