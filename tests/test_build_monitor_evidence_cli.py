@@ -412,6 +412,44 @@ def test_monitor_artifact_rejects_mismatched_parent_header(tmp_path: Path) -> No
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_mismatched_parent_field(tmp_path: Path) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["btc_nonce"] = "1"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="btc_nonce disagrees"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_monitor_artifact_rejects_mismatched_live_child_header(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["child_header_hex"] = "00" * 80
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="live-chain child fields"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_monitor_artifact_rejects_crossed_orphan_relevance_tuple(
     tmp_path: Path,
 ) -> None:

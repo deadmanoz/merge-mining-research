@@ -42,10 +42,15 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     load_orphan_relevance_verdicts,
     MONITOR_VALIDATION_CONTRACTS,
     normalize_evidence_row,
+    parse_header_fields,
     verified_header_hex,
     write_csv,
 )
 from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
+from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
+    ChildHeaderValidationError,
+    validate_available_child_header_fields,
+)
 from stale_blocks_analysis.stale_blocks import (  # noqa: E402
     load_stale_descendant_correction_keys,
     load_stale_descendant_observation_keys,
@@ -203,6 +208,21 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                     f"{path}:{row_number}: serialized Bitcoin parent header is "
                     "missing or does not match its hash"
                 )
+            parsed_header = parse_header_fields(
+                (row.get("btc_header_hex") or "").strip()
+            )
+            for field, parsed_field in (
+                ("btc_prev_hash", "prev_hash"),
+                ("btc_time", "time"),
+                ("btc_bits", "bits"),
+                ("btc_nonce", "nonce"),
+            ):
+                published = (row.get(field) or "").strip().lower()
+                if published and published != parsed_header[parsed_field].lower():
+                    raise ValueError(
+                        f"{path}:{row_number}: {field} disagrees with "
+                        "serialized Bitcoin parent header"
+                    )
             if chain in LIVE_CHILD_IDENTITY_CHAINS and classification != "canonical":
                 child_height = int_or_none((row.get("child_height") or "").strip())
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
@@ -218,6 +238,27 @@ def _load_monitor_artifact_counts(path: Path, chain: str) -> Counter[str]:
                         f"{path}:{row_number}: live-chain row lacks a verified "
                         "child identity"
                     )
+                child_header_hex = (row.get("child_header_hex") or "").strip()
+                if child_header_hex:
+                    child_bundle = {
+                        "child_block_hash": child_hash,
+                        "child_header_hex": child_header_hex,
+                        "child_block_time": child_time,
+                        "child_nbits": (row.get("child_nbits") or "").strip(),
+                    }
+                    spec = CHAIN_SPECS.get(chain)
+                    try:
+                        validate_available_child_header_fields(
+                            child_bundle,
+                            nbits_from_header=(
+                                spec.child_nbits_from_header if spec else True
+                            ),
+                        )
+                    except ChildHeaderValidationError as exc:
+                        raise ValueError(
+                            f"{path}:{row_number}: live-chain child fields "
+                            f"disagree with serialized child header ({exc})"
+                        ) from exc
             if classification == "canonical":
                 if status:
                     raise ValueError(
