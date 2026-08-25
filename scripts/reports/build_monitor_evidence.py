@@ -621,9 +621,9 @@ def _load_error_observation_identity_sets(
 
 def _load_ordinary_monitor_parent_identities(
     output_dir: Path, count_rows: list[dict[str, str]]
-) -> set[tuple[int, str]]:
-    """Return published ordinary parent identities with usable heights."""
-    identities: set[tuple[int, str]] = set()
+) -> set[tuple[int | None, str]]:
+    """Return published ordinary parent identities, retaining hash fallback."""
+    identities: set[tuple[int | None, str]] = set()
     for count_row in count_rows:
         chain = (count_row.get("chain") or "").strip()
         if not chain or chain == ERROR_OBSERVATION_ARTIFACT:
@@ -634,14 +634,20 @@ def _load_ordinary_monitor_parent_identities(
             for row in reader:
                 height = int_or_none((row.get("btc_height") or "").strip())
                 parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-                if height is not None and height >= 0 and is_hash(parent_hash):
-                    identities.add((height, parent_hash))
+                if is_hash(parent_hash):
+                    identities.add(
+                        (
+                            height if height is not None and height >= 0 else None,
+                            parent_hash,
+                        )
+                    )
     return identities
 
 
 def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
     """Digest preserved provenance and evidence fields in an ordinary row."""
     fields = [
+        row.get("validation_status") or "",
         row.get("source_kind") or "",
         row.get("source_path") or "",
         row.get("source_row_number") or "",
@@ -1722,6 +1728,11 @@ def _validate_add_only_baseline_floors(
                 problems.append(
                     f"{chain} {field} is below floor ({observed} < {minimum})"
                 )
+            elif field == "source_rows" and observed != minimum:
+                problems.append(
+                    f"{chain} source_rows must preserve the committed baseline "
+                    f"({observed} != {minimum})"
+                )
     if problems:
         raise ValueError(
             f"{counts_path}: baseline is below committed publication floors: "
@@ -1882,7 +1893,13 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
         consensus_invalid_identities = load_consensus_invalid_stale_keys(
             error_blocks_path
         )
-        overlap = ordinary_identities & consensus_invalid_identities
+        ordinary_hashes = {parent_hash for _height, parent_hash in ordinary_identities}
+        consensus_invalid_hashes = {
+            parent_hash for _height, parent_hash in consensus_invalid_identities
+        }
+        overlap = (
+            ordinary_identities & consensus_invalid_identities
+        ) or ordinary_hashes & consensus_invalid_hashes
         if overlap:
             raise ValueError(
                 "add-only error-observation update cannot proceed: ordinary "

@@ -941,6 +941,60 @@ def test_error_aggregate_rejects_manifest_provenance_drift(
         module._load_error_update_baseline(partial_dir)
 
 
+def test_error_aggregate_rejects_increased_source_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["source_rows"] = "2"
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = partial_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["counts"][0]["source_rows"] = 2
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="source_rows must preserve"):
+        module._load_error_update_baseline(partial_dir)
+
+
+def test_error_aggregate_rejects_changed_direct_stale_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    shutil.copytree(committed_dir, partial_dir)
+    artifact = partial_dir / "namecoin_monitor_evidence.csv"
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["validation_status"] = "VALID weakened-verdict"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._load_error_update_baseline(partial_dir)
+
+
 def test_error_aggregate_rejects_manifest_artifact_path_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1545,6 +1599,85 @@ def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(
     error_blocks.parent.mkdir(parents=True)
     error_blocks.write_text(
         f"height,hash,classification\n1,{TEST_PARENT_HASH},error_block\n"
+    )
+
+    with pytest.raises(ValueError, match="ordinary monitor artifacts overlap"):
+        module.main(
+            [
+                "--add-error-observations",
+                "--output-dir",
+                str(output_dir),
+                "--data-dir",
+                str(data_dir),
+            ]
+        )
+
+
+def test_error_aggregate_rejects_hash_overlap_without_ordinary_height(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    artifact = output_dir / "namecoin_monitor_evidence.csv"
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0].update(
+        {
+            "btc_height": "",
+            "expected_nbits": "",
+            "classification": "canonical",
+            "validation_status": "",
+            "relevance_reason": "",
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    for path in (
+        output_dir / "monitor-evidence-counts.csv",
+        output_dir / "monitor-evidence-manifest.json",
+    ):
+        if path.suffix == ".csv":
+            with path.open(newline="") as handle:
+                reader = csv.DictReader(handle)
+                count_fields = reader.fieldnames
+                count_rows = list(reader)
+            assert count_fields is not None
+            count_rows[0].update(
+                {
+                    "canonical": "1",
+                    "stale": "0",
+                    "canonical_evidence_status": "canonical_retained",
+                }
+            )
+            with path.open("w", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=count_fields)
+                writer.writeheader()
+                writer.writerows(count_rows)
+        else:
+            manifest = json.loads(path.read_text())
+            manifest["counts"][0].update(
+                {
+                    "canonical": 1,
+                    "stale": 0,
+                    "canonical_evidence_status": "canonical_retained",
+                }
+            )
+            path.write_text(json.dumps(manifest))
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+    data_dir = tmp_path / "data"
+    error_blocks = data_dir / "error-blocks" / "error_blocks.csv"
+    error_blocks.parent.mkdir(parents=True)
+    error_blocks.write_text(
+        f"height,hash,classification\n999,{TEST_PARENT_HASH},error_block\n"
     )
 
     with pytest.raises(ValueError, match="ordinary monitor artifacts overlap"):

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Keep direct-stale validation verdicts immutable, preserve the committed
+source-row total during add-only updates, and detect error-block overlaps by
+parent hash when ordinary height evidence is absent.
+
 Keep error-observation publication updates fail-closed when an ordinary monitor
 artifact is missing or the regenerated aggregate falls below its existing
 floor. Require every recovered witness to carry an authenticated child hash,
