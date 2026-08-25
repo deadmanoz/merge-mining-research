@@ -118,7 +118,7 @@ def test_per_chain_files_keep_only_unknown_rows(tmp_path: Path) -> None:
             {"chain": "geistgeld", "artifact_scope": "full_classifier_inventory"},
         ],
     )
-    # The stale-descendants sidecar must be ignored, not given a file.
+    # Non-chain aggregate exports must be ignored, not given a file.
     _write_export(
         me_dir / "stale-descendants_monitor_evidence.csv",
         [
@@ -129,6 +129,10 @@ def test_per_chain_files_keep_only_unknown_rows(tmp_path: Path) -> None:
                 relevance_reason="valid_stale_descendant",
             )
         ],
+    )
+    _write_export(
+        me_dir / "error-block-observations_monitor_evidence.csv",
+        [_row("error-block-observations", "error_block", "")],
     )
     output_dir = tmp_path / "out"
 
@@ -146,6 +150,9 @@ def test_per_chain_files_keep_only_unknown_rows(tmp_path: Path) -> None:
     with (output_dir / "geistgeld_strict_weak_orphans.csv").open(newline="") as f:
         assert list(csv.DictReader(f)) == []
     assert not (output_dir / "stale-descendants_strict_weak_orphans.csv").exists()
+    assert not (
+        output_dir / "error-block-observations_strict_weak_orphans.csv"
+    ).exists()
     assert not (output_dir / "vcash_strict_weak_orphans.csv").exists()
     assert not (output_dir / "hathor_strict_weak_orphans.csv").exists()
 
@@ -162,6 +169,7 @@ def test_per_chain_files_keep_only_unknown_rows(tmp_path: Path) -> None:
     assert count_rows["geistgeld"]["total"] == "0"
     assert "vcash" not in count_rows
     assert "hathor" not in count_rows
+    assert "error-block-observations" not in count_rows
 
 
 def test_unknown_row_without_verdict_fails_loudly(tmp_path: Path) -> None:

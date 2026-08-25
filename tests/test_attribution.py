@@ -604,20 +604,24 @@ def test_directly_constructed_batch_does_not_claim_a_floor(tmp_path):
     assert json.loads(meta_path.read_text())["min_height"] == 0
 
 
-def test_rejected_binaries_make_the_sidecar_report_a_partial_archive():
+def test_rejected_binaries_make_the_sidecar_report_a_partial_archive(monkeypatch):
     """Every tracked name can be on disk while a binary is still rejected,
     leaving its row on the same weaker evidence as an absent one. The
     sidecar exists to diagnose exactly that run, so it must not describe
     the archive as complete."""
-    from stale_blocks_analysis.attribution import _capture_provenance
+    monkeypatch.setattr(
+        attribution, "archive_inventory", lambda: ({"a.bin"}, {"a.bin"})
+    )
 
-    complete = _capture_provenance(allow_partial=True)["stale_blocks"]["archive"]
+    complete = attribution._capture_provenance(allow_partial=True)["stale_blocks"][
+        "archive"
+    ]
     assert complete["rejected"] == 0
     assert complete["partial"] is False
 
-    degraded = _capture_provenance(allow_partial=True, rejected=2)["stale_blocks"][
-        "archive"
-    ]
+    degraded = attribution._capture_provenance(allow_partial=True, rejected=2)[
+        "stale_blocks"
+    ]["archive"]
     assert degraded["rejected"] == 2
     assert degraded["partial"] is True
 

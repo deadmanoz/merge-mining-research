@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ def _write_baseline(
     stale_descendant: int = 0,
     strict: int = 0,
     weak: int = 0,
+    error_block: int = 0,
     source_rows: int = 0,
     canonical_hashes: tuple[str, ...] | None = None,
 ) -> None:
@@ -38,9 +40,9 @@ def _write_baseline(
     baseline_dir.mkdir(parents=True)
     (baseline_dir / "monitor-evidence-counts.csv").write_text(
         "chain,source_kind,canonical,stale,stale_descendant,strict_btc_orphan,"
-        "weak_btc_orphan,monitor_rows,source_rows\n"
+        "weak_btc_orphan,error_block,monitor_rows,source_rows\n"
         f"{chain},{source_kind},{canonical},{stale},{stale_descendant},{strict},"
-        f"{weak},{canonical + stale + stale_descendant + strict + weak},"
+        f"{weak},{error_block},{canonical + stale + stale_descendant + strict + weak},"
         f"{source_rows}\n"
     )
     (baseline_dir / "monitor-evidence-manifest.json").write_text(
@@ -134,6 +136,185 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
 
     with pytest.raises(SystemExit, match="2"):
         module.main(["--allow-partial"])
+
+
+def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
+    output_dir.mkdir()
+    normal_artifact = output_dir / "namecoin_monitor_evidence.csv"
+    normal_artifact.write_bytes(b"existing normal evidence\n")
+    count = {
+        "chain": "namecoin",
+        "source_kind": "full_inventory",
+        "artifact_scope": "full_classifier_inventory",
+        "artifact_path": "results/monitor-evidence/namecoin_monitor_evidence.csv",
+        "source_path": "<chain-archive>/namecoin/classified/namecoin_stale_blocks.csv",
+        "canonical": 0,
+        "stale": stale,
+        "stale_descendant": 0,
+        "strict_btc_orphan": 0,
+        "weak_btc_orphan": 0,
+        "error_block": 0,
+        "monitor_rows": stale,
+        "source_rows": stale,
+        "canonical_evidence_status": "not_applicable",
+        "notes": "",
+    }
+    with (output_dir / "monitor-evidence-counts.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(count))
+        writer.writeheader()
+        writer.writerow(count)
+    (output_dir / "monitor-evidence-manifest.json").write_text(
+        json.dumps(
+            {
+                "artifacts": {"namecoin": count["artifact_path"]},
+                "counts": [count],
+                "strict_weak_verdicts_loaded": 0,
+            }
+        )
+    )
+    return normal_artifact
+
+
+def test_error_aggregate_updates_only_its_metadata_and_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    normal_artifact = _write_add_only_baseline(output_dir, stale=1)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    def write_aggregate(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
+            "error aggregate\n"
+        )
+        return {
+            "rows": 2,
+            "parents": 1,
+            "source_chain_counts": {"namecoin": 2},
+            "child_field_availability": {"child_height": 2},
+            "rsk_complete_sidecars": 0,
+        }
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_aggregate)
+
+    module.main(
+        [
+            "--add-error-observations",
+            "--output-dir",
+            str(output_dir),
+            "--chain-archive-dir",
+            str(tmp_path / "archive"),
+        ]
+    )
+
+    assert normal_artifact.read_bytes() == b"existing normal evidence\n"
+    assert (
+        output_dir / "error-block-observations_monitor_evidence.csv"
+    ).read_text() == "error aggregate\n"
+    with (output_dir / "monitor-evidence-counts.csv").open(newline="") as handle:
+        counts = list(csv.DictReader(handle))
+    assert [row["chain"] for row in counts] == [
+        "namecoin",
+        "error-block-observations",
+    ]
+    assert [row["error_block"] for row in counts] == ["0", "2"]
+    manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
+    assert manifest["artifacts"]["error-block-observations"].endswith(
+        "error-block-observations_monitor_evidence.csv"
+    )
+    assert manifest["counts"][-1]["error_block"] == 2
+
+
+def test_error_aggregate_rejects_partial_publication_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=0)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(ValueError, match="namecoin stale is below floor"):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_missing_ordinary_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = tmp_path / "partial"
+    _write_add_only_baseline(partial_dir, stale=1)
+    (partial_dir / "namecoin_monitor_evidence.csv").unlink()
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    with pytest.raises(
+        ValueError, match="namecoin monitor-evidence artifact is missing"
+    ):
+        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+
+
+def test_error_aggregate_rejects_truncated_aggregate_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    counts_path = output_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        counts = list(reader)
+    assert fieldnames is not None
+    aggregate = {field: "0" for field in fieldnames}
+    aggregate.update(
+        {
+            "chain": "error-block-observations",
+            "source_kind": "error_block_catalogue",
+            "artifact_scope": "error-block-observations",
+            "artifact_path": (
+                "results/monitor-evidence/error-block-observations_monitor_evidence.csv"
+            ),
+            "error_block": "2",
+            "monitor_rows": "2",
+            "source_rows": "2",
+        }
+    )
+    counts.append(aggregate)
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(counts)
+    manifest_path = output_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
+    manifest["counts"] = counts
+    manifest_path.write_text(json.dumps(manifest))
+    (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
+        "old aggregate\n"
+    )
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
+
+    def write_truncated_aggregate(
+        staging_dir: Path, **_kwargs: object
+    ) -> dict[str, object]:
+        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
+            "new aggregate\n"
+        )
+        return {"rows": 1}
+
+    monkeypatch.setattr(
+        module, "write_error_observation_artifact", write_truncated_aggregate
+    )
+
+    with pytest.raises(
+        ValueError, match="error-block-observations monitor_rows is below floor"
+    ):
+        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
 
 
 def test_late_vcash_validation_failure_preserves_existing_publication_set(
@@ -267,6 +448,53 @@ def test_vcash_baseline_accepts_standard_canonical_source(tmp_path: Path) -> Non
     )
 
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_error_observation_baseline_does_not_require_canonical_source(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    data_dir = module.DATA_DIR
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="error-block-observations",
+        source_kind="error_block_catalogue",
+        source_rows=73,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_error_observation_baseline_refuses_regression(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="error-block-observations",
+        source_kind="error_block_catalogue",
+        error_block=74,
+        source_rows=74,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=module.DATA_DIR, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    error = capsys.readouterr().err
+    assert "error-block-observations source_rows is below" in error
+    assert "error-block-observations error_block is below" in error
 
 
 def test_canonical_baseline_requires_canonical_classified_rows(
