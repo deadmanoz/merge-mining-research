@@ -303,10 +303,15 @@ def _load_monitor_artifact_counts(
                 )
             raw_classification = row.get("classification") or ""
             classification = raw_classification.strip().lower()
-            status = (row.get("validation_status") or "").strip()
+            raw_status = row.get("validation_status") or ""
+            status = raw_status.strip()
             if raw_classification != classification:
                 raise ValueError(
                     f"{path}:{row_number}: classification vocabulary is not exact"
+                )
+            if raw_status != status:
+                raise ValueError(
+                    f"{path}:{row_number}: validation_status vocabulary is not exact"
                 )
             raw_bucket = row.get("btc_stale_relevance") or ""
             raw_reason = row.get("relevance_reason") or ""

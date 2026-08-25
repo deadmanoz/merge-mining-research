@@ -961,6 +961,26 @@ def test_monitor_artifact_rejects_rejection_reason_on_accepted_stale(
         module._load_monitor_artifact_counts(artifact, "namecoin")
 
 
+def test_monitor_artifact_rejects_padded_validation_status(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["validation_status"] = " VALID "
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="validation_status vocabulary is not exact"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
 def test_error_aggregate_rejects_invalid_canonical_coverage_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

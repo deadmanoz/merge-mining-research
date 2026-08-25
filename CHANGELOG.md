@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Keep validation-status tokens byte-exact in add-only monitor artifacts.
+
 Keep add-only updates from introducing new stale, orphan, or canonical
 identities, preserve row scope in identity checks, and reject undeclared
 publication chains.
