@@ -27,6 +27,7 @@ from .config import (
     CHAIN_SPECS,
     DATA_DIR,
     HISTORICAL_CHILD_HEADER_CHAINS,
+    MONITOR_VALIDATION_CONTRACTS,
     PROJECT_ROOT,
     RESULTS_DIR,
     RELEVANCE_STRICT_BTC_ORPHAN,
@@ -850,6 +851,7 @@ def collect_source_rows(
     exclude_classifications: frozenset[str] = frozenset(),
     stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
     stale_descendant_correction_keys: frozenset[tuple[int, str]] = frozenset(),
+    error_blocks_path: Path | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
@@ -869,8 +871,15 @@ def collect_source_rows(
     if source.path is None:
         stats.notes.add("no evidence source discovered")
         return rows, stats
-    excluded = load_stale_exclusion_keys()
-    consensus_invalid = load_consensus_invalid_stale_keys()
+    if error_blocks_path is None:
+        excluded = load_stale_exclusion_keys()
+        consensus_invalid = load_consensus_invalid_stale_keys()
+    elif error_blocks_path.is_file():
+        excluded = load_stale_exclusion_keys(error_blocks_path)
+        consensus_invalid = load_consensus_invalid_stale_keys(error_blocks_path)
+    else:
+        excluded = load_stale_exclusion_keys()
+        consensus_invalid = load_consensus_invalid_stale_keys()
     excluded_count = 0
     reclassified_descendant_count = 0
     for normalized, errors in iter_source_rows(source):
@@ -1417,6 +1426,7 @@ def build_full_evidence_exports(
     unknown_sources = discover_unknown_sources(data_dir, chain_archive_dirs)
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
     child_identity = load_child_identity(data_dir)
+    error_blocks_path = data_dir / "error-blocks" / "error_blocks.csv"
 
     count_rows: list[dict[str, object]] = []
     manifest_rows: list[dict[str, object]] = []
@@ -1425,10 +1435,12 @@ def build_full_evidence_exports(
     for chain in CHAIN_SPECS:
         source = sources[chain]
         artifact_path: Path | None = None
-        rows, stats = collect_source_rows(source)
+        rows, stats = collect_source_rows(source, error_blocks_path=error_blocks_path)
         companion = canonical_sources.get(chain)
         if companion is not None:
-            companion_rows, companion_stats = collect_source_rows(companion)
+            companion_rows, companion_stats = collect_source_rows(
+                companion, error_blocks_path=error_blocks_path
+            )
             companion_rows, skipped = dedupe_canonical_companion_rows(
                 rows, companion_rows
             )
@@ -1444,7 +1456,9 @@ def build_full_evidence_exports(
         unknown_companion = unknown_sources.get(chain)
         if unknown_companion is not None:
             enforce_unknown_split_contract(source, stats, unknown_companion)
-            unknown_rows, unknown_stats = collect_source_rows(unknown_companion)
+            unknown_rows, unknown_stats = collect_source_rows(
+                unknown_companion, error_blocks_path=error_blocks_path
+            )
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
             stats.notes.add(
@@ -1476,7 +1490,7 @@ def build_full_evidence_exports(
 
     sidecar = stale_descendant_source(data_dir)
     if sidecar is not None:
-        rows, stats = collect_source_rows(sidecar)
+        rows, stats = collect_source_rows(sidecar, error_blocks_path=error_blocks_path)
         artifact_path = output_dir / "stale-descendants_evidence.csv"
         write_csv(artifact_path, rows, EVIDENCE_FIELDS)
         reported_artifact_path = logical_output_dir / artifact_path.name
@@ -1751,6 +1765,7 @@ def build_monitor_evidence_exports(
     unknown_sources = discover_unknown_sources(data_dir, chain_archive_dirs)
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
     child_identity = load_child_identity(data_dir)
+    error_blocks_path = data_dir / "error-blocks" / "error_blocks.csv"
     orphan_verdicts = load_orphan_relevance_verdicts(relevance_inventory)
     descendant_observations = load_stale_descendant_observation_keys(
         data_dir / "stale_descendants.csv"
@@ -1798,8 +1813,11 @@ def build_monitor_evidence_exports(
                 exclude_classifications=frozenset({"stale"}),
                 stale_descendant_observations=descendant_observations,
                 stale_descendant_correction_keys=descendant_correction_keys,
+                error_blocks_path=error_blocks_path,
             )
-            validated_rows, validated_stats = collect_source_rows(validated)
+            validated_rows, validated_stats = collect_source_rows(
+                validated, error_blocks_path=error_blocks_path
+            )
             rows.extend(validated_rows)
             stats = merge_stats(stats, validated_stats)
         else:
@@ -1807,15 +1825,20 @@ def build_monitor_evidence_exports(
                 source,
                 stale_descendant_observations=descendant_observations,
                 stale_descendant_correction_keys=descendant_correction_keys,
+                error_blocks_path=error_blocks_path,
             )
         if unknown_companion is not None:
             enforce_unknown_split_contract(source, stats, unknown_companion)
-            unknown_rows, unknown_stats = collect_source_rows(unknown_companion)
+            unknown_rows, unknown_stats = collect_source_rows(
+                unknown_companion, error_blocks_path=error_blocks_path
+            )
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
         skipped_canonical = 0
         if companion is not None:
-            companion_rows, companion_stats = collect_source_rows(companion)
+            companion_rows, companion_stats = collect_source_rows(
+                companion, error_blocks_path=error_blocks_path
+            )
             companion_rows, skipped_canonical = dedupe_canonical_companion_rows(
                 rows, companion_rows
             )
@@ -2020,24 +2043,7 @@ def build_monitor_evidence_exports(
         "output_dir": safe_path(logical_output_dir),
         "counts_csv": safe_path(reported_counts_path),
         "manifest_json": safe_path(reported_manifest_path),
-        "validation_contract": {
-            "profile": "direct_stale_header_context_v1",
-            "valid_token_scope": "publication_gate_accepted_not_full_block_validity",
-            "full_block_consensus_validity_asserted": False,
-            "required_checks": [
-                "candidate_header_hash_and_self_pow",
-                "active_chain_parent_and_expected_height",
-                "expected_nbits",
-                "median_time_past",
-                "historical_minimum_block_version",
-                "coinbase_scriptsig_length_when_available",
-                "bip34_coinbase_height_when_available",
-            ],
-            "known_exception": {
-                "rsk": "coinbase-dependent checks unavailable from compressed proof"
-            },
-            "documentation": "docs/data-validity.md",
-        },
+        "validation_contracts": MONITOR_VALIDATION_CONTRACTS,
         "artifacts": artifacts,
         "relevance_inventory": (
             (

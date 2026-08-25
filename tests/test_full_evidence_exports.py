@@ -1356,6 +1356,56 @@ def test_monitor_export_does_not_reclassify_stale_with_sidecar_height_mismatch(
     assert "reclassified_stale_descendant_observations=1" not in stats.notes
 
 
+def test_collect_source_rows_uses_selected_error_catalogue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import stale_blocks_analysis.full_evidence as full_evidence
+
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    source_path = tmp_path / "namecoin_stale_blocks.csv"
+    _write_csv(
+        source_path,
+        [
+            {
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    catalogue = tmp_path / "selected-error-blocks.csv"
+    catalogue.write_text("selected\n")
+    seen: list[Path] = []
+
+    def selected_keys(path: Path) -> set[tuple[int, str]]:
+        seen.append(path)
+        return {(656478, header_hash)}
+
+    monkeypatch.setattr(full_evidence, "load_stale_exclusion_keys", selected_keys)
+    monkeypatch.setattr(
+        full_evidence, "load_consensus_invalid_stale_keys", selected_keys
+    )
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=source_path,
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+
+    rows, stats = full_evidence.collect_source_rows(source, error_blocks_path=catalogue)
+
+    assert rows == []
+    assert stats.source_rows == 0
+    assert seen == [catalogue, catalogue]
+
+
 def test_monitor_export_does_not_reclassify_stale_without_sidecar_observation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1763,7 +1813,8 @@ def test_monitor_export_reports_consensus_exclusions(
     assert namecoin["notes"] == "publication_exclusions=1"
 
     manifest = json.loads((output_dir / "monitor-evidence-manifest.json").read_text())
-    assert manifest["validation_contract"] == {
+    contracts = manifest["validation_contracts"]
+    assert contracts["ordinary_monitor_evidence"] == {
         "profile": "direct_stale_header_context_v1",
         "valid_token_scope": "publication_gate_accepted_not_full_block_validity",
         "full_block_consensus_validity_asserted": False,
@@ -1779,6 +1830,19 @@ def test_monitor_export_reports_consensus_exclusions(
         "known_exception": {
             "rsk": "coinbase-dependent checks unavailable from compressed proof"
         },
+        "documentation": "docs/data-validity.md",
+    }
+    assert contracts["error-block-observations"] == {
+        "profile": "error_observation_consensus_invalid_v1",
+        "valid_tokens": ["VALID_ERROR_BLOCK"],
+        "valid_token_scope": "authenticated_witness_of_consensus_invalid_parent",
+        "parent_consensus_invalidity_asserted": True,
+        "required_checks": [
+            "parent_header_hash_and_fields",
+            "catalogued_consensus_rejection_reason",
+            "authenticated_child_identity",
+            "source_observation_coordinates",
+        ],
         "documentation": "docs/data-validity.md",
     }
 

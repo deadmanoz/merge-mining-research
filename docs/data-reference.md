@@ -348,7 +348,8 @@ a retarget violation. The compact recovered witness ledger lives at
 current parent catalogue before publication. Every ledger row must identify its
 child either with a well-formed internal-order hash or with a serialized child
 header from which that hash can be authenticated. Extending an already
-complete publication uses `just monitor-evidence --add-error-observations`,
+complete publication uses `just monitor-evidence --add-error-observations --output-dir <disposable-baseline-dir>` after copying the complete publication
+into that disposable baseline directory,
 which verifies that every ordinary artifact declared by the baseline is still
 present and that the regenerated aggregate does not fall below its existing
 floors before replacing only this aggregate and the two metadata files. It
@@ -425,12 +426,14 @@ with `no_namecoin_header_hydration_sources_found` appended when no extract file
 was available). A non-empty chain export also records
 `child_height=unavailable` when one or more rows lack an exact height. The JSON
 manifest also carries a machine-readable
-`validation_contract` object. Its
+`validation_contracts` object. Its `ordinary_monitor_evidence` contract's
 `valid_token_scope=publication_gate_accepted_not_full_block_validity` value is
-the normative interpretation of `validation_status=VALID` for downstream
-consumers. In particular, it is not permission for an importer to relabel the
-candidate as a fully validated Bitcoin block without independently validating
-the complete block and historical chain state.
+the normative interpretation of `validation_status=VALID` for ordinary
+evidence. The `error-block-observations` contract is separate: its
+`VALID_ERROR_BLOCK` token means an authenticated witness of a
+consensus-invalid Bitcoin parent, not a valid Bitcoin block. Consumers must
+select the contract for the artifact they are reading rather than applying
+the ordinary stale contract globally.
 
 For full-inventory sources, `source_rows` removes every raw stale-classified
 row and inserts the committed gate-accepted validated overlay. It can therefore

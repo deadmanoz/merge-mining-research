@@ -139,3 +139,28 @@ def test_error_observation_ledger_rejects_missing_child_identity(tmp_path) -> No
         ValueError, match="missing child_block_hash and child_header_hex"
     ):
         build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_rejects_duplicate_child_identity(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    shutil.copytree(DATA_DIR / "error-blocks", data_dir / "error-blocks")
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    headerless = [row for row in rows if not row["child_header_hex"]]
+    first, second = headerless[:2]
+    assert first["chain"] == second["chain"]
+    second["child_block_hash"] = first["child_block_hash"]
+
+    with ledger_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="duplicate child identity"):
+        build_error_observation_rows(data_dir=data_dir)

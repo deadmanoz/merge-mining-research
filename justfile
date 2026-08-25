@@ -60,7 +60,8 @@ strict-weak-orphans *ARGS:
 #     --relevance-inventory <private-relevance-inventory.csv>
 # Add the recovered error-block witness ledger to an already complete
 # publication without rebuilding the ordinary per-chain LFS artifacts:
-#   just monitor-evidence --add-error-observations
+#   cp -a results/monitor-evidence <disposable-baseline-dir>
+#   just monitor-evidence --add-error-observations --output-dir <disposable-baseline-dir>
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
 

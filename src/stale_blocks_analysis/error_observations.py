@@ -208,6 +208,7 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
     if not path.is_file():
         raise ValueError(f"{path}: missing recovered error-block witness ledger")
     observations: dict[tuple[str, int, str], dict[str, str]] = {}
+    seen_child_identities: set[tuple[str, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         missing = _LEDGER_FIELDS - set(reader.fieldnames or ())
@@ -301,6 +302,12 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                     f"{path}:{row_number}: invalid child header evidence: {exc}"
                 ) from exc
             row["child_block_hash"] = child_hash
+            child_identity = (chain, child_hash)
+            if child_identity in seen_child_identities:
+                raise ValueError(
+                    f"{path}:{row_number}: duplicate child identity {child_identity}"
+                )
+            seen_child_identities.add(child_identity)
             key = (chain, child_height, block_hash)
             if key in observations:
                 raise ValueError(f"{path}:{row_number}: duplicate witness {key}")

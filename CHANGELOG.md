@@ -2,10 +2,113 @@
 
 ## Unreleased
 
+Keep validation-status tokens byte-exact in add-only monitor artifacts.
+
+Preserve retained expected-nBits evidence and authenticate newly admitted
+descendant occurrences during add-only updates.
+
+Bind ordinary artifact declarations to the manifest root, validate optional
+child heights exactly, and preserve deterministic ordinary-row ordering.
+
+Keep row chain tokens exact, preserve numeric manifest count types, and apply
+the selected error-block catalogue consistently during full publication.
+
+Preserve committed artifact scopes and require exact unpadded Bitcoin heights
+in add-only monitor artifacts.
+
+Reject padded child-height encodings in ordinary monitor artifacts.
+
+Require exact ordinary headers, canonical count encodings, and stable summary
+row ordering during add-only publication updates.
+
+Keep add-only updates from introducing new stale, orphan, or canonical
+identities, preserve row scope in identity checks, and reject undeclared
+publication chains.
+
+Keep fallback strict-height verdicts limited to committed evidence, preserve
+relevance metadata, reject uncorroborated canonical additions and duplicate
+schema columns, and prevent orphan verdicts from overlapping known final
+parents.
+
+Authenticate strict orphan heights and descendant promotions against their
+source evidence, require provenance on newly admitted rows, preserve summary
+metadata, and accept the canonical companion scopes emitted by full exports.
+
+Keep direct-stale validation verdicts immutable, preserve the committed
+source-row total during add-only updates, and detect error-block overlaps by
+parent hash when ordinary height evidence is absent.
+
 Keep error-observation publication updates fail-closed when an ordinary monitor
 artifact is missing or the regenerated aggregate falls below its existing
 floor. Require every recovered witness to carry an authenticated child hash,
 deriving it from the supplied child header when available.
+
+Harden add-only error-observation updates by validating ordinary payload
+contents, preserving published parent and witness identities, rejecting
+duplicate child identities, and publishing separate validation contracts for
+ordinary evidence and consensus-invalid error observations.
+
+Require add-only ordinary artifacts to retain the complete monitor schema and
+the exact relevance axes emitted for each supported classification.
+
+Reject add-only rows without a Bitcoin parent hash, crossed orphan verdict
+tuples, manifest count drift, or error-observation validation tokens in stale
+rows.
+
+Also verify serialized parent headers, live-chain child identities, exact raw
+relevance tokens, and the ordinary status contract across every row type.
+
+Corroborate all published parent-header fields and any serialized live-chain
+child header during add-only preflight.
+
+Keep classification and serialized-header encodings exact, enforce self-PoW and
+confirmed expected-nBits contracts, and keep ordinary chains free of error
+observations.
+
+Require historical child-header bundles and confirmed stale heights during
+add-only validation, and refuse an error-observation update when its current
+error-block catalogue overlaps an ordinary monitor artifact that needs a full
+rebuild.
+
+Reject duplicate stale identities, revalidate strict orphan heights against
+the committed Bitcoin epoch targets, and require manifest and count metadata
+to name the same ordinary artifact path.
+
+Revalidate weak orphan timestamp/epoch evidence, require canonical serialized
+parent headers to use the exact lowercase wire encoding, preserve committed
+ordinary identities during add-only updates, and keep publication contracts in
+the shared configuration module. Refresh the validity methodology to describe
+the expanded preflight checks and their remaining contextual caveats.
+
+Reject weak verdicts beyond the epoch-reference horizon, require an immutable
+ordinary baseline for default-directory add-only updates, and accept the safe
+logical paths emitted for complete external publication directories.
+
+Derive project-relative artifact paths from the selected publication directory
+and validate each row's artifact scope against the count/manifest contract so
+stale-descendant sidecar checks cannot be bypassed by editing row metadata.
+
+Require exact decoded parent and child encodings, recheck strict-orphan BIP34
+and timestamp-epoch evidence, preserve child-observation multiplicity in the
+immutable floor, and document the explicit disposable baseline for add-only
+publication updates.
+
+Synchronize artifact scopes across metadata, require descendant source heights,
+validate the RSK monitor sidecar schema, and preserve nonempty coinbase evidence
+in the ordinary publication floor.
+
+Preserve RSK sidecar payloads in the same floor digest and reject noncanonical
+uppercase or padded Bitcoin parent-hash encodings during add-only preflight.
+
+Bind stale-descendant expected-nBits validation to the dedicated sidecar chain
+contract and preserve normalized source provenance in the ordinary floor.
+
+Preserve primary classifications and live child timestamps, reject stale-gate
+fields on non-stale rows, validate canonical-coverage metadata, and keep the
+error aggregate under the baseline's logical publication root.
+
+Preserve serialized child-header fields in the ordinary floor and synchronize
+source provenance metadata across the counts CSV and manifest.
 
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned

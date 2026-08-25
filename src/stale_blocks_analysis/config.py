@@ -473,6 +473,43 @@ RELEVANCE_EXCLUDED = "excluded"
 # is extended. Mirrors the monitor's `pending` horizon semantics.
 RELEVANCE_PENDING = "pending"
 
+# Machine-readable publication contracts shared by the normal exporter and
+# the add-only monitor-evidence preflight. Keep this protocol data in config so
+# metadata consumers do not depend on an exporter implementation module.
+MONITOR_VALIDATION_CONTRACTS = {
+    "ordinary_monitor_evidence": {
+        "profile": "direct_stale_header_context_v1",
+        "valid_token_scope": "publication_gate_accepted_not_full_block_validity",
+        "full_block_consensus_validity_asserted": False,
+        "required_checks": [
+            "candidate_header_hash_and_self_pow",
+            "active_chain_parent_and_expected_height",
+            "expected_nbits",
+            "median_time_past",
+            "historical_minimum_block_version",
+            "coinbase_scriptsig_length_when_available",
+            "bip34_coinbase_height_when_available",
+        ],
+        "known_exception": {
+            "rsk": "coinbase-dependent checks unavailable from compressed proof"
+        },
+        "documentation": "docs/data-validity.md",
+    },
+    "error-block-observations": {
+        "profile": "error_observation_consensus_invalid_v1",
+        "valid_tokens": ["VALID_ERROR_BLOCK"],
+        "valid_token_scope": "authenticated_witness_of_consensus_invalid_parent",
+        "parent_consensus_invalidity_asserted": True,
+        "required_checks": [
+            "parent_header_hash_and_fields",
+            "catalogued_consensus_rejection_reason",
+            "authenticated_child_identity",
+            "source_observation_coordinates",
+        ],
+        "documentation": "docs/data-validity.md",
+    },
+}
+
 # Default height floor for the loader functions in stale_blocks.py,
 # snapped to a DAA (2016-block) epoch start: epoch 209 (421,344), one full
 # epoch after the BIP 152 activation at 420,000. Acquisition-side callers that
