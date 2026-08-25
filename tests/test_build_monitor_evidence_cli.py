@@ -405,7 +405,7 @@ def test_error_observation_baseline_refuses_regression(
         baseline_dir,
         chain="error-block-observations",
         source_kind="error_block_catalogue",
-        error_block=34,
+        error_block=74,
         source_rows=74,
     )
     parser, args = _preflight_args(

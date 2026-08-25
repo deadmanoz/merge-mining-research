@@ -551,29 +551,21 @@ def validate_publication_inputs(
         for chain, baseline_row in baseline.items():
             if chain == ERROR_OBSERVATION_ARTIFACT:
                 try:
-                    error_rows, error_inventory = build_error_observation_rows(
+                    error_rows, _error_inventory = build_error_observation_rows(
                         data_dir=args.data_dir
                     )
                 except (OSError, ValueError) as exc:
                     problems.append(str(exc))
                     continue
-                for field in ("monitor_rows", "source_rows"):
-                    expected = int(baseline_row.get(field) or 0)
-                    if len(error_rows) < expected:
+                for field in ("error_block", "monitor_rows", "source_rows"):
+                    expected = int_or_none(baseline_row.get(field) or "0")
+                    if expected is None or expected < 0:
+                        problems.append(f"{chain} has invalid {field} baseline")
+                    elif len(error_rows) < expected:
                         problems.append(
                             f"{chain} {field} is below the publication baseline "
                             f"({len(error_rows)} < {expected})"
                         )
-                expected_error_blocks = int_or_none(
-                    baseline_row.get("error_block") or "0"
-                )
-                if expected_error_blocks is None or expected_error_blocks < 0:
-                    problems.append(f"{chain} has invalid error_block baseline")
-                elif int(error_inventory["parents"]) < expected_error_blocks:
-                    problems.append(
-                        f"{chain} error_block is below the publication baseline "
-                        f"({error_inventory['parents']} < {expected_error_blocks})"
-                    )
                 continue
             expected_source_rows = int(baseline_row.get("source_rows") or 0)
             expected_categories = {
