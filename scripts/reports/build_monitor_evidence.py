@@ -45,6 +45,7 @@ from stale_blocks_analysis.full_evidence import (  # noqa: E402
     load_orphan_relevance_verdicts,
     normalize_evidence_row,
     parse_header_fields,
+    safe_path,
     verified_header_hex,
     write_csv,
 )
@@ -240,7 +241,11 @@ def _is_ordinary_stale_status(status: str) -> bool:
 
 
 def _load_monitor_artifact_counts(
-    path: Path, chain: str, *, data_dir: Path = DATA_DIR
+    path: Path,
+    chain: str,
+    *,
+    data_dir: Path = DATA_DIR,
+    expected_artifact_scope: str = "",
 ) -> Counter[str]:
     """Count and validate the published categories in one ordinary artifact."""
     counts: Counter[str] = Counter()
@@ -260,6 +265,14 @@ def _load_monitor_artifact_counts(
             if row_chain != chain:
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
+                )
+            if (
+                expected_artifact_scope
+                and (row.get("artifact_scope") or "").strip() != expected_artifact_scope
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: artifact scope disagrees with "
+                    f"the publication contract ({expected_artifact_scope!r})"
                 )
             raw_classification = row.get("classification") or ""
             classification = raw_classification.strip().lower()
@@ -1480,6 +1493,7 @@ def _load_error_update_baseline(
         permitted_paths = {
             f"results/monitor-evidence/{expected_name}",
             f"<external>/{expected_name}",
+            safe_path(output_dir / expected_name, chain=chain),
         }
         manifest_declared = artifacts.get(chain)
         count_declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
@@ -1499,7 +1513,12 @@ def _load_error_update_baseline(
         expected = count_rows_by_chain.get(chain)
         if expected is None:
             raise ValueError(f"{output_dir}: {chain} artifact has no count row")
-        actual = _load_monitor_artifact_counts(artifact_path, chain, data_dir=data_dir)
+        actual = _load_monitor_artifact_counts(
+            artifact_path,
+            chain,
+            data_dir=data_dir,
+            expected_artifact_scope=(expected.get("artifact_scope") or "").strip(),
+        )
         for field in (*_ORDINARY_MONITOR_CATEGORIES, "monitor_rows"):
             observed = actual[field]
             minimum = int(expected.get(field) or "0")

@@ -48,6 +48,10 @@ Reject weak verdicts beyond the epoch-reference horizon, require an immutable
 ordinary baseline for default-directory add-only updates, and accept the safe
 logical paths emitted for complete external publication directories.
 
+Derive project-relative artifact paths from the selected publication directory
+and validate each row's artifact scope against the count/manifest contract so
+stale-descendant sidecar checks cannot be bypassed by editing row metadata.
+
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
 clone of bitcoin-data/mining-pools joins the fetched datasets, and

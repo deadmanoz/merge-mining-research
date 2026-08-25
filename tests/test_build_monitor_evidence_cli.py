@@ -757,6 +757,58 @@ def test_error_aggregate_accepts_external_logical_artifact_paths(
     module._load_error_update_baseline(partial_dir)
 
 
+def test_error_aggregate_accepts_project_relative_logical_artifact_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    project_root = tmp_path / "project"
+    monkeypatch.setattr(module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(
+        module,
+        "safe_path",
+        lambda path, chain="": f"results/release-candidate/{path.name}",
+    )
+    committed_dir = tmp_path / "committed"
+    _write_add_only_baseline(committed_dir, stale=1)
+    partial_dir = project_root / "results" / "release-candidate"
+    partial_dir.parent.mkdir(parents=True)
+    shutil.copytree(committed_dir, partial_dir)
+    logical_path = "results/release-candidate/namecoin_monitor_evidence.csv"
+    counts_path = partial_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["artifact_path"] = logical_path
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = partial_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["namecoin"] = logical_path
+    manifest["counts"][0]["artifact_path"] = logical_path
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    module._load_error_update_baseline(partial_dir)
+
+
+def test_monitor_artifact_rejects_scope_mismatch_for_sidecar_contract(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+
+    with pytest.raises(ValueError, match="artifact scope disagrees"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            expected_artifact_scope="stale_descendant_sidecar",
+        )
+
+
 def test_monitor_artifact_rejects_error_block_status_on_stale_row(
     tmp_path: Path,
 ) -> None:
