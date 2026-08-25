@@ -778,6 +778,7 @@ def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
         row.get("source_kind") or "",
         row.get("source_path") or "",
         row.get("source_row_number") or "",
+        row.get("artifact_scope") or "",
         row.get("provenance") or "",
         row.get("rejection_reason") or "",
         row.get("child_header_hex") or "",
@@ -923,19 +924,15 @@ def _validate_new_ordinary_row_provenance(
                 core_key = (chain, category, core)
                 current_core_counts[core_key] += 1
                 is_new = current_core_counts[core_key] > committed_core_counts[core_key]
-                if is_new and category == "canonical":
+                if is_new and category in {
+                    "canonical",
+                    "stale",
+                    "strict_btc_orphan",
+                    "weak_btc_orphan",
+                }:
                     raise ValueError(
-                        f"{path}:{row_number}: newly admitted canonical identity "
+                        f"{path}:{row_number}: newly admitted {category} identity "
                         "must be corroborated by a full publication rebuild"
-                    )
-                if (
-                    is_new
-                    and category == "strict_btc_orphan"
-                    and not (row.get("coinbase_scriptsig_hex") or "").strip()
-                ):
-                    raise ValueError(
-                        f"{path}:{row_number}: newly admitted strict orphan lacks "
-                        "verifiable strict-height evidence"
                     )
                 if not is_new:
                     continue
@@ -1808,6 +1805,22 @@ def _load_error_update_baseline(
     chains = [(row.get("chain") or "").strip() for row in count_rows]
     if not all(chains) or len(chains) != len(set(chains)):
         raise ValueError(f"{counts_path}: invalid or duplicate chain rows")
+    committed_counts_path = MONITOR_OUTPUT_DIR / PUBLICATION_COUNTS.name
+    if not committed_counts_path.is_file():
+        raise ValueError(
+            f"{committed_counts_path}: committed publication counts are missing"
+        )
+    with committed_counts_path.open(newline="") as handle:
+        committed_chains = {
+            (row.get("chain") or "").strip()
+            for row in csv.DictReader(handle)
+            if (row.get("chain") or "").strip()
+        }
+    if set(chains) != committed_chains:
+        raise ValueError(
+            f"{counts_path}: add-only baseline chain set differs from the "
+            "committed publication"
+        )
     for row in count_rows:
         row.setdefault("error_block", "0")
 

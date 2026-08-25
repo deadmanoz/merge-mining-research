@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Keep add-only updates from introducing new stale, orphan, or canonical
+identities, preserve row scope in identity checks, and reject undeclared
+publication chains.
+
 Keep fallback strict-height verdicts limited to committed evidence, preserve
 relevance metadata, reject uncorroborated canonical additions and duplicate
 schema columns, and prevent orphan verdicts from overlapping known final

@@ -1015,7 +1015,7 @@ def test_error_aggregate_rejects_manifest_artifact_scope_drift(
         module._load_error_update_baseline(partial_dir)
 
 
-def test_error_aggregate_accepts_canonical_companion_scope(
+def test_error_aggregate_rejects_changed_companion_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_module()
@@ -1036,7 +1036,8 @@ def test_error_aggregate_accepts_canonical_companion_scope(
         writer.writerows(rows)
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    module._load_error_update_baseline(partial_dir)
+    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+        module._load_error_update_baseline(partial_dir)
 
 
 def test_error_aggregate_rejects_manifest_provenance_drift(
@@ -1233,7 +1234,7 @@ def test_error_aggregate_rejects_dropped_ordinary_identity(
         writer.writerows(rows)
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
-    with pytest.raises(ValueError, match="drops committed ordinary evidence"):
+    with pytest.raises(ValueError, match="newly admitted stale identity"):
         module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
