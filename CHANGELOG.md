@@ -14,7 +14,9 @@ deterministic LF-terminated height order across recovery, and keep the completed
 sealed-v1 payload estate readable without inventing provenance it never stored.
 Require canonical lowercase 64-character hex identifiers for resolved version-3
 rows, reject resolved non-2xx metadata before payload work, and retry truncated
-response bodies without discarding a known HTTP status.
+response bodies without discarding a known HTTP status. Reject non-finite
+request settings, version-3 identifiers reused across heights, artifact path
+aliases, and whitespace-bearing payload hex before any archive mutation.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

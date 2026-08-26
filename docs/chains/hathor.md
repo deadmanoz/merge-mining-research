@@ -44,18 +44,20 @@ Hathor-specific repo artifacts:
   failures can be re-driven into a new no-clobber, ordered ledger without
   mutating the source. A version-3 outcome resolves only with a canonical
   lowercase 64-character hex transaction ID, while truncated response bodies
-  remain retryable.
+  remain retryable. Completion also requires every ready transaction ID to map
+  to exactly one height.
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
   ledger-driven migration worker. Each transaction request writes one sealed
   source row containing `aux_pow`, `raw`, and locally derived funds+graph
   bytes. New sealed-v2 rows also retain the serving endpoint, HTTP status, and
   total attempt count, and successful gap recovery leaves the primary CSV in
   deterministic height order. Payload processing rejects resolved metadata
-  rows whose recorded status is not 2xx. The completed seven-column sealed-v1
-  estate remains readable and byte-immutable; it cannot be mixed with new rows
-  because its missing request provenance cannot be reconstructed honestly.
-  These two workers preserve acquisition provenance; they are not the future
-  supported acquisition interface.
+  rows whose recorded status is not 2xx, whitespace-bearing payload hex, and
+  any artifact paths that alias one another. The completed
+  seven-column sealed-v1 estate remains readable and byte-immutable; it cannot
+  be mixed with new rows because its missing request provenance cannot be
+  reconstructed honestly. These two workers preserve acquisition provenance;
+  they are not the future supported acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
 - The historical pool-population pre-flight audit is retained privately; it is

@@ -24,6 +24,16 @@ TX_B = "b" * 64
 TX_C = "c" * 64
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "1e9999"])
+def test_positive_float_rejects_non_positive_or_non_finite_values(value: str) -> None:
+    with pytest.raises(ledger.argparse.ArgumentTypeError, match="finite"):
+        ledger.positive_float(value)
+
+
+def test_positive_float_accepts_a_finite_positive_value() -> None:
+    assert ledger.positive_float("0.5") == 0.5
+
+
 def test_make_shards_is_contiguous_and_deterministic() -> None:
     shards = ledger.make_shards(
         0,
@@ -518,6 +528,26 @@ def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
     }
     with pytest.raises(ValueError, match="missing=1"):
         ledger.audit_ledger(path, 0, 3)
+
+
+def test_audit_ledger_rejects_one_ready_transaction_at_multiple_heights(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(0, "version_3_ready", 200, 3, TX_A, "p", 1, "")
+        )
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_A, "p", 1, "")
+        )
+
+    with pytest.raises(ValueError, match="assigned to multiple.*0, 1"):
+        ledger.audit_ledger(path, 0, 2)
 
 
 def test_audit_ledger_rejects_unresolved_outcomes(tmp_path: Path) -> None:

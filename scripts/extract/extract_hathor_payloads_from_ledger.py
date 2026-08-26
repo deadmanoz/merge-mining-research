@@ -30,6 +30,7 @@ import csv
 import fcntl
 import hashlib
 import json
+import math
 import os
 import tempfile
 import time
@@ -61,6 +62,7 @@ LEDGER_COLUMNS = [
 ]
 RESOLVED_LEDGER_OUTCOMES = {"version_3_ready", "non_version_3"}
 LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
+COMPACT_HEX_DIGITS = LOWER_HEX_DIGITS | frozenset("ABCDEF")
 LEGACY_RAW_COLUMNS = [
     "hathor_height",
     "hathor_block_hash",
@@ -133,9 +135,39 @@ def is_canonical_tx_id(value: object) -> bool:
 
 def positive_float(value: str) -> float:
     parsed = float(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be finite and greater than zero")
     return parsed
+
+
+def decode_compact_hex(value: str) -> bytes:
+    """Decode even-length ASCII hex without accepting embedded whitespace."""
+    if len(value) % 2 or any(
+        character not in COMPACT_HEX_DIGITS for character in value
+    ):
+        raise ValueError("not compact hexadecimal")
+    return bytes.fromhex(value)
+
+
+def paths_alias(left: Path, right: Path) -> bool:
+    """Return whether two path spellings can address the same filesystem entry."""
+    if left.resolve(strict=False) == right.resolve(strict=False):
+        return True
+    try:
+        return left.samefile(right)
+    except FileNotFoundError:
+        return False
+
+
+def require_distinct_paths(**paths: Path) -> None:
+    """Reject destructive input/output aliases before locks or writes."""
+    labelled_paths = list(paths.items())
+    for index, (left_label, left_path) in enumerate(labelled_paths):
+        for right_label, right_path in labelled_paths[index + 1 :]:
+            if paths_alias(left_path, right_path):
+                raise ValueError(
+                    f"{left_label} and {right_label} must be distinct paths"
+                )
 
 
 def nonnegative_int(value: str) -> int:
@@ -205,6 +237,7 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
             raise ValueError("metadata ledger ends with a truncated row")
 
     ready: dict[int, ReadyRow] = {}
+    ready_tx_heights: dict[str, int] = {}
     observed_heights: list[int] = []
     try:
         with ledger_path.open(newline="") as handle:
@@ -260,6 +293,13 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                         raise ValueError(
                             f"invalid version_3_ready fields at height {height}"
                         )
+                    previous_height = ready_tx_heights.get(tx_id)
+                    if previous_height is not None:
+                        raise ValueError(
+                            "version_3_ready transaction ID is assigned to multiple "
+                            f"heights: {previous_height}, {height}"
+                        )
+                    ready_tx_heights[tx_id] = height
                     ready[height] = ReadyRow(height, tx_id)
                 elif version == 3:
                     raise ValueError(f"invalid non_version_3 fields at height {height}")
@@ -564,8 +604,8 @@ def parse_payload(
     if not isinstance(aux_pow_hex, str) or not aux_pow_hex:
         raise ValueError("missing_aux_pow")
     try:
-        raw = bytes.fromhex(raw_hex)
-        aux_pow = bytes.fromhex(aux_pow_hex)
+        raw = decode_compact_hex(raw_hex)
+        aux_pow = decode_compact_hex(aux_pow_hex)
     except ValueError as exc:
         raise ValueError("invalid_hex") from exc
     if not aux_pow:
@@ -666,8 +706,8 @@ def failure_row(
 def raw_to_supplement(row: dict[str, str]) -> dict[str, str]:
     """Derive an established supplement row from durable raw evidence."""
     try:
-        raw = bytes.fromhex(row["raw_hex"])
-        aux_pow = bytes.fromhex(row["aux_pow_hex"])
+        raw = decode_compact_hex(row["raw_hex"])
+        aux_pow = decode_compact_hex(row["aux_pow_hex"])
     except (KeyError, ValueError) as exc:
         raise ValueError(
             f"invalid raw evidence at height {row.get('hathor_height', '?')}"
@@ -793,6 +833,11 @@ def run_extraction(
     limit: int | None = None,
 ) -> Counter[str]:
     """Resume one range with durable appends and one final ordering rewrite."""
+    require_distinct_paths(
+        ledger=ledger_path,
+        raw_output=raw_output,
+        failure_output=failure_output,
+    )
     ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_output, failure_output])
     try:
@@ -867,6 +912,7 @@ def upgrade_raw(
     end: int,
 ) -> dict[str, int]:
     """Atomically seal v1 or v2 rows without changing their evidence schema."""
+    require_distinct_paths(ledger=ledger_path, raw_output=raw_path)
     ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_path])
     try:
@@ -910,6 +956,11 @@ def build_supplement(
     end: int,
 ) -> dict[str, int]:
     """Atomically build the established supplement CSV from primary evidence."""
+    require_distinct_paths(
+        ledger=ledger_path,
+        raw_output=raw_path,
+        supplement_output=supplement_path,
+    )
     ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_path, supplement_path])
     try:
@@ -938,6 +989,11 @@ def audit(
     end: int,
 ) -> dict[str, object]:
     """Fail closed unless both evidence CSVs exactly cover their ready rows."""
+    require_distinct_paths(
+        ledger=ledger_path,
+        raw_output=raw_path,
+        supplement_output=supplement_path,
+    )
     ready_rows = load_ready_rows(ledger_path, start, end)
     raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
     supplement_rows, supplement_order = read_csv_rows_with_order(

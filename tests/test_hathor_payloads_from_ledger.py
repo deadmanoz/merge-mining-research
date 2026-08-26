@@ -23,6 +23,16 @@ sys.modules[SPEC.name] = payloads
 SPEC.loader.exec_module(payloads)
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "1e9999"])
+def test_positive_float_rejects_non_positive_or_non_finite_values(value: str) -> None:
+    with pytest.raises(payloads.argparse.ArgumentTypeError, match="finite"):
+        payloads.positive_float(value)
+
+
+def test_positive_float_accepts_a_finite_positive_value() -> None:
+    assert payloads.positive_float("0.25") == 0.25
+
+
 def _write_ledger(path: Path) -> None:
     columns = [
         "hathor_height",
@@ -304,6 +314,151 @@ def test_payload_ledger_rejects_malformed_version_three_tx_ids(
         payloads.load_ready_rows(ledger, 0, 3)
 
 
+@pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
+def test_every_payload_mode_rejects_one_ready_transaction_at_multiple_heights(
+    tmp_path: Path, mode: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    _update_ledger_row(ledger, 2, tx_id="a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("duplicate metadata must fail before network I/O")
+
+    with pytest.raises(ValueError, match="assigned to multiple.*0, 2"):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=raw_output,
+                failure_output=failure_output,
+                start=0,
+                end=3,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "upgrade":
+            payloads.upgrade_raw(ledger, raw_output, 0, 3)
+        elif mode == "build":
+            payloads.build_supplement(
+                ledger,
+                raw_output,
+                supplement_output,
+                0,
+                3,
+            )
+        else:
+            payloads.audit(ledger, raw_output, supplement_output, 0, 3)
+
+    assert not raw_output.exists()
+    assert not supplement_output.exists()
+    assert not failure_output.exists()
+
+
+@pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
+def test_every_payload_mode_rejects_a_ledger_output_collision_before_io(
+    tmp_path: Path, mode: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    original = b"sentinel ledger bytes\n"
+    ledger.write_bytes(original)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("path collisions must fail before network I/O")
+
+    with pytest.raises(ValueError, match="must be distinct paths"):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=ledger,
+                failure_output=failure_output,
+                start=0,
+                end=1,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "upgrade":
+            payloads.upgrade_raw(ledger, ledger, 0, 1)
+        elif mode == "build":
+            payloads.build_supplement(ledger, raw_output, ledger, 0, 1)
+        else:
+            payloads.audit(ledger, raw_output, ledger, 0, 1)
+
+    assert ledger.read_bytes() == original
+    assert not list(tmp_path.glob("*.lock"))
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+@pytest.mark.parametrize("mode", ["run", "build", "audit"])
+def test_payload_modes_reject_colliding_nonledger_artifacts_before_io(
+    tmp_path: Path, mode: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    shared_output = tmp_path / "shared.csv"
+    ledger.write_text("invalid sentinel ledger\n")
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("path collisions must fail before network I/O")
+
+    with pytest.raises(ValueError, match="must be distinct paths"):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=shared_output,
+                failure_output=shared_output,
+                start=0,
+                end=1,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "build":
+            payloads.build_supplement(
+                ledger,
+                shared_output,
+                shared_output,
+                0,
+                1,
+            )
+        else:
+            payloads.audit(ledger, shared_output, shared_output, 0, 1)
+
+    assert not shared_output.exists()
+    assert not list(tmp_path.glob("*.lock"))
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_path_preflight_rejects_equivalent_and_filesystem_aliases(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.csv"
+    source.write_text("source\n")
+    symlink = tmp_path / "symlink.csv"
+    symlink.symlink_to(source)
+    hardlink = tmp_path / "hardlink.csv"
+    hardlink.hardlink_to(source)
+    relative_alias = tmp_path / "unused" / ".." / source.name
+
+    for alias in (source, relative_alias, symlink, hardlink):
+        with pytest.raises(ValueError, match="must be distinct paths"):
+            payloads.require_distinct_paths(source=source, output=alias)
+
+
 def test_one_transaction_fetch_populates_complete_source_then_exports(
     tmp_path: Path,
 ) -> None:
@@ -369,6 +524,131 @@ def test_one_transaction_fetch_populates_complete_source_then_exports(
     )
     for evidence_path in (raw_output, supplement_output, failure_output):
         assert b"\r\n" not in evidence_path.read_bytes()
+
+
+@pytest.mark.parametrize("field", ["raw", "aux_pow"])
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\r", "\n", "\u2003"])
+def test_parse_payload_rejects_whitespace_bearing_hex(
+    field: str, whitespace: str
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "timestamp": 10,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    compact = tx[field]
+    tx[field] = compact[:2] + whitespace + compact[2:]
+
+    with pytest.raises(ValueError, match="invalid_hex"):
+        payloads.parse_payload(
+            ready,
+            {"success": True, "tx": tx},
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+def test_parse_payload_accepts_compact_uppercase_hex() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    parsed = payloads.parse_payload(
+        ready,
+        {
+            "success": True,
+            "tx": {
+                "hash": ready.tx_id,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_pow.hex().upper(),
+                "raw": (b"funds" + aux_pow + b"tail").hex().upper(),
+            },
+        },
+        "https://primary.example/v1a",
+        200,
+        1,
+    )
+
+    assert parsed.aux_pow_hex == "AA55"
+    assert parsed.raw_hex == (b"funds" + aux_pow + b"tail").hex().upper()
+
+
+def test_whitespace_bearing_payload_retries_without_archiving_multiline_csv(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    aux_pow = bytes.fromhex("aa55")
+    valid_raw = (b"funds" + aux_pow + b"tail").hex()
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            raw_hex = valid_raw[:2] + "\n" + valid_raw[2:]
+            if endpoint.endswith("fallback.example/v1a"):
+                raw_hex = valid_raw
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": "a" * 64,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": raw_hex,
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    stats = payloads.run_extraction(
+        ledger_path=ledger,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=1,
+        client=client,
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+    )
+
+    assert stats["archived"] == 1
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+    raw_bytes = raw_output.read_bytes()
+    assert raw_bytes.count(b"\n") == 2
+    assert b"\r" not in raw_bytes
+    with raw_output.open(newline="") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["raw_hex"] == valid_raw
+
+
+def test_raw_to_supplement_rejects_whitespace_bearing_hex() -> None:
+    row = _sealed_v2_row(0, "a" * 64, bytes.fromhex("aa55"))
+    row["raw_hex"] = str(row["raw_hex"])[:2] + " " + str(row["raw_hex"])[2:]
+
+    with pytest.raises(ValueError, match="invalid raw evidence"):
+        payloads.raw_to_supplement(row)
 
 
 def test_payload_validation_failure_uses_fallback_endpoint() -> None:

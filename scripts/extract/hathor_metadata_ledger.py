@@ -117,8 +117,8 @@ def is_canonical_tx_id(value: object) -> bool:
 
 def positive_float(value: str) -> float:
     parsed = float(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be finite and greater than zero")
     return parsed
 
 
@@ -615,6 +615,7 @@ def read_recorded_heights(path: Path) -> set[int]:
 def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
     """Require one resolved ledger record for each height in ``[start, end)``."""
     recorded: set[int] = set()
+    ready_tx_heights: dict[str, int] = {}
     observed_order: list[int] = []
     outcomes: Counter[str] = Counter()
     if require_complete_ledger_file(path):
@@ -624,6 +625,15 @@ def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
                 if height in recorded:
                     raise ValueError(f"duplicate ledger height: {height}")
                 recorded.add(height)
+                if row["outcome"] == "version_3_ready":
+                    tx_id = row["tx_id"]
+                    previous_height = ready_tx_heights.get(tx_id)
+                    if previous_height is not None:
+                        raise ValueError(
+                            "version_3_ready transaction ID is assigned to multiple "
+                            f"heights: {previous_height}, {height}"
+                        )
+                    ready_tx_heights[tx_id] = height
                 observed_order.append(height)
                 outcomes[row["outcome"]] += 1
     if observed_order != sorted(observed_order):
