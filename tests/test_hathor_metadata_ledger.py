@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import csv
+import fcntl
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+
+SCRIPT = Path(__file__).parents[1] / "scripts" / "extract" / "hathor_metadata_ledger.py"
+SPEC = importlib.util.spec_from_file_location("hathor_metadata_ledger", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+ledger = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = ledger
+SPEC.loader.exec_module(ledger)
+
+
+def test_make_shards_is_contiguous_and_deterministic() -> None:
+    shards = ledger.make_shards(
+        0,
+        10,
+        ["worker-a", "worker-b", "worker-c"],
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+        "abc123",
+    )
+
+    assert [(s.start_height, s.end_height) for s in shards] == [(0, 4), (4, 8), (8, 10)]
+    assert [s.shard_id for s in shards] == ["shard-001", "shard-002", "shard-003"]
+    assert [s.worker for s in shards] == ["worker-a", "worker-b", "worker-c"]
+
+
+def test_validate_shards_rejects_a_gap() -> None:
+    shards = [
+        ledger.Shard("one", 0, 4, "a", "p", "f", "r", "pending"),
+        ledger.Shard("two", 5, 10, "b", "p", "f", "r", "pending"),
+    ]
+
+    with pytest.raises(ValueError, match="gap"):
+        ledger.validate_shards(shards, 0, 10)
+
+
+def test_validate_shards_rejects_the_wrong_overall_range() -> None:
+    shards = ledger.make_shards(5, 10, ["a"], "p", "f", "r")
+
+    with pytest.raises(ValueError, match="does not cover"):
+        ledger.validate_shards(shards, 0, 10)
+
+
+def test_fetch_height_records_version_three_without_payload_fetch() -> None:
+    class Client:
+        max_attempts = 3
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 3, "tx_id": "abc"}},
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            raise AssertionError("successful request must not back off")
+
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+    row = ledger.fetch_height(Client(), shard, 0)
+
+    assert row == {
+        "hathor_height": 0,
+        "outcome": "version_3_ready",
+        "http_status": 200,
+        "block_version": 3,
+        "tx_id": "abc",
+        "endpoint": "primary",
+        "attempt_count": 1,
+        "error_reason": "",
+    }
+
+
+def test_fetch_height_records_exhausted_failure_with_fallback() -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(429, None, "http_429", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "request_failure"
+    assert row["attempt_count"] == 2
+    assert row["endpoint"] == "fallback"
+
+
+def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "p", 1, ""))
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+        )
+
+    assert ledger.audit_ledger(path, 0, 2) == {
+        "non_version_3": 1,
+        "version_3_ready": 1,
+    }
+    with pytest.raises(ValueError, match="missing=1"):
+        ledger.audit_ledger(path, 0, 3)
+
+
+def test_manifest_range_is_derived_by_default_but_override_must_match(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "manifest.csv"
+    ledger.write_manifest(
+        manifest,
+        ledger.make_shards(10, 12, ["a"], "primary", "fallback", "revision"),
+    )
+    shards = ledger.read_manifest(manifest)
+
+    ledger.validate_shards(shards, 10, 12)
+    with pytest.raises(ValueError, match="does not cover"):
+        ledger.validate_shards(shards, 0, 1_000_000)
+
+
+def test_scan_shard_refuses_a_concurrent_ledger_writer(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    lock_path = ledger_path.with_suffix(".csv.lock")
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    with lock_path.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match="already in use"):
+            ledger.scan_shard(object(), shard, ledger_path)
+
+
+def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> None:
+    source = tmp_path / "ledger.csv"
+    repaired = tmp_path / "repaired.csv"
+    with source.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "p", 1, ""))
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+        )
+        writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "f", 2, ""))
+
+    assert ledger.deduplicate_ledger(source, repaired) == 1
+    with repaired.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["hathor_height"] for row in rows] == ["1", "2"]
+
+
+def test_deduplicate_ledger_rejects_conflicting_rows(tmp_path: Path) -> None:
+    source = tmp_path / "ledger.csv"
+    with source.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "p", 1, ""))
+        writer.writerow(
+            ledger.ledger_row(2, "version_3_ready", 200, 3, "c", "p", 1, "")
+        )
+
+    with pytest.raises(ValueError, match="conflicting duplicate"):
+        ledger.deduplicate_ledger(source, tmp_path / "repaired.csv")

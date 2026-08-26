@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Preserve the historical Hathor pre-million acquisition workers as
+private-archive provenance. Record one terminal metadata outcome per height,
+then fetch and seal one complete transaction row for each version-3 height
+while deriving its funds-and-graph supplement locally. Keep these one-time
+migration tools separate from the future acquisition interface.
+
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
 Preserve retained expected-nBits evidence and authenticate newly admitted

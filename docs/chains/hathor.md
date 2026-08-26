@@ -30,11 +30,22 @@ Hathor's merge-mining proof differs from the Namecoin-family `CAuxPow` format. T
 - `data/hathor_stale_blocks.csv` - full Phase B classifier output (3,612 BTC-parent rows: 3,606 canonical + 6 stale). Gitignored as a large private report (matches the `data/*_stale_blocks.csv` convention).
 - `data/hathor_error_blocks.csv` - Phase C's error-block peer of the Phase B input (the shared `_stale_blocks` → `_error_blocks` derivation), carrying the standard schema plus `rules_violated`. For the recovered range it will be header-only: all 6 accepted candidates are `VALID`, so no rejected row's bytes prove a consensus rule broken.
 - `data/hathor_unknown_blocks.csv` - Phase C's unknown peer of the same input, for rejected rows that are not direct stales at all (an unplaceable predecessor, or a difficulty that is not Bitcoin's at that height). Also header-only for the recovered range.
-- The 5.57M-row raw `aux_pow` CSV and the consolidated funds+graph supplement (~2 GB) are too large for the repo and remain on the archival host.
+- The 5.57M-row post-million raw `aux_pow` CSV, its consolidated funds+graph
+  supplement (~2 GB), and the private pre-million ledger and payload estate are
+  too large for the repo and remain on the archival host.
 
 Hathor-specific repo artifacts:
 
 - `scripts/extract/extract_hathor_auxpow.py` - REST-API extractor; saves the raw `aux_pow` blob untouched. Resumable.
+- `scripts/extract/hathor_metadata_ledger.py` - historical pre-million
+  migration worker. A frozen manifest partitions the range, and each worker
+  records one terminal metadata outcome for every assigned height before any
+  payload acquisition.
+- `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
+  ledger-driven migration worker. Each transaction request writes one sealed
+  source row containing `aux_pow`, `raw`, and locally derived funds+graph
+  bytes. These two workers preserve acquisition provenance; they are not the
+  future supported acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
 - The historical pool-population pre-flight audit is retained privately; it is
@@ -45,11 +56,21 @@ Hathor-specific repo artifacts:
 - `scripts/classify/classify_hathor_phase_b.py` - Phase B: canonical/stale classification + nBits validation gate.
 - `scripts/classify/classify_hathor_phase_c.py` - Phase C: coinbase parse + BIP34 cross-check + standard-schema output + the error-block and unknown peers.
 
-**Coverage.** The extraction starts at Hathor height 1,000,000 on 2020-12-18 and runs to roughly 6,569,000, yielding 5,569,557 `version == 3` rows. The retained 3,606 canonical rows span Hathor heights 1,047,018 to 6,567,450 and Bitcoin heights 664,341 to 949,982. The six accepted candidates span Bitcoin heights 710,969 to 938,873.
+**Coverage.** The presently committed classification starts at Hathor height
+1,000,000 on 2020-12-18 and runs to roughly 6,569,000, yielding 5,569,557
+`version == 3` rows. A later private migration surveyed heights 0 through
+999,999 with one terminal ledger row per height and retained 938,732
+`version == 3` payload rows. The pre-million classification is not reflected
+in the committed counts below. The retained 3,606 canonical rows span Hathor
+heights 1,047,018 to 6,567,450 and Bitcoin heights 664,341 to 949,982. The six
+accepted candidates span Bitcoin heights 710,969 to 938,873.
 
 **Holes.**
 
-- **Early merge-mining history not surveyed**: merge-mined `version == 3` blocks are observed from at least height 60,275, but this extraction begins at 1,000,000. The interval through 999,999 is outside the recovered stale-search scope.
+- **Early merge-mining classification not yet integrated**: merge-mined
+  `version == 3` blocks are observed from at least height 60,275. The private
+  migration acquired heights through 999,999, but the committed classifier
+  outputs and counts in this document still cover the post-million scope.
 - **Unknown parent-linkage rows**: 143,604 self-target-PoW-valid headers have a `prev_hash` that does not resolve on Bitcoin's active chain and are excluded from the direct-stale path. This is 97.55% of the 147,216 self-target-valid rows. An RPC miss does not identify BCH, BSV, DigiByte, or any other parent.
 - **Extraction gaps**: roughly 822 raw-extraction holes and 12,631 supplement holes were recovered by `backfill_hathor_gaps.py`. The historical private audit records 259 residual missing-supplement rows and one reconstruction failure. The original audit reported no self-target passes among the 259 rows, but the required source rows are not in the local publication mirror; the single reconstruction failure remains unresolved.
 
@@ -99,6 +120,11 @@ merkle-derived middle 32 bytes.
 `block_funds`+`block_graph` bytes, which the original extractor did not save.
 `supplement_hathor_funds_graph.py` re-fetched them for every height (~5.57M
 API calls, parallelised across 4 IPs).
+The pre-million migration instead retains both `raw` and the derived
+funds+graph bytes in one sealed source row, then builds the same supplement CSV
+locally. A row is accepted only when its integrity digest and locally
+re-derived funds+graph bytes match, so an interrupted or modified write is not
+treated as acquired evidence.
 
 **Phases (all complete).**
 
