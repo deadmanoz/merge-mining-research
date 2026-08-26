@@ -522,18 +522,7 @@ def fetch_height(
                         attempt_count,
                         reason,
                     )
-                elif version == 3:
-                    if tx_id:
-                        return ledger_row(
-                            height,
-                            "version_3_ready",
-                            result.status,
-                            version,
-                            tx_id,
-                            endpoint,
-                            attempt_count,
-                            "",
-                        )
+                elif version == 3 and not tx_id:
                     last_unavailable = ledger_row(
                         height,
                         "unavailable_block",
@@ -547,6 +536,30 @@ def fetch_height(
                             if tx_id_value in (None, "")
                             else "version_3_invalid_tx_id"
                         ),
+                    )
+                elif block.get("is_voided"):
+                    # Preserve the final observation for diagnosis, but never
+                    # resolve a voided block as accepted height evidence.
+                    last_unavailable = ledger_row(
+                        height,
+                        "unavailable_block",
+                        result.status,
+                        version,
+                        tx_id,
+                        endpoint,
+                        attempt_count,
+                        "child_block_voided",
+                    )
+                elif version == 3:
+                    return ledger_row(
+                        height,
+                        "version_3_ready",
+                        result.status,
+                        version,
+                        tx_id,
+                        endpoint,
+                        attempt_count,
+                        "",
                     )
                 else:
                     return ledger_row(

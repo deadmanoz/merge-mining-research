@@ -234,6 +234,183 @@ def test_fetch_height_records_exhausted_malformed_tx_id_as_valid_unresolved_row(
     assert ledger.read_recorded_heights(path) == {0}
 
 
+def test_fetch_height_resolves_a_valid_fallback_after_a_voided_primary() -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            if endpoint == "primary":
+                return ledger.HttpResult(
+                    200,
+                    {
+                        "success": True,
+                        "block": {"version": 3, "tx_id": TX_B, "is_voided": True},
+                    },
+                    None,
+                    False,
+                )
+            return ledger.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "block": {"version": 3, "tx_id": TX_A, "is_voided": False},
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "version_3_ready"
+    assert row["block_version"] == 3
+    assert row["tx_id"] == TX_A
+    assert row["endpoint"] == "fallback"
+    assert row["attempt_count"] == 2
+    assert row["error_reason"] == ""
+
+
+@pytest.mark.parametrize(
+    ("voided_block", "expected_version", "expected_tx_id"),
+    [
+        ({"version": 3, "tx_id": TX_A, "is_voided": True}, 3, TX_A),
+        ({"version": 0, "tx_id": "abc", "is_voided": True}, 0, ""),
+    ],
+)
+def test_fetch_height_records_exhausted_voided_blocks_as_unavailable(
+    tmp_path: Path,
+    voided_block: dict[str, object],
+    expected_version: int,
+    expected_tx_id: str,
+) -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(
+                200, {"success": True, "block": voided_block}, None, False
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row == {
+        "hathor_height": 0,
+        "outcome": "unavailable_block",
+        "http_status": 200,
+        "block_version": expected_version,
+        "tx_id": expected_tx_id,
+        "endpoint": "fallback",
+        "attempt_count": 2,
+        "error_reason": "child_block_voided",
+    }
+
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(row)
+    with pytest.raises(ValueError, match="unresolved outcomes: unavailable_block=1"):
+        ledger.audit_ledger(path, 0, 1)
+
+
+@pytest.mark.parametrize(
+    ("block", "expected_reason"),
+    [
+        (
+            {"tx_id": TX_A, "is_voided": True},
+            "missing_block_version",
+        ),
+        (
+            {"version": "3", "tx_id": TX_A, "is_voided": True},
+            "invalid_block_version",
+        ),
+        (
+            {"version": 3, "is_voided": True},
+            "version_3_missing_tx_id",
+        ),
+        (
+            {"version": 3, "tx_id": "A" * 64, "is_voided": True},
+            "version_3_invalid_tx_id",
+        ),
+    ],
+)
+def test_fetch_height_validates_voided_block_fields_before_voided_state(
+    block: dict[str, object], expected_reason: str
+) -> None:
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200, {"success": True, "block": block}, None, False
+            )
+
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(Client(), shard, 0)
+
+    assert row["outcome"] == "unavailable_block"
+    assert row["error_reason"] == expected_reason
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"version": 3, "tx_id": TX_A, "is_voided": False},
+        {"version": 3, "tx_id": TX_A},
+    ],
+)
+def test_fetch_height_resolves_a_non_voided_block(block: dict[str, object]) -> None:
+    class Client:
+        max_attempts = 3
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(
+                200, {"success": True, "block": block}, None, False
+            )
+
+        def sleep(self, _seconds):
+            raise AssertionError("resolved request must not back off")
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary"]
+    assert row["outcome"] == "version_3_ready"
+    assert row["tx_id"] == TX_A
+    assert row["endpoint"] == "primary"
+    assert row["attempt_count"] == 1
+
+
 @pytest.mark.parametrize(
     ("version", "error_reason"),
     [

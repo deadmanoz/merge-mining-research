@@ -35,7 +35,11 @@ any manifest publication by trimming padding and trailing slashes, requiring a
 nonblank whitespace-free primary URL, and treating a blank fallback URL as
 disabled, enforcing the same rule at the write boundary for directly built
 manifests and when loading a frozen manifest so malformed legacy or
-hand-edited endpoints are rejected before any request is constructed. Publish
+hand-edited endpoints are rejected before any request is constructed. Treat a
+truthy `is_voided` block response as unresolved after the existing version and
+transaction-ID gates; record it as `child_block_voided`, preserve its valid
+response metadata for diagnosis, and retry through the bounded endpoint loop
+instead of sealing it as version-3-ready or non-version-3. Publish
 deduplicated ledger repairs through the same staged, fully
 synced no-clobber temporary file protocol, and refuse to resume a shard whose
 existing ledger heights do not form an exact contiguous prefix beginning at the

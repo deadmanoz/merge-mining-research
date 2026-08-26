@@ -45,7 +45,13 @@ Hathor-specific repo artifacts:
   records one terminal metadata outcome for every assigned height before any
   payload acquisition. Completion audits reject unresolved outcomes; selected
   failures can be re-driven into a new no-clobber, ordered ledger without
-  mutating the source. A version-3 outcome resolves only with a canonical
+  mutating the source. A truthy `is_voided` flag on a `block_at_height`
+  response never resolves a height. After the existing version and transaction
+  ID gates pass, its valid metadata remains diagnostic only, the height stays
+  an unresolved `child_block_voided` observation, and the bounded
+  retry/fallback loop moves on to the next endpoint until a non-voided block
+  resolves the height. A
+  version-3 outcome resolves only with a canonical
   lowercase 64-character hex transaction ID, while truncated response bodies
   remain retryable. Completion also requires every ready transaction ID to map
   to exactly one height. A new manifest is staged in a fully synced
