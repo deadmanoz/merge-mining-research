@@ -38,111 +38,29 @@ Hathor-specific repo artifacts:
 
 - `scripts/extract/extract_hathor_auxpow.py` - REST-API extractor; saves the raw `aux_pow` blob untouched. Resumable.
 - `scripts/extract/hathor_metadata_ledger.py` - historical pre-million
-  migration worker. A frozen manifest partitions the range and repeats its
-  declared global bounds in every shard row, so losing a terminal shard cannot
-  silently shorten the run contract. Legacy manifests require explicit
-  `--start` and `--end` assertions and are never rewritten in place. Each worker
-  records one terminal metadata outcome for every assigned height before any
-  payload acquisition. Completion audits reject unresolved outcomes; selected
-  failures can be re-driven into a new no-clobber, ordered ledger without
-  mutating the source. A truthy `is_voided` flag on a `block_at_height`
-  response never resolves a height. After the existing version and transaction
-  ID gates pass, its valid metadata remains diagnostic only, the height stays
-  an unresolved `child_block_voided` observation, and the bounded
-  retry/fallback loop moves on to the next endpoint until a non-voided block
-  resolves the height. A
-  version-3 outcome resolves only with a canonical
-  lowercase 64-character hex transaction ID, while truncated response bodies
-  remain retryable. Completion also requires every nonblank canonical
-  transaction ID in the ledger to map to exactly one height; repeated legacy
-  noncanonical identifiers remain accepted. A new manifest is staged in a fully
-  synced
-  same-directory temporary file and published with a no-clobber hard link, so
-  the first creator to link wins and is never overwritten by a competitor.
-  Global and per-shard bounds must be non-negative: the shared shard-validation
-  boundary rejects negative bounds before any coverage verdict can mask them,
-  and manifest publication rejects them before any parent directory or
-  temporary file is created. New
-  manifest, ledger, and repair directory entries are synced after their files
-  become durable. Manifest endpoint arguments are canonicalized before any
-  manifest publication: padding and trailing slashes are stripped, the primary
-  URL must remain nonblank and whitespace-free, and a blank fallback URL
-  disables fallback. Nonblank endpoints must be absolute `http` or `https`
-  URLs with a hostname, a valid optional port, a retained path, and no query
-  or fragment, and raw ASCII control characters are rejected before URL
-  parsing. Manifest publication enforces that canonicalization for
-  directly built manifests too, and loading a frozen manifest applies the same
-  rule, so malformed legacy or hand-edited endpoints are rejected before any
-  request is constructed. An opener-level `InvalidURL` becomes a terminal,
-  nonretryable `invalid_url` result rather than escaping the acquisition
-  record. Frozen manifests load with strict CSV parsing: an
-  exact known header, exactly one physical line per record, complete text
-  cells, and no interior or trailing blank lines, with malformed CSV rejected
-  outright. Manifest labels are single-line: worker labels and the extractor
-  revision are checked when shards are created, and every serialized free-text
-  label (`shard_id`, `worker`, `extractor_revision`, `status`) is checked again
-  at the write boundary, so a label carrying a carriage return or newline is
-  rejected before any manifest, temporary file, or parent directory is created.
-  Every frozen `shard_id` must also be nonempty so the CLI can select it;
-  whitespace-only IDs retain their byte-exact identity.
-  Deduplicated repairs are published through the same
-  staged, fully synced no-clobber temporary file protocol rather than written
-  directly to their output. A shard resumes only when its existing ledger
-  heights form an exact contiguous prefix beginning at the shard start; gaps,
-  out-of-shard rows, and duplicates are rejected before the ledger is opened
-  for append or any request is made.
+  migration worker. Its one supported manifest schema freezes an exact range
+  partition and repeats the declared bounds in every shard row. Each worker
+  records one terminal metadata outcome per height with bounded endpoint
+  fallback. A version-3 row resolves only with its transaction ID, while voided
+  blocks and request failures remain explicit unresolved outcomes. Resume
+  requires a contiguous height prefix. `--retry-output` re-drives every
+  unresolved row into a new ordered ledger, leaving the source untouched, and
+  the completion audit requires exact resolved coverage and unique transaction
+  IDs.
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
-  ledger-driven migration worker. Each transaction request writes one sealed
-  source row containing `aux_pow`, `raw`, and locally derived funds+graph
-  bytes. New sealed-v2 rows also retain the serving endpoint, HTTP status, and
-  total attempt count, and successful gap recovery leaves the primary CSV in
-  deterministic height order. Payload processing rejects resolved metadata
-  rows whose recorded status is not 2xx, whitespace-bearing payload hex, and
-  any artifact paths that alias one another. Every payload mode's preflight
-  also requires each nonblank canonical transaction ID across all resolved
-  ledger outcomes in the requested range, `non_version_3` included, to map to
-  exactly one height, matching the metadata-ledger audit's canonical-ID rule;
-  repeated legacy noncanonical identifiers remain accepted. A successful
-  response must echo
-  the requested transaction ID, use exact integer version 3, and carry an exact
-  non-negative integer timestamp. Endpoint padding is trimmed, any remaining
-  whitespace is rejected, the primary URL must remain nonblank, and a blank
-  fallback URL disables fallback. Nonblank endpoints must be absolute `http`
-  or `https` URLs with a hostname, a valid optional port, a retained path, and
-  no query or fragment, with raw ASCII control characters rejected before URL
-  parsing. A run validates both endpoints before any lock or archive mutation,
-  and a structurally invalid request URL fails as `invalid_url` before pacing
-  or any opener call. An opener-level `InvalidURL` is converted to the same
-  terminal, nonretryable result. A payload response counts as successful
-  only when its `success` flag is exactly `true`. After the echoed transaction
-  hash and exact version-3 gates pass, a truthy `is_voided` flag on a newly
-  fetched transaction response fails as `child_block_voided`: the fetch remains
-  retryable through the bounded endpoint loop and is never sealed. Already
-  sealed rows are not retroactively revalidated because their void status was
-  never archived. Newly created evidence
-  directory entries are
-  synced after their headers. A new payload must also locate its unique
-  `aux_pow` at a byte offset of at least
-  three inside the raw transaction; shorter funds+graph prefixes fail as
-  `funds_graph_prefix_too_short` and remain retryable, while already sealed
-  v1/v2 rows are not retroactively rejected. `--limit` bounds how many pending
-  heights one invocation schedules; pending heights are ordered by least
-  completed durable failure round then height, so a permanently failing early
-  height cannot starve later heights and stays retryable after a full pass.
-  Failure history becomes load-bearing for that order, so each row must retain
-  its blank-or-canonical HTTP status and exact timezone-aware UTC timestamp. The
-  completed seven-column sealed-v1 estate remains readable and byte-immutable;
-  it cannot be mixed with new rows because its missing request provenance cannot
-  be reconstructed honestly. The completion audit pins its raw and supplement
-  snapshots with the same cooperative exclusive locks the upgrade and supplement
-  writers take, holding both from the first artifact existence check through
-  evidence-root construction and ledger/raw hash generation so a cooperating
-  writer cannot swap in a mixed snapshot mid-audit. Both artifacts must exist
-  as nonempty files: a legitimate zero-ready audit requires exact LF-terminated
-  header-only files (sealed-v1 or sealed-v2 raw plus the supplement header),
-  while missing or zero-byte artifacts fail with role-specific errors. These
-  two workers preserve acquisition provenance;
-  they are not the future supported acquisition interface.
+  ledger-driven migration worker. It accepts only the current sealed raw
+  schema. Each source row retains `aux_pow`, `raw`, locally derived funds+graph
+  bytes, successful request provenance, and a record digest. Acquisition is
+  resumable, writes each success durably, preserves failures for retry, and
+  restores deterministic height order after gap recovery. `--limit` schedules
+  the least-retried pending heights first. `--build-supplement` projects the
+  complete funds+graph CSV from sealed source rows, and `--audit` requires exact
+  ledger, raw, and supplement coverage while reporting reproducible hashes.
+  Earlier manifest and raw schemas are deliberately unsupported. If retained
+  private artifacts ever need conversion, use a disposable operator script
+  rather than restoring compatibility or upgrade code. These workers preserve
+  one-time acquisition provenance; run one process for each shard ledger or
+  raw/failure output pair. They are not the future acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
 - The historical pool-population pre-flight audit is retained privately; it is
