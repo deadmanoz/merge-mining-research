@@ -6,7 +6,9 @@ Preserve the historical Hathor pre-million acquisition workers as
 private-archive provenance. Record one terminal metadata outcome per height,
 then fetch and seal one complete transaction row for each version-3 height
 while deriving its funds-and-graph supplement locally. Keep these one-time
-migration tools separate from the future acquisition interface.
+migration tools separate from the future acquisition interface. Fail closed
+when a ledger retains unresolved outcomes, and re-drive selected failures
+into a separate ordered ledger without mutating the source.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

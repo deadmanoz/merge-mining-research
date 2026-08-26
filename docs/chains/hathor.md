@@ -40,7 +40,9 @@ Hathor-specific repo artifacts:
 - `scripts/extract/hathor_metadata_ledger.py` - historical pre-million
   migration worker. A frozen manifest partitions the range, and each worker
   records one terminal metadata outcome for every assigned height before any
-  payload acquisition.
+  payload acquisition. Completion audits reject unresolved outcomes; selected
+  failures can be re-driven into a new no-clobber, ordered ledger without
+  mutating the source.
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
   ledger-driven migration worker. Each transaction request writes one sealed
   source row containing `aux_pow`, `raw`, and locally derived funds+graph

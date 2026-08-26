@@ -163,6 +163,88 @@ def test_one_transaction_fetch_populates_complete_source_then_exports(
     )
 
 
+def test_payload_validation_failure_uses_fallback_endpoint() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            response_hash = "b" * 64 if len(self.endpoints) == 1 else ready.tx_id
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": response_hash,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert payload.tx_id == ready.tx_id
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+
+
+def test_http_client_preserves_status_for_invalid_json() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getcode(self):
+            return 200
+
+        def read(self):
+            return b"{"
+
+    def opener(_request, timeout):
+        assert timeout == 30
+        return Response()
+
+    client = payloads.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    result = client.get_json(
+        "https://primary.example/v1a", "/transaction", {"id": "a" * 64}
+    )
+
+    assert result == payloads.HttpResult(200, None, "invalid_json", True)
+
+
 def test_supplement_is_built_from_complete_source_without_another_api_request(
     tmp_path: Path,
 ) -> None:

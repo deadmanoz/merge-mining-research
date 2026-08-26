@@ -284,21 +284,22 @@ class PacedHttpClient:
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
-                payload = json.loads(response.read())
+                try:
+                    payload = json.loads(response.read())
+                except json.JSONDecodeError:
+                    return HttpResult(status, None, "invalid_json", True)
                 if not isinstance(payload, dict):
-                    return HttpResult(status, None, "json_not_object", False)
+                    return HttpResult(status, None, "json_not_object", True)
                 return HttpResult(status, payload, None, False)
         except HTTPError as error:
             return HttpResult(
                 error.code,
                 None,
                 f"http_{error.code}",
-                error.code in {429, 502, 503, 504},
+                error.code in {429, 500, 502, 503, 504},
             )
         except (URLError, TimeoutError, OSError) as error:
             return HttpResult(None, None, type(error).__name__, True)
-        except json.JSONDecodeError:
-            return HttpResult(None, None, "invalid_json", True)
 
 
 def parse_payload(
@@ -366,9 +367,11 @@ def fetch_payload(
 
     last: HttpResult | None = None
     last_endpoint = endpoints[0]
+    attempt_count = 0
     for attempt in range(client.max_attempts):
         endpoint = endpoints[attempt % len(endpoints)]
         last_endpoint = endpoint
+        attempt_count = attempt + 1
         result = client.get_json(endpoint, "/transaction", {"id": ready.tx_id})
         last = result
         if result.payload is not None:
@@ -384,15 +387,10 @@ def fetch_payload(
                     None,
                 )
             except ValueError as exc:
-                return None, failure_row(
-                    ready,
-                    result.status,
-                    endpoint,
-                    attempt + 1,
-                    str(exc),
-                )
+                last = HttpResult(result.status, None, str(exc), True)
         if not result.retryable:
-            break
+            if result.payload is None:
+                break
         if attempt + 1 < client.max_attempts:
             client.sleep(min(2**attempt, 30))
 
@@ -400,7 +398,7 @@ def fetch_payload(
         ready,
         last.status if last else None,
         last_endpoint,
-        client.max_attempts if last else 0,
+        attempt_count,
         last.error if last and last.error else "unknown_request_failure",
     )
 

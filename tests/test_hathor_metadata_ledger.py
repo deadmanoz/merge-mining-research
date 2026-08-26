@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
@@ -147,6 +148,55 @@ def test_fetch_height_records_non_object_json_as_terminal_failure() -> None:
     assert row["attempt_count"] == 1
 
 
+def test_http_client_retries_status_500() -> None:
+    def opener(request, timeout):
+        assert timeout == 30
+        raise HTTPError(request.full_url, 500, "server error", {}, None)
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    result = client.get_json(
+        "https://primary.example/v1a", "/block_at_height", {"height": 0}
+    )
+
+    assert result == ledger.HttpResult(500, None, "http_500", True)
+
+
+def test_http_client_preserves_status_for_invalid_json() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getcode(self):
+            return 200
+
+        def read(self):
+            return b"{"
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=lambda _request, timeout: Response(),
+        sleep=lambda _seconds: None,
+    )
+
+    result = client.get_json(
+        "https://primary.example/v1a", "/block_at_height", {"height": 0}
+    )
+
+    assert result == ledger.HttpResult(200, None, "invalid_json", True)
+
+
 def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
     path = tmp_path / "ledger.csv"
     with path.open("w", newline="") as handle:
@@ -163,6 +213,78 @@ def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
     }
     with pytest.raises(ValueError, match="missing=1"):
         ledger.audit_ledger(path, 0, 3)
+
+
+def test_audit_ledger_rejects_unresolved_outcomes(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(
+                0, "request_failure", 500, "", "", "primary", 3, "http_500"
+            )
+        )
+
+    with pytest.raises(ValueError, match="request_failure=1"):
+        ledger.audit_ledger(path, 0, 1)
+
+
+def test_retry_ledger_replaces_selected_failures_in_new_ordered_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ledger.csv"
+    repaired = tmp_path / "ledger-retry.csv"
+    rows = [
+        ledger.ledger_row(0, "non_version_3", 200, 0, "a", "primary", 1, ""),
+        ledger.ledger_row(1, "request_failure", 500, "", "", "primary", 3, "http_500"),
+        ledger.ledger_row(2, "version_3_ready", 200, 3, "c", "primary", 1, ""),
+    ]
+    with source.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, params):
+            assert params == {"height": 1}
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 3, "tx_id": "b"}},
+                None,
+                False,
+            )
+
+    shard = ledger.Shard("one", 0, 3, "a", "primary", "fallback", "r", "pending")
+
+    assert ledger.retry_ledger(
+        Client(),
+        shard,
+        source,
+        repaired,
+        frozenset({"request_failure"}),
+    ) == {"retried": 1, "resolved": 1}
+    with source.open(newline="") as handle:
+        source_rows = list(csv.DictReader(handle))
+    with repaired.open(newline="") as handle:
+        repaired_rows = list(csv.DictReader(handle))
+    assert source_rows[1]["outcome"] == "request_failure"
+    assert [row["hathor_height"] for row in repaired_rows] == ["0", "1", "2"]
+    assert repaired_rows[1]["outcome"] == "version_3_ready"
+    assert ledger.audit_ledger(repaired, 0, 3) == {
+        "non_version_3": 1,
+        "version_3_ready": 2,
+    }
+    with pytest.raises(ValueError, match="already exists"):
+        ledger.retry_ledger(
+            Client(),
+            shard,
+            source,
+            repaired,
+            frozenset({"request_failure"}),
+        )
 
 
 def test_manifest_range_is_derived_by_default_but_override_must_match(

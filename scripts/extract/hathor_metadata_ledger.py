@@ -23,7 +23,14 @@ Examples:
         --shard-id shard-003 --ledger shard-003-ledger.csv
 
     # Audit a completed merged ledger before payload work.
-    python scripts/extract/hathor_metadata_ledger.py --audit-ledger ledger.csv
+    python scripts/extract/hathor_metadata_ledger.py --audit-ledger ledger.csv \
+        --start 0 --end 1000000
+
+    # Re-drive terminal failures into a new, ordered ledger.
+    python scripts/extract/hathor_metadata_ledger.py --manifest manifest.csv \
+        --shard-id shard-003 --ledger shard-003-ledger.csv \
+        --retry-outcomes request_failure,unavailable_block \
+        --retry-output shard-003-ledger-retry.csv
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ import fcntl
 import json
 import math
 import os
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -71,6 +79,8 @@ LEDGER_COLUMNS = [
     "attempt_count",
     "error_reason",
 ]
+FINAL_LEDGER_OUTCOMES = frozenset({"version_3_ready", "non_version_3"})
+RETRYABLE_LEDGER_OUTCOMES = frozenset({"request_failure", "unavailable_block"})
 
 
 @dataclass(frozen=True)
@@ -105,6 +115,27 @@ def nonnegative_int(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
+
+
+def parse_retry_outcomes(value: str) -> frozenset[str]:
+    outcomes = frozenset(part.strip() for part in value.split(",") if part.strip())
+    if not outcomes:
+        raise argparse.ArgumentTypeError("must name at least one retry outcome")
+    invalid = outcomes.difference(RETRYABLE_LEDGER_OUTCOMES)
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            "unsupported retry outcomes: " + ", ".join(sorted(invalid))
+        )
+    return outcomes
+
+
+def fsync_directory(path: Path) -> None:
+    """Persist a completed no-clobber output's directory entry."""
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def make_shards(
@@ -187,6 +218,8 @@ def write_manifest(path: Path, shards: list[Shard]) -> None:
                     "status": shard.status,
                 }
             )
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def read_manifest(path: Path) -> list[Shard]:
@@ -252,17 +285,18 @@ class PacedHttpClient:
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
-                payload = json.loads(response.read())
+                try:
+                    payload = json.loads(response.read())
+                except json.JSONDecodeError:
+                    return HttpResult(status, None, "invalid_json", True)
                 if not isinstance(payload, dict):
-                    return HttpResult(status, None, "json_not_object", False)
+                    return HttpResult(status, None, "json_not_object", True)
                 return HttpResult(status, payload, None, False)
         except HTTPError as error:
-            retryable = error.code in {429, 502, 503, 504}
+            retryable = error.code in {429, 500, 502, 503, 504}
             return HttpResult(error.code, None, f"http_{error.code}", retryable)
         except (URLError, TimeoutError, OSError) as error:
             return HttpResult(None, None, type(error).__name__, True)
-        except json.JSONDecodeError:
-            return HttpResult(None, None, "invalid_json", True)
 
 
 def fetch_height(
@@ -377,7 +411,7 @@ def read_recorded_heights(path: Path) -> set[int]:
 
 
 def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
-    """Require one ledger record for each height in ``[start, end)``."""
+    """Require one resolved ledger record for each height in ``[start, end)``."""
     recorded = read_recorded_heights(path)
     expected = set(range(start, end))
     missing = sorted(expected - recorded)
@@ -390,6 +424,16 @@ def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
     with path.open(newline="") as handle:
         for row in csv.DictReader(handle):
             outcomes[row["outcome"]] += 1
+    unresolved = {
+        outcome: count
+        for outcome, count in outcomes.items()
+        if outcome not in FINAL_LEDGER_OUTCOMES
+    }
+    if unresolved:
+        detail = ", ".join(
+            f"{outcome}={count}" for outcome, count in sorted(unresolved.items())
+        )
+        raise ValueError(f"ledger has unresolved outcomes: {detail}")
     return outcomes
 
 
@@ -419,6 +463,8 @@ def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
         writer.writeheader()
         for height in sorted(rows):
             writer.writerow(rows[height])
+        handle.flush()
+        os.fsync(handle.fileno())
     return duplicate_count
 
 
@@ -432,6 +478,96 @@ def exclusive_ledger_lock(ledger_path: Path):
         lock_handle.close()
         raise RuntimeError(f"ledger is already in use: {ledger_path}") from error
     return lock_handle
+
+
+def retry_ledger(
+    client: PacedHttpClient,
+    shard: Shard,
+    input_path: Path,
+    output_path: Path,
+    retry_outcomes: frozenset[str],
+) -> Counter[str]:
+    """Re-drive selected failures into a new complete, ordered ledger."""
+    if not retry_outcomes:
+        raise ValueError("retry outcomes must not be empty")
+    invalid = retry_outcomes.difference(RETRYABLE_LEDGER_OUTCOMES)
+    if invalid:
+        raise ValueError("unsupported retry outcomes: " + ", ".join(sorted(invalid)))
+    if output_path.exists():
+        raise ValueError(f"retry output already exists: {output_path}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    input_lock = exclusive_ledger_lock(input_path)
+    output_lock = exclusive_ledger_lock(output_path)
+    temporary_path: Path | None = None
+    stats: Counter[str] = Counter()
+    try:
+        if output_path.exists():
+            raise ValueError(f"retry output already exists: {output_path}")
+        with (
+            input_path.open(newline="") as input_handle,
+            tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                prefix=f".{output_path.name}.tmp-",
+                dir=output_path.parent,
+                delete=False,
+            ) as output_handle,
+        ):
+            temporary_path = Path(output_handle.name)
+            reader = csv.DictReader(input_handle)
+            if reader.fieldnames != LEDGER_COLUMNS:
+                raise ValueError(f"unexpected ledger columns: {reader.fieldnames}")
+            writer = csv.DictWriter(output_handle, fieldnames=LEDGER_COLUMNS)
+            writer.writeheader()
+            for expected_height in range(shard.start_height, shard.end_height):
+                row = next(reader, None)
+                if row is None:
+                    raise ValueError(
+                        f"ledger ended before shard height: {expected_height}"
+                    )
+                try:
+                    observed_height = int(row["hathor_height"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError("ledger has an invalid height") from exc
+                if row["hathor_height"] != str(observed_height):
+                    raise ValueError(
+                        f"ledger has a non-canonical height: {row['hathor_height']!r}"
+                    )
+                if observed_height != expected_height:
+                    raise ValueError(
+                        "ledger ordering mismatch: "
+                        f"expected={expected_height} observed={observed_height}"
+                    )
+
+                if row["outcome"] in retry_outcomes:
+                    row = fetch_height(client, shard, expected_height)
+                    stats["retried"] += 1
+                    if row["outcome"] in FINAL_LEDGER_OUTCOMES:
+                        stats["resolved"] += 1
+                    else:
+                        stats["unresolved"] += 1
+                writer.writerow(row)
+
+            if next(reader, None) is not None:
+                raise ValueError("ledger contains rows outside the shard range")
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+
+        if output_path.exists():
+            raise ValueError(f"retry output appeared during build: {output_path}")
+        os.link(temporary_path, output_path)
+        temporary_path.unlink()
+        temporary_path = None
+        fsync_directory(output_path.parent)
+        return stats
+    except BaseException:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+    finally:
+        output_lock.close()
+        input_lock.close()
 
 
 def scan_shard(
@@ -504,6 +640,19 @@ def parser() -> argparse.ArgumentParser:
     argument_parser.add_argument("--shard-id", help="Manifest shard to scan")
     argument_parser.add_argument("--ledger", type=Path, help="Shard ledger path")
     argument_parser.add_argument(
+        "--retry-outcomes",
+        type=parse_retry_outcomes,
+        help=(
+            "Comma-separated failure outcomes to re-drive from --ledger into "
+            "a new --retry-output"
+        ),
+    )
+    argument_parser.add_argument(
+        "--retry-output",
+        type=Path,
+        help="New complete ledger written by --retry-outcomes",
+    )
+    argument_parser.add_argument(
         "--deduplicated-output",
         type=Path,
         help="New output path required with --deduplicate-ledger",
@@ -526,6 +675,15 @@ def main() -> None:
     args = parser().parse_args()
     if args.max_attempts < 1:
         raise SystemExit("--max-attempts must be at least one")
+    if (args.retry_outcomes is not None or args.retry_output is not None) and not (
+        args.manifest and args.shard_id and args.ledger
+    ):
+        raise SystemExit(
+            "--retry-outcomes and --retry-output require --manifest, "
+            "--shard-id, and --ledger"
+        )
+    if (args.retry_outcomes is None) != (args.retry_output is None):
+        raise SystemExit("--retry-outcomes and --retry-output must be used together")
 
     if args.write_manifest:
         start = DEFAULT_START if args.start is None else args.start
@@ -576,6 +734,16 @@ def main() -> None:
         validate_shards(shards, args.start, args.end)
     shard = selected_shard(shards, args.shard_id)
     client = PacedHttpClient(args.requests_per_second, args.timeout, args.max_attempts)
+    if args.retry_outcomes is not None:
+        outcomes = retry_ledger(
+            client,
+            shard,
+            args.ledger,
+            args.retry_output,
+            args.retry_outcomes,
+        )
+        print(json.dumps(dict(sorted(outcomes.items())), sort_keys=True))
+        return
     outcomes = scan_shard(client, shard, args.ledger)
     print(json.dumps(dict(sorted(outcomes.items())), sort_keys=True))
 
