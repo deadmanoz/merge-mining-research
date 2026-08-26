@@ -272,10 +272,10 @@ Generated monitor evidence:
    header per RFC 0006: `aux_block_hash = SHA256d(SHA256(block_funds) ||
    SHA256(block_graph))` embedded in display order in the BTC coinbase, merkle
    path links byte-reversed before folding; the Hathor block hash equals the
-   reconstructed BTC header hash. The first-draft algorithm (and the legacy
-   `verify_hathor_extraction.py`, which checks only `prev_hash`) embedded the
-   wrong value - the fix was confirmed by `SHA256d(header) == tx_id` on 50/50
-   sampled blocks. See `docs/chains/hathor.md` §2.
+   reconstructed BTC header hash. The first-draft sanity check covered only
+   `prev_hash` and therefore missed the wrong embedded value. The fix was
+   confirmed by `SHA256d(header) == tx_id` on 50/50 sampled blocks. See
+   `docs/chains/hathor.md` §2.
 
 4. **Pending-upstream sidecar drift.** `data/new_stale_blocks_for_upstream.csv`
    was regenerated from current committed inputs against the bumped upstream

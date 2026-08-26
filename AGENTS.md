@@ -144,7 +144,9 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   validator, wired into tests), four population sweeps under `scripts/analysis/`
   sharing `scripts/analysis/_sweep_common.py`, and
   `scripts/reports/report_error_blocks_by_chain.py` (per-chain diagnostic
-  views). Scripts import the
+  views). Hathor uses a range-neutral metadata ledger plus one sealed
+  acquisition dataset, which `scripts/classify/classify_hathor.py` classifies
+  directly without persisted classifier phases. Scripts import the
   installed package and many default to `data/` paths for operator convenience.
 - `data/`: committed compact loader inputs plus gitignored fetched/scratch data.
 - `results/`: committed reference CSVs and recovery diagnostics.

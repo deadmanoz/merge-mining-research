@@ -16,9 +16,10 @@ ledger.
 
 Examples:
 
-    # Create the private manifest before starting any worker.
+    # Create a manifest for the acquisition range before starting any worker.
     python scripts/extract/hathor_metadata_ledger.py --write-manifest \
-        <chain-archive>/hathor/pre-million/manifest.csv \
+        <chain-archive>/hathor/acquisition/manifest.csv \
+        --start 0 --end <exclusive-end-height> \
         --workers worker-a,worker-b,worker-c,worker-d,worker-e,worker-f
 
     # Run one assigned shard at the conservative default rate.
@@ -27,7 +28,7 @@ Examples:
 
     # Audit a completed merged ledger before payload work.
     python scripts/extract/hathor_metadata_ledger.py --audit-ledger ledger.csv \
-        --start 0 --end 1000000
+        --start 0 --end <exclusive-end-height>
 
     # Re-drive unresolved heights into a new, ordered ledger.
     python scripts/extract/hathor_metadata_ledger.py --manifest manifest.csv \
@@ -56,9 +57,8 @@ from urllib.request import Request, urlopen
 DEFAULT_API = "https://node1.mainnet.hathor.network/v1a"
 DEFAULT_FALLBACK_API = "https://node2.mainnet.hathor.network/v1a"
 DEFAULT_START = 0
-DEFAULT_END = 1_000_000
 DEFAULT_REQUESTS_PER_SECOND = 0.5
-USER_AGENT = "merge-mining-research/hathor-pre-million-metadata"
+USER_AGENT = "merge-mining-research/hathor-metadata-acquisition"
 
 MANIFEST_COLUMNS = [
     "manifest_start_height",
@@ -862,10 +862,7 @@ def parser() -> argparse.ArgumentParser:
     argument_parser.add_argument(
         "--end",
         type=nonnegative_int,
-        help=(
-            "Exclusive range end for manifest creation or ledger audit "
-            f"(default: {DEFAULT_END})"
-        ),
+        help="Exclusive range end; required for manifest creation or ledger audit",
     )
     argument_parser.add_argument(
         "--workers", help="Comma-separated unique worker labels"
@@ -901,8 +898,10 @@ def main() -> None:
         raise SystemExit("--retry-output requires --manifest, --shard-id, and --ledger")
 
     if args.write_manifest:
+        if args.end is None:
+            raise SystemExit("--write-manifest requires --end")
         start = DEFAULT_START if args.start is None else args.start
-        end = DEFAULT_END if args.end is None else args.end
+        end = args.end
         if start >= end:
             raise SystemExit("--start must be lower than --end")
         if not args.workers:

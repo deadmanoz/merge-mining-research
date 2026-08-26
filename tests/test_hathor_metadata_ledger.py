@@ -88,6 +88,28 @@ def test_manifest_round_trip_partitions_the_declared_range(tmp_path: Path) -> No
         ledger.write_manifest(path, loaded)
 
 
+def test_manifest_creation_requires_an_explicit_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.csv"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--write-manifest",
+            str(path),
+            "--workers",
+            "worker-a",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="--write-manifest requires --end"):
+        ledger.main()
+
+    assert not path.exists()
+
+
 @pytest.mark.parametrize(
     "shards, message",
     [

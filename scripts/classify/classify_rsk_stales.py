@@ -95,7 +95,7 @@ OUT_COLS = [
 ]
 
 # The error-block sibling carries the standard row plus the pipe-joined rule
-# set the routing derived, matching the shared writer and Hathor phase C. It is
+# set the routing derived, matching the shared writer and Hathor classifier. It is
 # the evidence for the error-block claim, and ``validation_status`` alone does
 # not carry it: RSK's rejections are worded for the gate that fired, not for
 # the rule that decided the routing.
