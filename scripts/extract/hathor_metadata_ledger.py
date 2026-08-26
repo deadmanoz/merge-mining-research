@@ -47,7 +47,7 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass, replace
-from http.client import IncompleteRead
+from http.client import IncompleteRead, InvalidURL
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
@@ -170,8 +170,8 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
     After trimming and trailing-slash removal, only absolute ``http`` or
     ``https`` URLs are accepted: a hostname is required, an optional port must
     be valid, the path spelling is retained unchanged, and a query or fragment
-    is rejected. Interior whitespace is rejected before parsing because
-    ``urlsplit`` silently strips ASCII tabs and newlines.
+    is rejected. Interior whitespace and raw ASCII control characters are
+    rejected before parsing because ``urlsplit`` silently strips some controls.
     """
     endpoint = value.strip().rstrip("/")
     if not endpoint:
@@ -180,6 +180,8 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
         raise ValueError(f"{name} endpoint must be non-empty")
     if any(character.isspace() for character in endpoint):
         raise ValueError(f"{name} endpoint must not contain whitespace")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
+        raise ValueError(f"{name} endpoint must not contain control characters")
     try:
         parts = urlsplit(endpoint)
         # Accessing these properties is what surfaces malformed authorities
@@ -198,13 +200,18 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
     return endpoint
 
 
-def require_manifest_label(value: str, field: str) -> None:
-    """Reject a line break in one free-text manifest label before publication.
+def require_manifest_label(
+    value: str, field: str, *, require_nonempty: bool = False
+) -> None:
+    """Validate one free-text manifest label before publication.
 
-    Commas and quotes remain valid CSV cell content, and blank labels keep
-    their existing semantics; only CR or LF would let ``csv.DictWriter`` emit
-    a multi-physical-line record that the strict reader rejects.
+    Commas and quotes remain valid CSV cell content. Blank labels retain their
+    existing semantics unless the caller requires a selectable shard ID. CR or
+    LF would let ``csv.DictWriter`` emit a multi-physical-line record that the
+    strict reader rejects.
     """
+    if require_nonempty and value == "":
+        raise ValueError(f"manifest {field} must be non-empty")
     if "\r" in value or "\n" in value:
         raise ValueError(f"manifest {field} must not contain a line break")
 
@@ -255,7 +262,7 @@ def make_shards(
 
 
 def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard]:
-    """Require non-negative bounds and one exact partition of ``[start, end)``."""
+    """Require non-negative bounds, nonempty IDs, and one exact range partition."""
     if start < 0 or end < 0:
         raise ValueError("manifest bounds must be non-negative")
     ordered = sorted(shards, key=lambda shard: (shard.start_height, shard.end_height))
@@ -263,6 +270,8 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
         raise ValueError("manifest has no shards")
     if any(shard.start_height < 0 or shard.end_height < 0 for shard in ordered):
         raise ValueError("manifest bounds must be non-negative")
+    for shard in ordered:
+        require_manifest_label(shard.shard_id, "shard_id", require_nonempty=True)
     if ordered[0].start_height != start or ordered[-1].end_height != end:
         raise ValueError("manifest does not cover the requested range")
     expected = start
@@ -280,9 +289,9 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
 def write_manifest(path: Path, manifest: Manifest) -> None:
     """Write a new manifest, refusing to replace an existing run contract.
 
-    Shard endpoints are canonicalized and free-text labels are checked for line
-    breaks before any directory or file is created, so rejected input leaves
-    neither the manifest nor a temporary file behind.
+    Shard endpoints are canonicalized, shard IDs are required, and free-text
+    labels are checked for line breaks before any directory or file is created,
+    so rejected input leaves neither the manifest nor a temporary file behind.
     The complete CSV is staged in a same-directory temporary file, fully
     synced, then published with a no-clobber hard link so the first creator to
     link wins and is never overwritten by a competitor.
@@ -307,7 +316,9 @@ def write_manifest(path: Path, manifest: Manifest) -> None:
         manifest.end_height,
     )
     for shard in shards:
-        require_manifest_label(shard.shard_id, "shard_id")
+        # Keep every label rule explicit at the serialization boundary even
+        # though shared shard validation has already enforced the ID invariant.
+        require_manifest_label(shard.shard_id, "shard_id", require_nonempty=True)
         require_manifest_label(shard.worker, "worker")
         require_manifest_label(shard.extractor_revision, "extractor_revision")
         require_manifest_label(shard.status, "status")
@@ -515,6 +526,8 @@ class PacedHttpClient:
         except HTTPError as error:
             retryable = error.code in {429, 500, 502, 503, 504}
             return HttpResult(error.code, None, f"http_{error.code}", retryable)
+        except InvalidURL:
+            return HttpResult(None, None, "invalid_url", False)
         except (URLError, TimeoutError, OSError, IncompleteRead) as error:
             return HttpResult(None, None, type(error).__name__, True)
 

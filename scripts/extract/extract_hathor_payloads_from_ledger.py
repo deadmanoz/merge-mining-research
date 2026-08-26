@@ -43,7 +43,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from http.client import IncompleteRead
+from http.client import IncompleteRead, InvalidURL
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
@@ -715,6 +715,8 @@ class PacedHttpClient:
                 f"http_{error.code}",
                 error.code in {429, 500, 502, 503, 504},
             )
+        except InvalidURL:
+            return HttpResult(None, None, "invalid_url", False)
         except (URLError, TimeoutError, OSError, IncompleteRead) as error:
             return HttpResult(None, None, type(error).__name__, True)
 
@@ -781,8 +783,8 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
     After trimming and trailing-slash removal, only absolute ``http`` or
     ``https`` URLs are accepted: a hostname is required, an optional port must
     be valid, the path spelling is retained unchanged, and a query or fragment
-    is rejected. Interior whitespace is rejected before parsing because
-    ``urlsplit`` silently strips ASCII tabs and newlines.
+    is rejected. Interior whitespace and raw ASCII control characters are
+    rejected before parsing because ``urlsplit`` silently strips some controls.
     """
     endpoint = value.strip().rstrip("/")
     if not endpoint:
@@ -791,6 +793,8 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
         raise ValueError(f"{name} endpoint must be non-empty")
     if any(character.isspace() for character in endpoint):
         raise ValueError(f"{name} endpoint must not contain whitespace")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
+        raise ValueError(f"{name} endpoint must not contain control characters")
     try:
         parts = urlsplit(endpoint)
         # Accessing these properties is what surfaces malformed authorities

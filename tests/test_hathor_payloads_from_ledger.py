@@ -5,7 +5,7 @@ import hashlib
 import importlib.util
 import json
 import sys
-from http.client import IncompleteRead
+from http.client import IncompleteRead, InvalidURL
 from pathlib import Path
 
 import pytest
@@ -1280,6 +1280,74 @@ def test_endpoint_whitespace_before_trailing_slashes_fails_before_a_request(
         payloads.fetch_payload(Client(), ready, primary_endpoint, fallback_endpoint)
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://prim\x01ary.example/v1a",
+        "https://primary.example/v1a/\x7f",
+    ],
+)
+def test_canonical_endpoint_rejects_raw_control_characters(endpoint: str) -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain control characters"
+    ):
+        payloads.canonical_endpoint(endpoint, "primary", allow_blank=False)
+
+
+def test_canonical_endpoint_reports_whitespace_before_control_characters() -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain whitespace"
+    ):
+        payloads.canonical_endpoint(
+            "https://primary.example/v\x0ba", "primary", allow_blank=False
+        )
+
+
+def test_canonical_endpoint_reports_controls_before_query_or_fragment() -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain control characters"
+    ):
+        payloads.canonical_endpoint(
+            "https://primary.example/v1a?x=\x01", "primary", allow_blank=False
+        )
+
+
+def test_canonical_endpoint_accepts_percent_encoded_control_octets() -> None:
+    endpoint = "https://primary.example/v1a/%01"
+
+    assert (
+        payloads.canonical_endpoint(endpoint, "primary", allow_blank=False) == endpoint
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "primary_endpoint", "fallback_endpoint"),
+    [
+        ("primary", "https://prim\x01ary.example/v1a", ""),
+        (
+            "fallback",
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a/\x7f",
+        ),
+    ],
+)
+def test_fetch_payload_rejects_control_endpoints_before_a_request(
+    name: str, primary_endpoint: str, fallback_endpoint: str
+) -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("control-bearing endpoints must fail before I/O")
+
+    with pytest.raises(
+        ValueError, match=f"{name} endpoint must not contain control characters"
+    ):
+        payloads.fetch_payload(Client(), ready, primary_endpoint, fallback_endpoint)
+
+
 def test_http_client_preserves_status_for_invalid_json() -> None:
     class Response:
         def __enter__(self):
@@ -2534,6 +2602,16 @@ def test_failure_history_accepts_a_blank_status_for_a_network_error(
             "primary endpoint",
         ),
         ("https://primary.example/v1a", "fallback", "fallback endpoint"),
+        (
+            "https://prim\x01ary.example/v1a",
+            "https://fallback.example/v1a",
+            "primary endpoint must not contain control characters",
+        ),
+        (
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a/\x7f",
+            "fallback endpoint must not contain control characters",
+        ),
     ],
 )
 def test_run_extraction_rejects_invalid_endpoints_before_locks_or_mutation(
@@ -2590,6 +2668,60 @@ def test_http_client_rejects_an_invalid_url_before_pacing_or_opener() -> None:
     assert client._last_request_start is None
     assert sleeps == []
     assert client.get_json("primary", "/transaction", {"id": "b" * 64}) == result
+
+
+def test_http_client_converts_opener_invalid_url_to_terminal_result() -> None:
+    def opener(_request, timeout):
+        assert timeout == 30
+        raise InvalidURL("URL cannot contain control characters")
+
+    client = payloads.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    assert client.get_json(
+        "https://primary.example/v1a", "/transaction", {"id": "a" * 64}
+    ) == payloads.HttpResult(None, None, "invalid_url", False)
+
+
+def test_fetch_payload_records_invalid_url_after_one_fallback_attempt() -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+    attempted_urls: list[str] = []
+
+    def opener(request, timeout):
+        assert timeout == 30
+        attempted_urls.append(request.full_url)
+        raise InvalidURL("URL cannot contain control characters")
+
+    client = payloads.PacedHttpClient(
+        1000,
+        30,
+        3,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert attempted_urls == [
+        f"https://primary.example/v1a/transaction?id={ready.tx_id}",
+        f"https://fallback.example/v1a/transaction?id={ready.tx_id}",
+    ]
+    assert payload is None
+    assert failure is not None
+    assert failure["http_status"] == ""
+    assert failure["endpoint"] == "https://fallback.example/v1a"
+    assert failure["attempt_count"] == 2
+    assert failure["error_reason"] == "invalid_url"
 
 
 @pytest.mark.parametrize(

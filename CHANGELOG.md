@@ -58,13 +58,17 @@ identifiers stay accepted. Parse frozen manifests strictly, requiring an exact
 known header, exactly one physical line per record, complete text cells, and no
 interior or trailing blank lines, and fail closed on malformed CSV. Accept only
 absolute http or https endpoint URLs with a hostname, a valid optional port, a
-retained path, and no query or fragment at every manifest and payload boundary,
-reject structurally invalid request URLs as `invalid_url` before pacing or any
-opener call, validate payload run endpoints before locks or archive mutation,
-and require the payload `success` flag to be exactly `true`. Enforce canonical
+retained path, no query or fragment, and no raw ASCII control characters at
+every manifest and payload boundary. Reject structurally invalid request URLs
+as `invalid_url` before pacing or any opener call, convert an opener-level
+`InvalidURL` into the same nonretryable result, validate payload run endpoints
+before locks or archive mutation, and require the payload `success` flag to be
+exactly `true`. Enforce canonical
 transaction ID uniqueness across all resolved outcome types within each payload
 preflight's requested range, and reject carriage returns or newlines in manifest
-worker, shard, revision, and status labels before publication. Audit payload
+worker, shard, revision, and status labels before publication. Require every
+frozen `shard_id` to be nonempty so it remains selectable by the CLI, while
+preserving whitespace-only IDs byte-exactly. Audit payload
 snapshots under the same cooperative exclusive evidence locks held by the
 upgrade and supplement writers, keeping both raw and supplement locked from
 the first artifact existence check through evidence-root construction and

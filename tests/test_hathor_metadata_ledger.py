@@ -5,7 +5,7 @@ import fcntl
 import importlib.util
 import json
 import sys
-from http.client import IncompleteRead
+from http.client import IncompleteRead, InvalidURL
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -99,6 +99,64 @@ def test_make_shards_rejects_remaining_endpoint_whitespace(
 
 
 @pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://prim\x01ary.example/v1a",
+        "https://primary.example/v1a/\x7f",
+    ],
+)
+def test_canonical_endpoint_rejects_raw_control_characters(endpoint: str) -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain control characters"
+    ):
+        ledger.canonical_endpoint(endpoint, "primary", allow_blank=False)
+
+
+def test_canonical_endpoint_reports_whitespace_before_control_characters() -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain whitespace"
+    ):
+        ledger.canonical_endpoint(
+            "https://primary.example/v\x0ba", "primary", allow_blank=False
+        )
+
+
+def test_canonical_endpoint_reports_controls_before_query_or_fragment() -> None:
+    with pytest.raises(
+        ValueError, match="primary endpoint must not contain control characters"
+    ):
+        ledger.canonical_endpoint(
+            "https://primary.example/v1a?x=\x01", "primary", allow_blank=False
+        )
+
+
+def test_canonical_endpoint_accepts_percent_encoded_control_octets() -> None:
+    endpoint = "https://primary.example/v1a/%01"
+
+    assert ledger.canonical_endpoint(endpoint, "primary", allow_blank=False) == endpoint
+
+
+@pytest.mark.parametrize(
+    ("name", "primary", "fallback"),
+    [
+        ("primary", "https://prim\x01ary.example/v1a", ""),
+        (
+            "fallback",
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a/\x7f",
+        ),
+    ],
+)
+def test_make_shards_rejects_raw_endpoint_control_characters(
+    name: str, primary: str, fallback: str
+) -> None:
+    with pytest.raises(
+        ValueError, match=f"{name} endpoint must not contain control characters"
+    ):
+        ledger.make_shards(0, 4, ["a"], primary, fallback, "r")
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("worker", "worker\na"),
@@ -164,6 +222,43 @@ def test_validate_shards_rejects_negative_global_bounds_before_coverage(
 
     with pytest.raises(ValueError, match="non-negative"):
         ledger.validate_shards(shards, start, end)
+
+
+def test_manifest_label_requires_only_exactly_empty_shard_ids() -> None:
+    ledger.require_manifest_label("", "worker")
+    ledger.require_manifest_label("   ", "shard_id", require_nonempty=True)
+
+    with pytest.raises(ValueError, match="manifest shard_id must be non-empty"):
+        ledger.require_manifest_label("", "shard_id", require_nonempty=True)
+
+
+@pytest.mark.parametrize(
+    ("shards", "start", "end"),
+    [
+        ([ledger.Shard("", 0, 4, "a", "p", "", "r", "pending")], 0, 4),
+        (
+            [
+                ledger.Shard("", 0, 2, "a", "p", "", "r", "pending"),
+                ledger.Shard("", 2, 4, "b", "p", "", "r", "pending"),
+            ],
+            0,
+            4,
+        ),
+        ([ledger.Shard("", 1, 4, "a", "p", "", "r", "pending")], 0, 5),
+    ],
+)
+def test_validate_shards_rejects_empty_ids_before_coverage_or_duplicates(
+    shards: list[ledger.Shard], start: int, end: int
+) -> None:
+    with pytest.raises(ValueError, match="manifest shard_id must be non-empty"):
+        ledger.validate_shards(shards, start, end)
+
+
+def test_validate_shards_rejects_negative_bounds_before_empty_ids() -> None:
+    shards = [ledger.Shard("", -1, 4, "a", "p", "", "r", "pending")]
+
+    with pytest.raises(ValueError, match="manifest bounds must be non-negative"):
+        ledger.validate_shards(shards, 0, 4)
 
 
 def test_fetch_height_records_version_three_without_payload_fetch() -> None:
@@ -679,6 +774,45 @@ def test_fetch_height_records_exhausted_failure_with_fallback() -> None:
     assert row["outcome"] == "request_failure"
     assert row["attempt_count"] == 2
     assert row["endpoint"] == "fallback"
+
+
+def test_fetch_height_records_invalid_url_after_one_fallback_attempt() -> None:
+    attempted_urls: list[str] = []
+
+    def opener(request, timeout):
+        assert timeout == 30
+        attempted_urls.append(request.full_url)
+        raise InvalidURL("URL cannot contain control characters")
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        3,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+    shard = ledger.Shard(
+        "one",
+        0,
+        1,
+        "a",
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+        "r",
+        "pending",
+    )
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert attempted_urls == [
+        "https://primary.example/v1a/block_at_height?height=0",
+        "https://fallback.example/v1a/block_at_height?height=0",
+    ]
+    assert row["outcome"] == "request_failure"
+    assert row["http_status"] == ""
+    assert row["endpoint"] == "https://fallback.example/v1a"
+    assert row["attempt_count"] == 2
+    assert row["error_reason"] == "invalid_url"
 
 
 def test_fetch_height_records_non_object_json_as_terminal_failure() -> None:
@@ -1703,6 +1837,82 @@ def test_write_manifest_rejects_invalid_direct_endpoints_without_artifacts(
 
 
 @pytest.mark.parametrize(
+    ("primary", "fallback", "message"),
+    [
+        (
+            "https://prim\x01ary.example/v1a",
+            "",
+            "primary endpoint must not contain control characters",
+        ),
+        (
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a/\x7f",
+            "fallback endpoint must not contain control characters",
+        ),
+    ],
+)
+def test_write_manifest_rejects_control_endpoints_before_artifact_creation(
+    tmp_path: Path, primary: str, fallback: str, message: str
+) -> None:
+    directory = tmp_path / "fresh"
+    path = directory / "manifest.csv"
+
+    with pytest.raises(ValueError, match=message):
+        ledger.write_manifest(path, _direct_manifest(primary, fallback))
+
+    assert not path.exists()
+    assert not directory.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_write_manifest_rejects_empty_shard_id_before_artifact_creation(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "fresh"
+    path = directory / "manifest.csv"
+    manifest = _direct_manifest(
+        "https://primary.example/v1a", "https://fallback.example/v1a"
+    )
+    shards = (ledger.replace(manifest.shards[0], shard_id=""), *manifest.shards[1:])
+    invalid = ledger.Manifest(manifest.start_height, manifest.end_height, shards)
+
+    with pytest.raises(ValueError, match="manifest shard_id must be non-empty"):
+        ledger.write_manifest(path, invalid)
+
+    assert not path.exists()
+    assert not directory.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_whitespace_only_shard_id_round_trips_and_remains_selectable(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = ledger.Manifest(
+        0,
+        3,
+        (
+            ledger.Shard(
+                "   ",
+                0,
+                3,
+                "a",
+                "https://primary.example/v1a",
+                "",
+                "r",
+                "pending",
+            ),
+        ),
+    )
+
+    ledger.write_manifest(path, manifest)
+    loaded = ledger.read_manifest(path)
+
+    assert loaded == manifest
+    assert ledger.selected_shard(loaded.shards, "   ") == manifest.shards[0]
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("shard_id", "one\ntwo"),
@@ -1774,6 +1984,83 @@ def _manifest_with_endpoints(tmp_path: Path, replacements: dict[str, str]) -> Pa
         writer.writeheader()
         writer.writerows(rows)
     return path
+
+
+def _write_single_shard_manifest_variant(
+    path: Path,
+    *,
+    legacy: bool,
+    shard_id: str = "one",
+    primary_endpoint: str = "https://primary.example/v1a",
+) -> None:
+    row: dict[str, object] = {
+        "manifest_start_height": 0,
+        "manifest_end_height": 3,
+        "shard_id": shard_id,
+        "start_height": 0,
+        "end_height": 3,
+        "worker": "a",
+        "primary_endpoint": primary_endpoint,
+        "fallback_endpoint": "",
+        "extractor_revision": "r",
+        "status": "pending",
+    }
+    fieldnames = ledger.LEGACY_MANIFEST_COLUMNS if legacy else ledger.MANIFEST_COLUMNS
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerow({field: row[field] for field in fieldnames})
+
+
+@pytest.mark.parametrize(
+    ("legacy", "shard_id", "primary_endpoint", "message"),
+    [
+        (
+            False,
+            "one",
+            "https://prim\x01ary.example/v1a",
+            "primary endpoint must not contain control characters",
+        ),
+        (
+            True,
+            "one",
+            "https://primary.example/v1a/\x7f",
+            "primary endpoint must not contain control characters",
+        ),
+        (
+            False,
+            "",
+            "https://primary.example/v1a",
+            "manifest shard_id must be non-empty",
+        ),
+        (
+            True,
+            "",
+            "https://primary.example/v1a",
+            "manifest shard_id must be non-empty",
+        ),
+    ],
+)
+def test_read_manifest_rejects_unusable_current_and_legacy_fields(
+    tmp_path: Path,
+    legacy: bool,
+    shard_id: str,
+    primary_endpoint: str,
+    message: str,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    _write_single_shard_manifest_variant(
+        path,
+        legacy=legacy,
+        shard_id=shard_id,
+        primary_endpoint=primary_endpoint,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        if legacy:
+            ledger.read_manifest(path, 0, 3)
+        else:
+            ledger.read_manifest(path)
 
 
 @pytest.mark.parametrize(
@@ -2050,6 +2337,24 @@ def test_http_client_rejects_an_invalid_url_before_pacing_or_opener() -> None:
     assert client._last_request_start is None
     assert sleeps == []
     assert client.get_json("primary", "/block_at_height", {"height": 1}) == result
+
+
+def test_http_client_converts_opener_invalid_url_to_terminal_result() -> None:
+    def opener(_request, timeout):
+        assert timeout == 30
+        raise InvalidURL("URL cannot contain control characters")
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    assert client.get_json(
+        "https://primary.example/v1a", "/block_at_height", {"height": 0}
+    ) == ledger.HttpResult(None, None, "invalid_url", False)
 
 
 @pytest.mark.parametrize(("start", "end"), [(-4, 4), (-8, -4)])

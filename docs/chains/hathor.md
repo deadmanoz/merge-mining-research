@@ -69,10 +69,13 @@ Hathor-specific repo artifacts:
   URL must remain nonblank and whitespace-free, and a blank fallback URL
   disables fallback. Nonblank endpoints must be absolute `http` or `https`
   URLs with a hostname, a valid optional port, a retained path, and no query
-  or fragment. Manifest publication enforces that canonicalization for
+  or fragment, and raw ASCII control characters are rejected before URL
+  parsing. Manifest publication enforces that canonicalization for
   directly built manifests too, and loading a frozen manifest applies the same
   rule, so malformed legacy or hand-edited endpoints are rejected before any
-  request is constructed. Frozen manifests load with strict CSV parsing: an
+  request is constructed. An opener-level `InvalidURL` becomes a terminal,
+  nonretryable `invalid_url` result rather than escaping the acquisition
+  record. Frozen manifests load with strict CSV parsing: an
   exact known header, exactly one physical line per record, complete text
   cells, and no interior or trailing blank lines, with malformed CSV rejected
   outright. Manifest labels are single-line: worker labels and the extractor
@@ -80,6 +83,8 @@ Hathor-specific repo artifacts:
   label (`shard_id`, `worker`, `extractor_revision`, `status`) is checked again
   at the write boundary, so a label carrying a carriage return or newline is
   rejected before any manifest, temporary file, or parent directory is created.
+  Every frozen `shard_id` must also be nonempty so the CLI can select it;
+  whitespace-only IDs retain their byte-exact identity.
   Deduplicated repairs are published through the same
   staged, fully synced no-clobber temporary file protocol rather than written
   directly to their output. A shard resumes only when its existing ledger
@@ -104,9 +109,11 @@ Hathor-specific repo artifacts:
   whitespace is rejected, the primary URL must remain nonblank, and a blank
   fallback URL disables fallback. Nonblank endpoints must be absolute `http`
   or `https` URLs with a hostname, a valid optional port, a retained path, and
-  no query or fragment; a run validates both before any lock or archive
-  mutation, and a structurally invalid request URL fails as `invalid_url`
-  before pacing or any opener call. A payload response counts as successful
+  no query or fragment, with raw ASCII control characters rejected before URL
+  parsing. A run validates both endpoints before any lock or archive mutation,
+  and a structurally invalid request URL fails as `invalid_url` before pacing
+  or any opener call. An opener-level `InvalidURL` is converted to the same
+  terminal, nonretryable result. A payload response counts as successful
   only when its `success` flag is exactly `true`. After the echoed transaction
   hash and exact version-3 gates pass, a truthy `is_voided` flag on a newly
   fetched transaction response fails as `child_block_voided`: the fetch remains
