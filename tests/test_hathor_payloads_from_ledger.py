@@ -772,6 +772,47 @@ def test_parse_payload_requires_exact_echoed_transaction_identity(
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("raw", MISSING),
+        ("raw", 7),
+        ("aux_pow", MISSING),
+        ("aux_pow", "zz"),
+        ("timestamp", MISSING),
+        ("timestamp", "10"),
+    ],
+)
+def test_parse_payload_voided_gate_precedes_payload_and_timestamp_checks(
+    field: str, value: object
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx: dict[str, object] = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "is_voided": True,
+        "timestamp": 10,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    if value is MISSING:
+        tx.pop(field)
+    else:
+        tx[field] = value
+
+    with pytest.raises(ValueError) as excinfo:
+        payloads.parse_payload(
+            ready,
+            {"success": True, "tx": tx},
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+    assert str(excinfo.value) == "child_block_voided"
+
+
+@pytest.mark.parametrize(
     "timestamp",
     [MISSING, None, "", "10", "10\n", "10\r", 10.0, True, -1],
 )
@@ -2508,3 +2549,186 @@ def test_fetch_payload_exhausts_malformed_success_flags_with_provenance() -> Non
     assert failure["endpoint"] == "https://fallback.example/v1a"
     assert failure["attempt_count"] == 2
     assert failure["error_reason"] == "api_success_false"
+
+
+@pytest.mark.parametrize("is_voided", [True, 1, "voided"])
+def test_parse_payload_rejects_a_truthy_voided_transaction(is_voided: object) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    with pytest.raises(ValueError, match="child_block_voided"):
+        payloads.parse_payload(
+            ready,
+            {
+                "success": True,
+                "tx": {
+                    "hash": ready.tx_id,
+                    "version": 3,
+                    "is_voided": is_voided,
+                    "timestamp": 10,
+                    "aux_pow": aux_pow.hex(),
+                    "raw": (b"funds" + aux_pow + b"tail").hex(),
+                },
+            },
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+@pytest.mark.parametrize("is_voided", [MISSING, None, False, 0, ""])
+def test_parse_payload_accepts_a_falsy_or_missing_voided_flag(
+    is_voided: object,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx: dict[str, object] = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "timestamp": 10,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    if is_voided is not MISSING:
+        tx["is_voided"] = is_voided
+
+    parsed = payloads.parse_payload(
+        ready,
+        {"success": True, "tx": tx},
+        "https://primary.example/v1a",
+        200,
+        1,
+    )
+
+    assert parsed.tx_id == ready.tx_id
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("hash", "b" * 64, "tx_hash_mismatch"),
+        ("version", 2, "tx_version_mismatch"),
+    ],
+)
+def test_parse_payload_checks_echoed_identity_before_voided_state(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx: dict[str, object] = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "is_voided": True,
+        "timestamp": 10,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    tx[field] = value
+
+    with pytest.raises(ValueError, match=error):
+        payloads.parse_payload(
+            ready,
+            {"success": True, "tx": tx},
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+def test_fetch_payload_resolves_a_non_voided_fallback_after_a_voided_primary() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            tx: dict[str, object] = {
+                "hash": ready.tx_id,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_pow.hex(),
+                "raw": (b"funds" + aux_pow + b"tail").hex(),
+            }
+            if len(self.endpoints) == 1:
+                tx["is_voided"] = True
+            return payloads.HttpResult(200, {"success": True, "tx": tx}, None, False)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.http_status == 200
+    assert payload.attempt_count == 2
+
+
+def test_fetch_payload_records_exhausted_voided_responses_with_provenance() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "is_voided": True,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert payload is None
+    assert failure is not None
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+    assert failure["endpoint"] == "https://fallback.example/v1a"
+    assert failure["http_status"] == 200
+    assert failure["attempt_count"] == 2
+    assert failure["error_reason"] == "child_block_voided"

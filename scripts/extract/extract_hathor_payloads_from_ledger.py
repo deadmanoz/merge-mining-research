@@ -713,7 +713,7 @@ def parse_payload(
     http_status: int,
     attempt_count: int,
 ) -> Payload:
-    """Require exact identity, version, timestamp, and payload evidence."""
+    """Require exact identity, version, timestamp, and non-voided payload evidence."""
     if response.get("success") is not True:
         raise ValueError("api_success_false")
     tx = response.get("tx")
@@ -725,6 +725,10 @@ def parse_payload(
     response_version = tx.get("version")
     if type(response_version) is not int or response_version != 3:
         raise ValueError("tx_version_mismatch")
+    if tx.get("is_voided"):
+        # Match the metadata block-at-height contract: a truthy voided flag
+        # stays retryable and must never be sealed as payload evidence.
+        raise ValueError("child_block_voided")
     raw_hex = tx.get("raw")
     aux_pow_hex = tx.get("aux_pow")
     if not isinstance(raw_hex, str) or not raw_hex:

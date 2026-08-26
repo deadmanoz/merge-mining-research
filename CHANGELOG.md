@@ -39,7 +39,15 @@ hand-edited endpoints are rejected before any request is constructed. Treat a
 truthy `is_voided` block response as unresolved after the existing version and
 transaction-ID gates; record it as `child_block_voided`, preserve its valid
 response metadata for diagnosis, and retry through the bounded endpoint loop
-instead of sealing it as version-3-ready or non-version-3. Publish
+instead of sealing it as version-3-ready or non-version-3. Extend the same
+contract to newly fetched payloads: a transaction response reporting a truthy
+`is_voided` flag after its echoed hash and version gates fails as
+`child_block_voided`, remains retryable through the bounded endpoint loop, and
+is never sealed, while already sealed rows are not retroactively revalidated
+because their void status was never archived. Require non-negative global and
+shard bounds before manifest publication, rejecting negative bounds at the
+shared shard-validation boundary before any coverage verdict, parent directory,
+or temporary file is created. Publish
 deduplicated ledger repairs through the same staged, fully
 synced no-clobber temporary file protocol, and refuse to resume a shard whose
 existing ledger heights do not form an exact contiguous prefix beginning at the

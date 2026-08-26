@@ -255,10 +255,14 @@ def make_shards(
 
 
 def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard]:
-    """Require one exact, gap-free partition of ``[start, end)``."""
+    """Require non-negative bounds and one exact partition of ``[start, end)``."""
+    if start < 0 or end < 0:
+        raise ValueError("manifest bounds must be non-negative")
     ordered = sorted(shards, key=lambda shard: (shard.start_height, shard.end_height))
     if not ordered:
         raise ValueError("manifest has no shards")
+    if any(shard.start_height < 0 or shard.end_height < 0 for shard in ordered):
+        raise ValueError("manifest bounds must be non-negative")
     if ordered[0].start_height != start or ordered[-1].end_height != end:
         raise ValueError("manifest does not cover the requested range")
     expected = start

@@ -58,7 +58,11 @@ Hathor-specific repo artifacts:
   noncanonical identifiers remain accepted. A new manifest is staged in a fully
   synced
   same-directory temporary file and published with a no-clobber hard link, so
-  the first creator to link wins and is never overwritten by a competitor. New
+  the first creator to link wins and is never overwritten by a competitor.
+  Global and per-shard bounds must be non-negative: the shared shard-validation
+  boundary rejects negative bounds before any coverage verdict can mask them,
+  and manifest publication rejects them before any parent directory or
+  temporary file is created. New
   manifest, ledger, and repair directory entries are synced after their files
   become durable. Manifest endpoint arguments are canonicalized before any
   manifest publication: padding and trailing slashes are stripped, the primary
@@ -103,7 +107,12 @@ Hathor-specific repo artifacts:
   no query or fragment; a run validates both before any lock or archive
   mutation, and a structurally invalid request URL fails as `invalid_url`
   before pacing or any opener call. A payload response counts as successful
-  only when its `success` flag is exactly `true`. Newly created evidence
+  only when its `success` flag is exactly `true`. After the echoed transaction
+  hash and exact version-3 gates pass, a truthy `is_voided` flag on a newly
+  fetched transaction response fails as `child_block_voided`: the fetch remains
+  retryable through the bounded endpoint loop and is never sealed. Already
+  sealed rows are not retroactively revalidated because their void status was
+  never archived. Newly created evidence
   directory entries are
   synced after their headers. A new payload must also locate its unique
   `aux_pow` at a byte offset of at least

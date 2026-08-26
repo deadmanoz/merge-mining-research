@@ -156,6 +156,16 @@ def test_validate_shards_rejects_the_wrong_overall_range() -> None:
         ledger.validate_shards(shards, 0, 10)
 
 
+@pytest.mark.parametrize(("start", "end"), [(-1, 4), (0, -4)])
+def test_validate_shards_rejects_negative_global_bounds_before_coverage(
+    start: int, end: int
+) -> None:
+    shards = [ledger.Shard("one", 0, 4, "a", "p", "f", "r", "pending")]
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ledger.validate_shards(shards, start, end)
+
+
 def test_fetch_height_records_version_three_without_payload_fetch() -> None:
     class Client:
         max_attempts = 3
@@ -2040,3 +2050,96 @@ def test_http_client_rejects_an_invalid_url_before_pacing_or_opener() -> None:
     assert client._last_request_start is None
     assert sleeps == []
     assert client.get_json("primary", "/block_at_height", {"height": 1}) == result
+
+
+@pytest.mark.parametrize(("start", "end"), [(-4, 4), (-8, -4)])
+def test_make_shards_rejects_negative_global_bounds(start: int, end: int) -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        ledger.make_shards(
+            start,
+            end,
+            ["a"],
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a",
+            "r",
+        )
+
+
+def test_write_manifest_rejects_negative_global_bounds_without_artifacts(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "fresh"
+    path = directory / "manifest.csv"
+    manifest = ledger.Manifest(
+        -6,
+        0,
+        (
+            ledger.Shard(
+                "one",
+                -6,
+                -3,
+                "a",
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+                "pending",
+            ),
+            ledger.Shard(
+                "two",
+                -3,
+                0,
+                "b",
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+                "pending",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ledger.write_manifest(path, manifest)
+
+    assert not path.exists()
+    assert not directory.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_write_manifest_rejects_negative_shard_bounds_before_coverage(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "fresh"
+    path = directory / "manifest.csv"
+    manifest = ledger.Manifest(
+        0,
+        6,
+        (
+            ledger.Shard(
+                "one",
+                -3,
+                3,
+                "a",
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+                "pending",
+            ),
+            ledger.Shard(
+                "two",
+                3,
+                6,
+                "b",
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+                "pending",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ledger.write_manifest(path, manifest)
+
+    assert not path.exists()
+    assert not directory.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
