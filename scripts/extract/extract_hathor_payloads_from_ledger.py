@@ -9,16 +9,11 @@ remain append-only history and are retried on later runs until a sealed source
 row exists. The durable failure log is the retry-round scheduler: pending
 heights are fetched in least-completed-failure-round then height order, so a
 permanently failing early height cannot starve later ones under ``--limit``
-and remains retryable after a full pass. New payloads must locate their unique
-``aux_pow`` at a byte offset of at least three inside the raw transaction;
-shorter funds-graph prefixes fail as ``funds_graph_prefix_too_short``. Each
-source row includes the existing AuxPoW columns plus the
-lossless ``raw_hex`` payload and its derived ``funds_graph_hex`` bytes. New v2
-rows also retain the serving endpoint, HTTP status, and total attempt count. A
-SHA-256 record seal covers every source field, so an interrupted or manually
-damaged primary row is rejected before a resume or publication audit can treat
-it as complete. Completed sealed-v1 files remain readable and immutable, but
-cannot be resumed because their request provenance was never recorded.
+and remains retryable after a full pass. Each source row retains the lossless
+transaction and AuxPoW bytes, its derived funds-graph prefix, request
+provenance, and a SHA-256 record seal. Resume and publication audit reject a
+damaged source row instead of treating it as complete. Run one process for each
+raw/failure output pair.
 
 The established three-column ``hathor_funds_graph.csv`` is not written beside
 each fetched row. ``--build-supplement`` creates it atomically from the complete
@@ -33,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import fcntl
 import hashlib
 import json
 import math
@@ -42,12 +36,12 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from http.client import IncompleteRead, InvalidURL
+from datetime import datetime, timezone
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
@@ -69,26 +63,16 @@ LEDGER_COLUMNS = [
 RESOLVED_LEDGER_OUTCOMES = {"version_3_ready", "non_version_3"}
 LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 COMPACT_HEX_DIGITS = LOWER_HEX_DIGITS | frozenset("ABCDEF")
-LEGACY_RAW_COLUMNS = [
+RAW_COLUMNS = [
     "hathor_height",
     "hathor_block_hash",
     "hathor_timestamp",
     "aux_pow_hex",
     "funds_graph_hex",
     "raw_hex",
-]
-RAW_V1_COLUMNS = [
-    *LEGACY_RAW_COLUMNS,
-    "record_sha256",
-]
-UNSEALED_RAW_COLUMNS = [
-    *LEGACY_RAW_COLUMNS,
     "endpoint",
     "http_status",
     "attempt_count",
-]
-RAW_COLUMNS = [
-    *UNSEALED_RAW_COLUMNS,
     "record_sha256",
 ]
 SUPPLEMENT_COLUMNS = ["hathor_height", "hathor_block_hash", "funds_graph_hex"]
@@ -155,6 +139,21 @@ def decode_compact_hex(value: str) -> bytes:
     return bytes.fromhex(value)
 
 
+def funds_graph_hex(raw_hex: str, aux_pow_hex: str) -> str:
+    """Return the transaction prefix before its one embedded AuxPoW payload."""
+    raw = decode_compact_hex(raw_hex)
+    aux_pow = decode_compact_hex(aux_pow_hex)
+    if not aux_pow:
+        raise ValueError("empty_aux_pow")
+    occurrence_count = raw.count(aux_pow)
+    if occurrence_count != 1:
+        raise ValueError(f"aux_pow_occurrences_{occurrence_count}")
+    offset = raw.find(aux_pow)
+    if offset < 3:
+        raise ValueError("funds_graph_prefix_too_short")
+    return raw[:offset].hex()
+
+
 def require_api_timestamp(value: object) -> int:
     """Require one exact non-negative JSON integer timestamp."""
     if type(value) is not int or value < 0:
@@ -163,28 +162,23 @@ def require_api_timestamp(value: object) -> int:
 
 
 def validate_archived_timestamp(value: object, height: int) -> int:
-    """Require canonical non-negative timestamp text in durable evidence."""
+    """Require a non-negative timestamp in durable evidence."""
     try:
         parsed = int(str(value))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid timestamp at height {height}") from exc
-    if str(parsed) != str(value) or parsed < 0:
-        raise ValueError(f"non-canonical timestamp at height {height}")
+    if parsed < 0:
+        raise ValueError(f"invalid timestamp at height {height}")
     return parsed
 
 
 def paths_alias(left: Path, right: Path) -> bool:
-    """Return whether two path spellings can address the same filesystem entry."""
-    if left.resolve(strict=False) == right.resolve(strict=False):
-        return True
-    try:
-        return left.samefile(right)
-    except FileNotFoundError:
-        return False
+    """Return whether two path spellings resolve to the same location."""
+    return left.resolve(strict=False) == right.resolve(strict=False)
 
 
 def require_distinct_paths(**paths: Path) -> None:
-    """Reject destructive input/output aliases before locks or writes."""
+    """Reject destructive input/output aliases before writes."""
     labelled_paths = list(paths.items())
     for index, (left_label, left_path) in enumerate(labelled_paths):
         for right_label, right_path in labelled_paths[index + 1 :]:
@@ -192,19 +186,6 @@ def require_distinct_paths(**paths: Path) -> None:
                 raise ValueError(
                     f"{left_label} and {right_label} must be distinct paths"
                 )
-
-
-def require_audit_artifact(path: Path, role: str) -> None:
-    """Require one existing nonempty evidence artifact inside the audit locks.
-
-    Acquisition readers intentionally map a missing or zero-byte file to empty
-    rows so a first run can start from nothing; an audit instead demands real
-    bytes, since a legitimate zero-row snapshot is an exact header-only file.
-    """
-    if not path.exists():
-        raise ValueError(f"{role} artifact is missing")
-    if path.stat().st_size == 0:
-        raise ValueError(f"{role} artifact is empty")
 
 
 def nonnegative_int(value: str) -> int:
@@ -222,28 +203,10 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def raw_record_sha256(
-    row: dict[str, object], raw_columns: list[str] | None = None
-) -> str:
-    """Hash one v1 or v2 primary source row without inventing provenance."""
-    if raw_columns == RAW_V1_COLUMNS:
-        sealed_columns = LEGACY_RAW_COLUMNS
-    elif raw_columns == RAW_COLUMNS:
-        sealed_columns = UNSEALED_RAW_COLUMNS
-    elif raw_columns is not None:
-        raise ValueError(f"unsupported sealed raw schema: {raw_columns}")
-    else:
-        provenance_fields = ("endpoint", "http_status", "attempt_count")
-        provenance_present = [field in row for field in provenance_fields]
-        if all(provenance_present):
-            sealed_columns = UNSEALED_RAW_COLUMNS
-        elif not any(provenance_present):
-            sealed_columns = LEGACY_RAW_COLUMNS
-        else:
-            raise ValueError("raw source row has partial request provenance")
-
+def raw_record_sha256(row: dict[str, object]) -> str:
+    """Hash every current source field except the seal itself."""
     digest = hashlib.sha256()
-    for column in sealed_columns:
+    for column in RAW_COLUMNS[:-1]:
         value = row.get(column)
         if value is None:
             raise ValueError(f"missing {column} in raw source row")
@@ -251,15 +214,6 @@ def raw_record_sha256(
         digest.update(len(encoded).to_bytes(8, "big"))
         digest.update(encoded)
     return digest.hexdigest()
-
-
-def fsync_directory(path: Path) -> None:
-    """Persist a directory entry after creating or replacing an artifact."""
-    directory_fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
 
 
 def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyRow]:
@@ -283,17 +237,13 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                 raise ValueError(
                     f"unexpected metadata ledger columns: {reader.fieldnames}"
                 )
-            previous_line = reader.line_num
             for row in reader:
-                if reader.line_num != previous_line + 1:
-                    raise ValueError("metadata ledger has a malformed physical row")
-                previous_line = reader.line_num
                 if set(row) != set(LEDGER_COLUMNS) or any(
                     value is None for value in row.values()
                 ):
                     raise ValueError("metadata ledger row has an incomplete schema")
 
-                height = canonical_metadata_integer(
+                height = metadata_integer(
                     row["hathor_height"], "hathor_height", minimum=0
                 )
                 if height < start or height >= end:
@@ -305,7 +255,7 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                     raise ValueError(
                         f"unresolved metadata outcome at height {height}: {outcome!r}"
                     )
-                status = canonical_metadata_integer(
+                status = metadata_integer(
                     row["http_status"], "http_status", minimum=100
                 )
                 if not 200 <= status < 300:
@@ -313,12 +263,10 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                         f"invalid resolved metadata http_status at height {height}: "
                         f"{status}"
                     )
-                version = canonical_metadata_integer(
+                version = metadata_integer(
                     row["block_version"], "block_version", minimum=0
                 )
-                canonical_metadata_integer(
-                    row["attempt_count"], "attempt_count", minimum=1
-                )
+                metadata_integer(row["attempt_count"], "attempt_count", minimum=1)
                 if not row["endpoint"].strip() or row["error_reason"]:
                     raise ValueError(
                         f"invalid resolved metadata fields at height {height}"
@@ -341,8 +289,6 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                     ready[height] = ReadyRow(height, tx_id)
                 elif version == 3:
                     raise ValueError(f"invalid non_version_3 fields at height {height}")
-            if reader.line_num != previous_line:
-                raise ValueError("metadata ledger has a malformed trailing row")
     except csv.Error as exc:
         raise ValueError("malformed metadata ledger CSV") from exc
 
@@ -355,25 +301,25 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
     return ready
 
 
-def canonical_metadata_integer(value: str, field: str, *, minimum: int) -> int:
-    """Parse one canonical non-padded integer from a metadata row."""
+def metadata_integer(value: str, field: str, *, minimum: int) -> int:
+    """Parse one bounded integer from a metadata row."""
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid metadata {field}: {value!r}") from exc
-    if str(parsed) != value or parsed < minimum:
-        raise ValueError(f"non-canonical metadata {field}: {value!r}")
+    if parsed < minimum:
+        raise ValueError(f"invalid metadata {field}: {value!r}")
     return parsed
 
 
-def canonical_csv_height(value: str, path: Path) -> int:
-    """Parse one canonical non-negative height from an evidence CSV."""
+def csv_height(value: str, path: Path) -> int:
+    """Parse one non-negative height from an evidence CSV."""
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid height in {path}: {value!r}") from exc
-    if str(parsed) != value or parsed < 0:
-        raise ValueError(f"non-canonical height in {path}: {value!r}")
+    if parsed < 0:
+        raise ValueError(f"invalid height in {path}: {value!r}")
     return parsed
 
 
@@ -395,67 +341,23 @@ def read_csv_rows_with_order(
             reader = csv.DictReader(handle, strict=True)
             if reader.fieldnames != columns:
                 raise ValueError(f"unexpected columns in {path}: {reader.fieldnames}")
-            previous_line = reader.line_num
             for row in reader:
-                if reader.line_num != previous_line + 1:
-                    raise ValueError(f"malformed physical CSV row in {path}")
-                previous_line = reader.line_num
                 if set(row) != set(columns) or any(
                     value is None for value in row.values()
                 ):
                     raise ValueError(f"incomplete or extra CSV cells in {path}")
-                height = canonical_csv_height(row["hathor_height"], path)
+                height = csv_height(row["hathor_height"], path)
                 if height in rows:
                     raise ValueError(f"duplicate height in {path}: {height}")
                 rows[height] = row
                 observed_order.append(height)
-            if reader.line_num != previous_line:
-                raise ValueError(f"malformed trailing CSV row in {path}")
     except csv.Error as exc:
         raise ValueError(f"malformed CSV: {path}") from exc
     return rows, observed_order
 
 
-def read_csv_rows(path: Path, columns: list[str]) -> dict[int, dict[str, str]]:
-    """Read a payload CSV, rejecting header drift and duplicate heights."""
-    rows, _observed_order = read_csv_rows_with_order(path, columns)
-    return rows
-
-
-def validate_failure_http_status(value: str, path: Path) -> None:
-    """Require the blank-or-canonical status form emitted by ``failure_row``."""
-    if value == "":
-        return
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise ValueError(f"invalid failure http_status in {path}: {value!r}") from exc
-    if str(parsed) != value or not 100 <= parsed <= 599:
-        raise ValueError(f"non-canonical failure http_status in {path}: {value!r}")
-
-
-def validate_failure_timestamp(value: str, path: Path) -> None:
-    """Require the exact timezone-aware UTC form emitted by ``failure_row``."""
-    if not value:
-        raise ValueError(f"blank recorded_at_utc in failure history: {path}")
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError as exc:
-        raise ValueError(f"invalid recorded_at_utc in {path}: {value!r}") from exc
-    if (
-        parsed.tzinfo is None
-        or parsed.utcoffset() != timedelta(0)
-        or parsed.isoformat() != value
-    ):
-        raise ValueError(f"non-canonical recorded_at_utc in {path}: {value!r}")
-
-
 def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[int]:
-    """Count validated durable failure rows per ready height for fair retries.
-
-    A missing or empty failure log means zero completed rounds. Any malformed
-    history fails closed so a later run never schedules against corrupt state.
-    """
+    """Count durable failure rows per ready height for fair retries."""
     rounds: Counter[int] = Counter()
     if not path.exists() or path.stat().st_size == 0:
         return rounds
@@ -468,16 +370,12 @@ def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[
             reader = csv.DictReader(handle, strict=True)
             if reader.fieldnames != FAILURE_COLUMNS:
                 raise ValueError(f"unexpected columns in {path}: {reader.fieldnames}")
-            previous_line = reader.line_num
             for row in reader:
-                if reader.line_num != previous_line + 1:
-                    raise ValueError(f"malformed physical CSV row in {path}")
-                previous_line = reader.line_num
                 if set(row) != set(FAILURE_COLUMNS) or any(
                     value is None for value in row.values()
                 ):
                     raise ValueError(f"incomplete or extra CSV cells in {path}")
-                height = canonical_csv_height(row["hathor_height"], path)
+                height = csv_height(row["hathor_height"], path)
                 ready = ready_rows.get(height)
                 if ready is None:
                     raise ValueError(
@@ -485,32 +383,7 @@ def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[
                     )
                 if row["hathor_block_hash"] != ready.tx_id:
                     raise ValueError(f"failure tx_id mismatch at height {height}")
-                validate_failure_http_status(row["http_status"], path)
-                try:
-                    attempt_count = int(row["attempt_count"])
-                except ValueError as exc:
-                    raise ValueError(
-                        f"invalid attempt_count in {path}: {row['attempt_count']!r}"
-                    ) from exc
-                if str(attempt_count) != row["attempt_count"] or attempt_count < 1:
-                    raise ValueError(
-                        f"non-canonical attempt_count in {path}: "
-                        f"{row['attempt_count']!r}"
-                    )
-                for field in ("endpoint", "error_reason"):
-                    value = row[field]
-                    if not value.strip():
-                        raise ValueError(
-                            f"blank {field} in failure history at height {height}"
-                        )
-                    if value != value.strip():
-                        raise ValueError(
-                            f"non-canonical {field} in failure history at height {height}"
-                        )
-                validate_failure_timestamp(row["recorded_at_utc"], path)
                 rounds[height] += 1
-            if reader.line_num != previous_line:
-                raise ValueError(f"malformed trailing CSV row in {path}")
     except csv.Error as exc:
         raise ValueError(f"malformed CSV: {path}") from exc
     return rounds
@@ -518,16 +391,11 @@ def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[
 
 def read_raw_rows(
     path: Path,
-) -> tuple[list[str], dict[int, dict[str, str]], list[int]]:
-    """Read either immutable sealed-v1 evidence or the current v2 schema."""
+) -> tuple[dict[int, dict[str, str]], list[int]]:
+    """Read current sealed payload evidence."""
     if not path.exists() or path.stat().st_size == 0:
-        return RAW_COLUMNS, {}, []
-    with path.open(newline="") as handle:
-        header = next(csv.reader(handle), None)
-    if header not in (RAW_V1_COLUMNS, RAW_COLUMNS):
-        raise ValueError(f"unexpected columns in {path}: {header}")
-    rows, observed_order = read_csv_rows_with_order(path, header)
-    return header, rows, observed_order
+        return {}, []
+    return read_csv_rows_with_order(path, RAW_COLUMNS)
 
 
 def require_ordered_heights(path: Path, observed_order: list[int]) -> None:
@@ -548,7 +416,6 @@ def open_csv_writer(path: Path, columns: list[str]):
             writer.writeheader()
             handle.flush()
             os.fsync(handle.fileno())
-            fsync_directory(path.parent)
         return handle, writer
     except BaseException:
         handle.close()
@@ -596,7 +463,6 @@ def replace_csv_atomically(
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        fsync_directory(path.parent)
     except BaseException:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -611,15 +477,6 @@ def replace_raw_rows_atomically(
     replace_csv_atomically(path, RAW_COLUMNS, (rows[height] for height in sorted(rows)))
 
 
-def replace_sealed_rows_atomically(
-    path: Path,
-    columns: list[str],
-    rows: dict[int, dict[str, object]],
-) -> None:
-    """Persist one versioned sealed row family in deterministic height order."""
-    replace_csv_atomically(path, columns, (rows[height] for height in sorted(rows)))
-
-
 def write_durable_row(handle, writer: csv.DictWriter, row: dict[str, object]) -> None:
     """Append one source row before moving on to another API request."""
     writer.writerow(row)
@@ -628,33 +485,12 @@ def write_durable_row(handle, writer: csv.DictWriter, row: dict[str, object]) ->
 
 
 def append_raw_row_durably(path: Path, row: dict[str, object]) -> None:
-    """Append one sealed v2 row before any canonical-order rewrite."""
+    """Append one sealed row before any canonical-order rewrite."""
     handle, writer = open_csv_writer(path, RAW_COLUMNS)
     try:
         write_durable_row(handle, writer, row)
     finally:
         handle.close()
-
-
-def acquire_locks(paths: Iterable[Path]):
-    """Acquire process-lifetime exclusive locks for all output paths."""
-    handles = []
-    try:
-        for path in sorted(paths):
-            lock_path = path.with_suffix(f"{path.suffix}.lock")
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            handle = lock_path.open("a")
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                handle.close()
-                raise RuntimeError(f"output is already in use: {path}") from exc
-            handles.append(handle)
-        return handles
-    except BaseException:
-        for handle in reversed(handles):
-            handle.close()
-        raise
 
 
 class PacedHttpClient:
@@ -680,14 +516,10 @@ class PacedHttpClient:
     def get_json(self, endpoint: str, path: str, params: dict[str, str]) -> HttpResult:
         """Fetch a JSON response, pacing every attempt including retries."""
         url = f"{endpoint.rstrip('/')}{path}?{urlencode(params)}"
-        try:
-            request = Request(
-                url,
-                headers={"accept": "application/json", "user-agent": USER_AGENT},
-            )
-        except ValueError:
-            # A structurally invalid URL fails without pacing or opener use.
-            return HttpResult(None, None, "invalid_url", False)
+        request = Request(
+            url,
+            headers={"accept": "application/json", "user-agent": USER_AGENT},
+        )
         now = self.monotonic()
         if self._last_request_start is not None:
             remaining = self.min_interval - (now - self._last_request_start)
@@ -715,8 +547,6 @@ class PacedHttpClient:
                 f"http_{error.code}",
                 error.code in {429, 500, 502, 503, 504},
             )
-        except InvalidURL:
-            return HttpResult(None, None, "invalid_url", False)
         except (URLError, TimeoutError, OSError, IncompleteRead) as error:
             return HttpResult(None, None, type(error).__name__, True)
 
@@ -750,19 +580,7 @@ def parse_payload(
         raise ValueError("missing_raw")
     if not isinstance(aux_pow_hex, str) or not aux_pow_hex:
         raise ValueError("missing_aux_pow")
-    try:
-        raw = decode_compact_hex(raw_hex)
-        aux_pow = decode_compact_hex(aux_pow_hex)
-    except ValueError as exc:
-        raise ValueError("invalid_hex") from exc
-    if not aux_pow:
-        raise ValueError("empty_aux_pow")
-    occurrence_count = raw.count(aux_pow)
-    if occurrence_count != 1:
-        raise ValueError(f"aux_pow_occurrences_{occurrence_count}")
-    offset = raw.find(aux_pow)
-    if offset < 3:
-        raise ValueError("funds_graph_prefix_too_short")
+    prefix = funds_graph_hex(raw_hex, aux_pow_hex)
     timestamp = require_api_timestamp(tx.get("timestamp"))
     return Payload(
         height=ready.height,
@@ -770,7 +588,7 @@ def parse_payload(
         timestamp=timestamp,
         aux_pow_hex=aux_pow_hex,
         raw_hex=raw_hex,
-        funds_graph_hex=raw[:offset].hex(),
+        funds_graph_hex=prefix,
         endpoint=endpoint,
         http_status=http_status,
         attempt_count=attempt_count,
@@ -778,38 +596,15 @@ def parse_payload(
 
 
 def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
-    """Normalize endpoint padding, then require an absolute HTTP(S) base URL.
-
-    After trimming and trailing-slash removal, only absolute ``http`` or
-    ``https`` URLs are accepted: a hostname is required, an optional port must
-    be valid, the path spelling is retained unchanged, and a query or fragment
-    is rejected. Interior whitespace and raw ASCII control characters are
-    rejected before parsing because ``urlsplit`` silently strips some controls.
-    """
+    """Normalize an endpoint, allowing an omitted fallback."""
     endpoint = value.strip().rstrip("/")
     if not endpoint:
         if allow_blank:
             return ""
         raise ValueError(f"{name} endpoint must be non-empty")
-    if any(character.isspace() for character in endpoint):
-        raise ValueError(f"{name} endpoint must not contain whitespace")
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
-        raise ValueError(f"{name} endpoint must not contain control characters")
-    try:
-        parts = urlsplit(endpoint)
-        # Accessing these properties is what surfaces malformed authorities
-        # (bad ports, invalid IPv6 or NFKC hosts) as ValueError.
-        parts.port
-        hostname = parts.hostname
-    except ValueError as exc:
-        raise ValueError(
-            f"{name} endpoint must be an absolute http or https URL"
-        ) from exc
-    authority = parts.netloc.rsplit("@", 1)[-1]
-    if parts.scheme not in ("http", "https") or not hostname or authority.endswith(":"):
+    scheme, separator, remainder = endpoint.partition("://")
+    if scheme not in ("http", "https") or not separator or not remainder.split("/")[0]:
         raise ValueError(f"{name} endpoint must be an absolute http or https URL")
-    if "?" in endpoint or "#" in endpoint:
-        raise ValueError(f"{name} endpoint must not contain a query or fragment")
     return endpoint
 
 
@@ -891,34 +686,23 @@ def failure_row(
 def raw_to_supplement(row: dict[str, str]) -> dict[str, str]:
     """Derive an established supplement row from durable raw evidence."""
     try:
-        raw = decode_compact_hex(row["raw_hex"])
-        aux_pow = decode_compact_hex(row["aux_pow_hex"])
+        prefix = funds_graph_hex(row["raw_hex"], row["aux_pow_hex"])
     except (KeyError, ValueError) as exc:
         raise ValueError(
             f"invalid raw evidence at height {row.get('hathor_height', '?')}"
         ) from exc
-    if not aux_pow:
-        raise ValueError(f"empty aux_pow at height {row['hathor_height']}")
-    occurrence_count = raw.count(aux_pow)
-    if occurrence_count != 1:
-        raise ValueError(
-            f"aux_pow_occurrences_{occurrence_count} at height {row['hathor_height']}"
-        )
     return {
         "hathor_height": row["hathor_height"],
         "hathor_block_hash": row["hathor_block_hash"],
-        "funds_graph_hex": raw[: raw.find(aux_pow)].hex(),
+        "funds_graph_hex": prefix,
     }
 
 
 def check_raw_rows(
     ready_rows: dict[int, ReadyRow],
     raw_rows: dict[int, dict[str, str]],
-    raw_columns: list[str],
 ) -> None:
-    """Validate versioned primary rows against the ready-ledger contract."""
-    if raw_columns not in (RAW_V1_COLUMNS, RAW_COLUMNS):
-        raise ValueError(f"unsupported sealed raw schema: {raw_columns}")
+    """Validate primary rows against the ready-ledger contract."""
     raw_extra = set(raw_rows).difference(ready_rows)
     if raw_extra:
         raise ValueError(
@@ -929,9 +713,9 @@ def check_raw_rows(
         ready = ready_rows[height]
         if row.get("hathor_block_hash") != ready.tx_id:
             raise ValueError(f"raw tx_id mismatch at height {height}")
-        if raw_columns == RAW_COLUMNS:
-            validate_request_provenance(row, height)
-        if row.get("record_sha256") != raw_record_sha256(row, raw_columns):
+        validate_request_provenance(row, height)
+        validate_archived_timestamp(row.get("hathor_timestamp"), height)
+        if row.get("record_sha256") != raw_record_sha256(row):
             raise ValueError(f"raw record digest mismatch at height {height}")
         expected = raw_to_supplement(row)
         if row.get("funds_graph_hex") != expected["funds_graph_hex"]:
@@ -941,7 +725,7 @@ def check_raw_rows(
 
 
 def validate_request_provenance(row: dict[str, object], height: int) -> None:
-    """Require canonical successful-request metadata in every primary row."""
+    """Require valid successful-request metadata in every primary row."""
     endpoint = row.get("endpoint")
     if not isinstance(endpoint, str) or not endpoint.strip():
         raise ValueError(f"missing successful request endpoint at height {height}")
@@ -949,7 +733,7 @@ def validate_request_provenance(row: dict[str, object], height: int) -> None:
         http_status = int(str(row.get("http_status", "")))
     except ValueError as exc:
         raise ValueError(f"invalid successful HTTP status at height {height}") from exc
-    if str(http_status) != str(row.get("http_status")) or not 200 <= http_status < 300:
+    if not 200 <= http_status < 300:
         raise ValueError(f"invalid successful HTTP status at height {height}")
     try:
         attempt_count = int(str(row.get("attempt_count", "")))
@@ -957,35 +741,8 @@ def validate_request_provenance(row: dict[str, object], height: int) -> None:
         raise ValueError(
             f"invalid successful attempt count at height {height}"
         ) from exc
-    if str(attempt_count) != str(row.get("attempt_count")) or attempt_count < 1:
+    if attempt_count < 1:
         raise ValueError(f"invalid successful attempt count at height {height}")
-
-
-def check_unsealed_raw_rows(
-    ready_rows: dict[int, ReadyRow],
-    raw_rows: dict[int, dict[str, str]],
-    *,
-    require_request_provenance: bool,
-) -> None:
-    """Validate pre-seal rows before their schema-preserving local upgrade."""
-    raw_extra = set(raw_rows).difference(ready_rows)
-    if raw_extra:
-        raise ValueError(
-            "payload output contains heights absent from its ready ledger: "
-            f"raw={len(raw_extra)}"
-        )
-    for height, row in raw_rows.items():
-        ready = ready_rows[height]
-        if row.get("hathor_block_hash") != ready.tx_id:
-            raise ValueError(f"raw tx_id mismatch at height {height}")
-        validate_archived_timestamp(row.get("hathor_timestamp"), height)
-        if require_request_provenance:
-            validate_request_provenance(row, height)
-        expected = raw_to_supplement(row)
-        if row.get("funds_graph_hex") != expected["funds_graph_hex"]:
-            raise ValueError(
-                f"funds+graph does not match raw evidence at height {height}"
-            )
 
 
 def make_raw_row(payload: Payload) -> dict[str, object]:
@@ -1003,7 +760,7 @@ def make_raw_row(payload: Payload) -> dict[str, object]:
         "attempt_count": payload.attempt_count,
     }
     validate_request_provenance(raw, payload.height)
-    raw["record_sha256"] = raw_record_sha256(raw, RAW_COLUMNS)
+    raw["record_sha256"] = raw_record_sha256(raw)
     return raw
 
 
@@ -1019,11 +776,7 @@ def run_extraction(
     fallback_endpoint: str,
     limit: int | None = None,
 ) -> Counter[str]:
-    """Resume one range with durable appends and one final ordering rewrite.
-
-    Both endpoints are validated before any lock acquisition or output
-    mutation, so a misconfigured URL fails without touching the archive.
-    """
+    """Resume one range with durable appends and one final ordering rewrite."""
     canonical_endpoint(primary_endpoint, "primary", allow_blank=False)
     canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
     require_distinct_paths(
@@ -1032,115 +785,51 @@ def run_extraction(
         failure_output=failure_output,
     )
     ready_rows = load_ready_rows(ledger_path, start, end)
-    locks = acquire_locks([raw_output, failure_output])
-    try:
-        raw_columns, raw_rows, observed_order = read_raw_rows(raw_output)
-        check_raw_rows(ready_rows, raw_rows, raw_columns)
-        pending = [
-            ready_rows[height]
-            for height in sorted(ready_rows)
-            if height not in raw_rows
-        ]
-        if raw_columns == RAW_V1_COLUMNS:
-            require_ordered_heights(raw_output, observed_order)
-            if pending:
-                raise ValueError(
-                    "sealed v1 payload evidence is incomplete and cannot be resumed "
-                    "without successful request provenance; reacquire into a new output"
-                )
-            return Counter(
-                ready_total=len(ready_rows),
-                raw_complete=len(raw_rows),
-            )
+    raw_rows, observed_order = read_raw_rows(raw_output)
+    check_raw_rows(ready_rows, raw_rows)
+    pending = [
+        ready_rows[height] for height in sorted(ready_rows) if height not in raw_rows
+    ]
+    validate_append_csv(failure_output, FAILURE_COLUMNS)
+    retry_rounds = read_failure_rounds(failure_output, ready_rows)
+    if observed_order != sorted(observed_order) or not raw_output.exists():
+        replace_raw_rows_atomically(raw_output, raw_rows)
 
-        validate_append_csv(failure_output, FAILURE_COLUMNS)
-        retry_rounds = read_failure_rounds(failure_output, ready_rows)
-        if observed_order != sorted(observed_order) or not raw_output.exists():
+    pending.sort(key=lambda ready: (retry_rounds[ready.height], ready.height))
+    if limit is not None:
+        pending = pending[:limit]
+    if not pending:
+        return Counter(
+            ready_total=len(ready_rows),
+            raw_complete=len(raw_rows),
+        )
+
+    failure_handle, failure_writer = open_csv_writer(failure_output, FAILURE_COLUMNS)
+    try:
+        stats: Counter[str] = Counter()
+        for ready in pending:
+            payload, failure = fetch_payload(
+                client, ready, primary_endpoint, fallback_endpoint
+            )
+            if failure is not None:
+                write_durable_row(failure_handle, failure_writer, failure)
+                stats["failure"] += 1
+                continue
+            assert payload is not None
+            raw = make_raw_row(payload)
+            append_raw_row_durably(raw_output, raw)
+            raw_rows[payload.height] = {
+                column: str(raw[column]) for column in RAW_COLUMNS
+            }
+            observed_order.append(payload.height)
+            stats["archived"] += 1
+        if observed_order != sorted(observed_order):
             replace_raw_rows_atomically(raw_output, raw_rows)
-
-        pending.sort(key=lambda ready: (retry_rounds[ready.height], ready.height))
-        if limit is not None:
-            pending = pending[:limit]
-        if not pending:
-            return Counter(
-                ready_total=len(ready_rows),
-                raw_complete=len(raw_rows),
-            )
-
-        failure_handle, failure_writer = open_csv_writer(
-            failure_output, FAILURE_COLUMNS
-        )
-        try:
-            stats: Counter[str] = Counter()
-            for ready in pending:
-                payload, failure = fetch_payload(
-                    client, ready, primary_endpoint, fallback_endpoint
-                )
-                if failure is not None:
-                    write_durable_row(failure_handle, failure_writer, failure)
-                    stats["failure"] += 1
-                    continue
-                assert payload is not None
-                raw = make_raw_row(payload)
-                append_raw_row_durably(raw_output, raw)
-                raw_rows[payload.height] = {
-                    column: str(raw[column]) for column in RAW_COLUMNS
-                }
-                observed_order.append(payload.height)
-                stats["archived"] += 1
-            if observed_order != sorted(observed_order):
-                replace_raw_rows_atomically(raw_output, raw_rows)
-            stats["ready_total"] = len(ready_rows)
-            stats["raw_complete"] = len(raw_rows)
-            return stats
-        finally:
-            failure_handle.close()
+        stats["ready_total"] = len(ready_rows)
+        stats["raw_complete"] = len(raw_rows)
+        return stats
     finally:
-        for handle in reversed(locks):
-            handle.close()
-
-
-def upgrade_raw(
-    ledger_path: Path,
-    raw_path: Path,
-    start: int,
-    end: int,
-) -> dict[str, int]:
-    """Atomically seal v1 or v2 rows without changing their evidence schema."""
-    require_distinct_paths(ledger=ledger_path, raw_output=raw_path)
-    ready_rows = load_ready_rows(ledger_path, start, end)
-    locks = acquire_locks([raw_path])
-    try:
-        with raw_path.open(newline="") as handle:
-            header = next(csv.reader(handle), None)
-        if header == LEGACY_RAW_COLUMNS:
-            sealed_columns = RAW_V1_COLUMNS
-            require_request_provenance = False
-        elif header == UNSEALED_RAW_COLUMNS:
-            sealed_columns = RAW_COLUMNS
-            require_request_provenance = True
-        else:
-            raise ValueError(f"unexpected columns in {raw_path}: {header}")
-
-        unsealed_rows = read_csv_rows(raw_path, header)
-        check_unsealed_raw_rows(
-            ready_rows,
-            unsealed_rows,
-            require_request_provenance=require_request_provenance,
-        )
-        missing = set(ready_rows).difference(unsealed_rows)
-        if missing:
-            raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
-        sealed_rows: dict[int, dict[str, object]] = {}
-        for height, unsealed in unsealed_rows.items():
-            row: dict[str, object] = dict(unsealed)
-            row["record_sha256"] = raw_record_sha256(row, sealed_columns)
-            sealed_rows[height] = row
-        replace_sealed_rows_atomically(raw_path, sealed_columns, sealed_rows)
-    finally:
-        for handle in reversed(locks):
-            handle.close()
-    return {"upgraded_rows": len(unsealed_rows)}
+        failure_handle.close()
 
 
 def build_supplement(
@@ -1157,22 +846,17 @@ def build_supplement(
         supplement_output=supplement_path,
     )
     ready_rows = load_ready_rows(ledger_path, start, end)
-    locks = acquire_locks([raw_path, supplement_path])
-    try:
-        raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
-        check_raw_rows(ready_rows, raw_rows, raw_columns)
-        require_ordered_heights(raw_path, raw_order)
-        missing = set(ready_rows).difference(raw_rows)
-        if missing:
-            raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
-        replace_csv_atomically(
-            supplement_path,
-            SUPPLEMENT_COLUMNS,
-            (raw_to_supplement(raw_rows[height]) for height in sorted(ready_rows)),
-        )
-    finally:
-        for handle in reversed(locks):
-            handle.close()
+    raw_rows, raw_order = read_raw_rows(raw_path)
+    check_raw_rows(ready_rows, raw_rows)
+    require_ordered_heights(raw_path, raw_order)
+    missing = set(ready_rows).difference(raw_rows)
+    if missing:
+        raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
+    replace_csv_atomically(
+        supplement_path,
+        SUPPLEMENT_COLUMNS,
+        (raw_to_supplement(raw_rows[height]) for height in sorted(ready_rows)),
+    )
     return {"ready_rows": len(ready_rows), "supplement_rows": len(raw_rows)}
 
 
@@ -1183,82 +867,63 @@ def audit(
     start: int,
     end: int,
 ) -> dict[str, object]:
-    """Fail closed unless both evidence CSVs exactly cover their ready rows.
-
-    After path-alias and ledger validation, the raw and supplement snapshots
-    are pinned by the same cooperative exclusive locks held by the upgrade and
-    supplement writers, kept from the first artifact existence check through
-    evidence-root construction and ledger/raw hash generation. Both artifacts
-    must exist as nonempty files, so a legitimate zero-ready audit presents
-    exact header-only schemas instead of absent evidence.
-    """
+    """Fail closed unless both evidence CSVs exactly cover their ready rows."""
     require_distinct_paths(
         ledger=ledger_path,
         raw_output=raw_path,
         supplement_output=supplement_path,
     )
     ready_rows = load_ready_rows(ledger_path, start, end)
-    locks = acquire_locks([raw_path, supplement_path])
-    try:
-        require_audit_artifact(raw_path, "raw payload")
-        require_audit_artifact(supplement_path, "supplement")
-        raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
-        supplement_rows, supplement_order = read_csv_rows_with_order(
-            supplement_path, SUPPLEMENT_COLUMNS
+    raw_rows, raw_order = read_raw_rows(raw_path)
+    supplement_rows, supplement_order = read_csv_rows_with_order(
+        supplement_path, SUPPLEMENT_COLUMNS
+    )
+    check_raw_rows(ready_rows, raw_rows)
+    require_ordered_heights(raw_path, raw_order)
+    require_ordered_heights(supplement_path, supplement_order)
+    raw_missing = set(ready_rows).difference(raw_rows)
+    supplement_missing = set(ready_rows).difference(supplement_rows)
+    supplement_extra = set(supplement_rows).difference(ready_rows)
+    if raw_missing or supplement_missing or supplement_extra:
+        raise ValueError(
+            "payload coverage incomplete: "
+            f"raw_missing={len(raw_missing)} supplement_missing={len(supplement_missing)} "
+            f"supplement_extra={len(supplement_extra)}"
         )
-        check_raw_rows(ready_rows, raw_rows, raw_columns)
-        require_ordered_heights(raw_path, raw_order)
-        require_ordered_heights(supplement_path, supplement_order)
-        raw_missing = set(ready_rows).difference(raw_rows)
-        supplement_missing = set(ready_rows).difference(supplement_rows)
-        supplement_extra = set(supplement_rows).difference(ready_rows)
-        if raw_missing or supplement_missing or supplement_extra:
+    digest = hashlib.sha256()
+    for height in sorted(ready_rows):
+        raw = raw_rows[height]
+        supplement = supplement_rows[height]
+        if supplement != raw_to_supplement(raw):
             raise ValueError(
-                "payload coverage incomplete: "
-                f"raw_missing={len(raw_missing)} supplement_missing={len(supplement_missing)} "
-                f"supplement_extra={len(supplement_extra)}"
+                f"supplement does not match raw evidence at height {height}"
             )
-        digest = hashlib.sha256()
-        for height in sorted(ready_rows):
-            raw = raw_rows[height]
-            supplement = supplement_rows[height]
-            if supplement != raw_to_supplement(raw):
-                raise ValueError(
-                    f"supplement does not match raw evidence at height {height}"
-                )
-            digest.update(
-                "\t".join(
-                    [
-                        str(height),
-                        ready_rows[height].tx_id,
-                        hashlib.sha256(raw["raw_hex"].encode()).hexdigest(),
-                        hashlib.sha256(raw["aux_pow_hex"].encode()).hexdigest(),
-                        hashlib.sha256(
-                            supplement["funds_graph_hex"].encode()
-                        ).hexdigest(),
-                    ]
-                ).encode()
-            )
-            digest.update(b"\n")
-        return {
-            "ready_rows": len(ready_rows),
-            "raw_rows": len(raw_rows),
-            "supplement_rows": len(supplement_rows),
-            "raw_schema": "sealed_v1" if raw_columns == RAW_V1_COLUMNS else "sealed_v2",
-            "ledger_sha256": file_sha256(ledger_path),
-            "raw_sha256": file_sha256(raw_path),
-            "evidence_root_sha256": digest.hexdigest(),
-        }
-    finally:
-        for handle in reversed(locks):
-            handle.close()
+        digest.update(
+            "\t".join(
+                [
+                    str(height),
+                    ready_rows[height].tx_id,
+                    hashlib.sha256(raw["raw_hex"].encode()).hexdigest(),
+                    hashlib.sha256(raw["aux_pow_hex"].encode()).hexdigest(),
+                    hashlib.sha256(supplement["funds_graph_hex"].encode()).hexdigest(),
+                ]
+            ).encode()
+        )
+        digest.update(b"\n")
+    return {
+        "ready_rows": len(ready_rows),
+        "raw_rows": len(raw_rows),
+        "supplement_rows": len(supplement_rows),
+        "ledger_sha256": file_sha256(ledger_path),
+        "raw_sha256": file_sha256(raw_path),
+        "evidence_root_sha256": digest.hexdigest(),
+    }
 
 
 def parser() -> argparse.ArgumentParser:
     argument_parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     mode = argument_parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--run", action="store_true")
-    mode.add_argument("--upgrade-raw", action="store_true")
     mode.add_argument("--build-supplement", action="store_true")
     mode.add_argument("--audit", action="store_true")
     argument_parser.add_argument("--ledger", required=True, type=Path)
@@ -1301,17 +966,6 @@ def main() -> None:
 
     if (args.build_supplement or args.audit) and args.supplement_output is None:
         raise SystemExit("--build-supplement and --audit require --supplement-output")
-
-    if args.upgrade_raw:
-        report = upgrade_raw(
-            args.ledger,
-            args.raw_output,
-            args.start,
-            args.end,
-        )
-        for key, value in report.items():
-            print(f"{key}={value}")
-        return
 
     if args.build_supplement:
         report = build_supplement(
