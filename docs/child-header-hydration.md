@@ -89,10 +89,11 @@ source-acquisition fields needed to authenticate or reconstruct their inputs;
 their classifier outputs normalize into the same evidence schema. These are
 acquisition differences, not per-chain publication formats.
 
-The coverage report is scoped to the 17 historical targets. The six
-live-lifecycle chains continue to use the independently verified child hash
-and time records under `data/child-identity/`; they are not presented as
-80-byte historical-header recoveries.
+The coverage report is scoped to the 17 historical targets. Five active child
+chains continue to use the independently verified child hash and time records
+under `data/child-identity/`; they are not presented as 80-byte
+historical-header recoveries. Hathor is also active, but publishes its
+source-authenticated block identity and timestamp directly.
 
 ## Refresh and coverage
 

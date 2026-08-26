@@ -31,10 +31,9 @@ The bucket strings are shared constants in ``stale_blocks_analysis.config``;
 the monitor's importer reads them verbatim from the inventory CSV.
 
 RSK deliberately has no strict path because its public inventory has no BTC
-coinbase/BIP34 evidence. Hathor is treated as a special full-inventory schema:
-current canonical rows are excluded and stale rows are confirmed, but
-``full_coinbase_hex`` is not decoded as a strict orphan signal in this first
-implementation.
+coinbase/BIP34 evidence. Hathor is treated as a special full-inventory schema
+for source fields, but its reconstructed Bitcoin coinbase scriptSig is decoded
+for strict-height evidence just like the standard coinbase-bearing chains.
 """
 
 from __future__ import annotations
@@ -63,9 +62,14 @@ if str(SRC_DIR) not in sys.path:
 import reconcile_unknown_stale_ancestry as rec
 from stale_blocks_analysis.auxpow_parse import parse_coinbase_height
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth
+from stale_blocks_analysis.full_evidence import (
+    archive_candidates,
+    archive_full_inventory_candidates,
+)
 from stale_blocks_analysis.config import (
     BIP34_HEIGHT,
     BITCOIN_EPOCH_REFERENCE_DIR,
+    CHAIN_SPECS,
     RELEVANCE_EXCLUDED as EXCLUDED,
     RELEVANCE_PENDING as PENDING,
     RELEVANCE_STRICT_BTC_ORPHAN as STRICT_ORPHAN,
@@ -105,6 +109,7 @@ BTC_COINBASE_SCRIPTSIG_CHAINS = {
     "fractal",
     "geistgeld",
     "groupcoin",
+    "hathor",
     "huntercoin",
     "i0coin",
     "ixcoin",
@@ -284,12 +289,14 @@ def source_classification(src: SourceRow) -> str:
     """Return the row's `classification`, lowercased and stripped.
 
     Validated-stales rows with no explicit `classification` column default to
-    `"stale"`, since that file only ever carries stale rows.
+    `"stale"`, since that file only ever carries stale rows. Full inventories
+    with a blank classification are legacy unknown observations and follow the
+    same strict/weak path as an explicit `"unknown"` value.
     """
     classification = src.row.get("classification", "").strip().lower()
-    if src.source_kind == "validated_stales" and not classification:
-        return "stale"
-    return classification
+    if classification:
+        return classification
+    return "stale" if src.source_kind == "validated_stales" else "unknown"
 
 
 def validation_status(src: SourceRow) -> str:
@@ -310,10 +317,11 @@ def validation_rejects(status: str) -> bool:
 def get_header_hash(src: SourceRow) -> str:
     """Return the row's BTC header hash.
 
-    Recovers it from `header_hex` via SHA256d when the hash column is empty.
+    Recovers it from `header_hex` via SHA256d when the hash column is empty or
+    malformed.
     """
     block_hash = rec.get_hash(src.row, src.hash_col)
-    if not block_hash and src.header_col:
+    if not rec.is_hash(block_hash) and src.header_col:
         block_hash = rec.header_hash(src.row.get(src.header_col, ""))
     return block_hash
 
@@ -437,7 +445,9 @@ def discover_sources(
     `reconcile_unknown_stale_ancestry.discover_chain_names`, minus
     `NON_CHAIN_DOC_STEMS`) with any private chain archives passed via
     `chain_archive_dirs`, whose `*/classified/*_stale_blocks.csv` and
-    `*/validated/*_validated_stales.csv` files are globbed in. Returns
+    `*/validated/*_validated_stales.csv` files are globbed in. Explicit archive
+    layouts shared with the publication pipeline are applied after discovery.
+    Returns
     `(chain_names, stale_inventory_paths, unknown_inventory_paths,
     validated_stales_paths, normalized_archive_dirs)`. The stale and unknown
     inventories are the two halves of the classifier's bucket split.
@@ -447,19 +457,60 @@ def discover_sources(
     )
     chain_names = set(chain_names) - NON_CHAIN_DOC_STEMS
     archive_dirs = normalized_chain_archive_dirs(chain_archive_dirs)
+    archive_full_selected: set[str] = set()
+    archive_full_generic_seen: set[str] = set()
+    archive_unknown_selected: set[str] = set()
+    archive_validated_selected: set[str] = set()
     for archive_dir in archive_dirs:
         for path in archive_dir.glob("*/classified/*_stale_blocks.csv"):
             chain = path.name.removesuffix("_stale_blocks.csv")
             chain_names.add(chain)
-            full_files[chain] = path
+            if chain not in archive_full_generic_seen:
+                full_files[chain] = path
+                archive_full_generic_seen.add(chain)
         for path in archive_dir.glob("*/classified/*_unknown_blocks.csv"):
             chain = path.name.removesuffix("_unknown_blocks.csv")
             chain_names.add(chain)
-            unknown_files[chain] = path
+            if chain not in archive_unknown_selected:
+                unknown_files[chain] = path
+                archive_unknown_selected.add(chain)
+        for chain in set(chain_names) | set(CHAIN_SPECS):
+            if chain in archive_unknown_selected:
+                continue
+            unknown_path = next(
+                (
+                    path
+                    for path in archive_candidates(
+                        archive_dir, chain, "unknown_blocks", "classified"
+                    )
+                    if path.is_file()
+                ),
+                None,
+            )
+            if unknown_path is not None:
+                chain_names.add(chain)
+                unknown_files[chain] = unknown_path
+                archive_unknown_selected.add(chain)
         for path in archive_dir.glob("*/validated/*_validated_stales.csv"):
             chain = path.name.removesuffix("_validated_stales.csv")
             chain_names.add(chain)
-            validated_files[chain] = path
+            if chain not in archive_validated_selected:
+                validated_files[chain] = path
+                archive_validated_selected.add(chain)
+        for chain in set(chain_names) | set(CHAIN_SPECS):
+            if chain in archive_full_selected:
+                continue
+            full_path = next(
+                (
+                    path
+                    for path in archive_full_inventory_candidates(archive_dir, chain)
+                    if path.is_file()
+                ),
+                None,
+            )
+            if full_path is not None:
+                full_files[chain] = full_path
+                archive_full_selected.add(chain)
     return chain_names, full_files, unknown_files, validated_files, archive_dirs
 
 
@@ -505,6 +556,8 @@ def iter_csv_source(
 def source_exclusion_key(src: SourceRow) -> tuple[int, str] | None:
     """Return an authoritative stale identity key for exclusion matching."""
     block_hash = rec.normalize_hash(src.row.get(src.hash_col, ""))
+    if not rec.is_hash(block_hash) and src.header_col:
+        block_hash = rec.header_hash(src.row.get(src.header_col, ""))
     if not rec.is_hash(block_hash):
         return None
     height_text = ""
@@ -540,7 +593,12 @@ def iter_source_rows(
             chain_archive_dirs,
         )
     )
-    excluded_keys = load_stale_exclusion_keys()
+    exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
+    excluded_keys = (
+        load_stale_exclusion_keys(exclusions_path)
+        if exclusions_path.is_file()
+        else load_stale_exclusion_keys()
+    )
     for chain in sorted(chain_names):
         full_path = full_files.get(chain)
         if full_path is not None:
@@ -814,10 +872,10 @@ def strict_height_evidence(
     timestamp-derived retarget epoch (via `time_lookup`) and against the
     epoch-bits cache's covered range before its expected nBits is resolved
     (see `resolve_height`). Returns an empty, `attempted=False`
-    `StrictHeightEvidence` for RSK/Hathor/Xaya rows or when no candidate
+    `StrictHeightEvidence` for RSK/Xaya rows or when no candidate
     height is found.
     """
-    if src.source_schema in {"rsk", "hathor", "xaya"}:
+    if src.source_schema in {"rsk", "xaya"}:
         return StrictHeightEvidence("", "", "", False, "")
 
     max_cached_height = max(epoch_bits) + 2015 if epoch_bits else None
@@ -1548,7 +1606,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "Missing full inventories are reported as unavailable, not counted as zero unknown rows.",
             "RSK cannot produce strict_btc_orphan in this implementation because it lacks BTC coinbase/BIP34 evidence.",
             "Xaya coinbase_scriptsig_hex is not decoded as BTC strict-height evidence in this implementation.",
-            "Hathor full_coinbase_hex is not decoded as strict orphan evidence in this implementation.",
+            "Hathor coinbase_scriptsig_hex is decoded as BTC strict-height evidence when available.",
             "No recursive unknown-ancestry walk is performed here.",
         ],
     }

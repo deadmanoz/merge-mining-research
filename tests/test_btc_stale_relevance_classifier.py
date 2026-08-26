@@ -40,6 +40,46 @@ def test_parser_uses_committed_epoch_reference_by_default() -> None:
     assert args.epoch_reference_dir == PROJECT_ROOT / "data" / "bitcoin-epoch-reference"
 
 
+def test_discover_sources_uses_publication_full_inventory_override(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    archive = tmp_path / "archive"
+    publication = archive / "doichain/classified/doichain_stale_blocks.csv"
+    publication.parent.mkdir(parents=True)
+    publication.write_text("classification\n")
+    full_inventory = archive / "doichain/2026-06-24-redo/doichain_stale_blocks.csv"
+    full_inventory.parent.mkdir(parents=True)
+    full_inventory.write_text("classification\nunknown\n")
+    second_archive = tmp_path / "second-archive"
+    second_inventory = (
+        second_archive / "doichain/2026-06-24-redo/doichain_stale_blocks.csv"
+    )
+    second_inventory.parent.mkdir(parents=True)
+    second_inventory.write_text("classification\ncanonical\n")
+    generic_inventory = archive / "namecoin/classified/namecoin_stale_blocks.csv"
+    generic_inventory.parent.mkdir(parents=True)
+    generic_inventory.write_text("classification\nunknown\n")
+    second_generic = second_archive / "namecoin/classified/namecoin_stale_blocks.csv"
+    second_generic.parent.mkdir(parents=True)
+    second_generic.write_text("classification\ncanonical\n")
+    unknown_inventory = archive / "namecoin/namecoin_unknown_blocks.csv"
+    unknown_inventory.parent.mkdir(parents=True, exist_ok=True)
+    unknown_inventory.write_text("classification\nunknown\n")
+    second_unknown = second_archive / "namecoin/namecoin_unknown_blocks.csv"
+    second_unknown.parent.mkdir(parents=True, exist_ok=True)
+    second_unknown.write_text("classification\ncanonical\n")
+
+    _chains, full_files, unknown_files, _validated, _archives = (
+        classifier.discover_sources(data_dir, [archive, second_archive])
+    )
+
+    assert full_files["doichain"] == full_inventory
+    assert full_files["namecoin"] == generic_inventory
+    assert unknown_files["namecoin"] == unknown_inventory
+
+
 def _hash(n: int) -> str:
     return f"{n:064x}"
 
@@ -505,6 +545,33 @@ def test_hathor_canonical_is_excluded(tmp_path: Path):
     assert rows[0]["source_schema"] == "hathor"
 
 
+def test_hathor_coinbase_bip34_height_can_be_strict(tmp_path: Path):
+    height = 300_000
+    rows, _summary = _run_classifier(
+        tmp_path,
+        {
+            "hathor_stale_blocks.csv": [
+                {
+                    "btc_header_hash": _hash(250),
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1500",
+                    "btc_bits": EASY_BITS,
+                    "coinbase_scriptsig_hex": _bip34_script(height),
+                    "classification": "unknown",
+                }
+            ]
+        },
+        epoch_bits={_epoch_start(height): EASY_BITS},
+        epoch_headers=_epoch_headers_for_height(height),
+    )
+
+    assert rows[0]["btc_stale_relevance"] == "strict_btc_orphan"
+    assert rows[0]["relevance_reason"] == "strict_height_nbits_match"
+    assert rows[0]["strict_height_source"] == "coinbase_bip34_height"
+    assert rows[0]["btc_height"] == str(height)
+    assert rows[0]["source_schema"] == "hathor"
+
+
 def test_malformed_header_hash_is_excluded(tmp_path: Path):
     rows, _summary = _run_classifier(
         tmp_path,
@@ -774,6 +841,26 @@ def test_legacy_orphan_classification_uses_unknown_path(tmp_path: Path):
         },
     )
 
+    assert rows[0]["btc_stale_relevance"] == "weak_btc_orphan"
+
+
+def test_blank_classification_uses_unknown_path(tmp_path: Path):
+    rows, _summary = _run_classifier(
+        tmp_path,
+        {
+            "rsk_stale_blocks.csv": [
+                {
+                    "btc_header_hash": _hash(27),
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1000000",
+                    "btc_bits": EASY_BITS,
+                    "classification": "",
+                }
+            ]
+        },
+    )
+
+    assert rows[0]["source_classification"] == "unknown"
     assert rows[0]["btc_stale_relevance"] == "weak_btc_orphan"
 
 
@@ -1263,6 +1350,66 @@ def test_archive_valid_stale_applies_consensus_exclusion_overlay(tmp_path: Path)
 
     assert rows == []
     assert summary["unique_confirmed_btc_stale"]["global_unique_hashes"] == 0
+    assert summary["row_counts"]["processed_by_source_file"] == []
+
+
+def test_archive_header_hash_applies_consensus_exclusion_overlay(tmp_path: Path):
+    with (PROJECT_ROOT / "data/error-blocks/error_blocks.csv").open(newline="") as f:
+        error_row = next(
+            row for row in csv.DictReader(f) if row["hash"] == EXCLUDED_HASH
+        )
+
+    rows, summary = _run_classifier(
+        tmp_path,
+        {},
+        archive_files={
+            "namecoin/classified/namecoin_stale_blocks.csv": [
+                {
+                    "btc_stale_height": error_row["height"],
+                    "btc_hash": "malformed",
+                    "btc_header_hex": error_row["btc_header_hex"],
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1417032925",
+                    "btc_bits_hex": EASY_BITS,
+                    "classification": "unknown",
+                }
+            ]
+        },
+    )
+
+    assert rows == []
+    assert summary["row_counts"]["processed_by_source_file"] == []
+
+
+def test_classifier_uses_data_dir_error_block_catalogue(tmp_path: Path):
+    excluded_hash = _hash(31)
+    rows, summary = _run_classifier(
+        tmp_path,
+        {
+            "error-blocks/error_blocks.csv": [
+                {
+                    "height": "331735",
+                    "hash": excluded_hash,
+                    "classification": "error_block",
+                }
+            ]
+        },
+        archive_files={
+            "namecoin/classified/namecoin_stale_blocks.csv": [
+                {
+                    "btc_stale_height": "331735",
+                    "btc_hash": excluded_hash,
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1417032925",
+                    "btc_bits_hex": EASY_BITS,
+                    "classification": "stale",
+                    "validation_status": "VALID",
+                }
+            ]
+        },
+    )
+
+    assert rows == []
     assert summary["row_counts"]["processed_by_source_file"] == []
 
 

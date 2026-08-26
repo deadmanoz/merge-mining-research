@@ -14,6 +14,24 @@ persisted classifier phases, and their compatibility handling. Historical
 private artifacts require a disposable operator transform instead of a
 permanent shim.
 
+Publish the authenticated Hathor result from height 0 through 6,593,796 as one
+corpus:
+3,658 canonical observations, 6 accepted direct stales, 248,760 unknowns,
+6,279,947 near rows, and 1 classifier-emitted error block. Record the zero
+strict/weak result and retain source-authenticated child identity on the six
+compact stale rows.
+
+Keep Hathor in the active-child publication identity gate while leaving it out
+of the separate sidecar-hydration set, and include its reconstructed Bitcoin
+coinbase scriptSig in strict-height relevance classification. The complete
+rerun assessed all 248,760 unknown rows and retained the zero strict/weak
+result.
+
+Require relevance inventories to account for every non-excluded unknown row in
+a private full-inventory source before publishing monitor evidence, normalizing
+blank classifications and matching source identities while authenticating
+Hathor child hashes against reconstructed headers.
+
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
 Preserve retained expected-nBits evidence and authenticate newly admitted

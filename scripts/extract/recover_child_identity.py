@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Recover child-chain block identity for the six live-lifecycle chains.
+"""Recover child-chain block identity for five active chains needing hydration.
 
-The monitor-evidence exports for namecoin, rsk, syscoin, hathor, elastos and
-fractal carry recovered Bitcoin parent evidence but no child block identity:
+The monitor-evidence exports for namecoin, rsk, syscoin, elastos, and fractal
+carry recovered Bitcoin parent evidence but no child block identity:
 the recovery pipeline recorded each proof's child HEIGHT, never the child
 block HASH or timestamp. merge-mining-monitor keys `merge_mining_event` rows
 by (source, child_height, child_block_hash), so imported rows need the exact
 child identity or they can never deduplicate against live-captured rows.
 
-All six chains still have reachable nodes (a public API for Hathor), so the
-identity is recoverable by height -> hash -> block RPC. Every recovered row is
-verified by re-deriving the Bitcoin parent linkage FROM the fetched child
-block and requiring it to match the row's own `btc_header_hash`:
+All five targets still have reachable nodes, so the identity is recoverable by
+height -> hash -> block RPC. Every recovered row is verified by re-deriving
+the Bitcoin parent linkage FROM the fetched child block and requiring it to
+match the row's own `btc_header_hash`:
 
   namecoin  getblock().auxpow.parentblock (node-decoded CAuxPow parent)
   syscoin   same call; parentblock arrives as header hex, hash recomputed
@@ -20,9 +20,6 @@ block and requiring it to match the row's own `btc_header_hash`:
             parent header parsed from the proof, FB hash/time from the header
   rsk       sha256d(bitcoinMergedMiningHeader[:80]); uncle rows resolved via
             eth_getUncleByBlockNumberAndIndex(uncle_parent_height, uncle_index)
-  hathor    block_at_height().tx_id equals btc_header_hash and not is_voided
-            (a merge-mined Hathor block's hash IS its BTC parent header hash)
-
 A mismatch means today's canonical child chain does not contain the child
 block that carried the recovered proof (child-side reorg, or a re-mined
 slot). Such rows are written with an empty child identity and a reason so the
@@ -37,8 +34,8 @@ disagreement is recorded in `note` without blocking the row.
 
 `btc_header_hash` stays in display (RPC) order like every other pipeline
 artifact. `child_block_hash` follows the pipeline's established column
-contract of INTERNAL (wire) byte order for the Bitcoin-family chains and
-Hathor (the reverse of the node's display hex; see `auxpow_child_heights`,
+contract of INTERNAL (wire) byte order for the Bitcoin-family chains (the
+reverse of the node's display hex; see `auxpow_child_heights`,
 which pairs `child_block_hash` with a separate `child_block_hash_display`),
 and forward order for RSK, whose keccak block hashes have no reversed
 display convention. merge-mining-monitor stores child hashes in exactly
@@ -53,8 +50,7 @@ with `uncle_parent_height` carrying the including canonical height.
 Run on the archival host next to the nodes. Credentials come from
 NAMECOIN_RPC_USER / NAMECOIN_RPC_PASSWORD, SYSCOIN_RPC_*, and FRACTAL_RPC_*
 respectively (or the matching *_RPC_COOKIEFILE), per rpc_auth_from_env's
-prefix convention; the Elastos and RSK endpoints are unauthenticated and
-Hathor uses the public API.
+prefix convention; the Elastos and RSK endpoints are unauthenticated.
 """
 
 import argparse
@@ -70,13 +66,13 @@ import requests
 # Repo `src/` is on sys.path when installed via `pip install -e .`.
 from stale_blocks_analysis.auxpow_parse import read_auxpow
 from stale_blocks_analysis.child_rpc import RpcClient
-from stale_blocks_analysis.full_evidence import LIVE_CHILD_IDENTITY_CHAINS
+from stale_blocks_analysis.full_evidence import CHILD_IDENTITY_HYDRATION_CHAINS
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
 load_local_rpc_env()
 
 # One source of truth with the export hydrator's unconditional target set.
-LIVE_CHAINS = tuple(sorted(LIVE_CHILD_IDENTITY_CHAINS))
+IDENTITY_HYDRATION_CHAINS = tuple(sorted(CHILD_IDENTITY_HYDRATION_CHAINS))
 
 DEFAULT_URLS = {
     "namecoin": os.environ.get("NAMECOIN_RPC_URL", "http://127.0.0.1:8436"),
@@ -84,9 +80,6 @@ DEFAULT_URLS = {
     "elastos": os.environ.get("ELASTOS_RPC_URL", "http://127.0.0.1:20336"),
     "fractal": os.environ.get("FRACTAL_RPC_URL", "http://127.0.0.1:18332"),
     "rsk": os.environ.get("RSK_RPC_URL", "http://127.0.0.1:4444"),
-    "hathor": os.environ.get(
-        "HATHOR_API_URL", "https://node1.mainnet.hathor.network/v1a"
-    ),
 }
 
 CORE_FIELDS = [
@@ -396,41 +389,6 @@ def recover_rsk(chain: str, url: str, targets, limit, metadata) -> list[dict]:
     return rows
 
 
-def recover_hathor(chain: str, url: str, targets, limit) -> list[dict]:
-    session = requests.Session()
-    rows = []
-    for btc_hash, height in targets[:limit]:
-        row = {"chain": chain, "btc_header_hash": btc_hash, "child_height": height}
-        try:
-            resp = session.get(
-                f"{url}/block_at_height", params={"height": height}, timeout=30
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-            block = payload.get("block") or {}
-            tx_id = (block.get("tx_id") or "").lower()
-            if not payload.get("success") or not tx_id:
-                row["note"] = "block_not_found"
-            elif tx_id != btc_hash:
-                row["note"] = f"parent_mismatch:{tx_id}"
-            elif block.get("is_voided"):
-                row["note"] = "child_block_voided"
-            else:
-                # The API's tx_id is Hathor's display form of the block id --
-                # reverse(sha256d(mined BTC header)), the same display
-                # convention as btc_header_hash. merge-mining-monitor stores
-                # the sha256d digest bytes unreversed (its capture reverses
-                # the API hex; see its hathor convert helpers), so the column
-                # carries the reversal, per the child_block_hash contract.
-                row["child_block_hash"] = display_to_internal(tx_id)
-                row["child_block_time"] = block["timestamp"]
-                row["verification"] = "hathor_block_id_match"
-        except (requests.RequestException, ValueError, KeyError) as exc:
-            row["note"] = f"api_error:{exc}"
-        rows.append(row)
-    return rows
-
-
 def write_rows(output_dir: Path, chain: str, rows: list[dict], complete: bool) -> Path:
     """Write a chain's identity rows; a run with unresolved rows lands in a
     ``.partial`` sibling so it can never replace a complete committed file."""
@@ -450,8 +408,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--chains",
-        default=",".join(LIVE_CHAINS),
-        help="Comma-separated subset of the six live chains",
+        default=",".join(IDENTITY_HYDRATION_CHAINS),
+        help="Comma-separated subset of the identity-hydration chains",
     )
     parser.add_argument(
         "--evidence-dir",
@@ -494,9 +452,9 @@ def main() -> None:
         )
 
     chains = [chain.strip() for chain in args.chains.split(",") if chain.strip()]
-    unknown = sorted(set(chains) - set(LIVE_CHAINS))
+    unknown = sorted(set(chains) - set(IDENTITY_HYDRATION_CHAINS))
     if unknown:
-        raise SystemExit(f"not live-lifecycle chains: {', '.join(unknown)}")
+        raise SystemExit(f"not identity-hydration chains: {', '.join(unknown)}")
 
     rsk_metadata_paths = [args.validated_dir / "rsk_validated_stales.csv"]
     if args.chain_archive_dir:
@@ -522,8 +480,6 @@ def main() -> None:
             rows = recover_rsk(
                 chain, url, targets, limit, load_rsk_metadata(rsk_metadata_paths)
             )
-        else:
-            rows = recover_hathor(chain, url, targets, limit)
         recovered = sum(1 for row in rows if row.get("verification"))
         failed = [row for row in rows if not row.get("verification")]
         path = write_rows(args.output_dir, chain, rows, complete=not failed)

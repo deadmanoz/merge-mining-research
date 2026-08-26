@@ -27,6 +27,10 @@ The source is Hathor's public REST API at
 `https://node1.mainnet.hathor.network/v1a`, with node 2 as fallback. No local
 Hathor node was used.
 
+Hathor remains an active live child chain. It is absent from the separate
+`data/child-identity/` hydration target set only because the API acquisition
+already authenticates and retains each published child identity and timestamp.
+
 The supported acquisition path has one logical dataset:
 
 1. `scripts/extract/hathor_metadata_ledger.py` partitions a caller-declared
@@ -58,9 +62,10 @@ longer supported. Private artifacts in an earlier shape must be transformed by
 a disposable operator script, not by compatibility code in the pipeline.
 
 The full acquisition dataset and category inventories are private archival
-artifacts because of their size. The compact committed loader input currently
-contains six accepted direct-stale rows. Publishing the regenerated
-whole-corpus category projection is a separate data change.
+artifacts because of their size. The committed publication keeps the compact
+six-row direct-stale loader input, the Monitor-facing canonical and stale
+projection, the one consensus-invalid parent observation, and the zero-result
+strict/weak artifact.
 
 ## 2. RFC 0006 reconstruction
 
@@ -138,16 +143,34 @@ remaining files use the standard evidence schema.
 
 ## 4. Published recovery result
 
-The committed loader input contains six accepted direct-stale candidates. All
-six are already covered by upstream or chronologically earlier sibling chains,
-so Hathor contributes no chronologically novel accepted candidate under the
-project's first-claim convention. The convention is a reproducible attribution
-rule, not a claim that the earlier chain observed the event first in real time.
+The retained corpus covers every Hathor height from 0 through 6,593,796:
+6,593,797 terminal height records. It contains 6,532,372 version-3
+observations, partitioned exactly into 6,279,947 `near`, 3,658 `canonical`, 6
+`stale`, 248,760 `unknown`, and 1 `error_block` record. The remaining 61,425
+terminal rows are non-version-3 blocks.
 
-The acquisition and classifier interface now treats the Hathor corpus as one
-dataset. Updated whole-corpus category and relevance counts belong to the
-follow-up publication change, together with the regenerated committed
-artifacts they describe.
+The Monitor-facing Hathor file contains the 3,658 canonical rows and all 6
+`VALID` direct stales. The strict/weak rerun processed all 248,760 unknown rows,
+decoded a BIP34 candidate height for 1,304 of them, and found no strict or weak
+observations. The error block is published
+through the separate error-observation aggregate: Hathor height 756,587
+witnessed Bitcoin height 649,674 with
+`rejection_reason=bip34_coinbase_height_missing`.
+
+The publication is an offline projection of the authenticated August 2026 run,
+not a new acquisition or Bitcoin RPC classification. Classification manifest
+`3698483c1ef4d2bfb33e03df01639eeefb2dad42df0ae0cb9fe0b074c775dce8`
+binds the retained category files; frozen classifier contract
+`f73f5955a1473246ba291b0d9232466868267a3c0e773773089193d46cd418c6`
+identifies the executed source snapshot. The projection removes a retired
+diagnostic field while preserving row order, identities, evidence, verdicts,
+and source provenance.
+
+The six accepted direct-stale candidates are already covered by upstream or
+chronologically earlier sibling chains, so Hathor contributes no
+chronologically novel accepted candidate under the project's first-claim
+convention. The convention is a reproducible attribution rule, not a claim
+that the earlier chain observed the event first in real time.
 
 ## 5. References
 
