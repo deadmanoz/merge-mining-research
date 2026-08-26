@@ -21,6 +21,7 @@ assert SPEC is not None and SPEC.loader is not None
 payloads = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = payloads
 SPEC.loader.exec_module(payloads)
+MISSING = object()
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "1e9999"])
@@ -459,6 +460,30 @@ def test_path_preflight_rejects_equivalent_and_filesystem_aliases(
             payloads.require_distinct_paths(source=source, output=alias)
 
 
+def test_new_csv_header_is_file_synced_before_its_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "failures.csv"
+    sync_events: list[str | tuple[str, Path]] = []
+    monkeypatch.setattr(payloads.os, "fsync", lambda _fd: sync_events.append("file"))
+    monkeypatch.setattr(
+        payloads,
+        "fsync_directory",
+        lambda directory: sync_events.append(("directory", directory)),
+    )
+
+    handle, _writer = payloads.open_csv_writer(path, payloads.FAILURE_COLUMNS)
+    handle.close()
+
+    assert sync_events == ["file", ("directory", tmp_path)]
+    assert path.read_text() == ",".join(payloads.FAILURE_COLUMNS) + "\n"
+
+    sync_events.clear()
+    handle, _writer = payloads.open_csv_writer(path, payloads.FAILURE_COLUMNS)
+    handle.close()
+    assert sync_events == []
+
+
 def test_one_transaction_fetch_populates_complete_source_then_exports(
     tmp_path: Path,
 ) -> None:
@@ -578,6 +603,123 @@ def test_parse_payload_accepts_compact_uppercase_hex() -> None:
     assert parsed.raw_hex == (b"funds" + aux_pow + b"tail").hex().upper()
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("hash", MISSING, "tx_hash_mismatch"),
+        ("hash", None, "tx_hash_mismatch"),
+        ("hash", "", "tx_hash_mismatch"),
+        ("hash", "b" * 64, "tx_hash_mismatch"),
+        ("hash", "A" * 64, "tx_hash_mismatch"),
+        ("hash", 7, "tx_hash_mismatch"),
+        ("version", MISSING, "tx_version_mismatch"),
+        ("version", None, "tx_version_mismatch"),
+        ("version", "3", "tx_version_mismatch"),
+        ("version", 3.0, "tx_version_mismatch"),
+        ("version", True, "tx_version_mismatch"),
+        ("version", 2, "tx_version_mismatch"),
+    ],
+)
+def test_parse_payload_requires_exact_echoed_transaction_identity(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx: dict[str, object] = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "timestamp": 10,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    if value is MISSING:
+        tx.pop(field)
+    else:
+        tx[field] = value
+
+    with pytest.raises(ValueError, match=error):
+        payloads.parse_payload(
+            ready,
+            {"success": True, "tx": tx},
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [MISSING, None, "", "10", "10\n", "10\r", 10.0, True, -1],
+)
+def test_parse_payload_requires_an_exact_nonnegative_integer_timestamp(
+    timestamp: object,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+    tx: dict[str, object] = {
+        "hash": ready.tx_id,
+        "version": 3,
+        "timestamp": timestamp,
+        "aux_pow": aux_pow.hex(),
+        "raw": (b"funds" + aux_pow + b"tail").hex(),
+    }
+    if timestamp is MISSING:
+        tx.pop("timestamp")
+
+    with pytest.raises(ValueError, match="invalid_timestamp"):
+        payloads.parse_payload(
+            ready,
+            {"success": True, "tx": tx},
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+def test_parse_payload_accepts_zero_timestamp() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    parsed = payloads.parse_payload(
+        ready,
+        {
+            "success": True,
+            "tx": {
+                "hash": ready.tx_id,
+                "version": 3,
+                "timestamp": 0,
+                "aux_pow": aux_pow.hex(),
+                "raw": (b"funds" + aux_pow + b"tail").hex(),
+            },
+        },
+        "https://primary.example/v1a",
+        200,
+        1,
+    )
+
+    assert parsed.timestamp == 0
+
+
+def test_make_raw_row_rejects_noncanonical_timestamp() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    payload = payloads.Payload(
+        height=7,
+        tx_id="a" * 64,
+        timestamp="10\n",
+        aux_pow_hex=aux_pow.hex(),
+        raw_hex=(b"funds" + aux_pow + b"tail").hex(),
+        funds_graph_hex=b"funds".hex(),
+        endpoint="https://primary.example/v1a",
+        http_status=200,
+        attempt_count=1,
+    )
+
+    with pytest.raises(ValueError, match="timestamp"):
+        payloads.make_raw_row(payload)
+
+
 def test_whitespace_bearing_payload_retries_without_archiving_multiline_csv(
     tmp_path: Path,
 ) -> None:
@@ -651,7 +793,56 @@ def test_raw_to_supplement_rejects_whitespace_bearing_hex() -> None:
         payloads.raw_to_supplement(row)
 
 
-def test_payload_validation_failure_uses_fallback_endpoint() -> None:
+@pytest.mark.parametrize("columns", [payloads.RAW_V1_COLUMNS, payloads.RAW_COLUMNS])
+def test_completed_sealed_rows_preserve_legacy_timestamp_bytes(
+    columns: list[str],
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    if columns == payloads.RAW_V1_COLUMNS:
+        row = _sealed_v1_row(0, "a" * 64, aux_pow)
+    else:
+        row = _sealed_v2_row(0, "a" * 64, aux_pow)
+    row["hathor_timestamp"] = ""
+    row["record_sha256"] = payloads.raw_record_sha256(row, columns)
+
+    payloads.check_raw_rows(
+        {0: payloads.ReadyRow(0, "a" * 64)},
+        {0: row},
+        columns,
+    )
+
+
+@pytest.mark.parametrize("require_request_provenance", [False, True])
+def test_unsealed_rows_require_a_canonical_timestamp(
+    require_request_provenance: bool,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    if require_request_provenance:
+        row = _sealed_v2_row(0, "a" * 64, aux_pow)
+    else:
+        row = _sealed_v1_row(0, "a" * 64, aux_pow)
+    row["hathor_timestamp"] = " 10"
+
+    with pytest.raises(ValueError, match="timestamp"):
+        payloads.check_unsealed_raw_rows(
+            {0: payloads.ReadyRow(0, "a" * 64)},
+            {0: row},
+            require_request_provenance=require_request_provenance,
+        )
+
+
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value"),
+    [
+        ("hash", "b" * 64),
+        ("version", None),
+        ("timestamp", "10\n"),
+    ],
+)
+def test_payload_validation_failure_uses_fallback_endpoint(
+    invalid_field: str,
+    invalid_value: object,
+) -> None:
     aux_pow = bytes.fromhex("aa55")
     ready = payloads.ReadyRow(7, "a" * 64)
 
@@ -663,18 +854,20 @@ def test_payload_validation_failure_uses_fallback_endpoint() -> None:
 
         def get_json(self, endpoint, _path, _params):
             self.endpoints.append(endpoint)
-            response_hash = "b" * 64 if len(self.endpoints) == 1 else ready.tx_id
+            tx: dict[str, object] = {
+                "hash": ready.tx_id,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_pow.hex(),
+                "raw": (b"funds" + aux_pow + b"tail").hex(),
+            }
+            if len(self.endpoints) == 1:
+                tx[invalid_field] = invalid_value
             return payloads.HttpResult(
                 200,
                 {
                     "success": True,
-                    "tx": {
-                        "hash": response_hash,
-                        "version": 3,
-                        "timestamp": 10,
-                        "aux_pow": aux_pow.hex(),
-                        "raw": (b"funds" + aux_pow + b"tail").hex(),
-                    },
+                    "tx": tx,
                 },
                 None,
                 False,
@@ -810,6 +1003,45 @@ def test_payload_endpoint_specific_miss_uses_fallback() -> None:
     assert payload is not None
     assert payload.endpoint == "https://fallback.example/v1a"
     assert payload.attempt_count == 2
+
+
+@pytest.mark.parametrize("fallback_endpoint", ["", " ", "/", "///"])
+def test_blank_fallback_is_disabled_and_retries_the_primary(
+    fallback_endpoint: str,
+) -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            assert endpoint
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(503, None, "http_503", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        fallback_endpoint,
+    )
+
+    assert payload is None
+    assert failure is not None
+    assert failure["endpoint"] == "https://primary.example/v1a"
+    assert failure["attempt_count"] == 2
+    assert failure["error_reason"] == "http_503"
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://primary.example/v1a",
+    ]
 
 
 def test_http_client_preserves_status_for_invalid_json() -> None:

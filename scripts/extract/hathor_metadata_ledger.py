@@ -10,6 +10,8 @@ The worker is deliberately sequential. ``--requests-per-second`` limits each
 worker's request starts, including retries, and failures remain visible in the
 ledger rather than being silently retried forever. Use a declared, immutable
 manifest to partition the inclusive start / exclusive end range across workers.
+New manifests repeat those declared outer bounds in every shard row. Legacy
+manifests can be loaded only when both original bounds are supplied explicitly.
 
 Examples:
 
@@ -60,7 +62,7 @@ DEFAULT_END = 1_000_000
 DEFAULT_REQUESTS_PER_SECOND = 0.5
 USER_AGENT = "merge-mining-research/hathor-pre-million-metadata"
 
-MANIFEST_COLUMNS = [
+LEGACY_MANIFEST_COLUMNS = [
     "shard_id",
     "start_height",
     "end_height",
@@ -69,6 +71,11 @@ MANIFEST_COLUMNS = [
     "fallback_endpoint",
     "extractor_revision",
     "status",
+]
+MANIFEST_COLUMNS = [
+    "manifest_start_height",
+    "manifest_end_height",
+    *LEGACY_MANIFEST_COLUMNS,
 ]
 LEDGER_COLUMNS = [
     "hathor_height",
@@ -96,6 +103,13 @@ class Shard:
     fallback_endpoint: str
     extractor_revision: str
     status: str
+
+
+@dataclass(frozen=True)
+class Manifest:
+    start_height: int
+    end_height: int
+    shards: tuple[Shard, ...]
 
 
 @dataclass(frozen=True)
@@ -209,10 +223,15 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
     return ordered
 
 
-def write_manifest(path: Path, shards: list[Shard]) -> None:
+def write_manifest(path: Path, manifest: Manifest) -> None:
     """Write a new manifest, refusing to replace an existing run contract."""
     if path.exists():
         raise ValueError(f"manifest already exists: {path}")
+    shards = validate_shards(
+        manifest.shards,
+        manifest.start_height,
+        manifest.end_height,
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(
@@ -222,6 +241,8 @@ def write_manifest(path: Path, shards: list[Shard]) -> None:
         for shard in shards:
             writer.writerow(
                 {
+                    "manifest_start_height": manifest.start_height,
+                    "manifest_end_height": manifest.end_height,
                     "shard_id": shard.shard_id,
                     "start_height": shard.start_height,
                     "end_height": shard.end_height,
@@ -234,33 +255,81 @@ def write_manifest(path: Path, shards: list[Shard]) -> None:
             )
         handle.flush()
         os.fsync(handle.fileno())
+    fsync_directory(path.parent)
 
 
-def read_manifest(path: Path) -> list[Shard]:
+def canonical_manifest_bound(value: str, field: str) -> int:
+    """Parse one canonical non-negative manifest boundary."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid manifest {field}: {value!r}") from exc
+    if str(parsed) != value or parsed < 0:
+        raise ValueError(f"non-canonical manifest {field}: {value!r}")
+    return parsed
+
+
+def read_manifest(
+    path: Path,
+    expected_start: int | None = None,
+    expected_end: int | None = None,
+) -> Manifest:
     """Load and structurally validate a previously frozen manifest."""
+    if (expected_start is None) != (expected_end is None):
+        raise ValueError("manifest range assertion requires both start and end")
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
-        if reader.fieldnames != MANIFEST_COLUMNS:
+        if reader.fieldnames not in (MANIFEST_COLUMNS, LEGACY_MANIFEST_COLUMNS):
             raise ValueError(f"unexpected manifest columns: {reader.fieldnames}")
+        legacy = reader.fieldnames == LEGACY_MANIFEST_COLUMNS
+        rows = list(reader)
+    if not rows:
+        raise ValueError("manifest has no shards")
+    if legacy:
+        if expected_start is None or expected_end is None:
+            raise ValueError(
+                "legacy manifest requires explicit start and end boundaries"
+            )
+        declared_start = expected_start
+        declared_end = expected_end
+    else:
+        declared_ranges = {
+            (
+                canonical_manifest_bound(row["manifest_start_height"], "start height"),
+                canonical_manifest_bound(row["manifest_end_height"], "end height"),
+            )
+            for row in rows
+        }
+        if len(declared_ranges) != 1:
+            raise ValueError("manifest rows disagree on the declared range")
+        declared_start, declared_end = declared_ranges.pop()
+        if expected_start is not None and (
+            expected_start != declared_start or expected_end != declared_end
+        ):
+            raise ValueError("manifest declared range does not match requested range")
+
+    try:
         shards = [
             Shard(
                 shard_id=row["shard_id"],
-                start_height=int(row["start_height"]),
-                end_height=int(row["end_height"]),
+                start_height=canonical_manifest_bound(
+                    row["start_height"], "shard start height"
+                ),
+                end_height=canonical_manifest_bound(
+                    row["end_height"], "shard end height"
+                ),
                 worker=row["worker"],
                 primary_endpoint=row["primary_endpoint"].rstrip("/"),
                 fallback_endpoint=row["fallback_endpoint"].rstrip("/"),
                 extractor_revision=row["extractor_revision"],
                 status=row["status"],
             )
-            for row in reader
+            for row in rows
         ]
-    if not shards:
-        raise ValueError("manifest has no shards")
-    validate_shards(
-        shards, min(s.start_height for s in shards), max(s.end_height for s in shards)
-    )
-    return shards
+    except (AttributeError, TypeError) as exc:
+        raise ValueError("manifest contains an invalid shard row") from exc
+    ordered = validate_shards(shards, declared_start, declared_end)
+    return Manifest(declared_start, declared_end, tuple(ordered))
 
 
 class PacedHttpClient:
@@ -324,8 +393,9 @@ def fetch_height(
 ) -> dict[str, str | int]:
     """Return one terminal row with final-attempt provenance and total attempts."""
     endpoints = [shard.primary_endpoint]
-    if shard.fallback_endpoint and shard.fallback_endpoint != shard.primary_endpoint:
-        endpoints.append(shard.fallback_endpoint)
+    fallback = shard.fallback_endpoint.strip().rstrip("/")
+    if fallback and fallback != shard.primary_endpoint:
+        endpoints.append(fallback)
 
     attempt_count = 0
     last: HttpResult | None = None
@@ -684,6 +754,7 @@ def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
             writer.writerow(rows[height])
         handle.flush()
         os.fsync(handle.fileno())
+    fsync_directory(output_path.parent)
     return duplicate_count
 
 
@@ -813,6 +884,9 @@ def scan_shard(
             )
             if not append:
                 writer.writeheader()
+                handle.flush()
+                os.fsync(handle.fileno())
+                fsync_directory(ledger_path.parent)
             for height in range(shard.start_height, shard.end_height):
                 if height in recorded:
                     continue
@@ -826,7 +900,7 @@ def scan_shard(
         lock_handle.close()
 
 
-def selected_shard(shards: list[Shard], shard_id: str) -> Shard:
+def selected_shard(shards: Iterable[Shard], shard_id: str) -> Shard:
     matches = [shard for shard in shards if shard.shard_id == shard_id]
     if len(matches) != 1:
         raise ValueError(f"unknown shard id: {shard_id}")
@@ -844,7 +918,8 @@ def parser() -> argparse.ArgumentParser:
         "--start",
         type=nonnegative_int,
         help=(
-            "Inclusive range start for manifest creation or ledger audit "
+            "Inclusive range start for manifest creation, legacy manifest "
+            "loading, or ledger audit "
             f"(default: {DEFAULT_START})"
         ),
     )
@@ -852,7 +927,8 @@ def parser() -> argparse.ArgumentParser:
         "--end",
         type=nonnegative_int,
         help=(
-            "Exclusive range end for manifest creation or ledger audit "
+            "Exclusive range end for manifest creation, legacy manifest "
+            "loading, or ledger audit "
             f"(default: {DEFAULT_END})"
         ),
     )
@@ -923,7 +999,10 @@ def main() -> None:
             args.fallback_api_url,
             args.extractor_revision,
         )
-        write_manifest(args.write_manifest, shards)
+        write_manifest(
+            args.write_manifest,
+            Manifest(start, end, tuple(shards)),
+        )
         print(f"Wrote {len(shards)} frozen shards to {args.write_manifest}")
         return
 
@@ -947,14 +1026,12 @@ def main() -> None:
 
     if not args.shard_id or not args.ledger:
         raise SystemExit("--manifest requires both --shard-id and --ledger")
-    shards = read_manifest(args.manifest)
-    if args.start is not None or args.end is not None:
-        if args.start is None or args.end is None:
-            raise SystemExit("scan range override requires both --start and --end")
-        if args.start >= args.end:
-            raise SystemExit("--start must be lower than --end")
-        validate_shards(shards, args.start, args.end)
-    shard = selected_shard(shards, args.shard_id)
+    if (args.start is None) != (args.end is None):
+        raise SystemExit("scan range override requires both --start and --end")
+    if args.start is not None and args.start >= args.end:
+        raise SystemExit("--start must be lower than --end")
+    manifest = read_manifest(args.manifest, args.start, args.end)
+    shard = selected_shard(manifest.shards, args.shard_id)
     client = PacedHttpClient(args.requests_per_second, args.timeout, args.max_attempts)
     if args.retry_outcomes is not None:
         outcomes = retry_ledger(

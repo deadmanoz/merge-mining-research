@@ -16,7 +16,12 @@ Require canonical lowercase 64-character hex identifiers for resolved version-3
 rows, reject resolved non-2xx metadata before payload work, and retry truncated
 response bodies without discarding a known HTTP status. Reject non-finite
 request settings, version-3 identifiers reused across heights, artifact path
-aliases, and whitespace-bearing payload hex before any archive mutation.
+aliases, and whitespace-bearing payload hex before any archive mutation. Persist
+the frozen manifest's declared global range in every shard row, require explicit
+bounds for legacy manifests, require exact echoed transaction identity and
+canonical timestamps before sealing new evidence, ignore blank fallback URLs,
+and durably sync newly created acquisition artifacts into their parent
+directories.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

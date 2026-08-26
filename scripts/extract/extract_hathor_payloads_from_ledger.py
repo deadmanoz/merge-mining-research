@@ -115,7 +115,7 @@ class HttpResult:
 class Payload:
     height: int
     tx_id: str
-    timestamp: int | str
+    timestamp: int
     aux_pow_hex: str
     raw_hex: str
     funds_graph_hex: str
@@ -147,6 +147,24 @@ def decode_compact_hex(value: str) -> bytes:
     ):
         raise ValueError("not compact hexadecimal")
     return bytes.fromhex(value)
+
+
+def require_api_timestamp(value: object) -> int:
+    """Require one exact non-negative JSON integer timestamp."""
+    if type(value) is not int or value < 0:
+        raise ValueError("invalid_timestamp")
+    return value
+
+
+def validate_archived_timestamp(value: object, height: int) -> int:
+    """Require canonical non-negative timestamp text in durable evidence."""
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid timestamp at height {height}") from exc
+    if str(parsed) != str(value) or parsed < 0:
+        raise ValueError(f"non-canonical timestamp at height {height}")
+    return parsed
 
 
 def paths_alias(left: Path, right: Path) -> bool:
@@ -217,7 +235,7 @@ def raw_record_sha256(
 
 
 def fsync_directory(path: Path) -> None:
-    """Persist a completed atomic replacement's directory entry."""
+    """Persist a directory entry after creating or replacing an artifact."""
     directory_fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(directory_fd)
@@ -410,12 +428,17 @@ def open_csv_writer(path: Path, columns: list[str]):
     exists = path.exists() and path.stat().st_size > 0
     validate_append_csv(path, columns)
     handle = path.open("a" if exists else "w", newline="")
-    writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
-    if not exists:
-        writer.writeheader()
-        handle.flush()
-        os.fsync(handle.fileno())
-    return handle, writer
+    try:
+        writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
+        if not exists:
+            writer.writeheader()
+            handle.flush()
+            os.fsync(handle.fileno())
+            fsync_directory(path.parent)
+        return handle, writer
+    except BaseException:
+        handle.close()
+        raise
 
 
 def validate_append_csv(path: Path, columns: list[str]) -> None:
@@ -585,17 +608,17 @@ def parse_payload(
     http_status: int,
     attempt_count: int,
 ) -> Payload:
-    """Validate payload evidence and any identity fields echoed by the API."""
+    """Require exact identity, version, timestamp, and payload evidence."""
     if not response.get("success"):
         raise ValueError("api_success_false")
     tx = response.get("tx")
     if not isinstance(tx, dict):
         raise ValueError("missing_tx")
     response_hash = tx.get("hash")
-    if response_hash not in (None, "") and response_hash != ready.tx_id:
+    if not isinstance(response_hash, str) or response_hash != ready.tx_id:
         raise ValueError("tx_hash_mismatch")
     response_version = tx.get("version")
-    if response_version not in (None, 3):
+    if type(response_version) is not int or response_version != 3:
         raise ValueError("tx_version_mismatch")
     raw_hex = tx.get("raw")
     aux_pow_hex = tx.get("aux_pow")
@@ -614,9 +637,7 @@ def parse_payload(
     if occurrence_count != 1:
         raise ValueError(f"aux_pow_occurrences_{occurrence_count}")
     offset = raw.find(aux_pow)
-    timestamp = tx.get("timestamp", "")
-    if timestamp is None:
-        timestamp = ""
+    timestamp = require_api_timestamp(tx.get("timestamp"))
     return Payload(
         height=ready.height,
         tx_id=ready.tx_id,
@@ -638,8 +659,9 @@ def fetch_payload(
 ) -> tuple[Payload | None, dict[str, object] | None]:
     """Fetch a ready transaction, returning a payload or one visible failure row."""
     endpoints = [primary_endpoint.rstrip("/")]
-    if fallback_endpoint.rstrip("/") != endpoints[0]:
-        endpoints.append(fallback_endpoint.rstrip("/"))
+    fallback = fallback_endpoint.strip().rstrip("/")
+    if fallback and fallback != endpoints[0]:
+        endpoints.append(fallback)
 
     last: HttpResult | None = None
     last_endpoint = endpoints[0]
@@ -793,6 +815,7 @@ def check_unsealed_raw_rows(
         ready = ready_rows[height]
         if row.get("hathor_block_hash") != ready.tx_id:
             raise ValueError(f"raw tx_id mismatch at height {height}")
+        validate_archived_timestamp(row.get("hathor_timestamp"), height)
         if require_request_provenance:
             validate_request_provenance(row, height)
         expected = raw_to_supplement(row)
@@ -804,6 +827,7 @@ def check_unsealed_raw_rows(
 
 def make_raw_row(payload: Payload) -> dict[str, object]:
     """Create one sealed source row including successful request provenance."""
+    validate_archived_timestamp(payload.timestamp, payload.height)
     raw = {
         "hathor_height": payload.height,
         "hathor_block_hash": payload.tx_id,

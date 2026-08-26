@@ -289,6 +289,45 @@ def test_fetch_height_exhausts_bounded_attempts_before_unavailable() -> None:
     assert row["attempt_count"] == 2
 
 
+@pytest.mark.parametrize("fallback_endpoint", ["", " ", "/", "///"])
+def test_blank_fallback_is_disabled_and_retries_the_primary(
+    fallback_endpoint: str,
+) -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            assert endpoint
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(503, None, "http_503", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard(
+        "one",
+        0,
+        1,
+        "a",
+        "primary",
+        fallback_endpoint,
+        "r",
+        "pending",
+    )
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "primary"]
+    assert row["outcome"] == "request_failure"
+    assert row["endpoint"] == "primary"
+    assert row["attempt_count"] == 2
+    assert row["error_reason"] == "http_503"
+
+
 @pytest.mark.parametrize(
     "primary_result",
     [
@@ -780,19 +819,180 @@ def test_retry_ledger_replaces_selected_failures_in_new_ordered_output(
         )
 
 
-def test_manifest_range_is_derived_by_default_but_override_must_match(
+def test_manifest_round_trip_preserves_its_declared_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.csv"
+    shards = tuple(
+        ledger.make_shards(
+            10,
+            17,
+            ["a", "b", "c"],
+            "primary",
+            "fallback",
+            "revision",
+        )
+    )
+    manifest = ledger.Manifest(10, 17, shards)
+    sync_events: list[str | tuple[str, Path]] = []
+    monkeypatch.setattr(ledger.os, "fsync", lambda _fd: sync_events.append("file"))
+    monkeypatch.setattr(
+        ledger,
+        "fsync_directory",
+        lambda directory: sync_events.append(("directory", directory)),
+    )
+    ledger.write_manifest(path, manifest)
+
+    assert sync_events == ["file", ("directory", tmp_path)]
+    assert ledger.read_manifest(path) == manifest
+    assert ledger.read_manifest(path, 10, 17) == manifest
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert {
+        (row["manifest_start_height"], row["manifest_end_height"]) for row in rows
+    } == {("10", "17")}
+    with pytest.raises(ValueError, match="does not match requested"):
+        ledger.read_manifest(path, 0, 1_000_000)
+    with pytest.raises(ValueError, match="requires both"):
+        ledger.read_manifest(path, 10, None)
+
+
+@pytest.mark.parametrize("removed", ["first", "last"])
+def test_manifest_rejects_missing_terminal_shard_row(
+    tmp_path: Path,
+    removed: str,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = ledger.Manifest(
+        0,
+        9,
+        tuple(ledger.make_shards(0, 9, ["a", "b", "c"], "p", "f", "r")),
+    )
+    ledger.write_manifest(path, manifest)
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    survivors = rows[1:] if removed == "first" else rows[:-1]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.MANIFEST_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(survivors)
+
+    with pytest.raises(ValueError, match="does not cover"):
+        ledger.read_manifest(path)
+
+
+def test_manifest_rejects_inconsistent_declared_ranges(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = ledger.Manifest(
+        0,
+        6,
+        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+    )
+    ledger.write_manifest(path, manifest)
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[1]["manifest_start_height"] = "1"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.MANIFEST_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="disagree"):
+        ledger.read_manifest(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("manifest_start_height", "00"),
+        ("manifest_end_height", "+6"),
+        ("start_height", " 0"),
+        ("end_height", "6_0"),
+    ],
+)
+def test_manifest_rejects_noncanonical_bound_strings(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = ledger.Manifest(
+        0,
+        6,
+        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+    )
+    ledger.write_manifest(path, manifest)
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[0][field] = value
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.MANIFEST_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="non-canonical manifest"):
+        ledger.read_manifest(path)
+
+
+@pytest.mark.parametrize("removed", [None, "first", "last"])
+def test_legacy_manifest_requires_and_validates_explicit_range(
+    tmp_path: Path,
+    removed: str | None,
+) -> None:
+    path = tmp_path / "legacy-manifest.csv"
+    shards = ledger.make_shards(0, 9, ["a", "b", "c"], "p", "f", "r")
+    if removed == "first":
+        shards = shards[1:]
+    elif removed == "last":
+        shards = shards[:-1]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=ledger.LEGACY_MANIFEST_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for shard in shards:
+            writer.writerow(
+                {
+                    "shard_id": shard.shard_id,
+                    "start_height": shard.start_height,
+                    "end_height": shard.end_height,
+                    "worker": shard.worker,
+                    "primary_endpoint": shard.primary_endpoint,
+                    "fallback_endpoint": shard.fallback_endpoint,
+                    "extractor_revision": shard.extractor_revision,
+                    "status": shard.status,
+                }
+            )
+
+    with pytest.raises(ValueError, match="legacy manifest requires explicit"):
+        ledger.read_manifest(path)
+    if removed is None:
+        loaded = ledger.read_manifest(path, 0, 9)
+        assert (loaded.start_height, loaded.end_height) == (0, 9)
+        assert list(loaded.shards) == shards
+    else:
+        with pytest.raises(ValueError, match="does not cover"):
+            ledger.read_manifest(path, 0, 9)
+
+
+def test_write_manifest_validates_declared_range_before_creation(
     tmp_path: Path,
 ) -> None:
-    manifest = tmp_path / "manifest.csv"
-    ledger.write_manifest(
-        manifest,
-        ledger.make_shards(10, 12, ["a"], "primary", "fallback", "revision"),
-    )
-    shards = ledger.read_manifest(manifest)
+    path = tmp_path / "manifest.csv"
+    shards = tuple(ledger.make_shards(10, 12, ["a"], "p", "f", "r"))
 
-    ledger.validate_shards(shards, 10, 12)
     with pytest.raises(ValueError, match="does not cover"):
-        ledger.validate_shards(shards, 0, 1_000_000)
+        ledger.write_manifest(path, ledger.Manifest(0, 12, shards))
+
+    assert not path.exists()
 
 
 def test_scan_shard_refuses_a_concurrent_ledger_writer(tmp_path: Path) -> None:
@@ -806,7 +1006,7 @@ def test_scan_shard_refuses_a_concurrent_ledger_writer(tmp_path: Path) -> None:
             ledger.scan_shard(object(), shard, ledger_path)
 
 
-def test_scan_shard_fsyncs_each_terminal_row(
+def test_scan_shard_fsyncs_new_file_directory_before_terminal_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Client:
@@ -820,18 +1020,25 @@ def test_scan_shard_fsyncs_each_terminal_row(
                 False,
             )
 
-    fsync_calls: list[int] = []
-    monkeypatch.setattr(ledger.os, "fsync", fsync_calls.append)
+    sync_events: list[str | tuple[str, Path]] = []
+    monkeypatch.setattr(ledger.os, "fsync", lambda _fd: sync_events.append("file"))
+    monkeypatch.setattr(
+        ledger,
+        "fsync_directory",
+        lambda path: sync_events.append(("directory", path)),
+    )
     shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
 
     assert ledger.scan_shard(Client(), shard, tmp_path / "ledger.csv") == {
         "non_version_3": 1
     }
-    assert len(fsync_calls) == 1
+    assert sync_events == ["file", ("directory", tmp_path), "file"]
     assert b"\r\n" not in (tmp_path / "ledger.csv").read_bytes()
 
 
-def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> None:
+def test_deduplicate_ledger_writes_a_separate_ordered_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "ledger.csv"
     repaired = tmp_path / "repaired.csv"
     with source.open("w", newline="") as handle:
@@ -843,7 +1050,11 @@ def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> 
         )
         writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "f", 2, ""))
 
+    synced_directories: list[Path] = []
+    monkeypatch.setattr(ledger, "fsync_directory", synced_directories.append)
+
     assert ledger.deduplicate_ledger(source, repaired) == 1
+    assert synced_directories == [tmp_path]
     with repaired.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert [row["hathor_height"] for row in rows] == ["1", "2"]
