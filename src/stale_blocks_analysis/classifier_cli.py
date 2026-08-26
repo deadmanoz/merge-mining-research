@@ -44,7 +44,8 @@ adopt ``add_rpc_args`` for the RPC surface but keep their own chain-specific
 output flags -- they never call ``run_classifier``, so ``--keep-near`` (a
 Phase 1 concept) does not apply. RSK adopts ``add_rpc_args`` and
 ``rpc_from_args`` while retaining its bespoke proof and output handling.
-The Hathor phase scripts keep their chain-specific interfaces.
+Hathor adopts the same RPC helpers while retaining its shard and output-directory
+interface.
 """
 
 from __future__ import annotations

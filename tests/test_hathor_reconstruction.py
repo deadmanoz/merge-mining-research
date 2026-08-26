@@ -1,66 +1,23 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
+import csv
+import hashlib
 from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis import hathor_classify as hathor
 from stale_blocks_analysis import stale_blocks
-from stale_blocks_analysis.btc_nbits_validation import NBITS_MISMATCH_PREFIX
-from stale_blocks_analysis.btc_stale_validation import PLACEMENT_REJECTION
-from stale_blocks_analysis.config import BIP66_HEIGHT
-
-
-SCRIPT = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "classify"
-    / "classify_hathor_stales.py"
-)
-SPEC = importlib.util.spec_from_file_location("classify_hathor_stales", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
-hathor = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(hathor)
-
-PHASE_C_SCRIPT = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "classify"
-    / "classify_hathor_phase_c.py"
-)
-PHASE_C_SPEC = importlib.util.spec_from_file_location(
-    "classify_hathor_phase_c", PHASE_C_SCRIPT
-)
-assert PHASE_C_SPEC is not None and PHASE_C_SPEC.loader is not None
-hathor_phase_c = importlib.util.module_from_spec(PHASE_C_SPEC)
-PHASE_C_SPEC.loader.exec_module(hathor_phase_c)
-
-PHASE_B_SCRIPT = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "classify"
-    / "classify_hathor_phase_b.py"
-)
-PHASE_B_SPEC = importlib.util.spec_from_file_location(
-    "classify_hathor_phase_b", PHASE_B_SCRIPT
-)
-assert PHASE_B_SPEC is not None and PHASE_B_SPEC.loader is not None
-hathor_phase_b = importlib.util.module_from_spec(PHASE_B_SPEC)
-PHASE_B_SPEC.loader.exec_module(hathor_phase_b)
+from stale_blocks_analysis.bitcoin_binary import parse_coinbase_tx, sha256d
 
 
 RFC_BLOCK_HASH = "00000000000000001edcb1b01154f8df97199f5fd936d8e7d553d76d01abec3c"
-
 RFC_FUNDS = "0003010000190000001976a914bcdddee6f042c73ff4b947bc9bca929fbd4fa98588ac"
 RFC_GRAPH = (
-    "404dea2b25737540"
-    "5ef3846b"
-    "03"
+    "404dea2b257375405ef3846b03"
     "000000000000000eab4934332c22f5db57ce7276cc76304384979ff861a5ff5a"
     "000000000706cc3cfe08ea41eb25b22d170193a8dfc0335cf3983d97f70ddbe0"
-    "000000009ff1ea03f91bb20e6b2fc55bcd1f46d0564849641adb6c51f1dc6f4b"
-    "00"
+    "000000009ff1ea03f91bb20e6b2fc55bcd1f46d0564849641adb6c51f1dc6f4b00"
 )
 RFC_HEADER_HEAD = (
     "000000202f6636c625e1303fffbd016104041dc1e9ca1452109404000000000000000000"
@@ -91,7 +48,12 @@ RFC_MERKLE_PATH = [
 RFC_HEADER_TAIL = "6c84f35ef2d4111798bc21ca"
 
 
-def rfc_aux_pow_hex() -> str:
+class FakeRpc:
+    def batch(self, _calls: object) -> list[object]:
+        raise AssertionError("unexpected Bitcoin RPC batch")
+
+
+def _rfc_aux_pow_hex() -> str:
     return (
         RFC_HEADER_HEAD
         + "35"
@@ -104,368 +66,327 @@ def rfc_aux_pow_hex() -> str:
     )
 
 
-def serialized_header(
-    *, previous_hash: str = "00" * 32, timestamp: int = 1_000, bits: int = 0x170FFFFF
-) -> bytes:
+def _header(height: int) -> bytes:
     return (
         (4).to_bytes(4, "little")
-        + bytes.fromhex(previous_hash)[::-1]
-        + b"\x00" * 32
-        + timestamp.to_bytes(4, "little")
-        + bits.to_bytes(4, "little")
-        + (1).to_bytes(4, "little")
+        + bytes([height]) * 32
+        + bytes([height + 1]) * 32
+        + (1_700_000_000 + height).to_bytes(4, "little")
+        + (0x207FFFFF).to_bytes(4, "little")
+        + height.to_bytes(4, "little")
     )
 
 
-def test_hathor_rfc_0006_reconstruction_vector() -> None:
-    parsed = hathor.parse_aux_pow(rfc_aux_pow_hex())
-    assert parsed is not None
+def _coinbase(height: int) -> bytes:
+    scriptsig = b"\x03" + height.to_bytes(3, "little")
+    return (
+        (1).to_bytes(4, "little")
+        + b"\x01"
+        + b"\x00" * 32
+        + b"\xff\xff\xff\xff"
+        + bytes([len(scriptsig)])
+        + scriptsig
+        + b"\xff\xff\xff\xff"
+        + b"\x01"
+        + (5_000_000_000).to_bytes(8, "little")
+        + b"\x01\x51"
+        + b"\x00\x00\x00\x00"
+    )
 
+
+def _observation(height: int) -> hathor.ReconstructedObservation:
+    return hathor.ReconstructedObservation(_header(height), _coinbase(height), 35)
+
+
+def _acquisition_row(height: int) -> dict[str, str]:
+    row = {
+        "hathor_height": str(height),
+        "hathor_block_hash": sha256d(_header(height))[::-1].hex(),
+        "hathor_timestamp": str(1_700_000_000 + height),
+        "aux_pow_hex": "00",
+        "funds_graph_hex": "00",
+        "raw_hex": "00",
+        "endpoint": "http://example.invalid",
+        "http_status": "200",
+        "attempt_count": "1",
+        "record_sha256": "",
+    }
+    row["record_sha256"] = hathor.acquisition_record_sha256(row)
+    return row
+
+
+def _write_shard(path: Path, rows: list[dict[str, str]]) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=hathor.ACQUISITION_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _read_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        return list(reader.fieldnames or []), list(reader)
+
+
+def test_reconstructs_rfc0006_vector_and_preserves_raw_output_scripts() -> None:
+    parsed = hathor.parse_aux_pow(_rfc_aux_pow_hex())
     funds = bytes.fromhex(RFC_FUNDS)
     graph = bytes.fromhex(RFC_GRAPH)
-    expected_aux_block_hash = hathor.sha256d(
-        hathor.sha256(funds) + hathor.sha256(graph)
+
+    reconstructed = hathor.reconstruct_rfc0006(parsed, funds + graph, RFC_BLOCK_HASH)
+
+    expected_commitment = sha256d(
+        hashlib.sha256(funds).digest() + hashlib.sha256(graph).digest()
     )[::-1]
-    reconstructed = hathor.reconstruct(
-        parsed,
-        funds + graph,
-        RFC_BLOCK_HASH,
-    )
-    assert reconstructed is not None
+    assert reconstructed.split_offset == len(funds)
+    assert expected_commitment in reconstructed.coinbase
+    assert sha256d(reconstructed.header)[::-1].hex() == RFC_BLOCK_HASH
 
-    header, coinbase, split = reconstructed
-    assert split == len(funds)
-    assert expected_aux_block_hash in coinbase
-    assert hathor.sha256d(header)[::-1].hex() == RFC_BLOCK_HASH
-
-
-def test_hathor_phase_c_requires_parent_height_and_exact_bip34_prefix() -> None:
-    height = 700_000
-    prefix = b"\x03" + height.to_bytes(3, "little")
-    valid_row = {
-        "btc_parent_height": str(height - 1),
-        "btc_parent_mediantime": "999",
-        "btc_time": "1000",
-        "btc_header_hex": (b"\x04\x00\x00\x00" + b"\x00" * 76).hex(),
-        "validation_status": "VALID",
-    }
-
-    assert hathor_phase_c.resolved_height_and_status(valid_row, prefix.hex()) == (
-        height,
-        "VALID",
-    )
-    assert hathor_phase_c.resolved_height_and_status(
-        valid_row, (b"\x4c\x03" + height.to_bytes(3, "little")).hex()
-    )[1].startswith("REJECTED: BIP34")
-    assert hathor_phase_c.resolved_height_and_status(
-        {"btc_parent_height": "", "validation_status": "VALID"}, prefix.hex()
-    ) == ("", "REJECTED: missing canonical parent height")
-
-
-def test_hathor_phase_c_enforces_historical_minimum_block_version() -> None:
-    height = BIP66_HEIGHT
-    row = {
-        "btc_parent_height": str(height - 1),
-        "btc_parent_mediantime": "999",
-        "btc_time": "1000",
-        "btc_header_hex": (b"\x02\x00\x00\x00" + b"\x00" * 76).hex(),
-        "validation_status": "VALID",
-    }
-    scriptsig = (b"\x03" + height.to_bytes(3, "little")).hex()
-
-    assert (
-        "required 3 after BIP66"
-        in hathor_phase_c.resolved_height_and_status(row, scriptsig)[1]
-    )
-
-
-def test_hathor_phase_b_verdicts_mirror_the_shared_vocabulary() -> None:
-    """Phase B duplicates the shared verdict strings; Phase C accepts both.
-
-    Phase B is import-free by design, so its verdict literals are copies that
-    can drift. Pin them against the named originals, and pin Phase C's
-    normalization of the pre-rename tokens archived intermediates still carry.
-    """
-    assert hathor_phase_b.PLACEMENT_REJECTION == PLACEMENT_REJECTION
-    assert hathor_phase_b.NBITS_MISMATCH_PREFIX == NBITS_MISMATCH_PREFIX
-    assert hathor_phase_b.PARENT_CONTEXT_UNKNOWN.startswith("UNKNOWN:")
-
-    scriptsig = (b"\x03" + (700_000).to_bytes(3, "little")).hex()
-    legacy = {"btc_parent_height": "699999"}
-
-    assert hathor_phase_c.resolved_height_and_status(
-        {**legacy, "validation_status": "PARENT_NOT_CANONICAL"}, scriptsig
-    ) == (700_000, PLACEMENT_REJECTION)
-    assert hathor_phase_c.resolved_height_and_status(
-        {**legacy, "validation_status": "NBITS_MISMATCH"}, scriptsig
-    ) == (700_000, NBITS_MISMATCH_PREFIX)
-    assert hathor_phase_c.resolved_height_and_status(
-        {**legacy, "validation_status": "PARENT_CONTEXT_UNAVAILABLE"}, scriptsig
-    ) == ("", hathor_phase_b.PARENT_CONTEXT_UNKNOWN)
-
-
-def test_hathor_phase_b_rejects_malformed_reconstructed_header() -> None:
-    row = {
-        "btc_header_hex": "00",
-        "btc_prev_hash": "00" * 32,
-        "btc_time": "1000",
-        "btc_bits": "170fffff",
-    }
-
-    with pytest.raises(ValueError, match="expected 80"):
-        hathor_phase_b.process_row(row, object())
-
-
-def test_hathor_phase_b_rpc_mismatch_cannot_validate_stale() -> None:
-    parent_header = serialized_header(timestamp=900)
-    parent_hash = hathor_phase_b.sha256d(parent_header)[::-1].hex()
-    requested_canonical_hash = "11" * 32
-
-    class FakeRPC:
-        def call(self, method, params=None):
-            if method == "getblockheader" and params == [parent_hash, True]:
-                return {
-                    "hash": parent_hash,
-                    "height": 699_999,
-                    "confirmations": 100,
-                    "bits": "170fffff",
-                    "previousblockhash": "00" * 32,
-                    "time": 900,
-                    "mediantime": 899,
-                }
-            if method == "getblockheader" and params == [parent_hash, False]:
-                return parent_header.hex()
-            if method == "getblockhash" and params == [700_000]:
-                return requested_canonical_hash
-            if method == "getblockheader" and params == [
-                requested_canonical_hash,
-                True,
-            ]:
-                return {"hash": "22" * 32}
-            raise AssertionError((method, params))
-
-    assert hathor_phase_b.validate_stale(
-        {"btc_prev_hash": parent_hash, "btc_bits": "170fffff"}, FakeRPC()
-    ) == (699_999, 899, "", hathor_phase_b.PARENT_CONTEXT_UNKNOWN)
-
-
-def test_hathor_phase_b_preserves_output_on_worker_failure(
-    tmp_path, monkeypatch
-) -> None:
-    input_path = tmp_path / "phase_a.csv"
-    output_path = tmp_path / "phase_b.csv"
-    phase_a_columns = hathor_phase_b.OUTPUT_COLUMNS[:10]
-    input_path.write_text(
-        ",".join(phase_a_columns)
-        + "\n"
-        + ",".join(["1", "", "", "00" * 32, "1000", "170fffff", "1", "00", "", "true"])
-        + "\n"
-    )
-    output_path.write_text("existing output\n")
-
-    class ProbeOnlyRPC:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def call(self, method, params=None):
-            assert method == "getblockcount"
-            return 1
-
-    monkeypatch.setattr(hathor_phase_b, "BitcoinRPC", ProbeOnlyRPC)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(PHASE_B_SCRIPT),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            "--workers",
-            "1",
-        ],
-    )
-
-    with pytest.raises(ValueError, match="expected 80"):
-        hathor_phase_b.main()
-    assert output_path.read_text() == "existing output\n"
-
-
-def test_hathor_phase_b_preserves_output_on_none_result(tmp_path, monkeypatch) -> None:
-    input_path = tmp_path / "phase_a.csv"
-    output_path = tmp_path / "phase_b.csv"
-    phase_a_columns = hathor_phase_b.OUTPUT_COLUMNS[:10]
-    input_path.write_text(
-        ",".join(phase_a_columns)
-        + "\n"
-        + ",".join(["", "", "", "", "", "", "", "", "", "true"])
-        + "\n"
-    )
-    output_path.write_text("existing output\n")
-
-    class ProbeOnlyRPC:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def call(self, method, params=None):
-            assert method == "getblockcount"
-            return 1
-
-    monkeypatch.setattr(hathor_phase_b, "BitcoinRPC", ProbeOnlyRPC)
-    monkeypatch.setattr(hathor_phase_b, "process_row", lambda _row, _rpc: None)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(PHASE_B_SCRIPT),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            "--workers",
-            "1",
-        ],
-    )
-
-    with pytest.raises(RuntimeError, match="returned no result"):
-        hathor_phase_b.main()
-    assert output_path.read_text() == "existing output\n"
-
-
-def test_hathor_phase_b_preserves_output_on_unavailable_validation(
-    tmp_path, monkeypatch
-) -> None:
-    input_path = tmp_path / "phase_a.csv"
-    output_path = tmp_path / "phase_b.csv"
-    phase_a_columns = hathor_phase_b.OUTPUT_COLUMNS[:10]
-    input_path.write_text(
-        ",".join(phase_a_columns)
-        + "\n"
-        + ",".join(["", "", "", "", "", "", "", "", "", "true"])
-        + "\n"
-    )
-    output_path.write_text("existing output\n")
-
-    class ProbeOnlyRPC:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def call(self, method, params=None):
-            assert method == "getblockcount"
-            return 1
-
-    unavailable_row = {column: "" for column in hathor_phase_b.OUTPUT_COLUMNS}
-    unavailable_row.update(
+    output, coinbase_parsed = hathor._base_output_row(
         {
-            "classification": "stale",
-            "validation_status": hathor_phase_b.PARENT_CONTEXT_UNKNOWN,
-        }
+            "hathor_block_hash": RFC_BLOCK_HASH,
+            "hathor_height": "1",
+            "hathor_timestamp": "1",
+        },
+        reconstructed,
     )
-    monkeypatch.setattr(hathor_phase_b, "BitcoinRPC", ProbeOnlyRPC)
+    parsed_coinbase = parse_coinbase_tx(reconstructed.coinbase)
+    assert parsed_coinbase is not None
+    assert coinbase_parsed is True
+    assert output["coinbase_outputs"] == "|".join(
+        f"{script.hex()}:{value}" for value, script in parsed_coinbase["outputs"]
+    )
+
+
+def test_self_target_filter_uses_the_encoded_target_and_rejects_invalid_bits() -> None:
+    assert hathor._meets_self_target(
+        {"btc_header_hex": _header(0).hex(), "btc_bits": "207fffff"}
+    )
+    assert not hathor._meets_self_target(
+        {"btc_header_hex": _header(1).hex(), "btc_bits": "207fffff"}
+    )
+    with pytest.raises(ValueError, match="invalid PoW target"):
+        hathor._meets_self_target(
+            {"btc_header_hex": _header(0).hex(), "btc_bits": "20800000"}
+        )
+
+
+def test_publishes_all_terminal_categories_from_ordered_shards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "000000-000001.csv"
+    second = tmp_path / "000002-000004.csv"
+    output_dir = tmp_path / "published"
+    _write_shard(first, [_acquisition_row(height) for height in (0, 1)])
+    _write_shard(second, [_acquisition_row(height) for height in (2, 3, 4)])
+
+    def source_observation(
+        row: dict[str, str], _line_number: int
+    ) -> hathor.ReconstructedObservation:
+        assert row["record_sha256"] == hathor.acquisition_record_sha256(row)
+        return _observation(int(row["hathor_height"]))
+
+    def classify(
+        candidates: list[dict[str, object]], _rpc: FakeRpc
+    ) -> list[dict[str, object]]:
+        categories = {1: "canonical", 2: "stale", 3: "unknown", 4: "stale"}
+        for row in candidates:
+            height = int(str(row["hathor_height"]))
+            row["classification"] = categories[height]
+            if categories[height] in {"canonical", "stale"}:
+                row["btc_height"] = str(800_000 + height)
+        return list(reversed(candidates))
+
+    def validate(
+        stales: list[dict[str, object]], _batch: object
+    ) -> list[dict[str, object]]:
+        for row in stales:
+            if row["hathor_height"] == "2":
+                row["validation_status"] = "VALID"
+                row["expected_nbits"] = "207fffff"
+            else:
+                row["validation_status"] = "REJECTED: test rule"
+        return stales
+
+    def route(stales: list[dict[str, object]]) -> None:
+        for row in stales:
+            if str(row["validation_status"]).startswith("REJECTED:"):
+                row["classification"] = "error_block"
+                row["rules_violated"] = "test_rule"
+
+    monkeypatch.setattr(hathor, "_source_observation", source_observation)
     monkeypatch.setattr(
-        hathor_phase_b, "process_row", lambda _row, _rpc: unavailable_row
+        hathor,
+        "_meets_self_target",
+        lambda row: row["hathor_height"] != "0",
     )
+    monkeypatch.setattr(hathor, "classify_candidates", classify)
+    monkeypatch.setattr(hathor, "validate_stale_header_context", validate)
+    monkeypatch.setattr(hathor, "route_rejected_stale_rows", route)
+
+    report = hathor.classify_hathor(
+        [first, second], output_dir, FakeRpc(), batch_size=2
+    )
+
+    assert report == {
+        "input_rows": 5,
+        "input_files": 2,
+        "near": 1,
+        "canonical": 1,
+        "stale": 1,
+        "unknown": 1,
+        "error_block": 1,
+        "validated_stales": 1,
+        "output_dir": str(output_dir),
+    }
+    assert {path.name for path in output_dir.iterdir()} == {
+        *hathor.CATEGORY_FILENAMES.values(),
+        hathor.VALIDATED_FILENAME,
+    }
+    for category, filename in hathor.CATEGORY_FILENAMES.items():
+        columns, rows = _read_rows(output_dir / filename)
+        expected_columns = (
+            hathor.ERROR_OUTPUT_COLUMNS
+            if category == "error_block"
+            else hathor.OUTPUT_COLUMNS
+        )
+        assert columns == expected_columns
+        assert [row["classification"] for row in rows] == [category]
+        assert rows[0]["coinbase_outputs"] == "51:5000000000"
+    _, stale_rows = _read_rows(output_dir / hathor.CATEGORY_FILENAMES["stale"])
+    _, validated_rows = _read_rows(output_dir / hathor.VALIDATED_FILENAME)
+    assert validated_rows == stale_rows
+    assert validated_rows[0]["hathor_height"] == "2"
+
+
+def test_rejects_duplicate_height_across_shards_without_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    output_dir = tmp_path / "published"
+    _write_shard(first, [_acquisition_row(height) for height in (0, 2)])
+    _write_shard(second, [_acquisition_row(height) for height in (2, 3)])
     monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(PHASE_B_SCRIPT),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            "--workers",
-            "1",
-        ],
+        hathor,
+        "_source_observation",
+        lambda row, _line: _observation(int(row["hathor_height"])),
     )
+    monkeypatch.setattr(hathor, "_meets_self_target", lambda _row: False)
+
+    with pytest.raises(ValueError, match="globally strictly ascending"):
+        hathor.classify_hathor([first, second], output_dir, FakeRpc())
+
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".published.*"))
+
+
+def test_bad_acquisition_seal_leaves_no_partial_output(tmp_path: Path) -> None:
+    source = tmp_path / "source.csv"
+    output_dir = tmp_path / "published"
+    row = _acquisition_row(0)
+    row["record_sha256"] = "0" * 64
+    _write_shard(source, [row])
+
+    with pytest.raises(ValueError, match="record seal mismatch"):
+        hathor.classify_hathor([source], output_dir, FakeRpc())
+
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".published.*"))
+
+
+def test_existing_output_directory_is_never_replaced(tmp_path: Path) -> None:
+    source = tmp_path / "source.csv"
+    output_dir = tmp_path / "published"
+    _write_shard(source, [])
+    output_dir.mkdir()
+    marker = output_dir / "keep"
+    marker.write_text("existing\n")
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        hathor.classify_hathor([source], output_dir, FakeRpc())
+
+    assert marker.read_text() == "existing\n"
+
+
+def test_stale_with_unparseable_coinbase_remains_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row: dict[str, object] = {
+        "hathor_height": "5",
+        "classification": "",
+        "validation_status": "dirty",
+        "expected_nbits": "dirty",
+    }
+
+    def classify(
+        candidates: list[dict[str, object]], _rpc: FakeRpc
+    ) -> list[dict[str, object]]:
+        candidates[0]["classification"] = "stale"
+        return candidates
+
+    def validate(stales: list[dict[str, object]], _batch: object) -> None:
+        assert stales == []
+
+    monkeypatch.setattr(hathor, "classify_candidates", classify)
+    monkeypatch.setattr(hathor, "validate_stale_header_context", validate)
+    monkeypatch.setattr(hathor, "route_rejected_stale_rows", lambda _rows: None)
+
+    result = hathor._classify_batch([(row, False)], FakeRpc())
+
+    assert result[0]["classification"] == "unknown"
+    assert result[0]["validation_status"] == ""
+    assert result[0]["expected_nbits"] == ""
+
+
+def test_incomplete_stale_validation_aborts_without_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.csv"
+    output_dir = tmp_path / "published"
+    _write_shard(source, [_acquisition_row(0)])
+    monkeypatch.setattr(
+        hathor, "_source_observation", lambda _row, _line: _observation(0)
+    )
+    monkeypatch.setattr(hathor, "_meets_self_target", lambda _row: True)
+
+    def classify(
+        candidates: list[dict[str, object]], _rpc: FakeRpc
+    ) -> list[dict[str, object]]:
+        candidates[0]["classification"] = "stale"
+        candidates[0]["btc_height"] = "800000"
+        return candidates
+
+    def validate(stales: list[dict[str, object]], _batch: object) -> None:
+        stales[0]["validation_status"] = "UNKNOWN: missing context"
+
+    monkeypatch.setattr(hathor, "classify_candidates", classify)
+    monkeypatch.setattr(hathor, "validate_stale_header_context", validate)
+    monkeypatch.setattr(hathor, "route_rejected_stale_rows", lambda _rows: None)
 
     with pytest.raises(RuntimeError, match="validation context is incomplete"):
-        hathor_phase_b.main()
-    assert output_path.read_text() == "existing output\n"
+        hathor.classify_hathor([source], output_dir, FakeRpc())
+
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".published.*"))
 
 
-def test_hathor_phase_c_preserves_output_on_coinbase_parse_failure(
-    tmp_path, monkeypatch
+def test_hathor_loader_requires_valid_validation_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    input_path = tmp_path / "phase_b.csv"
-    output_path = tmp_path / "validated.csv"
-    columns = sorted(hathor_phase_c.PHASE_B_REQUIRED_COLUMNS)
-    values = {column: "" for column in columns}
-    values.update({"classification": "stale", "full_coinbase_hex": "not-hex"})
-    input_path.write_text(
-        ",".join(columns) + "\n" + ",".join(values[column] for column in columns) + "\n"
-    )
-    output_path.write_text("existing output\n")
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(PHASE_C_SCRIPT),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-        ],
-    )
-
-    with pytest.raises(ValueError, match="invalid coinbase hex"):
-        hathor_phase_c.main()
-    assert output_path.read_text() == "existing output\n"
-
-
-def test_hathor_phase_c_preserves_output_on_unavailable_validation(
-    tmp_path, monkeypatch
-) -> None:
-    input_path = tmp_path / "phase_b.csv"
-    output_path = tmp_path / "validated.csv"
-    columns = sorted(hathor_phase_c.PHASE_B_REQUIRED_COLUMNS)
-    values = {column: "" for column in columns}
-    values.update(
-        {
-            "classification": "stale",
-            "full_coinbase_hex": "00",
-            # Deliberately the pre-rename token: an archived Phase B
-            # intermediate must still abort the run, not slip through.
-            "validation_status": "PARENT_CONTEXT_UNAVAILABLE",
-        }
-    )
-    input_path.write_text(
-        ",".join(columns) + "\n" + ",".join(values[column] for column in columns) + "\n"
-    )
-    output_path.write_text("existing output\n")
-    monkeypatch.setattr(
-        hathor_phase_c,
-        "parse_coinbase_tx",
-        lambda _raw: {"scriptsig": b"\x01\x01", "outputs": []},
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            str(PHASE_C_SCRIPT),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-        ],
-    )
-
-    with pytest.raises(RuntimeError, match="validation context is incomplete"):
-        hathor_phase_c.main()
-    assert output_path.read_text() == "existing output\n"
-
-
-def test_hathor_loader_requires_valid_validation_status(tmp_path, monkeypatch) -> None:
     csv_path = tmp_path / "hathor_validated_stales.csv"
     csv_path.write_text(
         "\n".join(
             [
                 "btc_height,btc_header_hash,btc_prev_hash,btc_time,btc_bits,"
                 "coinbase_scriptsig_hex,coinbase_outputs,btc_header_hex,"
-                "hathor_height,classification,validation_status,expected_nbits",
-                "700000,validhash,prev,1,170fffff,03a00a00,,00,1,stale,VALID,170fffff",
-                "700001,badhash,prev,1,170fffff,03a10a00,,00,2,stale,NBITS_MISMATCH,170fffff",
-                "700002,oldschemahash,prev,1,170fffff,03a20a00,,00,3,stale,,",
+                "hathor_height,child_block_hash,child_header_hex,child_block_time,"
+                "child_nbits,classification,validation_status,expected_nbits",
+                "700000,validhash,prev,1,170fffff,03a00a00,51:1,00,1,,,,,stale,VALID,170fffff",
+                "700001,badhash,prev,1,170fffff,03a10a00,,00,2,,,,,stale,REJECTED,170fffff",
+                "700002,oldhash,prev,1,170fffff,03a20a00,,00,3,,,,,stale,,",
             ]
         )
         + "\n"
@@ -475,25 +396,4 @@ def test_hathor_loader_requires_valid_validation_status(tmp_path, monkeypatch) -
     rows = stale_blocks.load_hathor_stales(min_height=0)
 
     assert [row["hash"] for row in rows] == ["validhash"]
-
-
-def test_fractal_loader_requires_valid_validation_status(tmp_path, monkeypatch) -> None:
-    csv_path = tmp_path / "fractal_validated_stales.csv"
-    csv_path.write_text(
-        "\n".join(
-            [
-                "btc_height,btc_header_hash,btc_prev_hash,btc_time,btc_bits,"
-                "coinbase_scriptsig_hex,coinbase_outputs,btc_header_hex,"
-                "fb_height,classification,validation_status,expected_nbits",
-                "900000,validhash,prev,1,170fffff,03a00a00,,00,1,stale,VALID,170fffff",
-                "900001,badhash,prev,1,170fffff,03a10a00,,00,2,stale,REJECTED_NBITS,170fffff",
-                "900002,oldschemahash,prev,1,170fffff,03a20a00,,00,3,stale,,",
-            ]
-        )
-        + "\n"
-    )
-    monkeypatch.setattr(stale_blocks, "FRACTAL_CSV", csv_path)
-
-    rows = stale_blocks.load_fractal_stales(min_height=0)
-
-    assert [row["hash"] for row in rows] == ["validhash"]
+    assert rows[0]["_outputs_str"] == "51"

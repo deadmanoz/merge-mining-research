@@ -249,17 +249,16 @@ The same routing runs in the shared driver (16 chains), the four classifiers
 that call the gate directly (elastos, coiledcoin, geistgeld, groupcoin), the
 namecoin/i0coin classifier, the RSK classifier (which can only ever produce
 the version, median-time-past, and retarget rules, since its proof exposes no
-parent coinbase), and Hathor Phase C, whose re-routed unknowns go to the
-`_unknown_blocks` peer of its Phase B input. The stale-descendant
+parent coinbase), and the unified Hathor classifier. The stale-descendant
 reconciliation applies the identical derivation to its rejected candidates
 (`descendant_consensus_rules` in
 `scripts/analysis/reconcile_unknown_stale_ancestry.py`), judging only rows
 whose supplied header authenticates against the claimed hash and whose path,
 proof of work, and canonical bits all verified; the ones it does judge leave
 `data/stale_descendants.csv` entirely for its `_error_blocks` peer, so the
-descendant sidecar only ever carries `stale_descendant` rows. Hathor Phase A is
-deliberately outside this machinery (import-free, runs on the archive host),
-and Phase B feeds Phase C using the shared verdict vocabulary.
+descendant sidecar only ever carries `stale_descendant` rows. Hathor now uses
+the same shared verdict and rejection-routing vocabulary directly, without
+persisted intermediate phases.
 
 Every gate rejection is still counted, whichever bucket the routing moved the
 row into: `write_classifier_outputs` returns the total as `rejected` plus the

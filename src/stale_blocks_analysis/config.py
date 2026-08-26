@@ -820,8 +820,8 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
         chain_id=None,  # RFC-0006 "Hath"-tagged proof; no Namecoin chain ID
         activation_height=None,  # exact first merge-mined height is not established
         attribution_mode="rest",
-        input_csv=DATA_DIR / "hathor" / "hathor_auxpow_raw.csv",
-        output_csv=DATA_DIR / "hathor" / "hathor_phase_a.csv",
+        input_csv=DATA_DIR / "hathor" / "hathor_acquisition.csv",
+        output_csv=DATA_DIR / "hathor" / "classified" / "hathor_stale_blocks.csv",
         validated_csv=HATHOR_CSV,
     ),
     "bitcoin-vault": ChainSpec(

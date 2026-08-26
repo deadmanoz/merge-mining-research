@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
-"""Fetch complete Hathor v3 payload evidence from an audited metadata ledger.
+"""Acquire complete Hathor v3 evidence from an audited metadata ledger.
 
-The pre-million metadata census already establishes one ``tx_id`` for every
-``version_3_ready`` height. This collector makes one ``/transaction`` request
-per ready row that lacks a sealed source record in the current run and writes
-one complete record to an augmented ``hathor_auxpow_raw.csv``. Failed attempts
-remain append-only history and are retried on later runs until a sealed source
-row exists. The durable failure log is the retry-round scheduler: pending
-heights are fetched in least-completed-failure-round then height order, so a
-permanently failing early height cannot starve later ones under ``--limit``
-and remains retryable after a full pass. Each source row retains the lossless
+The metadata ledger establishes one ``tx_id`` for every ``version_3_ready``
+height. This collector requests each missing transaction and appends one sealed
+row to the acquisition dataset. Failed attempts remain append-only history and
+are retried on later runs. The failure log also schedules bounded runs by least
+completed failure round then height, so a permanent early failure cannot starve
+later heights under ``--limit``. Each dataset row retains the lossless
 transaction and AuxPoW bytes, its derived funds-graph prefix, request
-provenance, and a SHA-256 record seal. Resume and publication audit reject a
-damaged source row instead of treating it as complete. Run one process for each
-raw/failure output pair.
+provenance, and a SHA-256 record seal. Resume and audit reject damaged rows.
+Run one process for each dataset/failure-output pair.
 
-The established three-column ``hathor_funds_graph.csv`` is not written beside
-each fetched row. ``--build-supplement`` creates it atomically from the complete
-source CSV after acquisition, so it is a checked projection of one source of
-truth, never an independently resumed second dataset.
-
-All source and result records remain CSV.  The output is private archival data
-and is intentionally not written under the repository's ``data/`` directory.
+The dataset is private archival data. The repository's default ``data/hathor/``
+location is gitignored.
 """
 
 from __future__ import annotations
@@ -29,26 +20,27 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import json
 import math
 import os
 import tempfile
-import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from http.client import IncompleteRead
 from pathlib import Path
-from typing import Any, Callable, Iterable
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from typing import Any
+
+from stale_blocks_analysis.hathor_acquisition import (
+    ACQUISITION_COLUMNS,
+    HttpResult,
+    PacedHttpClient,
+    acquisition_record_sha256,
+)
 
 
 DEFAULT_API = "https://node1.mainnet.hathor.network/v1a"
 DEFAULT_FALLBACK_API = "https://node2.mainnet.hathor.network/v1a"
 DEFAULT_REQUESTS_PER_SECOND = 0.25
-USER_AGENT = "merge-mining-research/hathor-pre-million-payload"
+USER_AGENT = "merge-mining-research/hathor-acquisition"
 
 LEDGER_COLUMNS = [
     "hathor_height",
@@ -63,19 +55,6 @@ LEDGER_COLUMNS = [
 RESOLVED_LEDGER_OUTCOMES = {"version_3_ready", "non_version_3"}
 LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 COMPACT_HEX_DIGITS = LOWER_HEX_DIGITS | frozenset("ABCDEF")
-RAW_COLUMNS = [
-    "hathor_height",
-    "hathor_block_hash",
-    "hathor_timestamp",
-    "aux_pow_hex",
-    "funds_graph_hex",
-    "raw_hex",
-    "endpoint",
-    "http_status",
-    "attempt_count",
-    "record_sha256",
-]
-SUPPLEMENT_COLUMNS = ["hathor_height", "hathor_block_hash", "funds_graph_hex"]
 FAILURE_COLUMNS = [
     "hathor_height",
     "hathor_block_hash",
@@ -91,14 +70,6 @@ FAILURE_COLUMNS = [
 class ReadyRow:
     height: int
     tx_id: str
-
-
-@dataclass(frozen=True)
-class HttpResult:
-    status: int | None
-    payload: dict[str, Any] | None
-    error: str | None
-    retryable: bool
 
 
 @dataclass(frozen=True)
@@ -161,8 +132,8 @@ def require_api_timestamp(value: object) -> int:
     return value
 
 
-def validate_archived_timestamp(value: object, height: int) -> int:
-    """Require a non-negative timestamp in durable evidence."""
+def validate_dataset_timestamp(value: object, height: int) -> int:
+    """Require a non-negative timestamp in the acquisition dataset."""
     try:
         parsed = int(str(value))
     except (TypeError, ValueError) as exc:
@@ -200,19 +171,6 @@ def file_sha256(path: Path) -> str:
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
-
-
-def raw_record_sha256(row: dict[str, object]) -> str:
-    """Hash every current source field except the seal itself."""
-    digest = hashlib.sha256()
-    for column in RAW_COLUMNS[:-1]:
-        value = row.get(column)
-        if value is None:
-            raise ValueError(f"missing {column} in raw source row")
-        encoded = str(value).encode()
-        digest.update(len(encoded).to_bytes(8, "big"))
-        digest.update(encoded)
     return digest.hexdigest()
 
 
@@ -326,7 +284,7 @@ def csv_height(value: str, path: Path) -> int:
 def read_csv_rows_with_order(
     path: Path, columns: list[str]
 ) -> tuple[dict[int, dict[str, str]], list[int]]:
-    """Read a payload CSV, retaining physical order for reproducibility checks."""
+    """Read a dataset CSV, retaining physical order for reproducibility checks."""
     if not path.exists() or path.stat().st_size == 0:
         return {}, []
     with path.open("rb") as handle:
@@ -389,13 +347,13 @@ def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[
     return rounds
 
 
-def read_raw_rows(
+def read_acquisition_rows(
     path: Path,
 ) -> tuple[dict[int, dict[str, str]], list[int]]:
-    """Read current sealed payload evidence."""
+    """Read the sealed acquisition dataset."""
     if not path.exists() or path.stat().st_size == 0:
         return {}, []
-    return read_csv_rows_with_order(path, RAW_COLUMNS)
+    return read_csv_rows_with_order(path, ACQUISITION_COLUMNS)
 
 
 def require_ordered_heights(path: Path, observed_order: list[int]) -> None:
@@ -436,12 +394,11 @@ def validate_append_csv(path: Path, columns: list[str]) -> None:
             raise ValueError(f"refusing to append after a truncated row: {path}")
 
 
-def replace_csv_atomically(
+def replace_acquisition_rows_atomically(
     path: Path,
-    columns: list[str],
-    rows: Iterable[dict[str, object]],
+    rows: dict[int, dict[str, object]],
 ) -> None:
-    """Durably replace one CSV from a unique same-directory staging file."""
+    """Replace the dataset in deterministic height order."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
@@ -455,11 +412,11 @@ def replace_csv_atomically(
             temporary = Path(handle.name)
             writer = csv.DictWriter(
                 handle,
-                fieldnames=columns,
+                fieldnames=ACQUISITION_COLUMNS,
                 lineterminator="\n",
             )
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows(rows[height] for height in sorted(rows))
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
@@ -469,86 +426,20 @@ def replace_csv_atomically(
         raise
 
 
-def replace_raw_rows_atomically(
-    path: Path,
-    rows: dict[int, dict[str, object]],
-) -> None:
-    """Persist a complete primary row map in deterministic height order."""
-    replace_csv_atomically(path, RAW_COLUMNS, (rows[height] for height in sorted(rows)))
-
-
 def write_durable_row(handle, writer: csv.DictWriter, row: dict[str, object]) -> None:
-    """Append one source row before moving on to another API request."""
+    """Append one row before moving on to another API request."""
     writer.writerow(row)
     handle.flush()
     os.fsync(handle.fileno())
 
 
-def append_raw_row_durably(path: Path, row: dict[str, object]) -> None:
+def append_acquisition_row_durably(path: Path, row: dict[str, object]) -> None:
     """Append one sealed row before any canonical-order rewrite."""
-    handle, writer = open_csv_writer(path, RAW_COLUMNS)
+    handle, writer = open_csv_writer(path, ACQUISITION_COLUMNS)
     try:
         write_durable_row(handle, writer, row)
     finally:
         handle.close()
-
-
-class PacedHttpClient:
-    """A sequential, endpoint-fallback client with bounded retries."""
-
-    def __init__(
-        self,
-        requests_per_second: float,
-        timeout: float,
-        max_attempts: int,
-        opener: Callable[..., Any] = urlopen,
-        sleep: Callable[[float], None] = time.sleep,
-        monotonic: Callable[[], float] = time.monotonic,
-    ):
-        self.min_interval = 1.0 / requests_per_second
-        self.timeout = timeout
-        self.max_attempts = max_attempts
-        self.opener = opener
-        self.sleep = sleep
-        self.monotonic = monotonic
-        self._last_request_start: float | None = None
-
-    def get_json(self, endpoint: str, path: str, params: dict[str, str]) -> HttpResult:
-        """Fetch a JSON response, pacing every attempt including retries."""
-        url = f"{endpoint.rstrip('/')}{path}?{urlencode(params)}"
-        request = Request(
-            url,
-            headers={"accept": "application/json", "user-agent": USER_AGENT},
-        )
-        now = self.monotonic()
-        if self._last_request_start is not None:
-            remaining = self.min_interval - (now - self._last_request_start)
-            if remaining > 0:
-                self.sleep(remaining)
-        self._last_request_start = self.monotonic()
-        try:
-            with self.opener(request, timeout=self.timeout) as response:
-                status = response.getcode()
-                try:
-                    body = response.read()
-                except IncompleteRead:
-                    return HttpResult(status, None, "IncompleteRead", True)
-                try:
-                    payload = json.loads(body)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    return HttpResult(status, None, "invalid_json", True)
-                if not isinstance(payload, dict):
-                    return HttpResult(status, None, "json_not_object", True)
-                return HttpResult(status, payload, None, False)
-        except HTTPError as error:
-            return HttpResult(
-                error.code,
-                None,
-                f"http_{error.code}",
-                error.code in {429, 500, 502, 503, 504},
-            )
-        except (URLError, TimeoutError, OSError, IncompleteRead) as error:
-            return HttpResult(None, None, type(error).__name__, True)
 
 
 def parse_payload(
@@ -683,49 +574,39 @@ def failure_row(
     }
 
 
-def raw_to_supplement(row: dict[str, str]) -> dict[str, str]:
-    """Derive an established supplement row from durable raw evidence."""
-    try:
-        prefix = funds_graph_hex(row["raw_hex"], row["aux_pow_hex"])
-    except (KeyError, ValueError) as exc:
-        raise ValueError(
-            f"invalid raw evidence at height {row.get('hathor_height', '?')}"
-        ) from exc
-    return {
-        "hathor_height": row["hathor_height"],
-        "hathor_block_hash": row["hathor_block_hash"],
-        "funds_graph_hex": prefix,
-    }
-
-
-def check_raw_rows(
+def check_acquisition_rows(
     ready_rows: dict[int, ReadyRow],
-    raw_rows: dict[int, dict[str, str]],
+    dataset_rows: dict[int, dict[str, str]],
 ) -> None:
-    """Validate primary rows against the ready-ledger contract."""
-    raw_extra = set(raw_rows).difference(ready_rows)
-    if raw_extra:
+    """Validate dataset rows against the ready-ledger contract."""
+    extra = set(dataset_rows).difference(ready_rows)
+    if extra:
         raise ValueError(
-            "payload output contains heights absent from its ready ledger: "
-            f"raw={len(raw_extra)}"
+            "acquisition dataset contains heights absent from its ready ledger: "
+            f"extra={len(extra)}"
         )
-    for height, row in raw_rows.items():
+    for height, row in dataset_rows.items():
         ready = ready_rows[height]
         if row.get("hathor_block_hash") != ready.tx_id:
-            raise ValueError(f"raw tx_id mismatch at height {height}")
+            raise ValueError(f"dataset tx_id mismatch at height {height}")
         validate_request_provenance(row, height)
-        validate_archived_timestamp(row.get("hathor_timestamp"), height)
-        if row.get("record_sha256") != raw_record_sha256(row):
-            raise ValueError(f"raw record digest mismatch at height {height}")
-        expected = raw_to_supplement(row)
-        if row.get("funds_graph_hex") != expected["funds_graph_hex"]:
+        validate_dataset_timestamp(row.get("hathor_timestamp"), height)
+        if row.get("record_sha256") != acquisition_record_sha256(row):
+            raise ValueError(f"acquisition record digest mismatch at height {height}")
+        try:
+            expected_prefix = funds_graph_hex(row["raw_hex"], row["aux_pow_hex"])
+        except (KeyError, ValueError) as exc:
             raise ValueError(
-                f"funds+graph does not match raw evidence at height {height}"
+                f"invalid acquisition evidence at height {height}"
+            ) from exc
+        if row.get("funds_graph_hex") != expected_prefix:
+            raise ValueError(
+                f"funds+graph does not match transaction bytes at height {height}"
             )
 
 
 def validate_request_provenance(row: dict[str, object], height: int) -> None:
-    """Require valid successful-request metadata in every primary row."""
+    """Require successful-request metadata in every dataset row."""
     endpoint = row.get("endpoint")
     if not isinstance(endpoint, str) or not endpoint.strip():
         raise ValueError(f"missing successful request endpoint at height {height}")
@@ -745,10 +626,10 @@ def validate_request_provenance(row: dict[str, object], height: int) -> None:
         raise ValueError(f"invalid successful attempt count at height {height}")
 
 
-def make_raw_row(payload: Payload) -> dict[str, object]:
-    """Create one sealed source row including successful request provenance."""
-    validate_archived_timestamp(payload.timestamp, payload.height)
-    raw = {
+def make_acquisition_row(payload: Payload) -> dict[str, object]:
+    """Create one sealed dataset row with successful request provenance."""
+    validate_dataset_timestamp(payload.timestamp, payload.height)
+    row = {
         "hathor_height": payload.height,
         "hathor_block_hash": payload.tx_id,
         "hathor_timestamp": payload.timestamp,
@@ -759,15 +640,15 @@ def make_raw_row(payload: Payload) -> dict[str, object]:
         "http_status": payload.http_status,
         "attempt_count": payload.attempt_count,
     }
-    validate_request_provenance(raw, payload.height)
-    raw["record_sha256"] = raw_record_sha256(raw)
-    return raw
+    validate_request_provenance(row, payload.height)
+    row["record_sha256"] = acquisition_record_sha256(row)
+    return row
 
 
-def run_extraction(
+def run_acquisition(
     *,
     ledger_path: Path,
-    raw_output: Path,
+    dataset_path: Path,
     failure_output: Path,
     start: int,
     end: int,
@@ -781,19 +662,21 @@ def run_extraction(
     canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
     require_distinct_paths(
         ledger=ledger_path,
-        raw_output=raw_output,
+        dataset=dataset_path,
         failure_output=failure_output,
     )
     ready_rows = load_ready_rows(ledger_path, start, end)
-    raw_rows, observed_order = read_raw_rows(raw_output)
-    check_raw_rows(ready_rows, raw_rows)
+    dataset_rows, observed_order = read_acquisition_rows(dataset_path)
+    check_acquisition_rows(ready_rows, dataset_rows)
     pending = [
-        ready_rows[height] for height in sorted(ready_rows) if height not in raw_rows
+        ready_rows[height]
+        for height in sorted(ready_rows)
+        if height not in dataset_rows
     ]
     validate_append_csv(failure_output, FAILURE_COLUMNS)
     retry_rounds = read_failure_rounds(failure_output, ready_rows)
-    if observed_order != sorted(observed_order) or not raw_output.exists():
-        replace_raw_rows_atomically(raw_output, raw_rows)
+    if observed_order != sorted(observed_order) or not dataset_path.exists():
+        replace_acquisition_rows_atomically(dataset_path, dataset_rows)
 
     pending.sort(key=lambda ready: (retry_rounds[ready.height], ready.height))
     if limit is not None:
@@ -801,7 +684,7 @@ def run_extraction(
     if not pending:
         return Counter(
             ready_total=len(ready_rows),
-            raw_complete=len(raw_rows),
+            dataset_complete=len(dataset_rows),
         )
 
     failure_handle, failure_writer = open_csv_writer(failure_output, FAILURE_COLUMNS)
@@ -816,106 +699,57 @@ def run_extraction(
                 stats["failure"] += 1
                 continue
             assert payload is not None
-            raw = make_raw_row(payload)
-            append_raw_row_durably(raw_output, raw)
-            raw_rows[payload.height] = {
-                column: str(raw[column]) for column in RAW_COLUMNS
+            row = make_acquisition_row(payload)
+            append_acquisition_row_durably(dataset_path, row)
+            dataset_rows[payload.height] = {
+                column: str(row[column]) for column in ACQUISITION_COLUMNS
             }
             observed_order.append(payload.height)
-            stats["archived"] += 1
+            stats["acquired"] += 1
         if observed_order != sorted(observed_order):
-            replace_raw_rows_atomically(raw_output, raw_rows)
+            replace_acquisition_rows_atomically(dataset_path, dataset_rows)
         stats["ready_total"] = len(ready_rows)
-        stats["raw_complete"] = len(raw_rows)
+        stats["dataset_complete"] = len(dataset_rows)
         return stats
     finally:
         failure_handle.close()
 
 
-def build_supplement(
-    ledger_path: Path,
-    raw_path: Path,
-    supplement_path: Path,
-    start: int,
-    end: int,
-) -> dict[str, int]:
-    """Atomically build the established supplement CSV from primary evidence."""
-    require_distinct_paths(
-        ledger=ledger_path,
-        raw_output=raw_path,
-        supplement_output=supplement_path,
-    )
-    ready_rows = load_ready_rows(ledger_path, start, end)
-    raw_rows, raw_order = read_raw_rows(raw_path)
-    check_raw_rows(ready_rows, raw_rows)
-    require_ordered_heights(raw_path, raw_order)
-    missing = set(ready_rows).difference(raw_rows)
-    if missing:
-        raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
-    replace_csv_atomically(
-        supplement_path,
-        SUPPLEMENT_COLUMNS,
-        (raw_to_supplement(raw_rows[height]) for height in sorted(ready_rows)),
-    )
-    return {"ready_rows": len(ready_rows), "supplement_rows": len(raw_rows)}
-
-
 def audit(
     ledger_path: Path,
-    raw_path: Path,
-    supplement_path: Path,
+    dataset_path: Path,
     start: int,
     end: int,
 ) -> dict[str, object]:
-    """Fail closed unless both evidence CSVs exactly cover their ready rows."""
-    require_distinct_paths(
-        ledger=ledger_path,
-        raw_output=raw_path,
-        supplement_output=supplement_path,
-    )
+    """Fail closed unless the dataset exactly covers the ledger's ready rows."""
+    require_distinct_paths(ledger=ledger_path, dataset=dataset_path)
     ready_rows = load_ready_rows(ledger_path, start, end)
-    raw_rows, raw_order = read_raw_rows(raw_path)
-    supplement_rows, supplement_order = read_csv_rows_with_order(
-        supplement_path, SUPPLEMENT_COLUMNS
-    )
-    check_raw_rows(ready_rows, raw_rows)
-    require_ordered_heights(raw_path, raw_order)
-    require_ordered_heights(supplement_path, supplement_order)
-    raw_missing = set(ready_rows).difference(raw_rows)
-    supplement_missing = set(ready_rows).difference(supplement_rows)
-    supplement_extra = set(supplement_rows).difference(ready_rows)
-    if raw_missing or supplement_missing or supplement_extra:
-        raise ValueError(
-            "payload coverage incomplete: "
-            f"raw_missing={len(raw_missing)} supplement_missing={len(supplement_missing)} "
-            f"supplement_extra={len(supplement_extra)}"
-        )
+    dataset_rows, dataset_order = read_acquisition_rows(dataset_path)
+    check_acquisition_rows(ready_rows, dataset_rows)
+    require_ordered_heights(dataset_path, dataset_order)
+    missing = set(ready_rows).difference(dataset_rows)
+    if missing:
+        raise ValueError(f"acquisition coverage incomplete: missing={len(missing)}")
     digest = hashlib.sha256()
     for height in sorted(ready_rows):
-        raw = raw_rows[height]
-        supplement = supplement_rows[height]
-        if supplement != raw_to_supplement(raw):
-            raise ValueError(
-                f"supplement does not match raw evidence at height {height}"
-            )
+        row = dataset_rows[height]
         digest.update(
             "\t".join(
                 [
                     str(height),
                     ready_rows[height].tx_id,
-                    hashlib.sha256(raw["raw_hex"].encode()).hexdigest(),
-                    hashlib.sha256(raw["aux_pow_hex"].encode()).hexdigest(),
-                    hashlib.sha256(supplement["funds_graph_hex"].encode()).hexdigest(),
+                    hashlib.sha256(row["raw_hex"].encode()).hexdigest(),
+                    hashlib.sha256(row["aux_pow_hex"].encode()).hexdigest(),
+                    hashlib.sha256(row["funds_graph_hex"].encode()).hexdigest(),
                 ]
             ).encode()
         )
         digest.update(b"\n")
     return {
         "ready_rows": len(ready_rows),
-        "raw_rows": len(raw_rows),
-        "supplement_rows": len(supplement_rows),
+        "dataset_rows": len(dataset_rows),
         "ledger_sha256": file_sha256(ledger_path),
-        "raw_sha256": file_sha256(raw_path),
+        "dataset_sha256": file_sha256(dataset_path),
         "evidence_root_sha256": digest.hexdigest(),
     }
 
@@ -924,11 +758,9 @@ def parser() -> argparse.ArgumentParser:
     argument_parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     mode = argument_parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--run", action="store_true")
-    mode.add_argument("--build-supplement", action="store_true")
     mode.add_argument("--audit", action="store_true")
     argument_parser.add_argument("--ledger", required=True, type=Path)
-    argument_parser.add_argument("--raw-output", required=True, type=Path)
-    argument_parser.add_argument("--supplement-output", type=Path)
+    argument_parser.add_argument("--dataset", required=True, type=Path)
     argument_parser.add_argument("--failure-output", type=Path)
     argument_parser.add_argument("--start", required=True, type=nonnegative_int)
     argument_parser.add_argument("--end", required=True, type=nonnegative_int)
@@ -960,30 +792,14 @@ def main() -> None:
     if args.max_attempts < 1:
         raise SystemExit("--max-attempts must be at least one")
     if args.failure_output is None:
-        args.failure_output = args.raw_output.with_name(
-            f"{args.raw_output.stem}-failures.csv"
+        args.failure_output = args.dataset.with_name(
+            f"{args.dataset.stem}-failures.csv"
         )
-
-    if (args.build_supplement or args.audit) and args.supplement_output is None:
-        raise SystemExit("--build-supplement and --audit require --supplement-output")
-
-    if args.build_supplement:
-        report = build_supplement(
-            args.ledger,
-            args.raw_output,
-            args.supplement_output,
-            args.start,
-            args.end,
-        )
-        for key, value in report.items():
-            print(f"{key}={value}")
-        return
 
     if args.audit:
         report = audit(
             args.ledger,
-            args.raw_output,
-            args.supplement_output,
+            args.dataset,
             args.start,
             args.end,
         )
@@ -995,10 +811,11 @@ def main() -> None:
         args.requests_per_second,
         args.timeout,
         args.max_attempts,
+        user_agent=USER_AGENT,
     )
-    stats = run_extraction(
+    stats = run_acquisition(
         ledger_path=args.ledger,
-        raw_output=args.raw_output,
+        dataset_path=args.dataset,
         failure_output=args.failure_output,
         start=args.start,
         end=args.end,

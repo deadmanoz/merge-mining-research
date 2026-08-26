@@ -113,14 +113,14 @@ def _client_for_rows(rows: dict[str, dict]) -> payloads.PacedHttpClient:
     )
 
 
-def _raw_row(
+def _acquisition_row(
     height: int,
     tx_id: str,
     *,
     prefix: bytes = b"funds",
     aux_pow: bytes = b"\xaa\x55",
 ) -> dict[str, object]:
-    return payloads.make_raw_row(
+    return payloads.make_acquisition_row(
         payloads.Payload(
             height,
             tx_id,
@@ -135,10 +135,10 @@ def _raw_row(
     )
 
 
-def _write_raw(path: Path, rows: list[dict[str, object]]) -> None:
+def _write_dataset(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(
-            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+            handle, fieldnames=payloads.ACQUISITION_COLUMNS, lineterminator="\n"
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -239,14 +239,14 @@ def test_fetch_payload_uses_fallback_after_a_primary_failure() -> None:
             pass
 
     client = Client()
-    archived, failure = payloads.fetch_payload(
+    acquired, failure = payloads.fetch_payload(
         client, payloads.ReadyRow(0, TX_A), PRIMARY, FALLBACK
     )
 
     assert failure is None
-    assert archived is not None
-    assert archived.endpoint == FALLBACK
-    assert archived.attempt_count == 2
+    assert acquired is not None
+    assert acquired.endpoint == FALLBACK
+    assert acquired.attempt_count == 2
     assert client.endpoints == [PRIMARY, FALLBACK]
 
 
@@ -268,11 +268,11 @@ def test_fetch_payload_records_an_exhausted_failure() -> None:
         def sleep(self, _seconds):
             pass
 
-    archived, failure = payloads.fetch_payload(
+    acquired, failure = payloads.fetch_payload(
         Client(), payloads.ReadyRow(0, TX_A), PRIMARY, FALLBACK
     )
 
-    assert archived is None
+    assert acquired is None
     assert failure is not None
     assert failure["http_status"] == 503
     assert failure["endpoint"] == FALLBACK
@@ -280,20 +280,19 @@ def test_fetch_payload_records_an_exhausted_failure() -> None:
     assert failure["error_reason"] == "http_503"
 
 
-def test_acquire_resume_supplement_and_audit_work_end_to_end(tmp_path: Path) -> None:
+def test_acquire_resume_and_audit_work_end_to_end(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
-    raw = tmp_path / "raw.csv"
+    dataset = tmp_path / "acquisition.csv"
     failures = tmp_path / "failures.csv"
-    supplement = tmp_path / "supplement.csv"
     _write_ledger(ledger)
     responses = {
         TX_A: _response(TX_A, prefix=b"funds-a", timestamp=10),
         TX_C: _response(TX_C, prefix=b"funds-c", timestamp=12),
     }
 
-    stats = payloads.run_extraction(
+    stats = payloads.run_acquisition(
         ledger_path=ledger,
-        raw_output=raw,
+        dataset_path=dataset,
         failure_output=failures,
         start=0,
         end=3,
@@ -302,12 +301,14 @@ def test_acquire_resume_supplement_and_audit_work_end_to_end(tmp_path: Path) -> 
         fallback_endpoint=FALLBACK,
     )
 
-    assert stats == {"archived": 2, "ready_total": 2, "raw_complete": 2}
-    with raw.open(newline="") as handle:
+    assert stats == {"acquired": 2, "ready_total": 2, "dataset_complete": 2}
+    with dataset.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-        assert list(rows[0]) == payloads.RAW_COLUMNS
+        assert list(rows[0]) == payloads.ACQUISITION_COLUMNS
     assert [row["hathor_height"] for row in rows] == ["0", "2"]
-    assert all(row["record_sha256"] == payloads.raw_record_sha256(row) for row in rows)
+    assert all(
+        row["record_sha256"] == payloads.acquisition_record_sha256(row) for row in rows
+    )
 
     no_fetch = payloads.PacedHttpClient(
         1,
@@ -317,36 +318,31 @@ def test_acquire_resume_supplement_and_audit_work_end_to_end(tmp_path: Path) -> 
             AssertionError("completed rows must not be fetched again")
         ),
     )
-    assert payloads.run_extraction(
+    assert payloads.run_acquisition(
         ledger_path=ledger,
-        raw_output=raw,
+        dataset_path=dataset,
         failure_output=failures,
         start=0,
         end=3,
         client=no_fetch,
         primary_endpoint=PRIMARY,
         fallback_endpoint=FALLBACK,
-    ) == {"ready_total": 2, "raw_complete": 2}
+    ) == {"ready_total": 2, "dataset_complete": 2}
 
-    assert payloads.build_supplement(ledger, raw, supplement, 0, 3) == {
-        "ready_rows": 2,
-        "supplement_rows": 2,
-    }
-    report = payloads.audit(ledger, raw, supplement, 0, 3)
-    assert report["ready_rows"] == report["raw_rows"] == report["supplement_rows"] == 2
+    report = payloads.audit(ledger, dataset, 0, 3)
+    assert report["ready_rows"] == report["dataset_rows"] == 2
     assert set(report) == {
         "ready_rows",
-        "raw_rows",
-        "supplement_rows",
+        "dataset_rows",
         "ledger_sha256",
-        "raw_sha256",
+        "dataset_sha256",
         "evidence_root_sha256",
     }
 
 
 def test_limit_schedules_the_least_retried_height_first(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
-    raw = tmp_path / "raw.csv"
+    dataset = tmp_path / "acquisition.csv"
     failures = tmp_path / "failures.csv"
     _write_ledger(ledger)
     _write_failures(
@@ -365,9 +361,9 @@ def test_limit_schedules_the_least_retried_height_first(tmp_path: Path) -> None:
         1000, 30, 1, opener=opener, sleep=lambda _seconds: None
     )
 
-    stats = payloads.run_extraction(
+    stats = payloads.run_acquisition(
         ledger_path=ledger,
-        raw_output=raw,
+        dataset_path=dataset,
         failure_output=failures,
         start=0,
         end=3,
@@ -378,19 +374,19 @@ def test_limit_schedules_the_least_retried_height_first(tmp_path: Path) -> None:
     )
 
     assert requested == [TX_C]
-    assert stats["archived"] == 1
+    assert stats["acquired"] == 1
 
 
 def test_resume_rewrites_successes_into_height_order(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
-    raw = tmp_path / "raw.csv"
+    dataset = tmp_path / "acquisition.csv"
     failures = tmp_path / "failures.csv"
     _write_ledger(ledger)
-    _write_raw(raw, [_raw_row(2, TX_C)])
+    _write_dataset(dataset, [_acquisition_row(2, TX_C)])
 
-    payloads.run_extraction(
+    payloads.run_acquisition(
         ledger_path=ledger,
-        raw_output=raw,
+        dataset_path=dataset,
         failure_output=failures,
         start=0,
         end=3,
@@ -399,23 +395,23 @@ def test_resume_rewrites_successes_into_height_order(tmp_path: Path) -> None:
         fallback_endpoint=FALLBACK,
     )
 
-    with raw.open(newline="") as handle:
+    with dataset.open(newline="") as handle:
         assert [row["hathor_height"] for row in csv.DictReader(handle)] == ["0", "2"]
 
 
 def test_record_seal_rejects_tampered_source_evidence(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
-    raw = tmp_path / "raw.csv"
+    dataset = tmp_path / "acquisition.csv"
     failures = tmp_path / "failures.csv"
     _write_ledger(ledger, [_ledger_row(0, "version_3_ready", TX_A)])
-    row = _raw_row(0, TX_A)
+    row = _acquisition_row(0, TX_A)
     row["raw_hex"] = str(row["raw_hex"])[:-2]
-    _write_raw(raw, [row])
+    _write_dataset(dataset, [row])
 
-    with pytest.raises(ValueError, match="record digest mismatch"):
-        payloads.run_extraction(
+    with pytest.raises(ValueError, match="acquisition record digest mismatch"):
+        payloads.run_acquisition(
             ledger_path=ledger,
-            raw_output=raw,
+            dataset_path=dataset,
             failure_output=failures,
             start=0,
             end=1,
@@ -425,30 +421,34 @@ def test_record_seal_rejects_tampered_source_evidence(tmp_path: Path) -> None:
         )
 
 
-def test_build_and_audit_require_exact_matching_evidence(tmp_path: Path) -> None:
+def test_audit_requires_complete_self_consistent_dataset(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
-    raw = tmp_path / "raw.csv"
-    supplement = tmp_path / "supplement.csv"
+    dataset = tmp_path / "acquisition.csv"
     _write_ledger(ledger)
-    _write_raw(raw, [_raw_row(0, TX_A)])
+    _write_dataset(dataset, [_acquisition_row(0, TX_A)])
 
     with pytest.raises(ValueError, match="coverage incomplete"):
-        payloads.build_supplement(ledger, raw, supplement, 0, 3)
+        payloads.audit(ledger, dataset, 0, 3)
 
-    _write_raw(raw, [_raw_row(0, TX_A), _raw_row(2, TX_C)])
-    payloads.build_supplement(ledger, raw, supplement, 0, 3)
-    with supplement.open(newline="") as handle:
+    _write_dataset(
+        dataset,
+        [_acquisition_row(0, TX_A), _acquisition_row(2, TX_C)],
+    )
+    with dataset.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     rows[0]["funds_graph_hex"] = "00"
-    with supplement.open("w", newline="") as handle:
+    rows[0]["record_sha256"] = payloads.acquisition_record_sha256(rows[0])
+    with dataset.open("w", newline="") as handle:
         writer = csv.DictWriter(
-            handle, fieldnames=payloads.SUPPLEMENT_COLUMNS, lineterminator="\n"
+            handle,
+            fieldnames=payloads.ACQUISITION_COLUMNS,
+            lineterminator="\n",
         )
         writer.writeheader()
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match="does not match raw evidence"):
-        payloads.audit(ledger, raw, supplement, 0, 3)
+    with pytest.raises(ValueError, match="does not match transaction bytes"):
+        payloads.audit(ledger, dataset, 0, 3)
 
 
 def test_failure_history_must_match_the_ready_ledger(tmp_path: Path) -> None:
@@ -463,19 +463,21 @@ def test_failure_history_must_match_the_ready_ledger(tmp_path: Path) -> None:
         payloads.read_failure_rounds(path, ready)
 
 
-def test_raw_reader_accepts_only_the_current_complete_schema(tmp_path: Path) -> None:
-    path = tmp_path / "raw.csv"
-    old_columns = payloads.RAW_COLUMNS[:6]
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=old_columns, lineterminator="\n")
-        writer.writeheader()
+@pytest.mark.parametrize(
+    ("contents", "message"),
+    [
+        (",".join(payloads.ACQUISITION_COLUMNS[:-1]) + "\n", "unexpected columns"),
+        (",".join(payloads.ACQUISITION_COLUMNS) + "\n0", "truncated row"),
+    ],
+)
+def test_acquisition_reader_rejects_malformed_schema(
+    tmp_path: Path, contents: str, message: str
+) -> None:
+    path = tmp_path / "acquisition.csv"
+    path.write_text(contents)
 
-    with pytest.raises(ValueError, match="unexpected columns"):
-        payloads.read_raw_rows(path)
-
-    path.write_text(",".join(payloads.RAW_COLUMNS) + "\n0")
-    with pytest.raises(ValueError, match="truncated row"):
-        payloads.read_raw_rows(path)
+    with pytest.raises(ValueError, match=message):
+        payloads.read_acquisition_rows(path)
 
 
 def test_input_and_output_paths_must_be_distinct(tmp_path: Path) -> None:
@@ -484,9 +486,9 @@ def test_input_and_output_paths_must_be_distinct(tmp_path: Path) -> None:
     _write_ledger(ledger, [_ledger_row(0, "version_3_ready", TX_A)])
 
     with pytest.raises(ValueError, match="distinct paths"):
-        payloads.run_extraction(
+        payloads.run_acquisition(
             ledger_path=ledger,
-            raw_output=ledger,
+            dataset_path=ledger,
             failure_output=failures,
             start=0,
             end=1,

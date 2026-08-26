@@ -168,7 +168,7 @@ _CHILD_OUTPUT_COLUMNS = [
 # classification, and no other bucket has a claim to record. The name and the
 # ``|`` separator are the import contract ``scripts/prep/build_error_blocks.py``
 # honors verbatim, and the ones the other two producers
-# (``classify_hathor_phase_c.py`` and ``reconcile_unknown_stale_ancestry.py``)
+# (the unified Hathor classifier and ``reconcile_unknown_stale_ancestry.py``)
 # already emit, so all three agree.
 RULES_VIOLATED_COLUMN = "rules_violated"
 
@@ -675,9 +675,9 @@ def _validate_distinct_outputs(labelled: dict[str, str]) -> None:
     (near, all-valid) the run will actually write, because those two are
     written outside the shared writer and so are invisible to its own check.
 
-    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py`` and
-    ``classify_hathor_phase_c.py``. Those are not reused: each is named over
-    its own script's artifact set, which is not the shared writer's.
+    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py``.
+    That helper is not reused because it is named over RSK's artifact set,
+    which is not the shared writer's.
     """
     seen: dict[Path, str] = {}
     for label, path in labelled.items():

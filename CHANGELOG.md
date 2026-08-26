@@ -2,17 +2,14 @@
 
 ## Unreleased
 
-Add a bounded, resumable Hathor pre-million acquisition path. Freeze an exact
-height partition in a self-describing manifest, record one terminal metadata
-outcome per height, and re-drive all unresolved rows into a separate ordered
-ledger without mutating the source. Fetch each ready version-3 transaction into
-one sealed current-schema source row with request provenance, derive the
-funds-and-graph supplement locally, and audit both artifacts against the ledger.
-Keep durable per-row writes, deterministic height ordering, endpoint fallback,
-fair bounded retries, exact transaction identity, and full evidence coverage.
-Reject legacy manifests, earlier raw schemas, and unsealed rows instead of
-carrying runtime compatibility or upgrade shims; transform private historical
-artifacts with disposable operator scripts if they are ever needed again.
+Unify Hathor acquisition and classification around one range-neutral dataset.
+Record terminal metadata for the caller-declared height range, retain every
+version-3 proof and its funds-and-graph bytes in one sealed acquisition row,
+and classify that dataset directly into the standard terminal categories in a
+single atomic run. Remove the separate raw/supplement acquisition path, the
+persisted classifier phases, and their compatibility handling. Historical
+private artifacts require a disposable operator transform instead of a
+permanent shim.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
@@ -168,14 +165,11 @@ gate can overwrite.
 
 The routing runs uniformly across the shared driver, the four direct-gate
 classifiers, the namecoin/i0coin classifier, RSK (version, median-time-past,
-and retarget rules only, as its proof exposes no coinbase), Hathor Phase C, and
-the stale-descendant reconciliation. Hathor Phase B now writes the shared
-`VALID`/`REJECTED:`/`UNKNOWN:` verdict vocabulary, with Phase C accepting the
-pre-rename tokens archived intermediates still carry; Phase C also loads the
-committed retarget-epoch table, so an epoch-start candidate carrying the
-previous epoch's bits becomes an error block there rather than being dropped,
-and its re-routed unknowns get an `_unknown_blocks` peer instead of vanishing
-from both the inventory and the unknown-ancestry walk. The ancestry
+and retarget rules only, as its proof exposes no coinbase), the unified Hathor
+classifier, and the stale-descendant reconciliation. Hathor loads the committed
+retarget-epoch table, so an epoch-start candidate carrying the previous epoch's
+bits becomes an error block rather than being dropped, and its re-routed
+unknowns remain in the unknown inventory. The ancestry
 reconciliation derives rules only from header bytes that authenticate against
 the claimed hash, and routes the candidates it does judge out of
 `data/stale_descendants.csv` into a new `--error-blocks-csv` peer, so the

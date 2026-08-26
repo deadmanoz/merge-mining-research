@@ -313,7 +313,7 @@ OUTPUT_FIELDS = [
 ]
 
 # The error-block peer alone carries the pipe-joined rule set the routing
-# derived, matching the shared writer, Hathor phase C, and the reconciler. Its
+# derived, matching the shared writer, Hathor classifier, and the reconciler. Its
 # three publication siblings keep OUTPUT_FIELDS unchanged.
 ERROR_BLOCK_FIELDS = [*OUTPUT_FIELDS, RULES_VIOLATED_COLUMN]
 
