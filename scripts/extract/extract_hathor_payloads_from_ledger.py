@@ -6,7 +6,13 @@ The pre-million metadata census already establishes one ``tx_id`` for every
 per ready row that lacks a sealed source record in the current run and writes
 one complete record to an augmented ``hathor_auxpow_raw.csv``. Failed attempts
 remain append-only history and are retried on later runs until a sealed source
-row exists. Each source row includes the existing AuxPoW columns plus the
+row exists. The durable failure log is the retry-round scheduler: pending
+heights are fetched in least-completed-failure-round then height order, so a
+permanently failing early height cannot starve later ones under ``--limit``
+and remains retryable after a full pass. New payloads must locate their unique
+``aux_pow`` at a byte offset of at least three inside the raw transaction;
+shorter funds-graph prefixes fail as ``funds_graph_prefix_too_short``. Each
+source row includes the existing AuxPoW columns plus the
 lossless ``raw_hex`` payload and its derived ``funds_graph_hex`` bytes. New v2
 rows also retain the serving endpoint, HTTP status, and total attempt count. A
 SHA-256 record seal covers every source field, so an interrupted or manually
@@ -36,7 +42,7 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -402,6 +408,100 @@ def read_csv_rows(path: Path, columns: list[str]) -> dict[int, dict[str, str]]:
     return rows
 
 
+def validate_failure_http_status(value: str, path: Path) -> None:
+    """Require the blank-or-canonical status form emitted by ``failure_row``."""
+    if value == "":
+        return
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid failure http_status in {path}: {value!r}") from exc
+    if str(parsed) != value or not 100 <= parsed <= 599:
+        raise ValueError(f"non-canonical failure http_status in {path}: {value!r}")
+
+
+def validate_failure_timestamp(value: str, path: Path) -> None:
+    """Require the exact timezone-aware UTC form emitted by ``failure_row``."""
+    if not value:
+        raise ValueError(f"blank recorded_at_utc in failure history: {path}")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid recorded_at_utc in {path}: {value!r}") from exc
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() != timedelta(0)
+        or parsed.isoformat() != value
+    ):
+        raise ValueError(f"non-canonical recorded_at_utc in {path}: {value!r}")
+
+
+def read_failure_rounds(path: Path, ready_rows: dict[int, ReadyRow]) -> Counter[int]:
+    """Count validated durable failure rows per ready height for fair retries.
+
+    A missing or empty failure log means zero completed rounds. Any malformed
+    history fails closed so a later run never schedules against corrupt state.
+    """
+    rounds: Counter[int] = Counter()
+    if not path.exists() or path.stat().st_size == 0:
+        return rounds
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        if handle.read(1) != b"\n":
+            raise ValueError(f"CSV ends with a truncated row: {path}")
+    try:
+        with path.open(newline="") as handle:
+            reader = csv.DictReader(handle, strict=True)
+            if reader.fieldnames != FAILURE_COLUMNS:
+                raise ValueError(f"unexpected columns in {path}: {reader.fieldnames}")
+            previous_line = reader.line_num
+            for row in reader:
+                if reader.line_num != previous_line + 1:
+                    raise ValueError(f"malformed physical CSV row in {path}")
+                previous_line = reader.line_num
+                if set(row) != set(FAILURE_COLUMNS) or any(
+                    value is None for value in row.values()
+                ):
+                    raise ValueError(f"incomplete or extra CSV cells in {path}")
+                height = canonical_csv_height(row["hathor_height"], path)
+                ready = ready_rows.get(height)
+                if ready is None:
+                    raise ValueError(
+                        f"failure history without a ready height in {path}: {height}"
+                    )
+                if row["hathor_block_hash"] != ready.tx_id:
+                    raise ValueError(f"failure tx_id mismatch at height {height}")
+                validate_failure_http_status(row["http_status"], path)
+                try:
+                    attempt_count = int(row["attempt_count"])
+                except ValueError as exc:
+                    raise ValueError(
+                        f"invalid attempt_count in {path}: {row['attempt_count']!r}"
+                    ) from exc
+                if str(attempt_count) != row["attempt_count"] or attempt_count < 1:
+                    raise ValueError(
+                        f"non-canonical attempt_count in {path}: "
+                        f"{row['attempt_count']!r}"
+                    )
+                for field in ("endpoint", "error_reason"):
+                    value = row[field]
+                    if not value.strip():
+                        raise ValueError(
+                            f"blank {field} in failure history at height {height}"
+                        )
+                    if value != value.strip():
+                        raise ValueError(
+                            f"non-canonical {field} in failure history at height {height}"
+                        )
+                validate_failure_timestamp(row["recorded_at_utc"], path)
+                rounds[height] += 1
+            if reader.line_num != previous_line:
+                raise ValueError(f"malformed trailing CSV row in {path}")
+    except csv.Error as exc:
+        raise ValueError(f"malformed CSV: {path}") from exc
+    return rounds
+
+
 def read_raw_rows(
     path: Path,
 ) -> tuple[list[str], dict[int, dict[str, str]], list[int]]:
@@ -637,6 +737,8 @@ def parse_payload(
     if occurrence_count != 1:
         raise ValueError(f"aux_pow_occurrences_{occurrence_count}")
     offset = raw.find(aux_pow)
+    if offset < 3:
+        raise ValueError("funds_graph_prefix_too_short")
     timestamp = require_api_timestamp(tx.get("timestamp"))
     return Payload(
         height=ready.height,
@@ -651,6 +753,18 @@ def parse_payload(
     )
 
 
+def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
+    """Trim endpoint padding and reject whitespace that remains inside it."""
+    endpoint = value.strip().rstrip("/")
+    if not endpoint:
+        if allow_blank:
+            return ""
+        raise ValueError(f"{name} endpoint must be non-empty")
+    if any(character.isspace() for character in endpoint):
+        raise ValueError(f"{name} endpoint must not contain whitespace")
+    return endpoint
+
+
 def fetch_payload(
     client: PacedHttpClient,
     ready: ReadyRow,
@@ -658,8 +772,9 @@ def fetch_payload(
     fallback_endpoint: str,
 ) -> tuple[Payload | None, dict[str, object] | None]:
     """Fetch a ready transaction, returning a payload or one visible failure row."""
-    endpoints = [primary_endpoint.rstrip("/")]
-    fallback = fallback_endpoint.strip().rstrip("/")
+    primary = canonical_endpoint(primary_endpoint, "primary", allow_blank=False)
+    endpoints = [primary]
+    fallback = canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
     if fallback and fallback != endpoints[0]:
         endpoints.append(fallback)
 
@@ -885,9 +1000,11 @@ def run_extraction(
             )
 
         validate_append_csv(failure_output, FAILURE_COLUMNS)
+        retry_rounds = read_failure_rounds(failure_output, ready_rows)
         if observed_order != sorted(observed_order) or not raw_output.exists():
             replace_raw_rows_atomically(raw_output, raw_rows)
 
+        pending.sort(key=lambda ready: (retry_rounds[ready.height], ready.height))
         if limit is not None:
             pending = pending[:limit]
         if not pending:
@@ -1089,7 +1206,14 @@ def parser() -> argparse.ArgumentParser:
     )
     argument_parser.add_argument("--timeout", type=positive_float, default=30.0)
     argument_parser.add_argument("--max-attempts", type=int, default=3)
-    argument_parser.add_argument("--limit", type=nonnegative_int)
+    argument_parser.add_argument(
+        "--limit",
+        type=nonnegative_int,
+        help=(
+            "Maximum pending heights scheduled this invocation, ordered by "
+            "least completed failure round then height"
+        ),
+    )
     return argument_parser
 
 

@@ -224,7 +224,12 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
 
 
 def write_manifest(path: Path, manifest: Manifest) -> None:
-    """Write a new manifest, refusing to replace an existing run contract."""
+    """Write a new manifest, refusing to replace an existing run contract.
+
+    The complete CSV is staged in a same-directory temporary file, fully
+    synced, then published with a no-clobber hard link so the first creator to
+    link wins and is never overwritten by a competitor.
+    """
     if path.exists():
         raise ValueError(f"manifest already exists: {path}")
     shards = validate_shards(
@@ -233,29 +238,48 @@ def write_manifest(path: Path, manifest: Manifest) -> None:
         manifest.end_height,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=MANIFEST_COLUMNS, lineterminator="\n"
-        )
-        writer.writeheader()
-        for shard in shards:
-            writer.writerow(
-                {
-                    "manifest_start_height": manifest.start_height,
-                    "manifest_end_height": manifest.end_height,
-                    "shard_id": shard.shard_id,
-                    "start_height": shard.start_height,
-                    "end_height": shard.end_height,
-                    "worker": shard.worker,
-                    "primary_endpoint": shard.primary_endpoint,
-                    "fallback_endpoint": shard.fallback_endpoint,
-                    "extractor_revision": shard.extractor_revision,
-                    "status": shard.status,
-                }
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=path.parent,
+            prefix=f".{path.name}.tmp-",
+            newline="",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.DictWriter(
+                handle, fieldnames=MANIFEST_COLUMNS, lineterminator="\n"
             )
-        handle.flush()
-        os.fsync(handle.fileno())
-    fsync_directory(path.parent)
+            writer.writeheader()
+            for shard in shards:
+                writer.writerow(
+                    {
+                        "manifest_start_height": manifest.start_height,
+                        "manifest_end_height": manifest.end_height,
+                        "shard_id": shard.shard_id,
+                        "start_height": shard.start_height,
+                        "end_height": shard.end_height,
+                        "worker": shard.worker,
+                        "primary_endpoint": shard.primary_endpoint,
+                        "fallback_endpoint": shard.fallback_endpoint,
+                        "extractor_revision": shard.extractor_revision,
+                        "status": shard.status,
+                    }
+                )
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            raise ValueError(f"manifest already exists: {path}") from None
+        temporary.unlink()
+        temporary = None
+        fsync_directory(path.parent)
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
 
 
 def canonical_manifest_bound(value: str, field: str) -> int:

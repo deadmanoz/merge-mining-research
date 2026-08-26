@@ -1072,3 +1072,73 @@ def test_deduplicate_ledger_rejects_conflicting_rows(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="conflicting duplicate"):
         ledger.deduplicate_ledger(source, tmp_path / "repaired.csv")
+
+
+def _two_shard_manifest() -> ledger.Manifest:
+    return ledger.Manifest(
+        0,
+        6,
+        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+    )
+
+
+def test_write_manifest_competing_winner_is_never_clobbered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.csv"
+    real_link = ledger.os.link
+
+    def competing_link(source, target):
+        Path(target).write_text("competing manifest\n")
+        real_link(source, target)
+
+    monkeypatch.setattr(ledger.os, "link", competing_link)
+
+    with pytest.raises(ValueError, match="manifest already exists"):
+        ledger.write_manifest(path, _two_shard_manifest())
+
+    assert path.read_text() == "competing manifest\n"
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_write_manifest_interruption_before_publication_leaves_no_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.csv"
+
+    def fail_fsync(_fd):
+        raise OSError("simulated fsync failure")
+
+    monkeypatch.setattr(ledger.os, "fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="simulated fsync failure"):
+        ledger.write_manifest(path, _two_shard_manifest())
+
+    assert not path.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_write_manifest_syncs_file_then_links_then_syncs_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.csv"
+    events: list[str | tuple[str, Path]] = []
+    real_link = ledger.os.link
+    monkeypatch.setattr(ledger.os, "fsync", lambda _fd: events.append("file"))
+
+    def recording_link(source, target):
+        events.append("link")
+        real_link(source, target)
+
+    monkeypatch.setattr(ledger.os, "link", recording_link)
+    monkeypatch.setattr(
+        ledger,
+        "fsync_directory",
+        lambda directory: events.append(("directory", directory)),
+    )
+
+    manifest = _two_shard_manifest()
+    ledger.write_manifest(path, manifest)
+
+    assert events == ["file", "link", ("directory", tmp_path)]
+    assert ledger.read_manifest(path) == manifest

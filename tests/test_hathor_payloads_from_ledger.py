@@ -1044,6 +1044,78 @@ def test_blank_fallback_is_disabled_and_retries_the_primary(
     ]
 
 
+def test_primary_endpoint_is_canonicalized_before_a_request() -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(503, None, "http_503", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "  https://primary.example/v1a///  ",
+        "",
+    )
+
+    assert payload is None
+    assert failure is not None
+    assert failure["endpoint"] == "https://primary.example/v1a"
+    assert client.endpoints == ["https://primary.example/v1a"]
+
+
+@pytest.mark.parametrize("primary_endpoint", ["", " ", "/", "///"])
+def test_blank_primary_endpoint_fails_before_a_request(primary_endpoint: str) -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("blank primary endpoint must fail before I/O")
+
+    with pytest.raises(ValueError, match="primary endpoint must be non-empty"):
+        payloads.fetch_payload(Client(), ready, primary_endpoint, "")
+
+
+@pytest.mark.parametrize(
+    ("primary_endpoint", "fallback_endpoint", "error"),
+    [
+        ("https://primary.example/v1a /", "", "primary endpoint"),
+        (
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a /",
+            "fallback endpoint",
+        ),
+    ],
+)
+def test_endpoint_whitespace_before_trailing_slashes_fails_before_a_request(
+    primary_endpoint: str,
+    fallback_endpoint: str,
+    error: str,
+) -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("non-canonical endpoints must fail before I/O")
+
+    with pytest.raises(ValueError, match=error):
+        payloads.fetch_payload(Client(), ready, primary_endpoint, fallback_endpoint)
+
+
 def test_http_client_preserves_status_for_invalid_json() -> None:
     class Response:
         def __enter__(self):
@@ -1729,3 +1801,392 @@ def test_incomplete_sealed_v1_evidence_requires_a_new_output(
 
     assert raw_output.read_bytes() == original
     assert not failure_output.exists()
+
+
+@pytest.mark.parametrize("prefix_length", [0, 1, 2])
+def test_parse_payload_rejects_a_structurally_incomplete_funds_graph_prefix(
+    prefix_length: int,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    with pytest.raises(ValueError, match="funds_graph_prefix_too_short"):
+        payloads.parse_payload(
+            ready,
+            {
+                "success": True,
+                "tx": {
+                    "hash": ready.tx_id,
+                    "version": 3,
+                    "timestamp": 10,
+                    "aux_pow": aux_pow.hex(),
+                    "raw": (b"f" * prefix_length + aux_pow + b"tail").hex(),
+                },
+            },
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+def test_parse_payload_accepts_a_three_byte_funds_graph_prefix() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    parsed = payloads.parse_payload(
+        ready,
+        {
+            "success": True,
+            "tx": {
+                "hash": ready.tx_id,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_pow.hex(),
+                "raw": (b"fun" + aux_pow + b"tail").hex(),
+            },
+        },
+        "https://primary.example/v1a",
+        200,
+        1,
+    )
+
+    assert parsed.funds_graph_hex == b"fun".hex()
+
+
+def test_short_funds_graph_prefix_on_primary_retries_a_valid_fallback() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            prefix = b"fu" if len(self.endpoints) == 1 else b"funds"
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (prefix + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.http_status == 200
+    assert payload.attempt_count == 2
+    assert payload.funds_graph_hex == b"funds".hex()
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+
+
+def test_short_funds_graph_prefix_returns_a_stable_failure_row() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"fu" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    payload, failure = payloads.fetch_payload(
+        Client(),
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert payload is None
+    assert failure is not None
+    assert failure["error_reason"] == "funds_graph_prefix_too_short"
+
+
+def _write_all_ready_ledger(path: Path, heights: list[int]) -> dict[str, int]:
+    tx_heights: dict[str, int] = {}
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for height in heights:
+            tx_id = f"{height + 1:064x}"
+            tx_heights[tx_id] = height
+            writer.writerow(
+                {
+                    "hathor_height": height,
+                    "outcome": "version_3_ready",
+                    "http_status": 200,
+                    "block_version": 3,
+                    "tx_id": tx_id,
+                    "endpoint": "primary",
+                    "attempt_count": 1,
+                    "error_reason": "",
+                }
+            )
+    return tx_heights
+
+
+def _failure_row(height: int, tx_id: str) -> dict[str, object]:
+    return {
+        "hathor_height": height,
+        "hathor_block_hash": tx_id,
+        "http_status": 503,
+        "endpoint": "https://primary.example/v1a",
+        "attempt_count": 1,
+        "error_reason": "http_503",
+        "recorded_at_utc": "2024-01-01T00:00:00+00:00",
+    }
+
+
+class _FairnessClient:
+    max_attempts = 1
+
+    def __init__(self, tx_heights: dict[str, int], permanent_failures: set[int]):
+        self.tx_heights = tx_heights
+        self.permanent_failures = permanent_failures
+        self.fetched: list[int] = []
+
+    def get_json(self, _endpoint, _path, params):
+        tx_id = params["id"]
+        height = self.tx_heights[tx_id]
+        self.fetched.append(height)
+        if height in self.permanent_failures:
+            return payloads.HttpResult(503, None, "http_503", True)
+        aux = bytes.fromhex("aa55")
+        return payloads.HttpResult(
+            200,
+            {
+                "success": True,
+                "tx": {
+                    "hash": tx_id,
+                    "version": 3,
+                    "timestamp": 10,
+                    "aux_pow": aux.hex(),
+                    "raw": (b"funds" + aux + b"tail").hex(),
+                },
+            },
+            None,
+            False,
+        )
+
+    def sleep(self, _seconds):
+        pass
+
+
+def test_bounded_runs_share_failure_rounds_fairly_across_pending_heights(
+    tmp_path: Path,
+) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    tx_heights = _write_all_ready_ledger(ledger_path, [0, 1, 2])
+    client = _FairnessClient(tx_heights, permanent_failures={0})
+
+    for _ in range(4):
+        payloads.run_extraction(
+            ledger_path=ledger_path,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=3,
+            client=client,
+            primary_endpoint="https://primary.example/v1a",
+            fallback_endpoint="https://fallback.example/v1a",
+            limit=1,
+        )
+
+    assert client.fetched == [0, 1, 2, 0]
+    with raw_output.open(newline="") as handle:
+        assert [row["hathor_height"] for row in csv.DictReader(handle)] == ["1", "2"]
+    with failure_output.open(newline="") as handle:
+        failures = list(csv.DictReader(handle))
+    assert [row["hathor_height"] for row in failures] == ["0", "0"]
+
+
+def test_seeded_failure_round_defers_a_height_behind_fresh_pending(
+    tmp_path: Path,
+) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    tx_heights = _write_all_ready_ledger(ledger_path, [0, 1])
+    height_tx = {height: tx_id for tx_id, height in tx_heights.items()}
+    with failure_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.FAILURE_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(_failure_row(0, height_tx[0]))
+    client = _FairnessClient(tx_heights, permanent_failures=set())
+
+    payloads.run_extraction(
+        ledger_path=ledger_path,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=2,
+        client=client,
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+        limit=1,
+    )
+
+    assert client.fetched == [1]
+
+
+def test_malformed_failure_history_fails_before_network_or_raw_rewrite(
+    tmp_path: Path,
+) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_all_ready_ledger(ledger_path, [0, 1])
+    with failure_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.FAILURE_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(_failure_row(0, "f" * 64))
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError(
+                "malformed failure history must fail before network I/O"
+            )
+
+    with pytest.raises(ValueError, match="failure tx_id mismatch"):
+        payloads.run_extraction(
+            ledger_path=ledger_path,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=2,
+            client=Client(),
+            primary_endpoint="https://primary.example/v1a",
+            fallback_endpoint="https://fallback.example/v1a",
+            limit=1,
+        )
+
+    assert not raw_output.exists()
+
+
+def test_missing_or_empty_failure_log_means_zero_rounds(tmp_path: Path) -> None:
+    ready = {0: payloads.ReadyRow(0, "a" * 64)}
+    missing = tmp_path / "missing.csv"
+    assert payloads.read_failure_rounds(missing, ready) == {}
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    assert payloads.read_failure_rounds(empty, ready) == {}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("hathor_block_hash", "f" * 64, "failure tx_id mismatch"),
+        ("http_status", "garbage", "invalid failure http_status"),
+        ("http_status", "0503", "non-canonical failure http_status"),
+        ("http_status", "99", "non-canonical failure http_status"),
+        ("attempt_count", "0", "non-canonical attempt_count"),
+        ("attempt_count", "01", "non-canonical attempt_count"),
+        ("endpoint", " ", "blank endpoint"),
+        ("endpoint", " primary", "non-canonical endpoint"),
+        ("error_reason", "", "blank error_reason"),
+        ("error_reason", "http_503 ", "non-canonical error_reason"),
+        ("recorded_at_utc", "", "blank recorded_at_utc"),
+        ("recorded_at_utc", "not-a-date", "invalid recorded_at_utc"),
+        (
+            "recorded_at_utc",
+            "2024-01-01T00:00:00",
+            "non-canonical recorded_at_utc",
+        ),
+        (
+            "recorded_at_utc",
+            "2024-01-01T00:00:00+01:00",
+            "non-canonical recorded_at_utc",
+        ),
+    ],
+)
+def test_failure_history_reader_rejects_malformed_rows(
+    tmp_path: Path, field: str, value: str, error: str
+) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    tx_heights = _write_all_ready_ledger(ledger_path, [0])
+    height_tx = {height: tx_id for tx_id, height in tx_heights.items()}
+    failure_log = tmp_path / "failures.csv"
+    row = _failure_row(0, height_tx[0])
+    row[field] = value
+    with failure_log.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.FAILURE_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(row)
+
+    ready = payloads.load_ready_rows(ledger_path, 0, 1)
+    with pytest.raises(ValueError, match=error):
+        payloads.read_failure_rounds(failure_log, ready)
+
+
+def test_failure_history_accepts_a_blank_status_for_a_network_error(
+    tmp_path: Path,
+) -> None:
+    ledger_path = tmp_path / "ledger.csv"
+    tx_heights = _write_all_ready_ledger(ledger_path, [0])
+    height_tx = {height: tx_id for tx_id, height in tx_heights.items()}
+    failure_log = tmp_path / "failures.csv"
+    row = _failure_row(0, height_tx[0])
+    row["http_status"] = ""
+    with failure_log.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.FAILURE_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(row)
+
+    ready = payloads.load_ready_rows(ledger_path, 0, 1)
+    assert payloads.read_failure_rounds(failure_log, ready) == {0: 1}

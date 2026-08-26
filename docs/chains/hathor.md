@@ -48,8 +48,11 @@ Hathor-specific repo artifacts:
   mutating the source. A version-3 outcome resolves only with a canonical
   lowercase 64-character hex transaction ID, while truncated response bodies
   remain retryable. Completion also requires every ready transaction ID to map
-  to exactly one height. New manifest, ledger, and repair directory entries are
-  synced after their files become durable.
+  to exactly one height. A new manifest is staged in a fully synced
+  same-directory temporary file and published with a no-clobber hard link, so
+  the first creator to link wins and is never overwritten by a competitor. New
+  manifest, ledger, and repair directory entries are synced after their files
+  become durable.
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
   ledger-driven migration worker. Each transaction request writes one sealed
   source row containing `aux_pow`, `raw`, and locally derived funds+graph
@@ -59,8 +62,19 @@ Hathor-specific repo artifacts:
   rows whose recorded status is not 2xx, whitespace-bearing payload hex, and
   any artifact paths that alias one another. A successful response must echo
   the requested transaction ID, use exact integer version 3, and carry an exact
-  non-negative integer timestamp. A blank fallback URL disables fallback, and
-  newly created evidence directory entries are synced after their headers. The
+  non-negative integer timestamp. Endpoint padding is trimmed, any remaining
+  whitespace is rejected, the primary URL must remain nonblank, and a blank
+  fallback URL disables fallback. Newly created evidence directory entries are
+  synced after their headers. A new payload must also locate its unique
+  `aux_pow` at a byte offset of at least
+  three inside the raw transaction; shorter funds+graph prefixes fail as
+  `funds_graph_prefix_too_short` and remain retryable, while already sealed
+  v1/v2 rows are not retroactively rejected. `--limit` bounds how many pending
+  heights one invocation schedules; pending heights are ordered by least
+  completed durable failure round then height, so a permanently failing early
+  height cannot starve later heights and stays retryable after a full pass.
+  Failure history becomes load-bearing for that order, so each row must retain
+  its blank-or-canonical HTTP status and exact timezone-aware UTC timestamp. The
   completed seven-column sealed-v1 estate remains readable and byte-immutable;
   it cannot be mixed with new rows because its missing request provenance cannot
   be reconstructed honestly. These two workers preserve acquisition provenance;

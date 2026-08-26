@@ -20,8 +20,17 @@ aliases, and whitespace-bearing payload hex before any archive mutation. Persist
 the frozen manifest's declared global range in every shard row, require explicit
 bounds for legacy manifests, require exact echoed transaction identity and
 canonical timestamps before sealing new evidence, ignore blank fallback URLs,
-and durably sync newly created acquisition artifacts into their parent
-directories.
+require nonblank whitespace-free primary URLs and whitespace-free nonblank
+fallback URLs, and durably sync newly created acquisition artifacts into their
+parent directories. Reject new payloads whose
+unique ``aux_pow`` begins fewer than
+three bytes into the raw transaction as ``funds_graph_prefix_too_short``,
+schedule bounded payload runs by least completed durable failure round then
+height so an early permanent failure cannot starve later heights, validate each
+load-bearing failure row's blank-or-canonical HTTP status and exact UTC
+timestamp before it can affect scheduling, and publish frozen manifests through
+a fully synced same-directory temporary file linked into place without
+clobbering a competing winner.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
