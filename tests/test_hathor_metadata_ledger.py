@@ -102,6 +102,158 @@ def test_fetch_height_records_version_three_without_tx_id_as_unresolved() -> Non
     assert row["error_reason"] == "version_3_missing_tx_id"
 
 
+@pytest.mark.parametrize(
+    ("version", "error_reason"),
+    [
+        (None, "missing_block_version"),
+        ("0", "invalid_block_version"),
+        (-1, "invalid_block_version"),
+        (0.0, "invalid_block_version"),
+        (True, "invalid_block_version"),
+    ],
+)
+def test_fetch_height_keeps_missing_or_invalid_versions_unresolved(
+    version: object, error_reason: str
+) -> None:
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": version, "tx_id": "abc"}},
+                None,
+                False,
+            )
+
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(Client(), shard, 0)
+
+    assert row["outcome"] == "unavailable_block"
+    assert row["block_version"] == ""
+    assert row["error_reason"] == error_reason
+
+
+@pytest.mark.parametrize(
+    "primary_payload",
+    [
+        {"success": False, "block": {}},
+        {"success": True, "block": {}},
+        {"success": True, "block": ["not", "an", "object"]},
+        {"success": True, "block": {"tx_id": "abc"}},
+        {"success": True, "block": {"version": "0", "tx_id": "abc"}},
+    ],
+)
+def test_fetch_height_tries_fallback_after_an_unavailable_primary(
+    primary_payload: dict[str, object],
+) -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            payload = (
+                primary_payload
+                if endpoint == "primary"
+                else {"success": True, "block": {"version": 0, "tx_id": "abc"}}
+            )
+            return ledger.HttpResult(200, payload, None, False)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "non_version_3"
+    assert row["endpoint"] == "fallback"
+    assert row["attempt_count"] == 2
+
+
+def test_fetch_height_exhausts_bounded_attempts_before_unavailable() -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(200, {"success": False, "block": {}}, None, False)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "unavailable_block"
+    assert row["endpoint"] == "fallback"
+    assert row["attempt_count"] == 2
+
+
+@pytest.mark.parametrize(
+    "primary_result",
+    [
+        ledger.HttpResult(
+            None,
+            {"success": True, "block": {"version": 0, "tx_id": "abc"}},
+            None,
+            False,
+        ),
+        ledger.HttpResult(
+            500,
+            {"success": True, "block": {"version": 0, "tx_id": "abc"}},
+            None,
+            False,
+        ),
+        ledger.HttpResult(404, None, "http_404", False),
+    ],
+)
+def test_fetch_height_tries_fallback_after_invalid_or_endpoint_specific_status(
+    primary_result: ledger.HttpResult,
+) -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            if endpoint == "primary":
+                return primary_result
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 0, "tx_id": "abc"}},
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "non_version_3"
+    assert row["http_status"] == 200
+    assert row["endpoint"] == "fallback"
+
+
 def test_fetch_height_records_exhausted_failure_with_fallback() -> None:
     class Client:
         max_attempts = 2
@@ -251,6 +403,144 @@ def test_audit_ledger_rejects_unresolved_outcomes(tmp_path: Path) -> None:
         ledger.audit_ledger(path, 0, 1)
 
 
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_reject_a_truncated_final_row(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    header = ",".join(ledger.LEDGER_COLUMNS)
+    path.write_text(f"{header}\n0,non_version_3,200,0,abc,primary,1,")
+
+    with pytest.raises(ValueError, match="truncated row"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 1)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 1, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_require_every_schema_cell(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    header = ",".join(ledger.LEDGER_COLUMNS)
+    path.write_text(f"{header}\n0,non_version_3,200,0,abc,primary,1\n")
+
+    with pytest.raises(ValueError, match="exact complete schema"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 1)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 1, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_reject_extra_schema_cells(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    header = ",".join(ledger.LEDGER_COLUMNS)
+    path.write_text(f"{header}\n0,non_version_3,200,0,abc,primary,1,,extra\n")
+
+    with pytest.raises(ValueError, match="exact complete schema"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 1)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 1, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_require_the_exact_header(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    reversed_header = ",".join(reversed(ledger.LEDGER_COLUMNS))
+    path.write_text(f"{reversed_header}\n")
+
+    with pytest.raises(ValueError, match="unexpected ledger columns"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 1)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 1, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_reject_noncanonical_terminal_fields(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        row = ledger.ledger_row(0, "non_version_3", 200, 0, "abc", "primary", 1, "")
+        row["attempt_count"] = "01"
+        writer.writerow(row)
+
+    with pytest.raises(ValueError, match="non-canonical attempt_count"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 1)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 1, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
+def test_audit_rejects_resolved_outcome_without_required_terminal_fields(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(0, "non_version_3", 200, "", "abc", "primary", 1, "")
+        )
+
+    with pytest.raises(ValueError, match="invalid non_version_3 fields"):
+        ledger.audit_ledger(path, 0, 1)
+
+
+@pytest.mark.parametrize("operation", ["audit", "resume"])
+def test_ledger_consumers_reject_nonascending_rows(
+    tmp_path: Path, operation: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+        )
+        writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "p", 1, ""))
+
+    with pytest.raises(ValueError, match="ascending height order"):
+        if operation == "audit":
+            ledger.audit_ledger(path, 0, 2)
+        else:
+            shard = ledger.Shard(
+                "one", 0, 2, "a", "primary", "fallback", "r", "pending"
+            )
+            ledger.scan_shard(object(), shard, path)
+
+
 def test_retry_ledger_replaces_selected_failures_in_new_ordered_output(
     tmp_path: Path,
 ) -> None:
@@ -356,6 +646,7 @@ def test_scan_shard_fsyncs_each_terminal_row(
         "non_version_3": 1
     }
     assert len(fsync_calls) == 1
+    assert b"\r\n" not in (tmp_path / "ledger.csv").read_bytes()
 
 
 def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> None:

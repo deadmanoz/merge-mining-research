@@ -8,7 +8,10 @@ then fetch and seal one complete transaction row for each version-3 height
 while deriving its funds-and-graph supplement locally. Keep these one-time
 migration tools separate from the future acquisition interface. Fail closed
 when a ledger retains unresolved outcomes, and re-drive selected failures
-into a separate ordered ledger without mutating the source.
+into a separate ordered ledger without mutating the source. Retain successful
+payload endpoint, status, and attempt provenance in new sealed rows, preserve
+deterministic LF-terminated height order across recovery, and keep the completed
+sealed-v1 payload estate readable without inventing provenance it never stored.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

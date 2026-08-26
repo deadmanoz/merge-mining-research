@@ -81,6 +81,7 @@ LEDGER_COLUMNS = [
 ]
 FINAL_LEDGER_OUTCOMES = frozenset({"version_3_ready", "non_version_3"})
 RETRYABLE_LEDGER_OUTCOMES = frozenset({"request_failure", "unavailable_block"})
+LEDGER_OUTCOMES = FINAL_LEDGER_OUTCOMES | RETRYABLE_LEDGER_OUTCOMES
 
 
 @dataclass(frozen=True)
@@ -203,7 +204,9 @@ def write_manifest(path: Path, shards: list[Shard]) -> None:
         raise ValueError(f"manifest already exists: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
+        writer = csv.DictWriter(
+            handle, fieldnames=MANIFEST_COLUMNS, lineterminator="\n"
+        )
         writer.writeheader()
         for shard in shards:
             writer.writerow(
@@ -304,13 +307,14 @@ def fetch_height(
     shard: Shard,
     height: int,
 ) -> dict[str, str | int]:
-    """Return one terminal ledger row, retaining every failed attempt's outcome."""
+    """Return one terminal row with final-attempt provenance and total attempts."""
     endpoints = [shard.primary_endpoint]
     if shard.fallback_endpoint and shard.fallback_endpoint != shard.primary_endpoint:
         endpoints.append(shard.fallback_endpoint)
 
     attempt_count = 0
     last: HttpResult | None = None
+    last_unavailable: dict[str, str | int] | None = None
     last_endpoint = shard.primary_endpoint
     for attempt in range(client.max_attempts):
         endpoint = endpoints[attempt % len(endpoints)]
@@ -319,9 +323,16 @@ def fetch_height(
         result = client.get_json(endpoint, "/block_at_height", {"height": height})
         last = result
         if result.payload is not None:
-            block = result.payload.get("block") or {}
-            if not result.payload.get("success") or not block:
-                return ledger_row(
+            if result.status is None or not 200 <= result.status < 300:
+                reason = (
+                    "missing_http_status"
+                    if result.status is None
+                    else f"non_success_http_{result.status}"
+                )
+                last = HttpResult(result.status, None, reason, True)
+                last_unavailable = None
+            elif result.payload.get("success") is not True:
+                last_unavailable = ledger_row(
                     height,
                     "unavailable_block",
                     result.status,
@@ -331,13 +342,75 @@ def fetch_height(
                     attempt_count,
                     "api_success_false",
                 )
-            version = block.get("version")
-            tx_id = block.get("tx_id") or ""
-            if version == 3:
-                if tx_id:
+            elif (
+                not isinstance(result.payload.get("block"), dict)
+                or not result.payload["block"]
+            ):
+                last_unavailable = ledger_row(
+                    height,
+                    "unavailable_block",
+                    result.status,
+                    "",
+                    "",
+                    endpoint,
+                    attempt_count,
+                    "empty_or_invalid_block",
+                )
+            else:
+                block = result.payload["block"]
+                version = block.get("version")
+                tx_id_value = block.get("tx_id")
+                tx_id = (
+                    tx_id_value
+                    if isinstance(tx_id_value, str) and tx_id_value.strip()
+                    else ""
+                )
+                if (
+                    not isinstance(version, int)
+                    or isinstance(version, bool)
+                    or version < 0
+                ):
+                    reason = (
+                        "missing_block_version"
+                        if version is None
+                        else "invalid_block_version"
+                    )
+                    last_unavailable = ledger_row(
+                        height,
+                        "unavailable_block",
+                        result.status,
+                        "",
+                        tx_id,
+                        endpoint,
+                        attempt_count,
+                        reason,
+                    )
+                elif version == 3:
+                    if tx_id:
+                        return ledger_row(
+                            height,
+                            "version_3_ready",
+                            result.status,
+                            version,
+                            tx_id,
+                            endpoint,
+                            attempt_count,
+                            "",
+                        )
+                    last_unavailable = ledger_row(
+                        height,
+                        "unavailable_block",
+                        result.status,
+                        version,
+                        "",
+                        endpoint,
+                        attempt_count,
+                        "version_3_missing_tx_id",
+                    )
+                else:
                     return ledger_row(
                         height,
-                        "version_3_ready",
+                        "non_version_3",
                         result.status,
                         version,
                         tx_id,
@@ -345,30 +418,18 @@ def fetch_height(
                         attempt_count,
                         "",
                     )
-                return ledger_row(
-                    height,
-                    "unavailable_block",
-                    result.status,
-                    version,
-                    "",
-                    endpoint,
-                    attempt_count,
-                    "version_3_missing_tx_id",
-                )
-            return ledger_row(
-                height,
-                "non_version_3",
-                result.status,
-                "" if version is None else version,
-                tx_id,
-                endpoint,
-                attempt_count,
-                "",
-            )
-        if not result.retryable:
-            break
+        else:
+            last_unavailable = None
+            if not result.retryable and not (
+                attempt == 0 and len(endpoints) > 1 and client.max_attempts > 1
+            ):
+                break
+
         if attempt + 1 < client.max_attempts:
             client.sleep(min(2**attempt, 30))
+
+    if last_unavailable is not None:
+        return last_unavailable
 
     return ledger_row(
         height,
@@ -404,26 +465,154 @@ def ledger_row(
     }
 
 
-def read_recorded_heights(path: Path) -> set[int]:
-    """Read a ledger's recorded heights and reject malformed duplicate state."""
+def require_complete_ledger_file(path: Path) -> bool:
+    """Return whether a ledger has content, rejecting a truncated final row."""
     if not path.exists() or path.stat().st_size == 0:
-        return set()
-    recorded: set[int] = set()
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
+        return False
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        if handle.read(1) != b"\n":
+            raise ValueError(f"ledger ends with a truncated row: {path}")
+    return True
+
+
+def canonical_ledger_integer(
+    value: str,
+    field: str,
+    line_number: int,
+    *,
+    minimum: int,
+) -> int:
+    """Parse one canonical base-10 ledger integer without normalization."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"ledger row {line_number} has invalid {field}: {value!r}"
+        ) from exc
+    if str(parsed) != value or parsed < minimum:
+        raise ValueError(
+            f"ledger row {line_number} has non-canonical {field}: {value!r}"
+        )
+    return parsed
+
+
+def validate_ledger_row(row: dict[Any, Any], line_number: int) -> None:
+    """Require the exact schema and internally consistent terminal fields."""
+    if set(row) != set(LEDGER_COLUMNS) or any(value is None for value in row.values()):
+        raise ValueError(
+            f"ledger row {line_number} does not have the exact complete schema"
+        )
+    if any(not isinstance(value, str) for value in row.values()):
+        raise ValueError(f"ledger row {line_number} contains a non-text field")
+
+    canonical_ledger_integer(
+        row["hathor_height"], "hathor_height", line_number, minimum=0
+    )
+    canonical_ledger_integer(
+        row["attempt_count"], "attempt_count", line_number, minimum=1
+    )
+
+    outcome = row["outcome"]
+    if outcome not in LEDGER_OUTCOMES:
+        raise ValueError(f"ledger row {line_number} has unknown outcome: {outcome!r}")
+    if not row["endpoint"].strip():
+        raise ValueError(f"ledger row {line_number} has no endpoint")
+
+    status: int | None = None
+    if row["http_status"]:
+        status = canonical_ledger_integer(
+            row["http_status"], "http_status", line_number, minimum=100
+        )
+        if status > 599:
+            raise ValueError(
+                f"ledger row {line_number} has invalid http_status: {status}"
+            )
+
+    version: int | None = None
+    if row["block_version"]:
+        version = canonical_ledger_integer(
+            row["block_version"], "block_version", line_number, minimum=0
+        )
+
+    if outcome != "request_failure" and (status is None or not 200 <= status < 300):
+        raise ValueError(f"ledger row {line_number} has invalid successful http_status")
+
+    if outcome == "version_3_ready":
+        if version != 3 or not row["tx_id"].strip():
+            raise ValueError(
+                f"ledger row {line_number} has invalid version_3_ready fields"
+            )
+    elif outcome == "non_version_3":
+        if version is None or version == 3:
+            raise ValueError(
+                f"ledger row {line_number} has invalid non_version_3 fields"
+            )
+    elif outcome == "request_failure":
+        if version is not None or row["tx_id"]:
+            raise ValueError(
+                f"ledger row {line_number} has invalid request_failure fields"
+            )
+
+    if outcome in FINAL_LEDGER_OUTCOMES and row["error_reason"]:
+        raise ValueError(f"ledger row {line_number} resolves with an error reason")
+    if outcome in RETRYABLE_LEDGER_OUTCOMES and not row["error_reason"].strip():
+        raise ValueError(f"ledger row {line_number} has no error reason")
+
+
+def validated_ledger_rows(handle, path: Path):
+    """Yield strict one-line ledger records from an already opened handle."""
+    try:
+        reader = csv.DictReader(handle, strict=True)
         if reader.fieldnames != LEDGER_COLUMNS:
             raise ValueError(f"unexpected ledger columns: {reader.fieldnames}")
+        previous_line = reader.line_num
         for row in reader:
+            if reader.line_num != previous_line + 1:
+                raise ValueError(f"malformed multi-line or blank ledger row: {path}")
+            previous_line = reader.line_num
+            validate_ledger_row(row, reader.line_num)
+            yield row
+        if reader.line_num != previous_line:
+            raise ValueError(f"malformed trailing blank ledger row: {path}")
+    except csv.Error as exc:
+        raise ValueError(f"malformed ledger CSV: {path}") from exc
+
+
+def read_recorded_heights(path: Path) -> set[int]:
+    """Read a ledger's recorded heights and reject malformed duplicate state."""
+    if not require_complete_ledger_file(path):
+        return set()
+    recorded: set[int] = set()
+    observed_order: list[int] = []
+    with path.open(newline="") as handle:
+        for row in validated_ledger_rows(handle, path):
             height = int(row["hathor_height"])
             if height in recorded:
                 raise ValueError(f"duplicate ledger height: {height}")
             recorded.add(height)
+            observed_order.append(height)
+    if observed_order != sorted(observed_order):
+        raise ValueError("ledger rows are not in ascending height order")
     return recorded
 
 
 def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
     """Require one resolved ledger record for each height in ``[start, end)``."""
-    recorded = read_recorded_heights(path)
+    recorded: set[int] = set()
+    observed_order: list[int] = []
+    outcomes: Counter[str] = Counter()
+    if require_complete_ledger_file(path):
+        with path.open(newline="") as handle:
+            for row in validated_ledger_rows(handle, path):
+                height = int(row["hathor_height"])
+                if height in recorded:
+                    raise ValueError(f"duplicate ledger height: {height}")
+                recorded.add(height)
+                observed_order.append(height)
+                outcomes[row["outcome"]] += 1
+    if observed_order != sorted(observed_order):
+        raise ValueError("ledger rows are not in ascending height order")
     expected = set(range(start, end))
     missing = sorted(expected - recorded)
     outside = sorted(recorded - expected)
@@ -431,10 +620,6 @@ def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
         raise ValueError(
             f"ledger coverage mismatch: missing={len(missing)} outside={len(outside)}"
         )
-    outcomes: Counter[str] = Counter()
-    with path.open(newline="") as handle:
-        for row in csv.DictReader(handle):
-            outcomes[row["outcome"]] += 1
     unresolved = {
         outcome: count
         for outcome, count in outcomes.items()
@@ -454,11 +639,9 @@ def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
         raise ValueError(f"deduplicated output already exists: {output_path}")
     rows: dict[int, dict[str, str]] = {}
     duplicate_count = 0
+    require_complete_ledger_file(input_path)
     with input_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames != LEDGER_COLUMNS:
-            raise ValueError(f"unexpected ledger columns: {reader.fieldnames}")
-        for row in reader:
+        for row in validated_ledger_rows(handle, input_path):
             height = int(row["hathor_height"])
             existing = rows.get(height)
             if existing is None:
@@ -470,7 +653,7 @@ def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
             duplicate_count += 1
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=LEDGER_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=LEDGER_COLUMNS, lineterminator="\n")
         writer.writeheader()
         for height in sorted(rows):
             writer.writerow(rows[height])
@@ -515,6 +698,7 @@ def retry_ledger(
     try:
         if output_path.exists():
             raise ValueError(f"retry output already exists: {output_path}")
+        require_complete_ledger_file(input_path)
         with (
             input_path.open(newline="") as input_handle,
             tempfile.NamedTemporaryFile(
@@ -526,10 +710,10 @@ def retry_ledger(
             ) as output_handle,
         ):
             temporary_path = Path(output_handle.name)
-            reader = csv.DictReader(input_handle)
-            if reader.fieldnames != LEDGER_COLUMNS:
-                raise ValueError(f"unexpected ledger columns: {reader.fieldnames}")
-            writer = csv.DictWriter(output_handle, fieldnames=LEDGER_COLUMNS)
+            reader = validated_ledger_rows(input_handle, input_path)
+            writer = csv.DictWriter(
+                output_handle, fieldnames=LEDGER_COLUMNS, lineterminator="\n"
+            )
             writer.writeheader()
             for expected_height in range(shard.start_height, shard.end_height):
                 row = next(reader, None)
@@ -599,7 +783,9 @@ def scan_shard(
         append = ledger_path.exists() and ledger_path.stat().st_size > 0
         outcomes: Counter[str] = Counter()
         with ledger_path.open("a" if append else "w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=LEDGER_COLUMNS)
+            writer = csv.DictWriter(
+                handle, fieldnames=LEDGER_COLUMNS, lineterminator="\n"
+            )
             if not append:
                 writer.writeheader()
             for height in range(shard.start_height, shard.end_height):

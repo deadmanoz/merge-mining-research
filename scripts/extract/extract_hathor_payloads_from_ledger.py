@@ -7,10 +7,12 @@ per ready row that lacks a sealed source record in the current run and writes
 one complete record to an augmented ``hathor_auxpow_raw.csv``. Failed attempts
 remain append-only history and are retried on later runs until a sealed source
 row exists. Each source row includes the existing AuxPoW columns plus the
-lossless ``raw_hex`` payload and its derived ``funds_graph_hex`` bytes. A
+lossless ``raw_hex`` payload and its derived ``funds_graph_hex`` bytes. New v2
+rows also retain the serving endpoint, HTTP status, and total attempt count. A
 SHA-256 record seal covers every source field, so an interrupted or manually
 damaged primary row is rejected before a resume or publication audit can treat
-it as complete.
+it as complete. Completed sealed-v1 files remain readable and immutable, but
+cannot be resumed because their request provenance was never recorded.
 
 The established three-column ``hathor_funds_graph.csv`` is not written beside
 each fetched row. ``--build-supplement`` creates it atomically from the complete
@@ -29,6 +31,7 @@ import fcntl
 import hashlib
 import json
 import os
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -45,22 +48,39 @@ DEFAULT_FALLBACK_API = "https://node2.mainnet.hathor.network/v1a"
 DEFAULT_REQUESTS_PER_SECOND = 0.25
 USER_AGENT = "merge-mining-research/hathor-pre-million-payload"
 
-SOURCE_REQUIRED_COLUMNS = {
+LEDGER_COLUMNS = [
     "hathor_height",
     "outcome",
+    "http_status",
     "block_version",
     "tx_id",
-}
-RAW_COLUMNS = [
+    "endpoint",
+    "attempt_count",
+    "error_reason",
+]
+RESOLVED_LEDGER_OUTCOMES = {"version_3_ready", "non_version_3"}
+LEGACY_RAW_COLUMNS = [
     "hathor_height",
     "hathor_block_hash",
     "hathor_timestamp",
     "aux_pow_hex",
     "funds_graph_hex",
     "raw_hex",
+]
+RAW_V1_COLUMNS = [
+    *LEGACY_RAW_COLUMNS,
     "record_sha256",
 ]
-LEGACY_RAW_COLUMNS = RAW_COLUMNS[:-1]
+UNSEALED_RAW_COLUMNS = [
+    *LEGACY_RAW_COLUMNS,
+    "endpoint",
+    "http_status",
+    "attempt_count",
+]
+RAW_COLUMNS = [
+    *UNSEALED_RAW_COLUMNS,
+    "record_sha256",
+]
 SUPPLEMENT_COLUMNS = ["hathor_height", "hathor_block_hash", "funds_graph_hex"]
 FAILURE_COLUMNS = [
     "hathor_height",
@@ -122,10 +142,28 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def raw_record_sha256(row: dict[str, object]) -> str:
-    """Hash every primary source field in a stable, unambiguous encoding."""
+def raw_record_sha256(
+    row: dict[str, object], raw_columns: list[str] | None = None
+) -> str:
+    """Hash one v1 or v2 primary source row without inventing provenance."""
+    if raw_columns == RAW_V1_COLUMNS:
+        sealed_columns = LEGACY_RAW_COLUMNS
+    elif raw_columns == RAW_COLUMNS:
+        sealed_columns = UNSEALED_RAW_COLUMNS
+    elif raw_columns is not None:
+        raise ValueError(f"unsupported sealed raw schema: {raw_columns}")
+    else:
+        provenance_fields = ("endpoint", "http_status", "attempt_count")
+        provenance_present = [field in row for field in provenance_fields]
+        if all(provenance_present):
+            sealed_columns = UNSEALED_RAW_COLUMNS
+        elif not any(provenance_present):
+            sealed_columns = LEGACY_RAW_COLUMNS
+        else:
+            raise ValueError("raw source row has partial request provenance")
+
     digest = hashlib.sha256()
-    for column in LEGACY_RAW_COLUMNS:
+    for column in sealed_columns:
         value = row.get(column)
         if value is None:
             raise ValueError(f"missing {column} in raw source row")
@@ -145,77 +183,182 @@ def fsync_directory(path: Path) -> None:
 
 
 def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyRow]:
-    """Load exactly the ready rows in ``[start, end)`` from a metadata ledger."""
+    """Load ready rows only from an exact, resolved metadata-ledger range."""
     if start >= end:
         raise ValueError("start must be lower than end")
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fields = set(reader.fieldnames or [])
-        missing = SOURCE_REQUIRED_COLUMNS.difference(fields)
-        if missing:
-            raise ValueError(
-                "metadata ledger is missing required columns: "
-                + ", ".join(sorted(missing))
-            )
-        ready: dict[int, ReadyRow] = {}
-        seen_heights: set[int] = set()
-        for row in reader:
-            try:
-                height = int(row["hathor_height"])
-            except (TypeError, ValueError) as exc:
-                raise ValueError("metadata ledger has an invalid height") from exc
-            if height < start or height >= end:
-                continue
-            if height in seen_heights:
-                raise ValueError(f"duplicate height in metadata ledger: {height}")
-            seen_heights.add(height)
-            if row.get("outcome") != "version_3_ready":
-                continue
-            tx_id = row.get("tx_id", "")
-            if not tx_id:
-                raise ValueError(f"ready height {height} has no tx_id")
-            if str(row.get("block_version")) != "3":
-                raise ValueError(f"ready height {height} does not record version 3")
-            ready[height] = ReadyRow(height, tx_id)
-    if len(seen_heights) != end - start:
+    if ledger_path.stat().st_size == 0:
+        raise ValueError("metadata ledger is empty")
+    with ledger_path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        if handle.read(1) != b"\n":
+            raise ValueError("metadata ledger ends with a truncated row")
+
+    ready: dict[int, ReadyRow] = {}
+    observed_heights: list[int] = []
+    try:
+        with ledger_path.open(newline="") as handle:
+            reader = csv.DictReader(handle, strict=True)
+            if reader.fieldnames != LEDGER_COLUMNS:
+                raise ValueError(
+                    f"unexpected metadata ledger columns: {reader.fieldnames}"
+                )
+            previous_line = reader.line_num
+            for row in reader:
+                if reader.line_num != previous_line + 1:
+                    raise ValueError("metadata ledger has a malformed physical row")
+                previous_line = reader.line_num
+                if set(row) != set(LEDGER_COLUMNS) or any(
+                    value is None for value in row.values()
+                ):
+                    raise ValueError("metadata ledger row has an incomplete schema")
+
+                height = canonical_metadata_integer(
+                    row["hathor_height"], "hathor_height", minimum=0
+                )
+                if height < start or height >= end:
+                    continue
+                observed_heights.append(height)
+
+                outcome = row["outcome"]
+                if outcome not in RESOLVED_LEDGER_OUTCOMES:
+                    raise ValueError(
+                        f"unresolved metadata outcome at height {height}: {outcome!r}"
+                    )
+                status = canonical_metadata_integer(
+                    row["http_status"], "http_status", minimum=100
+                )
+                if status > 599:
+                    raise ValueError(
+                        f"invalid metadata http_status at height {height}: {status}"
+                    )
+                version = canonical_metadata_integer(
+                    row["block_version"], "block_version", minimum=0
+                )
+                canonical_metadata_integer(
+                    row["attempt_count"], "attempt_count", minimum=1
+                )
+                if not row["endpoint"].strip() or row["error_reason"]:
+                    raise ValueError(
+                        f"invalid resolved metadata fields at height {height}"
+                    )
+
+                tx_id = row["tx_id"]
+                if outcome == "version_3_ready":
+                    if version != 3 or not tx_id.strip():
+                        raise ValueError(
+                            f"invalid version_3_ready fields at height {height}"
+                        )
+                    ready[height] = ReadyRow(height, tx_id)
+                elif version == 3:
+                    raise ValueError(f"invalid non_version_3 fields at height {height}")
+            if reader.line_num != previous_line:
+                raise ValueError("metadata ledger has a malformed trailing row")
+    except csv.Error as exc:
+        raise ValueError("malformed metadata ledger CSV") from exc
+
+    expected_heights = list(range(start, end))
+    if observed_heights != expected_heights:
         raise ValueError(
-            "metadata ledger coverage is incomplete: "
-            f"expected={end - start} observed={len(seen_heights)}"
+            "metadata ledger coverage or ordering is invalid: "
+            f"expected={len(expected_heights)} observed={len(observed_heights)}"
         )
     return ready
 
 
+def canonical_metadata_integer(value: str, field: str, *, minimum: int) -> int:
+    """Parse one canonical non-padded integer from a metadata row."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid metadata {field}: {value!r}") from exc
+    if str(parsed) != value or parsed < minimum:
+        raise ValueError(f"non-canonical metadata {field}: {value!r}")
+    return parsed
+
+
+def canonical_csv_height(value: str, path: Path) -> int:
+    """Parse one canonical non-negative height from an evidence CSV."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid height in {path}: {value!r}") from exc
+    if str(parsed) != value or parsed < 0:
+        raise ValueError(f"non-canonical height in {path}: {value!r}")
+    return parsed
+
+
+def read_csv_rows_with_order(
+    path: Path, columns: list[str]
+) -> tuple[dict[int, dict[str, str]], list[int]]:
+    """Read a payload CSV, retaining physical order for reproducibility checks."""
+    if not path.exists() or path.stat().st_size == 0:
+        return {}, []
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        if handle.read(1) != b"\n":
+            raise ValueError(f"CSV ends with a truncated row: {path}")
+
+    rows: dict[int, dict[str, str]] = {}
+    observed_order: list[int] = []
+    try:
+        with path.open(newline="") as handle:
+            reader = csv.DictReader(handle, strict=True)
+            if reader.fieldnames != columns:
+                raise ValueError(f"unexpected columns in {path}: {reader.fieldnames}")
+            previous_line = reader.line_num
+            for row in reader:
+                if reader.line_num != previous_line + 1:
+                    raise ValueError(f"malformed physical CSV row in {path}")
+                previous_line = reader.line_num
+                if set(row) != set(columns) or any(
+                    value is None for value in row.values()
+                ):
+                    raise ValueError(f"incomplete or extra CSV cells in {path}")
+                height = canonical_csv_height(row["hathor_height"], path)
+                if height in rows:
+                    raise ValueError(f"duplicate height in {path}: {height}")
+                rows[height] = row
+                observed_order.append(height)
+            if reader.line_num != previous_line:
+                raise ValueError(f"malformed trailing CSV row in {path}")
+    except csv.Error as exc:
+        raise ValueError(f"malformed CSV: {path}") from exc
+    return rows, observed_order
+
+
 def read_csv_rows(path: Path, columns: list[str]) -> dict[int, dict[str, str]]:
     """Read a payload CSV, rejecting header drift and duplicate heights."""
-    if not path.exists() or path.stat().st_size == 0:
-        return {}
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames != columns:
-            raise ValueError(f"unexpected columns in {path}: {reader.fieldnames}")
-        rows: dict[int, dict[str, str]] = {}
-        for row in reader:
-            try:
-                height = int(row["hathor_height"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise ValueError(f"invalid height in {path}") from exc
-            if height in rows:
-                raise ValueError(f"duplicate height in {path}: {height}")
-            rows[height] = row
+    rows, _observed_order = read_csv_rows_with_order(path, columns)
     return rows
+
+
+def read_raw_rows(
+    path: Path,
+) -> tuple[list[str], dict[int, dict[str, str]], list[int]]:
+    """Read either immutable sealed-v1 evidence or the current v2 schema."""
+    if not path.exists() or path.stat().st_size == 0:
+        return RAW_COLUMNS, {}, []
+    with path.open(newline="") as handle:
+        header = next(csv.reader(handle), None)
+    if header not in (RAW_V1_COLUMNS, RAW_COLUMNS):
+        raise ValueError(f"unexpected columns in {path}: {header}")
+    rows, observed_order = read_csv_rows_with_order(path, header)
+    return header, rows, observed_order
+
+
+def require_ordered_heights(path: Path, observed_order: list[int]) -> None:
+    """Reject evidence whose bytes depend on retry completion order."""
+    if observed_order != sorted(observed_order):
+        raise ValueError(f"rows are not in ascending height order: {path}")
 
 
 def open_csv_writer(path: Path, columns: list[str]):
     """Open an append-only CSV, writing its header only for a new file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists() and path.stat().st_size > 0
-    if exists:
-        with path.open("rb") as existing:
-            existing.seek(-1, os.SEEK_END)
-            if existing.read(1) != b"\n":
-                raise ValueError(f"refusing to append after a truncated row: {path}")
+    validate_append_csv(path, columns)
     handle = path.open("a" if exists else "w", newline="")
-    writer = csv.DictWriter(handle, fieldnames=columns)
+    writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
     if not exists:
         writer.writeheader()
         handle.flush()
@@ -223,11 +366,85 @@ def open_csv_writer(path: Path, columns: list[str]):
     return handle, writer
 
 
+def validate_append_csv(path: Path, columns: list[str]) -> None:
+    """Validate an append target without creating or modifying it."""
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with path.open(newline="") as existing:
+        header = next(csv.reader(existing), None)
+    if header != columns:
+        raise ValueError(f"unexpected columns in {path}: {header}")
+    with path.open("rb") as existing:
+        existing.seek(-1, os.SEEK_END)
+        if existing.read(1) != b"\n":
+            raise ValueError(f"refusing to append after a truncated row: {path}")
+
+
+def replace_csv_atomically(
+    path: Path,
+    columns: list[str],
+    rows: Iterable[dict[str, object]],
+) -> None:
+    """Durably replace one CSV from a unique same-directory staging file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=path.parent,
+            prefix=f".{path.name}.tmp-",
+            newline="",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=columns,
+                lineterminator="\n",
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
+
+
+def replace_raw_rows_atomically(
+    path: Path,
+    rows: dict[int, dict[str, object]],
+) -> None:
+    """Persist a complete primary row map in deterministic height order."""
+    replace_csv_atomically(path, RAW_COLUMNS, (rows[height] for height in sorted(rows)))
+
+
+def replace_sealed_rows_atomically(
+    path: Path,
+    columns: list[str],
+    rows: dict[int, dict[str, object]],
+) -> None:
+    """Persist one versioned sealed row family in deterministic height order."""
+    replace_csv_atomically(path, columns, (rows[height] for height in sorted(rows)))
+
+
 def write_durable_row(handle, writer: csv.DictWriter, row: dict[str, object]) -> None:
     """Append one source row before moving on to another API request."""
     writer.writerow(row)
     handle.flush()
     os.fsync(handle.fileno())
+
+
+def append_raw_row_durably(path: Path, row: dict[str, object]) -> None:
+    """Append one sealed v2 row before any canonical-order rewrite."""
+    handle, writer = open_csv_writer(path, RAW_COLUMNS)
+    try:
+        write_durable_row(handle, writer, row)
+    finally:
+        handle.close()
 
 
 def acquire_locks(paths: Iterable[Path]):
@@ -379,12 +596,16 @@ def fetch_payload(
         last = result
         if result.payload is not None:
             try:
+                if result.status is None:
+                    raise ValueError("missing_http_status")
+                if not 200 <= result.status < 300:
+                    raise ValueError(f"non_success_http_{result.status}")
                 return (
                     parse_payload(
                         ready,
                         result.payload,
                         endpoint,
-                        result.status or 200,
+                        result.status,
                         attempt + 1,
                     ),
                     None,
@@ -392,7 +613,9 @@ def fetch_payload(
             except ValueError as exc:
                 last = HttpResult(result.status, None, str(exc), True)
         if not result.retryable:
-            if result.payload is None:
+            if result.payload is None and not (
+                attempt == 0 and len(endpoints) > 1 and client.max_attempts > 1
+            ):
                 break
         if attempt + 1 < client.max_attempts:
             client.sleep(min(2**attempt, 30))
@@ -450,8 +673,11 @@ def raw_to_supplement(row: dict[str, str]) -> dict[str, str]:
 def check_raw_rows(
     ready_rows: dict[int, ReadyRow],
     raw_rows: dict[int, dict[str, str]],
+    raw_columns: list[str],
 ) -> None:
-    """Validate existing primary rows against the ready-ledger contract."""
+    """Validate versioned primary rows against the ready-ledger contract."""
+    if raw_columns not in (RAW_V1_COLUMNS, RAW_COLUMNS):
+        raise ValueError(f"unsupported sealed raw schema: {raw_columns}")
     raw_extra = set(raw_rows).difference(ready_rows)
     if raw_extra:
         raise ValueError(
@@ -462,7 +688,9 @@ def check_raw_rows(
         ready = ready_rows[height]
         if row.get("hathor_block_hash") != ready.tx_id:
             raise ValueError(f"raw tx_id mismatch at height {height}")
-        if row.get("record_sha256") != raw_record_sha256(row):
+        if raw_columns == RAW_COLUMNS:
+            validate_request_provenance(row, height)
+        if row.get("record_sha256") != raw_record_sha256(row, raw_columns):
             raise ValueError(f"raw record digest mismatch at height {height}")
         expected = raw_to_supplement(row)
         if row.get("funds_graph_hex") != expected["funds_graph_hex"]:
@@ -471,11 +699,34 @@ def check_raw_rows(
             )
 
 
-def check_legacy_raw_rows(
+def validate_request_provenance(row: dict[str, object], height: int) -> None:
+    """Require canonical successful-request metadata in every primary row."""
+    endpoint = row.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise ValueError(f"missing successful request endpoint at height {height}")
+    try:
+        http_status = int(str(row.get("http_status", "")))
+    except ValueError as exc:
+        raise ValueError(f"invalid successful HTTP status at height {height}") from exc
+    if str(http_status) != str(row.get("http_status")) or not 200 <= http_status < 300:
+        raise ValueError(f"invalid successful HTTP status at height {height}")
+    try:
+        attempt_count = int(str(row.get("attempt_count", "")))
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid successful attempt count at height {height}"
+        ) from exc
+    if str(attempt_count) != str(row.get("attempt_count")) or attempt_count < 1:
+        raise ValueError(f"invalid successful attempt count at height {height}")
+
+
+def check_unsealed_raw_rows(
     ready_rows: dict[int, ReadyRow],
     raw_rows: dict[int, dict[str, str]],
+    *,
+    require_request_provenance: bool,
 ) -> None:
-    """Validate pre-seal canary rows before their local, API-free upgrade."""
+    """Validate pre-seal rows before their schema-preserving local upgrade."""
     raw_extra = set(raw_rows).difference(ready_rows)
     if raw_extra:
         raise ValueError(
@@ -486,6 +737,8 @@ def check_legacy_raw_rows(
         ready = ready_rows[height]
         if row.get("hathor_block_hash") != ready.tx_id:
             raise ValueError(f"raw tx_id mismatch at height {height}")
+        if require_request_provenance:
+            validate_request_provenance(row, height)
         expected = raw_to_supplement(row)
         if row.get("funds_graph_hex") != expected["funds_graph_hex"]:
             raise ValueError(
@@ -494,7 +747,7 @@ def check_legacy_raw_rows(
 
 
 def make_raw_row(payload: Payload) -> dict[str, object]:
-    """Create one sealed source row before it is durably appended."""
+    """Create one sealed source row including successful request provenance."""
     raw = {
         "hathor_height": payload.height,
         "hathor_block_hash": payload.tx_id,
@@ -502,8 +755,12 @@ def make_raw_row(payload: Payload) -> dict[str, object]:
         "aux_pow_hex": payload.aux_pow_hex,
         "funds_graph_hex": payload.funds_graph_hex,
         "raw_hex": payload.raw_hex,
+        "endpoint": payload.endpoint,
+        "http_status": payload.http_status,
+        "attempt_count": payload.attempt_count,
     }
-    raw["record_sha256"] = raw_record_sha256(raw)
+    validate_request_provenance(raw, payload.height)
+    raw["record_sha256"] = raw_record_sha256(raw, RAW_COLUMNS)
     return raw
 
 
@@ -519,26 +776,46 @@ def run_extraction(
     fallback_endpoint: str,
     limit: int | None = None,
 ) -> Counter[str]:
-    """Resume one range, persisting one complete source row per ready block."""
+    """Resume one range with durable appends and one final ordering rewrite."""
     ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_output, failure_output])
     try:
-        raw_rows = read_csv_rows(raw_output, RAW_COLUMNS)
-        check_raw_rows(ready_rows, raw_rows)
+        raw_columns, raw_rows, observed_order = read_raw_rows(raw_output)
+        check_raw_rows(ready_rows, raw_rows, raw_columns)
+        pending = [
+            ready_rows[height]
+            for height in sorted(ready_rows)
+            if height not in raw_rows
+        ]
+        if raw_columns == RAW_V1_COLUMNS:
+            require_ordered_heights(raw_output, observed_order)
+            if pending:
+                raise ValueError(
+                    "sealed v1 payload evidence is incomplete and cannot be resumed "
+                    "without successful request provenance; reacquire into a new output"
+                )
+            return Counter(
+                ready_total=len(ready_rows),
+                raw_complete=len(raw_rows),
+            )
 
-        raw_handle, raw_writer = open_csv_writer(raw_output, RAW_COLUMNS)
+        validate_append_csv(failure_output, FAILURE_COLUMNS)
+        if observed_order != sorted(observed_order) or not raw_output.exists():
+            replace_raw_rows_atomically(raw_output, raw_rows)
+
+        if limit is not None:
+            pending = pending[:limit]
+        if not pending:
+            return Counter(
+                ready_total=len(ready_rows),
+                raw_complete=len(raw_rows),
+            )
+
         failure_handle, failure_writer = open_csv_writer(
             failure_output, FAILURE_COLUMNS
         )
         try:
             stats: Counter[str] = Counter()
-            pending = [
-                ready_rows[height]
-                for height in sorted(ready_rows)
-                if height not in raw_rows
-            ]
-            if limit is not None:
-                pending = pending[:limit]
             for ready in pending:
                 payload, failure = fetch_payload(
                     client, ready, primary_endpoint, fallback_endpoint
@@ -549,14 +826,18 @@ def run_extraction(
                     continue
                 assert payload is not None
                 raw = make_raw_row(payload)
-                write_durable_row(raw_handle, raw_writer, raw)
-                raw_rows[payload.height] = raw
+                append_raw_row_durably(raw_output, raw)
+                raw_rows[payload.height] = {
+                    column: str(raw[column]) for column in RAW_COLUMNS
+                }
+                observed_order.append(payload.height)
                 stats["archived"] += 1
+            if observed_order != sorted(observed_order):
+                replace_raw_rows_atomically(raw_output, raw_rows)
             stats["ready_total"] = len(ready_rows)
             stats["raw_complete"] = len(raw_rows)
             return stats
         finally:
-            raw_handle.close()
             failure_handle.close()
     finally:
         for handle in reversed(locks):
@@ -569,38 +850,40 @@ def upgrade_raw(
     start: int,
     end: int,
 ) -> dict[str, int]:
-    """Atomically add source-record seals to an already validated CSV.
-
-    This exists only to preserve the completed calibration rows written before
-    the record seal was added. It performs no network I/O and refuses any
-    schema other than the immediately preceding primary CSV layout.
-    """
+    """Atomically seal v1 or v2 rows without changing their evidence schema."""
+    ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_path])
-    temporary = raw_path.with_name(f".{raw_path.name}.tmp")
     try:
-        ready_rows = load_ready_rows(ledger_path, start, end)
-        legacy_rows = read_csv_rows(raw_path, LEGACY_RAW_COLUMNS)
-        check_legacy_raw_rows(ready_rows, legacy_rows)
-        with temporary.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=RAW_COLUMNS)
-            writer.writeheader()
-            for height in sorted(legacy_rows):
-                row: dict[str, object] = {
-                    column: legacy_rows[height][column] for column in LEGACY_RAW_COLUMNS
-                }
-                row["record_sha256"] = raw_record_sha256(row)
-                writer.writerow(row)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, raw_path)
-        fsync_directory(raw_path.parent)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+        with raw_path.open(newline="") as handle:
+            header = next(csv.reader(handle), None)
+        if header == LEGACY_RAW_COLUMNS:
+            sealed_columns = RAW_V1_COLUMNS
+            require_request_provenance = False
+        elif header == UNSEALED_RAW_COLUMNS:
+            sealed_columns = RAW_COLUMNS
+            require_request_provenance = True
+        else:
+            raise ValueError(f"unexpected columns in {raw_path}: {header}")
+
+        unsealed_rows = read_csv_rows(raw_path, header)
+        check_unsealed_raw_rows(
+            ready_rows,
+            unsealed_rows,
+            require_request_provenance=require_request_provenance,
+        )
+        missing = set(ready_rows).difference(unsealed_rows)
+        if missing:
+            raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
+        sealed_rows: dict[int, dict[str, object]] = {}
+        for height, unsealed in unsealed_rows.items():
+            row: dict[str, object] = dict(unsealed)
+            row["record_sha256"] = raw_record_sha256(row, sealed_columns)
+            sealed_rows[height] = row
+        replace_sealed_rows_atomically(raw_path, sealed_columns, sealed_rows)
     finally:
         for handle in reversed(locks):
             handle.close()
-    return {"upgraded_rows": len(legacy_rows)}
+    return {"upgraded_rows": len(unsealed_rows)}
 
 
 def build_supplement(
@@ -611,28 +894,20 @@ def build_supplement(
     end: int,
 ) -> dict[str, int]:
     """Atomically build the established supplement CSV from primary evidence."""
+    ready_rows = load_ready_rows(ledger_path, start, end)
     locks = acquire_locks([raw_path, supplement_path])
-    temporary = supplement_path.with_name(f".{supplement_path.name}.tmp")
     try:
-        ready_rows = load_ready_rows(ledger_path, start, end)
-        raw_rows = read_csv_rows(raw_path, RAW_COLUMNS)
-        check_raw_rows(ready_rows, raw_rows)
+        raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
+        check_raw_rows(ready_rows, raw_rows, raw_columns)
+        require_ordered_heights(raw_path, raw_order)
         missing = set(ready_rows).difference(raw_rows)
         if missing:
             raise ValueError(f"raw payload coverage incomplete: missing={len(missing)}")
-        supplement_path.parent.mkdir(parents=True, exist_ok=True)
-        with temporary.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=SUPPLEMENT_COLUMNS)
-            writer.writeheader()
-            for height in sorted(ready_rows):
-                writer.writerow(raw_to_supplement(raw_rows[height]))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, supplement_path)
-        fsync_directory(supplement_path.parent)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+        replace_csv_atomically(
+            supplement_path,
+            SUPPLEMENT_COLUMNS,
+            (raw_to_supplement(raw_rows[height]) for height in sorted(ready_rows)),
+        )
     finally:
         for handle in reversed(locks):
             handle.close()
@@ -648,9 +923,13 @@ def audit(
 ) -> dict[str, object]:
     """Fail closed unless both evidence CSVs exactly cover their ready rows."""
     ready_rows = load_ready_rows(ledger_path, start, end)
-    raw_rows = read_csv_rows(raw_path, RAW_COLUMNS)
-    supplement_rows = read_csv_rows(supplement_path, SUPPLEMENT_COLUMNS)
-    check_raw_rows(ready_rows, raw_rows)
+    raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
+    supplement_rows, supplement_order = read_csv_rows_with_order(
+        supplement_path, SUPPLEMENT_COLUMNS
+    )
+    check_raw_rows(ready_rows, raw_rows, raw_columns)
+    require_ordered_heights(raw_path, raw_order)
+    require_ordered_heights(supplement_path, supplement_order)
     raw_missing = set(ready_rows).difference(raw_rows)
     supplement_missing = set(ready_rows).difference(supplement_rows)
     supplement_extra = set(supplement_rows).difference(ready_rows)
@@ -684,7 +963,9 @@ def audit(
         "ready_rows": len(ready_rows),
         "raw_rows": len(raw_rows),
         "supplement_rows": len(supplement_rows),
+        "raw_schema": "sealed_v1" if raw_columns == RAW_V1_COLUMNS else "sealed_v2",
         "ledger_sha256": file_sha256(ledger_path),
+        "raw_sha256": file_sha256(raw_path),
         "evidence_root_sha256": digest.hexdigest(),
     }
 

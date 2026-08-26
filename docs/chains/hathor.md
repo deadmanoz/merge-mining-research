@@ -46,8 +46,13 @@ Hathor-specific repo artifacts:
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
   ledger-driven migration worker. Each transaction request writes one sealed
   source row containing `aux_pow`, `raw`, and locally derived funds+graph
-  bytes. These two workers preserve acquisition provenance; they are not the
-  future supported acquisition interface.
+  bytes. New sealed-v2 rows also retain the serving endpoint, HTTP status, and
+  total attempt count, and successful gap recovery leaves the primary CSV in
+  deterministic height order. The completed seven-column sealed-v1 estate
+  remains readable and byte-immutable; it cannot be mixed with new rows because
+  its missing request provenance cannot be reconstructed honestly. These two
+  workers preserve acquisition provenance; they are not the future supported
+  acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
 - The historical pool-population pre-flight audit is retained privately; it is

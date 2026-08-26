@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = (
     Path(__file__).parents[1]
@@ -32,7 +34,7 @@ def _write_ledger(path: Path) -> None:
         "error_reason",
     ]
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
         writer.writeheader()
         writer.writerow(
             {
@@ -104,6 +106,164 @@ def _client_for_rows(rows: dict[str, dict]) -> payloads.PacedHttpClient:
     )
 
 
+def _sealed_v1_row(height: int, tx_id: str, aux: bytes) -> dict[str, object]:
+    funds = f"funds-{height}".encode()
+    row: dict[str, object] = {
+        "hathor_height": height,
+        "hathor_block_hash": tx_id,
+        "hathor_timestamp": 10 + height,
+        "aux_pow_hex": aux.hex(),
+        "funds_graph_hex": funds.hex(),
+        "raw_hex": (funds + aux + b"tail").hex(),
+    }
+    row["record_sha256"] = payloads.raw_record_sha256(row)
+    return row
+
+
+def _sealed_v2_row(height: int, tx_id: str, aux: bytes) -> dict[str, object]:
+    funds = f"funds-{height}".encode()
+    return payloads.make_raw_row(
+        payloads.Payload(
+            height=height,
+            tx_id=tx_id,
+            timestamp=10 + height,
+            aux_pow_hex=aux.hex(),
+            raw_hex=(funds + aux + b"tail").hex(),
+            funds_graph_hex=funds.hex(),
+            endpoint="https://primary.example/v1a",
+            http_status=200,
+            attempt_count=1,
+        )
+    )
+
+
+def _write_unresolved_ledger(path: Path, outcome: str) -> None:
+    columns = [
+        "hathor_height",
+        "outcome",
+        "http_status",
+        "block_version",
+        "tx_id",
+        "endpoint",
+        "attempt_count",
+        "error_reason",
+    ]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+        writer.writerow(
+            {
+                "hathor_height": 0,
+                "outcome": outcome,
+                "http_status": "",
+                "block_version": "",
+                "tx_id": "",
+                "endpoint": "",
+                "attempt_count": 3,
+                "error_reason": "unresolved",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["request_failure", "unavailable_block", "unknown", "unexpected_state"],
+)
+@pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
+def test_every_payload_mode_rejects_unresolved_metadata_before_writing(
+    tmp_path: Path,
+    outcome: str,
+    mode: str,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_unresolved_ledger(ledger, outcome)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("an unresolved ledger must fail before network I/O")
+
+    with pytest.raises(ValueError, match="unresolved metadata outcome"):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=raw_output,
+                failure_output=failure_output,
+                start=0,
+                end=1,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "upgrade":
+            payloads.upgrade_raw(ledger, raw_output, 0, 1)
+        elif mode == "build":
+            payloads.build_supplement(
+                ledger,
+                raw_output,
+                supplement_output,
+                0,
+                1,
+            )
+        else:
+            payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+    assert not raw_output.exists()
+    assert not supplement_output.exists()
+    assert not failure_output.exists()
+
+
+@pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
+def test_every_payload_mode_rejects_a_short_resolved_metadata_row(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    failure_output = tmp_path / "failures.csv"
+    ledger.write_text(",".join(payloads.LEDGER_COLUMNS) + "\n0,non_version_3\n")
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("malformed metadata must fail before network I/O")
+
+    with pytest.raises(ValueError, match="incomplete schema"):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=raw_output,
+                failure_output=failure_output,
+                start=0,
+                end=1,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "upgrade":
+            payloads.upgrade_raw(ledger, raw_output, 0, 1)
+        elif mode == "build":
+            payloads.build_supplement(
+                ledger,
+                raw_output,
+                supplement_output,
+                0,
+                1,
+            )
+        else:
+            payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+    assert not raw_output.exists()
+    assert not supplement_output.exists()
+    assert not failure_output.exists()
+
+
 def test_one_transaction_fetch_populates_complete_source_then_exports(
     tmp_path: Path,
 ) -> None:
@@ -157,10 +317,18 @@ def test_one_transaction_fetch_populates_complete_source_then_exports(
         b"funds-a".hex(),
         b"funds-c".hex(),
     ]
+    assert [row["endpoint"] for row in raw_rows] == [
+        "https://primary.example/v1a",
+        "https://primary.example/v1a",
+    ]
+    assert [row["http_status"] for row in raw_rows] == ["200", "200"]
+    assert [row["attempt_count"] for row in raw_rows] == ["1", "1"]
     payloads.build_supplement(ledger, raw_output, supplement_output, 0, 3)
     assert (
         payloads.audit(ledger, raw_output, supplement_output, 0, 3)["ready_rows"] == 2
     )
+    for evidence_path in (raw_output, supplement_output, failure_output):
+        assert b"\r\n" not in evidence_path.read_bytes()
 
 
 def test_payload_validation_failure_uses_fallback_endpoint() -> None:
@@ -206,10 +374,122 @@ def test_payload_validation_failure_uses_fallback_endpoint() -> None:
     assert failure is None
     assert payload is not None
     assert payload.tx_id == ready.tx_id
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.http_status == 200
+    assert payload.attempt_count == 2
+    raw = payloads.make_raw_row(payload)
+    assert raw["endpoint"] == "https://fallback.example/v1a"
+    assert raw["http_status"] == 200
+    assert raw["attempt_count"] == 2
+    original_seal = raw["record_sha256"]
+    for field, replacement in (
+        ("endpoint", "https://primary.example/v1a"),
+        ("http_status", 201),
+        ("attempt_count", 1),
+    ):
+        changed = dict(raw)
+        changed[field] = replacement
+        assert payloads.raw_record_sha256(changed) != original_seal
     assert client.endpoints == [
         "https://primary.example/v1a",
         "https://fallback.example/v1a",
     ]
+
+
+@pytest.mark.parametrize("primary_status", [None, 500])
+def test_payload_success_with_invalid_status_uses_fallback_without_inventing_200(
+    primary_status: int | None,
+) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(
+                primary_status if len(self.endpoints) == 1 else 200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.http_status == 200
+    assert payload.attempt_count == 2
+
+
+def test_payload_endpoint_specific_miss_uses_fallback() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            if len(self.endpoints) == 1:
+                return payloads.HttpResult(404, None, "http_404", False)
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.attempt_count == 2
 
 
 def test_http_client_preserves_status_for_invalid_json() -> None:
@@ -261,10 +541,17 @@ def test_supplement_is_built_from_complete_source_without_another_api_request(
         "aux_pow_hex": aux.hex(),
         "funds_graph_hex": b"funds-a".hex(),
         "raw_hex": raw.hex(),
+        "endpoint": "https://primary.example/v1a",
+        "http_status": 200,
+        "attempt_count": 1,
     }
     source_row["record_sha256"] = payloads.raw_record_sha256(source_row)
     with raw_output.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=payloads.RAW_COLUMNS)
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.RAW_COLUMNS,
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerow(source_row)
 
@@ -273,6 +560,33 @@ def test_supplement_is_built_from_complete_source_without_another_api_request(
         payloads.audit(ledger, raw_output, supplement_output, 0, 1)["supplement_rows"]
         == 1
     )
+
+
+def test_audit_rejects_raw_rows_in_retry_completion_order(tmp_path: Path) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_ledger(ledger)
+    raw_rows = [
+        _sealed_v2_row(2, "c" * 64, bytes.fromhex("cc33")),
+        _sealed_v2_row(0, "a" * 64, bytes.fromhex("aa55")),
+    ]
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(raw_rows)
+    with supplement_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.SUPPLEMENT_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for row in reversed(raw_rows):
+            writer.writerow(payloads.raw_to_supplement(row))
+
+    with pytest.raises(ValueError, match="ascending height order"):
+        payloads.audit(ledger, raw_output, supplement_output, 0, 3)
 
 
 def test_append_writer_rejects_a_truncated_existing_row(tmp_path: Path) -> None:
@@ -285,6 +599,309 @@ def test_append_writer_rejects_a_truncated_existing_row(tmp_path: Path) -> None:
         assert "truncated row" in str(exc)
     else:
         raise AssertionError("append must reject a missing final newline")
+
+
+def test_append_writer_rejects_existing_failure_header_drift(tmp_path: Path) -> None:
+    path = tmp_path / "failures.csv"
+    original = b"wrong,header\nvalue,row\n"
+    path.write_bytes(original)
+
+    with pytest.raises(ValueError, match="unexpected columns"):
+        payloads.open_csv_writer(path, payloads.FAILURE_COLUMNS)
+
+    assert path.read_bytes() == original
+
+
+def test_raw_reader_rejects_noncanonical_heights(tmp_path: Path) -> None:
+    path = tmp_path / "raw.csv"
+    row = _sealed_v2_row(0, "a" * 64, bytes.fromhex("aa55"))
+    row["hathor_height"] = "00"
+    row["record_sha256"] = payloads.raw_record_sha256(row, payloads.RAW_COLUMNS)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(row)
+
+    with pytest.raises(ValueError, match="non-canonical height"):
+        payloads.read_raw_rows(path)
+
+
+def test_raw_reader_rejects_extra_csv_cells(tmp_path: Path) -> None:
+    path = tmp_path / "raw.csv"
+    row = _sealed_v2_row(0, "a" * 64, bytes.fromhex("aa55"))
+    header = ",".join(payloads.RAW_COLUMNS)
+    values = ",".join(str(row[column]) for column in payloads.RAW_COLUMNS)
+    path.write_text(f"{header}\n{values},extra\n")
+
+    with pytest.raises(ValueError, match="incomplete or extra CSV cells"):
+        payloads.read_raw_rows(path)
+
+
+def test_run_rejects_failure_header_before_raw_rewrite_or_network(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    rows = [
+        _sealed_v2_row(2, "c" * 64, bytes.fromhex("cc33")),
+        _sealed_v2_row(0, "a" * 64, bytes.fromhex("aa55")),
+    ]
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    original_raw = raw_output.read_bytes()
+    failure_output.write_text("wrong,header\nvalue,row\n")
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("header drift must fail before network I/O")
+
+    with pytest.raises(ValueError, match="unexpected columns"):
+        payloads.run_extraction(
+            ledger_path=ledger,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=3,
+            client=Client(),
+            primary_endpoint="https://primary.example/v1a",
+            fallback_endpoint="https://fallback.example/v1a",
+        )
+
+    assert raw_output.read_bytes() == original_raw
+
+
+def test_resume_atomically_rewrites_primary_rows_in_height_order(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "hathor_auxpow_raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    aux_a = bytes.fromhex("aa55")
+    aux_c = bytes.fromhex("cc33")
+    existing = {
+        "hathor_height": 2,
+        "hathor_block_hash": "c" * 64,
+        "hathor_timestamp": 12,
+        "aux_pow_hex": aux_c.hex(),
+        "funds_graph_hex": b"funds-c".hex(),
+        "raw_hex": (b"funds-c" + aux_c + b"tail-c").hex(),
+        "endpoint": "https://fallback.example/v1a",
+        "http_status": 200,
+        "attempt_count": 2,
+    }
+    existing["record_sha256"] = payloads.raw_record_sha256(existing)
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.RAW_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(existing)
+
+    rows = {
+        "a" * 64: {
+            "success": True,
+            "tx": {
+                "hash": "a" * 64,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_a.hex(),
+                "raw": (b"funds-a" + aux_a + b"tail-a").hex(),
+            },
+        }
+    }
+    stats = payloads.run_extraction(
+        ledger_path=ledger,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=3,
+        client=_client_for_rows(rows),
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+    )
+
+    assert stats["archived"] == 1
+    with raw_output.open(newline="") as handle:
+        raw_rows = list(csv.DictReader(handle))
+    assert [row["hathor_height"] for row in raw_rows] == ["0", "2"]
+    assert raw_rows[1]["record_sha256"] == existing["record_sha256"]
+    assert raw_rows[1]["endpoint"] == existing["endpoint"]
+    assert b"\r\n" not in raw_output.read_bytes()
+
+
+def test_multiple_recovered_gaps_trigger_one_canonical_rewrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for height, outcome, version, tx_id in (
+            (0, "version_3_ready", 3, "a" * 64),
+            (1, "version_3_ready", 3, "b" * 64),
+            (2, "non_version_3", 0, "c" * 64),
+            (3, "version_3_ready", 3, "d" * 64),
+        ):
+            writer.writerow(
+                {
+                    "hathor_height": height,
+                    "outcome": outcome,
+                    "http_status": 200,
+                    "block_version": version,
+                    "tx_id": tx_id,
+                    "endpoint": "primary",
+                    "attempt_count": 1,
+                    "error_reason": "",
+                }
+            )
+    existing = _sealed_v2_row(3, "d" * 64, bytes.fromhex("dd44"))
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(existing)
+
+    aux_a = bytes.fromhex("aa55")
+    aux_b = bytes.fromhex("bb66")
+    responses = {
+        "a" * 64: {
+            "success": True,
+            "tx": {
+                "hash": "a" * 64,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux_a.hex(),
+                "raw": (b"funds-a" + aux_a + b"tail").hex(),
+            },
+        },
+        "b" * 64: {
+            "success": True,
+            "tx": {
+                "hash": "b" * 64,
+                "version": 3,
+                "timestamp": 11,
+                "aux_pow": aux_b.hex(),
+                "raw": (b"funds-b" + aux_b + b"tail").hex(),
+            },
+        },
+    }
+    replace = payloads.replace_raw_rows_atomically
+    rewrite_calls = 0
+
+    def count_replace(*args):
+        nonlocal rewrite_calls
+        rewrite_calls += 1
+        replace(*args)
+
+    monkeypatch.setattr(payloads, "replace_raw_rows_atomically", count_replace)
+    stats = payloads.run_extraction(
+        ledger_path=ledger,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=4,
+        client=_client_for_rows(responses),
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+    )
+
+    assert stats["archived"] == 2
+    assert rewrite_calls == 1
+    with raw_output.open(newline="") as handle:
+        assert [row["hathor_height"] for row in csv.DictReader(handle)] == [
+            "0",
+            "1",
+            "3",
+        ]
+
+
+def test_failed_canonical_rewrite_keeps_recovered_row_for_next_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    existing = _sealed_v2_row(2, "c" * 64, bytes.fromhex("cc33"))
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.RAW_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(existing)
+
+    aux = bytes.fromhex("aa55")
+    responses = {
+        "a" * 64: {
+            "success": True,
+            "tx": {
+                "hash": "a" * 64,
+                "version": 3,
+                "timestamp": 10,
+                "aux_pow": aux.hex(),
+                "raw": (b"funds-0" + aux + b"tail").hex(),
+            },
+        }
+    }
+    replace = payloads.replace_raw_rows_atomically
+
+    def fail_replace(*_args):
+        raise OSError("simulated canonical rewrite failure")
+
+    monkeypatch.setattr(payloads, "replace_raw_rows_atomically", fail_replace)
+    with pytest.raises(OSError, match="simulated canonical rewrite failure"):
+        payloads.run_extraction(
+            ledger_path=ledger,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=3,
+            client=_client_for_rows(responses),
+            primary_endpoint="https://primary.example/v1a",
+            fallback_endpoint="https://fallback.example/v1a",
+        )
+    with raw_output.open(newline="") as handle:
+        assert [row["hathor_height"] for row in csv.DictReader(handle)] == ["2", "0"]
+
+    class NoNetworkClient:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("the durably appended row must not be refetched")
+
+    monkeypatch.setattr(payloads, "replace_raw_rows_atomically", replace)
+    assert payloads.run_extraction(
+        ledger_path=ledger,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=3,
+        client=NoNetworkClient(),
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+    ) == {"ready_total": 2, "raw_complete": 2}
+    with raw_output.open(newline="") as handle:
+        assert [row["hathor_height"] for row in csv.DictReader(handle)] == ["0", "2"]
 
 
 def test_record_seal_rejects_a_primary_row_changed_after_capture(
@@ -321,7 +938,11 @@ def test_record_seal_rejects_a_primary_row_changed_after_capture(
         row = next(csv.DictReader(handle))
     row["raw_hex"] = row["raw_hex"][:-2]
     with raw_output.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=payloads.RAW_COLUMNS)
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.RAW_COLUMNS,
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerow(row)
 
@@ -347,6 +968,41 @@ def test_upgrade_raw_adds_seals_without_fetching(tmp_path: Path) -> None:
     raw_output = tmp_path / "hathor_auxpow_raw.csv"
     _write_ledger(ledger)
     aux = bytes.fromhex("aa55")
+    unsealed_row = {
+        "hathor_height": 0,
+        "hathor_block_hash": "a" * 64,
+        "hathor_timestamp": 10,
+        "aux_pow_hex": aux.hex(),
+        "funds_graph_hex": b"funds-a".hex(),
+        "raw_hex": (b"funds-a" + aux + b"tail-a").hex(),
+        "endpoint": "https://primary.example/v1a",
+        "http_status": 200,
+        "attempt_count": 1,
+    }
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.UNSEALED_RAW_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(unsealed_row)
+
+    assert payloads.upgrade_raw(ledger, raw_output, 0, 1) == {"upgraded_rows": 1}
+    with raw_output.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert list(rows[0]) == payloads.RAW_COLUMNS
+    assert rows[0]["record_sha256"] == payloads.raw_record_sha256(rows[0])
+    assert b"\r\n" not in raw_output.read_bytes()
+
+
+def test_upgrade_raw_preserves_v1_rows_without_inventing_request_provenance(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "hathor_auxpow_raw.csv"
+    _write_ledger(ledger)
+    aux = bytes.fromhex("aa55")
     legacy_row = {
         "hathor_height": 0,
         "hathor_block_hash": "a" * 64,
@@ -356,12 +1012,100 @@ def test_upgrade_raw_adds_seals_without_fetching(tmp_path: Path) -> None:
         "raw_hex": (b"funds-a" + aux + b"tail-a").hex(),
     }
     with raw_output.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=payloads.LEGACY_RAW_COLUMNS)
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.LEGACY_RAW_COLUMNS,
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerow(legacy_row)
-
     assert payloads.upgrade_raw(ledger, raw_output, 0, 1) == {"upgraded_rows": 1}
     with raw_output.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    assert list(rows[0]) == payloads.RAW_COLUMNS
+    assert list(rows[0]) == payloads.RAW_V1_COLUMNS
     assert rows[0]["record_sha256"] == payloads.raw_record_sha256(rows[0])
+    assert "endpoint" not in rows[0]
+    assert b"\r\n" not in raw_output.read_bytes()
+
+
+def test_complete_sealed_v1_evidence_remains_immutable_and_auditable(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "hathor_auxpow_raw.csv"
+    supplement_output = tmp_path / "hathor_funds_graph.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    row = _sealed_v1_row(0, "a" * 64, bytes.fromhex("aa55"))
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.RAW_V1_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(row)
+    original = raw_output.read_bytes()
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("complete sealed-v1 evidence must not be refetched")
+
+    assert payloads.run_extraction(
+        ledger_path=ledger,
+        raw_output=raw_output,
+        failure_output=failure_output,
+        start=0,
+        end=1,
+        client=Client(),
+        primary_endpoint="https://primary.example/v1a",
+        fallback_endpoint="https://fallback.example/v1a",
+    ) == {"ready_total": 1, "raw_complete": 1}
+    assert raw_output.read_bytes() == original
+    assert not failure_output.exists()
+
+    payloads.build_supplement(ledger, raw_output, supplement_output, 0, 1)
+    assert payloads.audit(ledger, raw_output, supplement_output, 0, 1)["raw_rows"] == 1
+    assert raw_output.read_bytes() == original
+
+
+def test_incomplete_sealed_v1_evidence_requires_a_new_output(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "hathor_auxpow_raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+    row = _sealed_v1_row(2, "c" * 64, bytes.fromhex("cc33"))
+    with raw_output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=payloads.RAW_V1_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(row)
+    original = raw_output.read_bytes()
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("sealed-v1 evidence must not mix with v2 rows")
+
+    with pytest.raises(ValueError, match="sealed v1 payload evidence is incomplete"):
+        payloads.run_extraction(
+            ledger_path=ledger,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=3,
+            client=Client(),
+            primary_endpoint="https://primary.example/v1a",
+            fallback_endpoint="https://fallback.example/v1a",
+        )
+
+    assert raw_output.read_bytes() == original
+    assert not failure_output.exists()
