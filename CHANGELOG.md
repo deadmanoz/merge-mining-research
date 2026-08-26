@@ -43,7 +43,17 @@ instead of sealing it as version-3-ready or non-version-3. Publish
 deduplicated ledger repairs through the same staged, fully
 synced no-clobber temporary file protocol, and refuse to resume a shard whose
 existing ledger heights do not form an exact contiguous prefix beginning at the
-shard start, rejecting gaps before any append or request.
+shard start, rejecting gaps before any append or request. Require every
+nonblank canonical transaction ID in an audited ledger to belong to exactly one
+height across all recorded outcomes, while repeated legacy noncanonical
+identifiers stay accepted. Parse frozen manifests strictly, requiring an exact
+known header, exactly one physical line per record, complete text cells, and no
+interior or trailing blank lines, and fail closed on malformed CSV. Accept only
+absolute http or https endpoint URLs with a hostname, a valid optional port, a
+retained path, and no query or fragment at every manifest and payload boundary,
+reject structurally invalid request URLs as `invalid_url` before pacing or any
+opener call, validate payload run endpoints before locks or archive mutation,
+and require the payload `success` flag to be exactly `true`.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

@@ -47,7 +47,7 @@ from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -666,16 +666,20 @@ class PacedHttpClient:
     def get_json(self, endpoint: str, path: str, params: dict[str, str]) -> HttpResult:
         """Fetch a JSON response, pacing every attempt including retries."""
         url = f"{endpoint.rstrip('/')}{path}?{urlencode(params)}"
+        try:
+            request = Request(
+                url,
+                headers={"accept": "application/json", "user-agent": USER_AGENT},
+            )
+        except ValueError:
+            # A structurally invalid URL fails without pacing or opener use.
+            return HttpResult(None, None, "invalid_url", False)
         now = self.monotonic()
         if self._last_request_start is not None:
             remaining = self.min_interval - (now - self._last_request_start)
             if remaining > 0:
                 self.sleep(remaining)
         self._last_request_start = self.monotonic()
-        request = Request(
-            url,
-            headers={"accept": "application/json", "user-agent": USER_AGENT},
-        )
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
@@ -709,7 +713,7 @@ def parse_payload(
     attempt_count: int,
 ) -> Payload:
     """Require exact identity, version, timestamp, and payload evidence."""
-    if not response.get("success"):
+    if response.get("success") is not True:
         raise ValueError("api_success_false")
     tx = response.get("tx")
     if not isinstance(tx, dict):
@@ -754,7 +758,14 @@ def parse_payload(
 
 
 def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
-    """Trim endpoint padding and reject whitespace that remains inside it."""
+    """Normalize endpoint padding, then require an absolute HTTP(S) base URL.
+
+    After trimming and trailing-slash removal, only absolute ``http`` or
+    ``https`` URLs are accepted: a hostname is required, an optional port must
+    be valid, the path spelling is retained unchanged, and a query or fragment
+    is rejected. Interior whitespace is rejected before parsing because
+    ``urlsplit`` silently strips ASCII tabs and newlines.
+    """
     endpoint = value.strip().rstrip("/")
     if not endpoint:
         if allow_blank:
@@ -762,6 +773,21 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
         raise ValueError(f"{name} endpoint must be non-empty")
     if any(character.isspace() for character in endpoint):
         raise ValueError(f"{name} endpoint must not contain whitespace")
+    try:
+        parts = urlsplit(endpoint)
+        # Accessing these properties is what surfaces malformed authorities
+        # (bad ports, invalid IPv6 or NFKC hosts) as ValueError.
+        parts.port
+        hostname = parts.hostname
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} endpoint must be an absolute http or https URL"
+        ) from exc
+    authority = parts.netloc.rsplit("@", 1)[-1]
+    if parts.scheme not in ("http", "https") or not hostname or authority.endswith(":"):
+        raise ValueError(f"{name} endpoint must be an absolute http or https URL")
+    if "?" in endpoint or "#" in endpoint:
+        raise ValueError(f"{name} endpoint must not contain a query or fragment")
     return endpoint
 
 
@@ -971,7 +997,13 @@ def run_extraction(
     fallback_endpoint: str,
     limit: int | None = None,
 ) -> Counter[str]:
-    """Resume one range with durable appends and one final ordering rewrite."""
+    """Resume one range with durable appends and one final ordering rewrite.
+
+    Both endpoints are validated before any lock acquisition or output
+    mutation, so a misconfigured URL fails without touching the archive.
+    """
+    canonical_endpoint(primary_endpoint, "primary", allow_blank=False)
+    canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
     require_distinct_paths(
         ledger=ledger_path,
         raw_output=raw_output,

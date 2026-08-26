@@ -51,7 +51,7 @@ from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -165,7 +165,14 @@ def fsync_directory(path: Path) -> None:
 
 
 def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
-    """Trim endpoint padding and trailing slashes, then reject whitespace."""
+    """Normalize endpoint padding, then require an absolute HTTP(S) base URL.
+
+    After trimming and trailing-slash removal, only absolute ``http`` or
+    ``https`` URLs are accepted: a hostname is required, an optional port must
+    be valid, the path spelling is retained unchanged, and a query or fragment
+    is rejected. Interior whitespace is rejected before parsing because
+    ``urlsplit`` silently strips ASCII tabs and newlines.
+    """
     endpoint = value.strip().rstrip("/")
     if not endpoint:
         if allow_blank:
@@ -173,6 +180,21 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
         raise ValueError(f"{name} endpoint must be non-empty")
     if any(character.isspace() for character in endpoint):
         raise ValueError(f"{name} endpoint must not contain whitespace")
+    try:
+        parts = urlsplit(endpoint)
+        # Accessing these properties is what surfaces malformed authorities
+        # (bad ports, invalid IPv6 or NFKC hosts) as ValueError.
+        parts.port
+        hostname = parts.hostname
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} endpoint must be an absolute http or https URL"
+        ) from exc
+    authority = parts.netloc.rsplit("@", 1)[-1]
+    if parts.scheme not in ("http", "https") or not hostname or authority.endswith(":"):
+        raise ValueError(f"{name} endpoint must be an absolute http or https URL")
+    if "?" in endpoint or "#" in endpoint:
+        raise ValueError(f"{name} endpoint must not contain a query or fragment")
     return endpoint
 
 
@@ -326,15 +348,42 @@ def read_manifest(
     expected_start: int | None = None,
     expected_end: int | None = None,
 ) -> Manifest:
-    """Load and structurally validate a previously frozen manifest."""
+    """Load and structurally validate a previously frozen manifest.
+
+    The CSV is parsed strictly: the header must be exactly one known schema,
+    every record must occupy exactly one physical line with the exact complete
+    set of text cells, and interior or trailing blank lines are rejected.
+    Legacy manifests remain loadable only with explicit range bounds.
+    """
     if (expected_start is None) != (expected_end is None):
         raise ValueError("manifest range assertion requires both start and end")
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames not in (MANIFEST_COLUMNS, LEGACY_MANIFEST_COLUMNS):
-            raise ValueError(f"unexpected manifest columns: {reader.fieldnames}")
-        legacy = reader.fieldnames == LEGACY_MANIFEST_COLUMNS
-        rows = list(reader)
+    rows: list[dict[str, str]] = []
+    try:
+        with path.open(newline="") as handle:
+            reader = csv.DictReader(handle, strict=True)
+            if reader.fieldnames not in (MANIFEST_COLUMNS, LEGACY_MANIFEST_COLUMNS):
+                raise ValueError(f"unexpected manifest columns: {reader.fieldnames}")
+            columns = reader.fieldnames
+            legacy = reader.fieldnames == LEGACY_MANIFEST_COLUMNS
+            previous_line = reader.line_num
+            for row in reader:
+                if reader.line_num != previous_line + 1:
+                    raise ValueError(
+                        f"malformed multi-line or blank manifest row: {path}"
+                    )
+                previous_line = reader.line_num
+                if set(row) != set(columns) or any(
+                    value is None for value in row.values()
+                ):
+                    raise ValueError(
+                        f"manifest row {reader.line_num} does not have the exact "
+                        "complete schema"
+                    )
+                rows.append(row)
+            if reader.line_num != previous_line:
+                raise ValueError(f"malformed trailing blank manifest row: {path}")
+    except csv.Error as exc:
+        raise ValueError(f"malformed manifest CSV: {path}") from exc
     if not rows:
         raise ValueError("manifest has no shards")
     if legacy:
@@ -412,15 +461,19 @@ class PacedHttpClient:
         """Fetch JSON at a paced request rate without hiding terminal failures."""
         query = urlencode(params)
         url = f"{endpoint.rstrip('/')}{path}?{query}"
+        try:
+            request = Request(
+                url, headers={"accept": "application/json", "user-agent": USER_AGENT}
+            )
+        except ValueError:
+            # A structurally invalid URL fails without pacing or opener use.
+            return HttpResult(None, None, "invalid_url", False)
         now = self.monotonic()
         if self._last_request_start is not None:
             remaining = self.min_interval - (now - self._last_request_start)
             if remaining > 0:
                 self.sleep(remaining)
         self._last_request_start = self.monotonic()
-        request = Request(
-            url, headers={"accept": "application/json", "user-agent": USER_AGENT}
-        )
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
@@ -752,9 +805,14 @@ def read_recorded_heights(path: Path) -> set[int]:
 
 
 def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
-    """Require one resolved ledger record for each height in ``[start, end)``."""
+    """Require one resolved ledger record for each height in ``[start, end)``.
+
+    Duplicate heights are rejected first. Every nonblank canonical transaction
+    ID in the ledger must belong to exactly one height; legacy noncanonical
+    identifiers are preserved without that uniqueness check.
+    """
     recorded: set[int] = set()
-    ready_tx_heights: dict[str, int] = {}
+    canonical_tx_heights: dict[str, int] = {}
     observed_order: list[int] = []
     outcomes: Counter[str] = Counter()
     if require_complete_ledger_file(path):
@@ -764,15 +822,15 @@ def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
                 if height in recorded:
                     raise ValueError(f"duplicate ledger height: {height}")
                 recorded.add(height)
-                if row["outcome"] == "version_3_ready":
-                    tx_id = row["tx_id"]
-                    previous_height = ready_tx_heights.get(tx_id)
+                tx_id = row["tx_id"]
+                if tx_id and is_canonical_tx_id(tx_id):
+                    previous_height = canonical_tx_heights.get(tx_id)
                     if previous_height is not None:
                         raise ValueError(
-                            "version_3_ready transaction ID is assigned to multiple "
+                            "canonical transaction ID is assigned to multiple "
                             f"heights: {previous_height}, {height}"
                         )
-                    ready_tx_heights[tx_id] = height
+                    canonical_tx_heights[tx_id] = height
                 observed_order.append(height)
                 outcomes[row["outcome"]] += 1
     if observed_order != sorted(observed_order):

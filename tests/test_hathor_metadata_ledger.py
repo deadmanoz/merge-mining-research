@@ -82,7 +82,11 @@ def test_make_shards_requires_a_nonblank_primary(primary: str) -> None:
     ("name", "primary", "fallback"),
     [
         ("primary", "https://primary.example/v1a next", "fallback"),
-        ("fallback", "primary", "https://fallback.example /v1a"),
+        (
+            "fallback",
+            "https://primary.example/v1a",
+            "https://fallback.example /v1a",
+        ),
     ],
 )
 def test_make_shards_rejects_remaining_endpoint_whitespace(
@@ -105,7 +109,14 @@ def test_validate_shards_rejects_a_gap() -> None:
 
 
 def test_validate_shards_rejects_the_wrong_overall_range() -> None:
-    shards = ledger.make_shards(5, 10, ["a"], "p", "f", "r")
+    shards = ledger.make_shards(
+        5,
+        10,
+        ["a"],
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+        "r",
+    )
 
     with pytest.raises(ValueError, match="does not cover"):
         ledger.validate_shards(shards, 0, 10)
@@ -1050,8 +1061,8 @@ def test_manifest_round_trip_preserves_its_declared_range(
             10,
             17,
             ["a", "b", "c"],
-            "primary",
-            "fallback",
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a",
             "revision",
         )
     )
@@ -1088,7 +1099,16 @@ def test_manifest_rejects_missing_terminal_shard_row(
     manifest = ledger.Manifest(
         0,
         9,
-        tuple(ledger.make_shards(0, 9, ["a", "b", "c"], "p", "f", "r")),
+        tuple(
+            ledger.make_shards(
+                0,
+                9,
+                ["a", "b", "c"],
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+            )
+        ),
     )
     ledger.write_manifest(path, manifest)
     with path.open(newline="") as handle:
@@ -1110,7 +1130,16 @@ def test_manifest_rejects_inconsistent_declared_ranges(tmp_path: Path) -> None:
     manifest = ledger.Manifest(
         0,
         6,
-        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+        tuple(
+            ledger.make_shards(
+                0,
+                6,
+                ["a", "b"],
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+            )
+        ),
     )
     ledger.write_manifest(path, manifest)
     with path.open(newline="") as handle:
@@ -1145,7 +1174,16 @@ def test_manifest_rejects_noncanonical_bound_strings(
     manifest = ledger.Manifest(
         0,
         6,
-        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+        tuple(
+            ledger.make_shards(
+                0,
+                6,
+                ["a", "b"],
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+            )
+        ),
     )
     ledger.write_manifest(path, manifest)
     with path.open(newline="") as handle:
@@ -1168,7 +1206,14 @@ def test_legacy_manifest_requires_and_validates_explicit_range(
     removed: str | None,
 ) -> None:
     path = tmp_path / "legacy-manifest.csv"
-    shards = ledger.make_shards(0, 9, ["a", "b", "c"], "p", "f", "r")
+    shards = ledger.make_shards(
+        0,
+        9,
+        ["a", "b", "c"],
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+        "r",
+    )
     if removed == "first":
         shards = shards[1:]
     elif removed == "last":
@@ -1209,7 +1254,16 @@ def test_write_manifest_validates_declared_range_before_creation(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "manifest.csv"
-    shards = tuple(ledger.make_shards(10, 12, ["a"], "p", "f", "r"))
+    shards = tuple(
+        ledger.make_shards(
+            10,
+            12,
+            ["a"],
+            "https://primary.example/v1a",
+            "https://fallback.example/v1a",
+            "r",
+        )
+    )
 
     with pytest.raises(ValueError, match="does not cover"):
         ledger.write_manifest(path, ledger.Manifest(0, 12, shards))
@@ -1453,7 +1507,16 @@ def _two_shard_manifest() -> ledger.Manifest:
     return ledger.Manifest(
         0,
         6,
-        tuple(ledger.make_shards(0, 6, ["a", "b"], "p", "f", "r")),
+        tuple(
+            ledger.make_shards(
+                0,
+                6,
+                ["a", "b"],
+                "https://primary.example/v1a",
+                "https://fallback.example/v1a",
+                "r",
+            )
+        ),
     )
 
 
@@ -1567,9 +1630,19 @@ def test_write_manifest_canonicalizes_direct_shard_endpoints(
             "primary endpoint must not contain whitespace",
         ),
         (
-            "primary",
+            "https://primary.example/v1a",
             "https://fallback.example /v1a",
             "fallback endpoint must not contain whitespace",
+        ),
+        (
+            "ftp://primary.example/v1a",
+            "",
+            "primary endpoint must be an absolute http or https URL",
+        ),
+        (
+            "https://primary.example/v1a?x=1",
+            "",
+            "primary endpoint must not contain a query or fragment",
         ),
     ],
 )
@@ -1643,3 +1716,235 @@ def test_read_manifest_normalizes_trailing_slash_endpoints(tmp_path: Path) -> No
         and shard.fallback_endpoint == "https://fallback.example/v1a"
         for shard in loaded.shards
     )
+
+
+def test_audit_ledger_rejects_canonical_tx_reuse_across_mixed_outcomes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, TX_A, "p", 1, ""))
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_A, "p", 1, "")
+        )
+
+    with pytest.raises(ValueError, match="assigned to multiple heights: 0, 1"):
+        ledger.audit_ledger(path, 0, 2)
+
+
+def test_audit_ledger_checks_canonical_tx_ids_in_unresolved_rows(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(
+                0,
+                "unavailable_block",
+                200,
+                3,
+                TX_A,
+                "p",
+                1,
+                "child_block_voided",
+            )
+        )
+        writer.writerow(
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_A, "p", 1, "")
+        )
+
+    with pytest.raises(ValueError, match="assigned to multiple heights: 0, 1"):
+        ledger.audit_ledger(path, 0, 2)
+
+
+def test_audit_ledger_preserves_repeated_legacy_noncanonical_tx_ids(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for height in range(2):
+            writer.writerow(
+                ledger.ledger_row(height, "non_version_3", 200, 0, "abc", "p", 1, "")
+            )
+
+    assert ledger.audit_ledger(path, 0, 2) == {"non_version_3": 2}
+
+
+def test_audit_ledger_reports_duplicate_height_before_tx_id_reuse(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(0, "version_3_ready", 200, 3, TX_A, "p", 1, "")
+        )
+        writer.writerow(
+            ledger.ledger_row(0, "version_3_ready", 200, 3, TX_A, "p", 2, "")
+        )
+
+    with pytest.raises(ValueError, match="duplicate ledger height: 0"):
+        ledger.audit_ledger(path, 0, 2)
+
+
+def test_read_manifest_rejects_incomplete_record_cells(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    lines = path.read_text().splitlines(keepends=True)
+    lines[1] = lines[1].rsplit(",", 1)[0] + "\n"
+    path.write_text("".join(lines))
+
+    with pytest.raises(ValueError, match="exact complete schema"):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_rejects_extra_record_cells(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    lines = path.read_text().splitlines(keepends=True)
+    lines[1] = lines[1].rstrip("\n") + ",extra\n"
+    path.write_text("".join(lines))
+
+    with pytest.raises(ValueError, match="exact complete schema"):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_rejects_a_multi_line_record(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    lines = path.read_text().splitlines(keepends=True)
+    cells = lines[1].rstrip("\n").split(",")
+    cells[5] = '"worker\na"'
+    lines[1] = ",".join(cells) + "\n"
+    path.write_text("".join(lines))
+
+    with pytest.raises(ValueError, match="malformed multi-line or blank manifest row"):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_rejects_an_interior_blank_record(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    lines = path.read_text().splitlines(keepends=True)
+    lines.insert(2, "\n")
+    path.write_text("".join(lines))
+
+    with pytest.raises(ValueError, match="malformed multi-line or blank manifest row"):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_rejects_a_trailing_blank_record(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    path.write_text(path.read_text() + "\n")
+
+    with pytest.raises(ValueError, match="malformed trailing blank manifest row"):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_wraps_malformed_csv(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    path.write_text(path.read_text() + '"unterminated\n')
+
+    with pytest.raises(ValueError, match="malformed manifest CSV"):
+        ledger.read_manifest(path)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "message"),
+    [
+        ("primary", "absolute http or https URL"),
+        ("ftp://primary.example/v1a", "absolute http or https URL"),
+        ("//primary.example/v1a", "absolute http or https URL"),
+        ("https:///v1a", "absolute http or https URL"),
+        ("https://primary.example:notaport/v1a", "absolute http or https URL"),
+        ("https://primary.example:99999/v1a", "absolute http or https URL"),
+        ("https://primary.example:/v1a", "absolute http or https URL"),
+        ("https://primary.example/v1a?height=1", "query or fragment"),
+        ("https://primary.example/v1a?", "query or fragment"),
+        ("https://primary.example/v1a#frag", "query or fragment"),
+        ("https://primary.example/v1a#", "query or fragment"),
+    ],
+)
+def test_make_shards_rejects_non_absolute_or_qualified_endpoints(
+    endpoint: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        ledger.make_shards(0, 4, ["a"], endpoint, "", "r")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://primary.example/v1a",
+        "https://primary.example/v1a",
+        "https://primary.example:8080/v1a",
+        "http://127.0.0.1:8332/v1a",
+    ],
+)
+def test_make_shards_accepts_absolute_http_endpoint_forms(endpoint: str) -> None:
+    shards = ledger.make_shards(0, 4, ["a"], endpoint, "", "r")
+
+    assert shards[0].primary_endpoint == endpoint
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("primary_endpoint", "ftp://primary.example/v1a", "absolute http or https"),
+        (
+            "primary_endpoint",
+            "https://primary.example/v1a?x=1",
+            "query or fragment",
+        ),
+        (
+            "fallback_endpoint",
+            "https://fallback.example/v1a#frag",
+            "query or fragment",
+        ),
+    ],
+)
+def test_read_manifest_rejects_non_http_loaded_endpoints(
+    tmp_path: Path, field: str, value: str, message: str
+) -> None:
+    path = _manifest_with_endpoints(tmp_path, {field: value})
+
+    with pytest.raises(ValueError, match=message):
+        ledger.read_manifest(path)
+
+
+def test_http_client_rejects_an_invalid_url_before_pacing_or_opener() -> None:
+    def opener(_request, timeout):
+        raise AssertionError("an invalid URL must never reach the opener")
+
+    sleeps: list[float] = []
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    result = client.get_json("primary", "/block_at_height", {"height": 0})
+
+    assert result == ledger.HttpResult(None, None, "invalid_url", False)
+    assert client._last_request_start is None
+    assert sleeps == []
+    assert client.get_json("primary", "/block_at_height", {"height": 1}) == result

@@ -53,18 +53,25 @@ Hathor-specific repo artifacts:
   resolves the height. A
   version-3 outcome resolves only with a canonical
   lowercase 64-character hex transaction ID, while truncated response bodies
-  remain retryable. Completion also requires every ready transaction ID to map
-  to exactly one height. A new manifest is staged in a fully synced
+  remain retryable. Completion also requires every nonblank canonical
+  transaction ID in the ledger to map to exactly one height; repeated legacy
+  noncanonical identifiers remain accepted. A new manifest is staged in a fully
+  synced
   same-directory temporary file and published with a no-clobber hard link, so
   the first creator to link wins and is never overwritten by a competitor. New
   manifest, ledger, and repair directory entries are synced after their files
   become durable. Manifest endpoint arguments are canonicalized before any
   manifest publication: padding and trailing slashes are stripped, the primary
   URL must remain nonblank and whitespace-free, and a blank fallback URL
-  disables fallback. Manifest publication enforces that canonicalization for
+  disables fallback. Nonblank endpoints must be absolute `http` or `https`
+  URLs with a hostname, a valid optional port, a retained path, and no query
+  or fragment. Manifest publication enforces that canonicalization for
   directly built manifests too, and loading a frozen manifest applies the same
   rule, so malformed legacy or hand-edited endpoints are rejected before any
-  request is constructed. Deduplicated repairs are published through the same
+  request is constructed. Frozen manifests load with strict CSV parsing: an
+  exact known header, exactly one physical line per record, complete text
+  cells, and no interior or trailing blank lines, with malformed CSV rejected
+  outright. Deduplicated repairs are published through the same
   staged, fully synced no-clobber temporary file protocol rather than written
   directly to their output. A shard resumes only when its existing ledger
   heights form an exact contiguous prefix beginning at the shard start; gaps,
@@ -81,7 +88,13 @@ Hathor-specific repo artifacts:
   the requested transaction ID, use exact integer version 3, and carry an exact
   non-negative integer timestamp. Endpoint padding is trimmed, any remaining
   whitespace is rejected, the primary URL must remain nonblank, and a blank
-  fallback URL disables fallback. Newly created evidence directory entries are
+  fallback URL disables fallback. Nonblank endpoints must be absolute `http`
+  or `https` URLs with a hostname, a valid optional port, a retained path, and
+  no query or fragment; a run validates both before any lock or archive
+  mutation, and a structurally invalid request URL fails as `invalid_url`
+  before pacing or any opener call. A payload response counts as successful
+  only when its `success` flag is exactly `true`. Newly created evidence
+  directory entries are
   synced after their headers. A new payload must also locate its unique
   `aux_pow` at a byte offset of at least
   three inside the raw transaction; shorter funds+graph prefixes fail as

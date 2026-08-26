@@ -2190,3 +2190,199 @@ def test_failure_history_accepts_a_blank_status_for_a_network_error(
 
     ready = payloads.load_ready_rows(ledger_path, 0, 1)
     assert payloads.read_failure_rounds(failure_log, ready) == {0: 1}
+
+
+@pytest.mark.parametrize(
+    ("primary_endpoint", "fallback_endpoint", "message"),
+    [
+        ("primary", "https://fallback.example/v1a", "primary endpoint"),
+        (
+            "https://primary.example:/v1a",
+            "https://fallback.example/v1a",
+            "primary endpoint",
+        ),
+        ("https://primary.example/v1a", "fallback", "fallback endpoint"),
+    ],
+)
+def test_run_extraction_rejects_invalid_endpoints_before_locks_or_mutation(
+    tmp_path: Path,
+    primary_endpoint: str,
+    fallback_endpoint: str,
+    message: str,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_ledger(ledger)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("invalid endpoints must fail before network I/O")
+
+    with pytest.raises(ValueError, match=message):
+        payloads.run_extraction(
+            ledger_path=ledger,
+            raw_output=raw_output,
+            failure_output=failure_output,
+            start=0,
+            end=3,
+            client=Client(),
+            primary_endpoint=primary_endpoint,
+            fallback_endpoint=fallback_endpoint,
+        )
+
+    assert not raw_output.exists()
+    assert not failure_output.exists()
+    assert not list(tmp_path.glob("*.lock"))
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_http_client_rejects_an_invalid_url_before_pacing_or_opener() -> None:
+    def opener(_request, timeout):
+        raise AssertionError("an invalid URL must never reach the opener")
+
+    sleeps: list[float] = []
+    client = payloads.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    result = client.get_json("primary", "/transaction", {"id": "a" * 64})
+
+    assert result == payloads.HttpResult(None, None, "invalid_url", False)
+    assert client._last_request_start is None
+    assert sleeps == []
+    assert client.get_json("primary", "/transaction", {"id": "b" * 64}) == result
+
+
+@pytest.mark.parametrize(
+    "success",
+    [1, "true", "yes", ["true"], {"success": True}],
+)
+def test_parse_payload_requires_the_exact_true_success_flag(success: object) -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    with pytest.raises(ValueError, match="api_success_false"):
+        payloads.parse_payload(
+            ready,
+            {
+                "success": success,
+                "tx": {
+                    "hash": ready.tx_id,
+                    "version": 3,
+                    "timestamp": 10,
+                    "aux_pow": aux_pow.hex(),
+                    "raw": (b"funds" + aux_pow + b"tail").hex(),
+                },
+            },
+            "https://primary.example/v1a",
+            200,
+            1,
+        )
+
+
+def test_fetch_payload_uses_fallback_after_a_malformed_success_flag() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": 1 if len(self.endpoints) == 1 else True,
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert failure is None
+    assert payload is not None
+    assert payload.endpoint == "https://fallback.example/v1a"
+    assert payload.http_status == 200
+    assert payload.attempt_count == 2
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+
+
+def test_fetch_payload_exhausts_malformed_success_flags_with_provenance() -> None:
+    aux_pow = bytes.fromhex("aa55")
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(
+                200,
+                {
+                    "success": "true",
+                    "tx": {
+                        "hash": ready.tx_id,
+                        "version": 3,
+                        "timestamp": 10,
+                        "aux_pow": aux_pow.hex(),
+                        "raw": (b"funds" + aux_pow + b"tail").hex(),
+                    },
+                },
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert payload is None
+    assert failure is not None
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+    assert failure["http_status"] == 200
+    assert failure["endpoint"] == "https://fallback.example/v1a"
+    assert failure["attempt_count"] == 2
+    assert failure["error_reason"] == "api_success_false"
