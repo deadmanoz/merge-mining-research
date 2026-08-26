@@ -2,6 +2,81 @@
 
 ## Unreleased
 
+Preserve the historical Hathor pre-million acquisition workers as
+private-archive provenance. Record one terminal metadata outcome per height,
+then fetch and seal one complete transaction row for each version-3 height
+while deriving its funds-and-graph supplement locally. Keep these one-time
+migration tools separate from the future acquisition interface. Fail closed
+when a ledger retains unresolved outcomes, and re-drive selected failures
+into a separate ordered ledger without mutating the source. Retain successful
+payload endpoint, status, and attempt provenance in new sealed rows, preserve
+deterministic LF-terminated height order across recovery, and keep the completed
+sealed-v1 payload estate readable without inventing provenance it never stored.
+Require canonical lowercase 64-character hex identifiers for resolved version-3
+rows, reject resolved non-2xx metadata before payload work, and retry truncated
+response bodies without discarding a known HTTP status. Reject non-finite
+request settings, version-3 identifiers reused across heights, artifact path
+aliases, and whitespace-bearing payload hex before any archive mutation. Persist
+the frozen manifest's declared global range in every shard row, require explicit
+bounds for legacy manifests, require exact echoed transaction identity and
+canonical timestamps before sealing new evidence, ignore blank fallback URLs,
+require nonblank whitespace-free primary URLs and whitespace-free nonblank
+fallback URLs, and durably sync newly created acquisition artifacts into their
+parent directories. Reject new payloads whose
+unique ``aux_pow`` begins fewer than
+three bytes into the raw transaction as ``funds_graph_prefix_too_short``,
+schedule bounded payload runs by least completed durable failure round then
+height so an early permanent failure cannot starve later heights, validate each
+load-bearing failure row's blank-or-canonical HTTP status and exact UTC
+timestamp before it can affect scheduling, and publish frozen manifests through
+a fully synced same-directory temporary file linked into place without
+clobbering a competing winner. Canonicalize manifest endpoint arguments before
+any manifest publication by trimming padding and trailing slashes, requiring a
+nonblank whitespace-free primary URL, and treating a blank fallback URL as
+disabled, enforcing the same rule at the write boundary for directly built
+manifests and when loading a frozen manifest so malformed legacy or
+hand-edited endpoints are rejected before any request is constructed. Treat a
+truthy `is_voided` block response as unresolved after the existing version and
+transaction-ID gates; record it as `child_block_voided`, preserve its valid
+response metadata for diagnosis, and retry through the bounded endpoint loop
+instead of sealing it as version-3-ready or non-version-3. Extend the same
+contract to newly fetched payloads: a transaction response reporting a truthy
+`is_voided` flag after its echoed hash and version gates fails as
+`child_block_voided`, remains retryable through the bounded endpoint loop, and
+is never sealed, while already sealed rows are not retroactively revalidated
+because their void status was never archived. Require non-negative global and
+shard bounds before manifest publication, rejecting negative bounds at the
+shared shard-validation boundary before any coverage verdict, parent directory,
+or temporary file is created. Publish
+deduplicated ledger repairs through the same staged, fully
+synced no-clobber temporary file protocol, and refuse to resume a shard whose
+existing ledger heights do not form an exact contiguous prefix beginning at the
+shard start, rejecting gaps before any append or request. Require every
+nonblank canonical transaction ID in an audited ledger to belong to exactly one
+height across all recorded outcomes, while repeated legacy noncanonical
+identifiers stay accepted. Parse frozen manifests strictly, requiring an exact
+known header, exactly one physical line per record, complete text cells, and no
+interior or trailing blank lines, and fail closed on malformed CSV. Accept only
+absolute http or https endpoint URLs with a hostname, a valid optional port, a
+retained path, no query or fragment, and no raw ASCII control characters at
+every manifest and payload boundary. Reject structurally invalid request URLs
+as `invalid_url` before pacing or any opener call, convert an opener-level
+`InvalidURL` into the same nonretryable result, validate payload run endpoints
+before locks or archive mutation, and require the payload `success` flag to be
+exactly `true`. Enforce canonical
+transaction ID uniqueness across all resolved outcome types within each payload
+preflight's requested range, and reject carriage returns or newlines in manifest
+worker, shard, revision, and status labels before publication. Require every
+frozen `shard_id` to be nonempty so it remains selectable by the CLI, while
+preserving whitespace-only IDs byte-exactly. Audit payload
+snapshots under the same cooperative exclusive evidence locks held by the
+upgrade and supplement writers, keeping both raw and supplement locked from
+the first artifact existence check through evidence-root construction and
+ledger/raw hash generation, and require both artifacts to exist as nonempty
+files, so a legitimate zero-ready audit presents exact LF-terminated
+header-only schemas (sealed v1 or v2 raw plus the supplement header) with
+role-specific errors for missing or empty evidence.
+
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 
 Preserve retained expected-nBits evidence and authenticate newly admitted

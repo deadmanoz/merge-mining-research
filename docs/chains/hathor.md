@@ -30,11 +30,119 @@ Hathor's merge-mining proof differs from the Namecoin-family `CAuxPow` format. T
 - `data/hathor_stale_blocks.csv` - full Phase B classifier output (3,612 BTC-parent rows: 3,606 canonical + 6 stale). Gitignored as a large private report (matches the `data/*_stale_blocks.csv` convention).
 - `data/hathor_error_blocks.csv` - Phase C's error-block peer of the Phase B input (the shared `_stale_blocks` → `_error_blocks` derivation), carrying the standard schema plus `rules_violated`. For the recovered range it will be header-only: all 6 accepted candidates are `VALID`, so no rejected row's bytes prove a consensus rule broken.
 - `data/hathor_unknown_blocks.csv` - Phase C's unknown peer of the same input, for rejected rows that are not direct stales at all (an unplaceable predecessor, or a difficulty that is not Bitcoin's at that height). Also header-only for the recovered range.
-- The 5.57M-row raw `aux_pow` CSV and the consolidated funds+graph supplement (~2 GB) are too large for the repo and remain on the archival host.
+- The 5.57M-row post-million raw `aux_pow` CSV, its consolidated funds+graph
+  supplement (~2 GB), and the private pre-million ledger and payload estate are
+  too large for the repo and remain on the archival host.
 
 Hathor-specific repo artifacts:
 
 - `scripts/extract/extract_hathor_auxpow.py` - REST-API extractor; saves the raw `aux_pow` blob untouched. Resumable.
+- `scripts/extract/hathor_metadata_ledger.py` - historical pre-million
+  migration worker. A frozen manifest partitions the range and repeats its
+  declared global bounds in every shard row, so losing a terminal shard cannot
+  silently shorten the run contract. Legacy manifests require explicit
+  `--start` and `--end` assertions and are never rewritten in place. Each worker
+  records one terminal metadata outcome for every assigned height before any
+  payload acquisition. Completion audits reject unresolved outcomes; selected
+  failures can be re-driven into a new no-clobber, ordered ledger without
+  mutating the source. A truthy `is_voided` flag on a `block_at_height`
+  response never resolves a height. After the existing version and transaction
+  ID gates pass, its valid metadata remains diagnostic only, the height stays
+  an unresolved `child_block_voided` observation, and the bounded
+  retry/fallback loop moves on to the next endpoint until a non-voided block
+  resolves the height. A
+  version-3 outcome resolves only with a canonical
+  lowercase 64-character hex transaction ID, while truncated response bodies
+  remain retryable. Completion also requires every nonblank canonical
+  transaction ID in the ledger to map to exactly one height; repeated legacy
+  noncanonical identifiers remain accepted. A new manifest is staged in a fully
+  synced
+  same-directory temporary file and published with a no-clobber hard link, so
+  the first creator to link wins and is never overwritten by a competitor.
+  Global and per-shard bounds must be non-negative: the shared shard-validation
+  boundary rejects negative bounds before any coverage verdict can mask them,
+  and manifest publication rejects them before any parent directory or
+  temporary file is created. New
+  manifest, ledger, and repair directory entries are synced after their files
+  become durable. Manifest endpoint arguments are canonicalized before any
+  manifest publication: padding and trailing slashes are stripped, the primary
+  URL must remain nonblank and whitespace-free, and a blank fallback URL
+  disables fallback. Nonblank endpoints must be absolute `http` or `https`
+  URLs with a hostname, a valid optional port, a retained path, and no query
+  or fragment, and raw ASCII control characters are rejected before URL
+  parsing. Manifest publication enforces that canonicalization for
+  directly built manifests too, and loading a frozen manifest applies the same
+  rule, so malformed legacy or hand-edited endpoints are rejected before any
+  request is constructed. An opener-level `InvalidURL` becomes a terminal,
+  nonretryable `invalid_url` result rather than escaping the acquisition
+  record. Frozen manifests load with strict CSV parsing: an
+  exact known header, exactly one physical line per record, complete text
+  cells, and no interior or trailing blank lines, with malformed CSV rejected
+  outright. Manifest labels are single-line: worker labels and the extractor
+  revision are checked when shards are created, and every serialized free-text
+  label (`shard_id`, `worker`, `extractor_revision`, `status`) is checked again
+  at the write boundary, so a label carrying a carriage return or newline is
+  rejected before any manifest, temporary file, or parent directory is created.
+  Every frozen `shard_id` must also be nonempty so the CLI can select it;
+  whitespace-only IDs retain their byte-exact identity.
+  Deduplicated repairs are published through the same
+  staged, fully synced no-clobber temporary file protocol rather than written
+  directly to their output. A shard resumes only when its existing ledger
+  heights form an exact contiguous prefix beginning at the shard start; gaps,
+  out-of-shard rows, and duplicates are rejected before the ledger is opened
+  for append or any request is made.
+- `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
+  ledger-driven migration worker. Each transaction request writes one sealed
+  source row containing `aux_pow`, `raw`, and locally derived funds+graph
+  bytes. New sealed-v2 rows also retain the serving endpoint, HTTP status, and
+  total attempt count, and successful gap recovery leaves the primary CSV in
+  deterministic height order. Payload processing rejects resolved metadata
+  rows whose recorded status is not 2xx, whitespace-bearing payload hex, and
+  any artifact paths that alias one another. Every payload mode's preflight
+  also requires each nonblank canonical transaction ID across all resolved
+  ledger outcomes in the requested range, `non_version_3` included, to map to
+  exactly one height, matching the metadata-ledger audit's canonical-ID rule;
+  repeated legacy noncanonical identifiers remain accepted. A successful
+  response must echo
+  the requested transaction ID, use exact integer version 3, and carry an exact
+  non-negative integer timestamp. Endpoint padding is trimmed, any remaining
+  whitespace is rejected, the primary URL must remain nonblank, and a blank
+  fallback URL disables fallback. Nonblank endpoints must be absolute `http`
+  or `https` URLs with a hostname, a valid optional port, a retained path, and
+  no query or fragment, with raw ASCII control characters rejected before URL
+  parsing. A run validates both endpoints before any lock or archive mutation,
+  and a structurally invalid request URL fails as `invalid_url` before pacing
+  or any opener call. An opener-level `InvalidURL` is converted to the same
+  terminal, nonretryable result. A payload response counts as successful
+  only when its `success` flag is exactly `true`. After the echoed transaction
+  hash and exact version-3 gates pass, a truthy `is_voided` flag on a newly
+  fetched transaction response fails as `child_block_voided`: the fetch remains
+  retryable through the bounded endpoint loop and is never sealed. Already
+  sealed rows are not retroactively revalidated because their void status was
+  never archived. Newly created evidence
+  directory entries are
+  synced after their headers. A new payload must also locate its unique
+  `aux_pow` at a byte offset of at least
+  three inside the raw transaction; shorter funds+graph prefixes fail as
+  `funds_graph_prefix_too_short` and remain retryable, while already sealed
+  v1/v2 rows are not retroactively rejected. `--limit` bounds how many pending
+  heights one invocation schedules; pending heights are ordered by least
+  completed durable failure round then height, so a permanently failing early
+  height cannot starve later heights and stays retryable after a full pass.
+  Failure history becomes load-bearing for that order, so each row must retain
+  its blank-or-canonical HTTP status and exact timezone-aware UTC timestamp. The
+  completed seven-column sealed-v1 estate remains readable and byte-immutable;
+  it cannot be mixed with new rows because its missing request provenance cannot
+  be reconstructed honestly. The completion audit pins its raw and supplement
+  snapshots with the same cooperative exclusive locks the upgrade and supplement
+  writers take, holding both from the first artifact existence check through
+  evidence-root construction and ledger/raw hash generation so a cooperating
+  writer cannot swap in a mixed snapshot mid-audit. Both artifacts must exist
+  as nonempty files: a legitimate zero-ready audit requires exact LF-terminated
+  header-only files (sealed-v1 or sealed-v2 raw plus the supplement header),
+  while missing or zero-byte artifacts fail with role-specific errors. These
+  two workers preserve acquisition provenance;
+  they are not the future supported acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
 - The historical pool-population pre-flight audit is retained privately; it is
@@ -45,11 +153,21 @@ Hathor-specific repo artifacts:
 - `scripts/classify/classify_hathor_phase_b.py` - Phase B: canonical/stale classification + nBits validation gate.
 - `scripts/classify/classify_hathor_phase_c.py` - Phase C: coinbase parse + BIP34 cross-check + standard-schema output + the error-block and unknown peers.
 
-**Coverage.** The extraction starts at Hathor height 1,000,000 on 2020-12-18 and runs to roughly 6,569,000, yielding 5,569,557 `version == 3` rows. The retained 3,606 canonical rows span Hathor heights 1,047,018 to 6,567,450 and Bitcoin heights 664,341 to 949,982. The six accepted candidates span Bitcoin heights 710,969 to 938,873.
+**Coverage.** The presently committed classification starts at Hathor height
+1,000,000 on 2020-12-18 and runs to roughly 6,569,000, yielding 5,569,557
+`version == 3` rows. A later private migration surveyed heights 0 through
+999,999 with one terminal ledger row per height and retained 938,732
+`version == 3` payload rows. The pre-million classification is not reflected
+in the committed counts below. The retained 3,606 canonical rows span Hathor
+heights 1,047,018 to 6,567,450 and Bitcoin heights 664,341 to 949,982. The six
+accepted candidates span Bitcoin heights 710,969 to 938,873.
 
 **Holes.**
 
-- **Early merge-mining history not surveyed**: merge-mined `version == 3` blocks are observed from at least height 60,275, but this extraction begins at 1,000,000. The interval through 999,999 is outside the recovered stale-search scope.
+- **Early merge-mining classification not yet integrated**: merge-mined
+  `version == 3` blocks are observed from at least height 60,275. The private
+  migration acquired heights through 999,999, but the committed classifier
+  outputs and counts in this document still cover the post-million scope.
 - **Unknown parent-linkage rows**: 143,604 self-target-PoW-valid headers have a `prev_hash` that does not resolve on Bitcoin's active chain and are excluded from the direct-stale path. This is 97.55% of the 147,216 self-target-valid rows. An RPC miss does not identify BCH, BSV, DigiByte, or any other parent.
 - **Extraction gaps**: roughly 822 raw-extraction holes and 12,631 supplement holes were recovered by `backfill_hathor_gaps.py`. The historical private audit records 259 residual missing-supplement rows and one reconstruction failure. The original audit reported no self-target passes among the 259 rows, but the required source rows are not in the local publication mirror; the single reconstruction failure remains unresolved.
 
@@ -99,6 +217,11 @@ merkle-derived middle 32 bytes.
 `block_funds`+`block_graph` bytes, which the original extractor did not save.
 `supplement_hathor_funds_graph.py` re-fetched them for every height (~5.57M
 API calls, parallelised across 4 IPs).
+The pre-million migration instead retains both `raw` and the derived
+funds+graph bytes in one sealed source row, then builds the same supplement CSV
+locally. A row is accepted only when its integrity digest and locally
+re-derived funds+graph bytes match, so an interrupted or modified write is not
+treated as acquired evidence.
 
 **Phases (all complete).**
 
