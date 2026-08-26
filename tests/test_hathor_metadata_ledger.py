@@ -5,6 +5,7 @@ import fcntl
 import importlib.util
 import json
 import sys
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -17,6 +18,10 @@ assert SPEC is not None and SPEC.loader is not None
 ledger = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = ledger
 SPEC.loader.exec_module(ledger)
+
+TX_A = "a" * 64
+TX_B = "b" * 64
+TX_C = "c" * 64
 
 
 def test_make_shards_is_contiguous_and_deterministic() -> None:
@@ -58,7 +63,7 @@ def test_fetch_height_records_version_three_without_payload_fetch() -> None:
         def get_json(self, _endpoint, _path, _params):
             return ledger.HttpResult(
                 200,
-                {"success": True, "block": {"version": 3, "tx_id": "abc"}},
+                {"success": True, "block": {"version": 3, "tx_id": TX_A}},
                 None,
                 False,
             )
@@ -74,7 +79,7 @@ def test_fetch_height_records_version_three_without_payload_fetch() -> None:
         "outcome": "version_3_ready",
         "http_status": 200,
         "block_version": 3,
-        "tx_id": "abc",
+        "tx_id": TX_A,
         "endpoint": "primary",
         "attempt_count": 1,
         "error_reason": "",
@@ -100,6 +105,78 @@ def test_fetch_height_records_version_three_without_tx_id_as_unresolved() -> Non
     assert row["outcome"] == "unavailable_block"
     assert row["block_version"] == 3
     assert row["error_reason"] == "version_3_missing_tx_id"
+
+
+@pytest.mark.parametrize(
+    "invalid_tx_id",
+    ["a" * 63, "A" * 64, "g" * 64, f" {TX_A}"],
+)
+def test_fetch_height_retries_malformed_version_three_tx_ids(
+    invalid_tx_id: str,
+) -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            tx_id = invalid_tx_id if endpoint == "primary" else TX_A
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 3, "tx_id": tx_id}},
+                None,
+                False,
+            )
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "version_3_ready"
+    assert row["tx_id"] == TX_A
+    assert row["endpoint"] == "fallback"
+    assert row["attempt_count"] == 2
+
+
+def test_fetch_height_records_exhausted_malformed_tx_id_as_valid_unresolved_row(
+    tmp_path: Path,
+) -> None:
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 3, "tx_id": "g" * 64}},
+                None,
+                False,
+            )
+
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(Client(), shard, 0)
+
+    assert row["outcome"] == "unavailable_block"
+    assert row["http_status"] == 200
+    assert row["block_version"] == 3
+    assert row["tx_id"] == ""
+    assert row["error_reason"] == "version_3_invalid_tx_id"
+
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(row)
+    assert ledger.read_recorded_heights(path) == {0}
 
 
 @pytest.mark.parametrize(
@@ -370,6 +447,61 @@ def test_http_client_preserves_status_for_invalid_json() -> None:
     assert result == ledger.HttpResult(200, None, "invalid_json", True)
 
 
+def test_http_client_preserves_status_for_truncated_response() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getcode(self):
+            return 200
+
+        def read(self):
+            raise IncompleteRead(b'{"success":', 10)
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=lambda _request, timeout: Response(),
+        sleep=lambda _seconds: None,
+    )
+
+    result = client.get_json(
+        "https://primary.example/v1a", "/block_at_height", {"height": 0}
+    )
+
+    assert result == ledger.HttpResult(200, None, "IncompleteRead", True)
+
+
+def test_fetch_height_retries_truncated_responses_and_retains_status() -> None:
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return ledger.HttpResult(200, None, "IncompleteRead", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert client.endpoints == ["primary", "fallback"]
+    assert row["outcome"] == "request_failure"
+    assert row["http_status"] == 200
+    assert row["attempt_count"] == 2
+    assert row["error_reason"] == "IncompleteRead"
+
+
 def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
     path = tmp_path / "ledger.csv"
     with path.open("w", newline="") as handle:
@@ -377,7 +509,7 @@ def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "p", 1, ""))
         writer.writerow(
-            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_B, "p", 1, "")
         )
 
     assert ledger.audit_ledger(path, 0, 2) == {
@@ -400,6 +532,26 @@ def test_audit_ledger_rejects_unresolved_outcomes(tmp_path: Path) -> None:
         )
 
     with pytest.raises(ValueError, match="request_failure=1"):
+        ledger.audit_ledger(path, 0, 1)
+
+
+@pytest.mark.parametrize("invalid_tx_id", ["a" * 63, "A" * 64, "g" * 64])
+def test_audit_ledger_rejects_malformed_version_three_tx_ids(
+    tmp_path: Path, invalid_tx_id: str
+) -> None:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            ledger.ledger_row(
+                0, "version_3_ready", 200, 3, invalid_tx_id, "primary", 1, ""
+            )
+        )
+
+    with pytest.raises(ValueError, match="invalid version_3_ready fields"):
         ledger.audit_ledger(path, 0, 1)
 
 
@@ -527,7 +679,7 @@ def test_ledger_consumers_reject_nonascending_rows(
         )
         writer.writeheader()
         writer.writerow(
-            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_B, "p", 1, "")
         )
         writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "p", 1, ""))
 
@@ -549,7 +701,7 @@ def test_retry_ledger_replaces_selected_failures_in_new_ordered_output(
     rows = [
         ledger.ledger_row(0, "non_version_3", 200, 0, "a", "primary", 1, ""),
         ledger.ledger_row(1, "request_failure", 500, "", "", "primary", 3, "http_500"),
-        ledger.ledger_row(2, "version_3_ready", 200, 3, "c", "primary", 1, ""),
+        ledger.ledger_row(2, "version_3_ready", 200, 3, TX_C, "primary", 1, ""),
     ]
     with source.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
@@ -563,7 +715,7 @@ def test_retry_ledger_replaces_selected_failures_in_new_ordered_output(
             assert params == {"height": 1}
             return ledger.HttpResult(
                 200,
-                {"success": True, "block": {"version": 3, "tx_id": "b"}},
+                {"success": True, "block": {"version": 3, "tx_id": TX_B}},
                 None,
                 False,
             )
@@ -657,7 +809,7 @@ def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> 
         writer.writeheader()
         writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "p", 1, ""))
         writer.writerow(
-            ledger.ledger_row(1, "version_3_ready", 200, 3, "b", "p", 1, "")
+            ledger.ledger_row(1, "version_3_ready", 200, 3, TX_B, "p", 1, "")
         )
         writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "f", 2, ""))
 
@@ -674,7 +826,7 @@ def test_deduplicate_ledger_rejects_conflicting_rows(tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerow(ledger.ledger_row(2, "non_version_3", 200, 0, "c", "p", 1, ""))
         writer.writerow(
-            ledger.ledger_row(2, "version_3_ready", 200, 3, "c", "p", 1, "")
+            ledger.ledger_row(2, "version_3_ready", 200, 3, TX_C, "p", 1, "")
         )
 
     with pytest.raises(ValueError, match="conflicting duplicate"):

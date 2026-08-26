@@ -12,6 +12,9 @@ into a separate ordered ledger without mutating the source. Retain successful
 payload endpoint, status, and attempt provenance in new sealed rows, preserve
 deterministic LF-terminated height order across recovery, and keep the completed
 sealed-v1 payload estate readable without inventing provenance it never stored.
+Require canonical lowercase 64-character hex identifiers for resolved version-3
+rows, reject resolved non-2xx metadata before payload work, and retry truncated
+response bodies without discarding a known HTTP status.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

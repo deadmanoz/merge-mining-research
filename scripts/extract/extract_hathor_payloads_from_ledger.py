@@ -36,6 +36,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
@@ -59,6 +60,7 @@ LEDGER_COLUMNS = [
     "error_reason",
 ]
 RESOLVED_LEDGER_OUTCOMES = {"version_3_ready", "non_version_3"}
+LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 LEGACY_RAW_COLUMNS = [
     "hathor_height",
     "hathor_block_hash",
@@ -118,6 +120,15 @@ class Payload:
     endpoint: str
     http_status: int
     attempt_count: int
+
+
+def is_canonical_tx_id(value: object) -> bool:
+    """Return whether a transaction ID is canonical lowercase 32-byte hex."""
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in LOWER_HEX_DIGITS for character in value)
+    )
 
 
 def positive_float(value: str) -> float:
@@ -227,9 +238,10 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                 status = canonical_metadata_integer(
                     row["http_status"], "http_status", minimum=100
                 )
-                if status > 599:
+                if not 200 <= status < 300:
                     raise ValueError(
-                        f"invalid metadata http_status at height {height}: {status}"
+                        f"invalid resolved metadata http_status at height {height}: "
+                        f"{status}"
                     )
                 version = canonical_metadata_integer(
                     row["block_version"], "block_version", minimum=0
@@ -244,7 +256,7 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
 
                 tx_id = row["tx_id"]
                 if outcome == "version_3_ready":
-                    if version != 3 or not tx_id.strip():
+                    if version != 3 or not is_canonical_tx_id(tx_id):
                         raise ValueError(
                             f"invalid version_3_ready fields at height {height}"
                         )
@@ -505,8 +517,12 @@ class PacedHttpClient:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
                 try:
-                    payload = json.loads(response.read())
-                except json.JSONDecodeError:
+                    body = response.read()
+                except IncompleteRead:
+                    return HttpResult(status, None, "IncompleteRead", True)
+                try:
+                    payload = json.loads(body)
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     return HttpResult(status, None, "invalid_json", True)
                 if not isinstance(payload, dict):
                     return HttpResult(status, None, "json_not_object", True)
@@ -518,7 +534,7 @@ class PacedHttpClient:
                 f"http_{error.code}",
                 error.code in {429, 500, 502, 503, 504},
             )
-        except (URLError, TimeoutError, OSError) as error:
+        except (URLError, TimeoutError, OSError, IncompleteRead) as error:
             return HttpResult(None, None, type(error).__name__, True)
 
 

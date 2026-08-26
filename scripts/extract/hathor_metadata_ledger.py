@@ -45,6 +45,7 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
@@ -82,6 +83,7 @@ LEDGER_COLUMNS = [
 FINAL_LEDGER_OUTCOMES = frozenset({"version_3_ready", "non_version_3"})
 RETRYABLE_LEDGER_OUTCOMES = frozenset({"request_failure", "unavailable_block"})
 LEDGER_OUTCOMES = FINAL_LEDGER_OUTCOMES | RETRYABLE_LEDGER_OUTCOMES
+LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,15 @@ class HttpResult:
     payload: dict[str, Any] | None
     error: str | None
     retryable: bool
+
+
+def is_canonical_tx_id(value: object) -> bool:
+    """Return whether a transaction ID is canonical lowercase 32-byte hex."""
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in LOWER_HEX_DIGITS for character in value)
+    )
 
 
 def positive_float(value: str) -> float:
@@ -289,8 +300,12 @@ class PacedHttpClient:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
                 try:
-                    payload = json.loads(response.read())
-                except json.JSONDecodeError:
+                    body = response.read()
+                except IncompleteRead:
+                    return HttpResult(status, None, "IncompleteRead", True)
+                try:
+                    payload = json.loads(body)
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     return HttpResult(status, None, "invalid_json", True)
                 if not isinstance(payload, dict):
                     return HttpResult(status, None, "json_not_object", True)
@@ -298,7 +313,7 @@ class PacedHttpClient:
         except HTTPError as error:
             retryable = error.code in {429, 500, 502, 503, 504}
             return HttpResult(error.code, None, f"http_{error.code}", retryable)
-        except (URLError, TimeoutError, OSError) as error:
+        except (URLError, TimeoutError, OSError, IncompleteRead) as error:
             return HttpResult(None, None, type(error).__name__, True)
 
 
@@ -360,11 +375,7 @@ def fetch_height(
                 block = result.payload["block"]
                 version = block.get("version")
                 tx_id_value = block.get("tx_id")
-                tx_id = (
-                    tx_id_value
-                    if isinstance(tx_id_value, str) and tx_id_value.strip()
-                    else ""
-                )
+                tx_id = tx_id_value if is_canonical_tx_id(tx_id_value) else ""
                 if (
                     not isinstance(version, int)
                     or isinstance(version, bool)
@@ -405,7 +416,11 @@ def fetch_height(
                         "",
                         endpoint,
                         attempt_count,
-                        "version_3_missing_tx_id",
+                        (
+                            "version_3_missing_tx_id"
+                            if tx_id_value in (None, "")
+                            else "version_3_invalid_tx_id"
+                        ),
                     )
                 else:
                     return ledger_row(
@@ -539,7 +554,7 @@ def validate_ledger_row(row: dict[Any, Any], line_number: int) -> None:
         raise ValueError(f"ledger row {line_number} has invalid successful http_status")
 
     if outcome == "version_3_ready":
-        if version != 3 or not row["tx_id"].strip():
+        if version != 3 or not is_canonical_tx_id(row["tx_id"]):
             raise ValueError(
                 f"ledger row {line_number} has invalid version_3_ready fields"
             )

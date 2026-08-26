@@ -4,6 +4,7 @@ import csv
 import importlib.util
 import json
 import sys
+from http.client import IncompleteRead
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,18 @@ def _write_ledger(path: Path) -> None:
                 "error_reason": "",
             }
         )
+
+
+def _update_ledger_row(path: Path, height: int, **updates: object) -> None:
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[height].update({key: str(value) for key, value in updates.items()})
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 class _Response:
@@ -262,6 +275,33 @@ def test_every_payload_mode_rejects_a_short_resolved_metadata_row(
     assert not raw_output.exists()
     assert not supplement_output.exists()
     assert not failure_output.exists()
+
+
+@pytest.mark.parametrize(
+    ("height", "status"),
+    [(0, 199), (0, 300), (1, 404), (2, 500)],
+)
+def test_payload_ledger_rejects_resolved_rows_with_non_success_status(
+    tmp_path: Path, height: int, status: int
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    _write_ledger(ledger)
+    _update_ledger_row(ledger, height, http_status=status)
+
+    with pytest.raises(ValueError, match="invalid resolved metadata http_status"):
+        payloads.load_ready_rows(ledger, 0, 3)
+
+
+@pytest.mark.parametrize("invalid_tx_id", ["a" * 63, "A" * 64, "g" * 64])
+def test_payload_ledger_rejects_malformed_version_three_tx_ids(
+    tmp_path: Path, invalid_tx_id: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    _write_ledger(ledger)
+    _update_ledger_row(ledger, 0, tx_id=invalid_tx_id)
+
+    with pytest.raises(ValueError, match="invalid version_3_ready fields"):
+        payloads.load_ready_rows(ledger, 0, 3)
 
 
 def test_one_transaction_fetch_populates_complete_source_then_exports(
@@ -523,6 +563,74 @@ def test_http_client_preserves_status_for_invalid_json() -> None:
     )
 
     assert result == payloads.HttpResult(200, None, "invalid_json", True)
+
+
+def test_http_client_preserves_status_for_truncated_response() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getcode(self):
+            return 200
+
+        def read(self):
+            raise IncompleteRead(b'{"success":', 10)
+
+    def opener(_request, timeout):
+        assert timeout == 30
+        return Response()
+
+    client = payloads.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+
+    result = client.get_json(
+        "https://primary.example/v1a", "/transaction", {"id": "a" * 64}
+    )
+
+    assert result == payloads.HttpResult(200, None, "IncompleteRead", True)
+
+
+def test_fetch_payload_retries_truncated_responses_and_retains_status() -> None:
+    ready = payloads.ReadyRow(7, "a" * 64)
+
+    class Client:
+        max_attempts = 2
+
+        def __init__(self):
+            self.endpoints: list[str] = []
+
+        def get_json(self, endpoint, _path, _params):
+            self.endpoints.append(endpoint)
+            return payloads.HttpResult(200, None, "IncompleteRead", True)
+
+        def sleep(self, _seconds):
+            pass
+
+    client = Client()
+    payload, failure = payloads.fetch_payload(
+        client,
+        ready,
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    )
+
+    assert client.endpoints == [
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+    ]
+    assert payload is None
+    assert failure is not None
+    assert failure["http_status"] == 200
+    assert failure["attempt_count"] == 2
+    assert failure["error_reason"] == "IncompleteRead"
 
 
 def test_supplement_is_built_from_complete_source_without_another_api_request(
