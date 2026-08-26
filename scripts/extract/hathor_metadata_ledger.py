@@ -198,6 +198,17 @@ def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
     return endpoint
 
 
+def require_manifest_label(value: str, field: str) -> None:
+    """Reject a line break in one free-text manifest label before publication.
+
+    Commas and quotes remain valid CSV cell content, and blank labels keep
+    their existing semantics; only CR or LF would let ``csv.DictWriter`` emit
+    a multi-physical-line record that the strict reader rejects.
+    """
+    if "\r" in value or "\n" in value:
+        raise ValueError(f"manifest {field} must not contain a line break")
+
+
 def make_shards(
     start: int,
     end: int,
@@ -213,6 +224,9 @@ def make_shards(
         raise ValueError("at least one non-empty worker is required")
     if len(set(workers)) != len(workers):
         raise ValueError("workers must be unique")
+    for worker in workers:
+        require_manifest_label(worker, "worker")
+    require_manifest_label(extractor_revision, "extractor_revision")
     primary = canonical_endpoint(primary_endpoint, "primary", allow_blank=False)
     fallback = canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
 
@@ -262,8 +276,9 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
 def write_manifest(path: Path, manifest: Manifest) -> None:
     """Write a new manifest, refusing to replace an existing run contract.
 
-    Shard endpoints are canonicalized before any file is created, so a
-    rejected endpoint leaves neither the manifest nor a temporary file behind.
+    Shard endpoints are canonicalized and free-text labels are checked for line
+    breaks before any directory or file is created, so rejected input leaves
+    neither the manifest nor a temporary file behind.
     The complete CSV is staged in a same-directory temporary file, fully
     synced, then published with a no-clobber hard link so the first creator to
     link wins and is never overwritten by a competitor.
@@ -287,6 +302,11 @@ def write_manifest(path: Path, manifest: Manifest) -> None:
         manifest.start_height,
         manifest.end_height,
     )
+    for shard in shards:
+        require_manifest_label(shard.shard_id, "shard_id")
+        require_manifest_label(shard.worker, "worker")
+        require_manifest_label(shard.extractor_revision, "extractor_revision")
+        require_manifest_label(shard.status, "status")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:

@@ -261,7 +261,7 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
             raise ValueError("metadata ledger ends with a truncated row")
 
     ready: dict[int, ReadyRow] = {}
-    ready_tx_heights: dict[str, int] = {}
+    canonical_tx_heights: dict[str, int] = {}
     observed_heights: list[int] = []
     try:
         with ledger_path.open(newline="") as handle:
@@ -312,18 +312,19 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                     )
 
                 tx_id = row["tx_id"]
+                if tx_id and is_canonical_tx_id(tx_id):
+                    previous_height = canonical_tx_heights.get(tx_id)
+                    if previous_height is not None:
+                        raise ValueError(
+                            "canonical transaction ID is assigned to multiple "
+                            f"heights: {previous_height}, {height}"
+                        )
+                    canonical_tx_heights[tx_id] = height
                 if outcome == "version_3_ready":
                     if version != 3 or not is_canonical_tx_id(tx_id):
                         raise ValueError(
                             f"invalid version_3_ready fields at height {height}"
                         )
-                    previous_height = ready_tx_heights.get(tx_id)
-                    if previous_height is not None:
-                        raise ValueError(
-                            "version_3_ready transaction ID is assigned to multiple "
-                            f"heights: {previous_height}, {height}"
-                        )
-                    ready_tx_heights[tx_id] = height
                     ready[height] = ReadyRow(height, tx_id)
                 elif version == 3:
                     raise ValueError(f"invalid non_version_3 fields at height {height}")

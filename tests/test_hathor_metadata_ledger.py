@@ -98,6 +98,40 @@ def test_make_shards_rejects_remaining_endpoint_whitespace(
         ledger.make_shards(0, 4, ["a"], primary, fallback, "r")
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("worker", "worker\na"),
+        ("worker", "worker\ra"),
+        ("extractor_revision", "rev\n1"),
+        ("extractor_revision", "rev\r1"),
+        ("extractor_revision", "rev\r\n1"),
+    ],
+)
+def test_make_shards_rejects_line_breaks_in_labels(field: str, value: str) -> None:
+    workers = [value] if field == "worker" else ["a"]
+    revision = value if field == "extractor_revision" else "r"
+
+    with pytest.raises(
+        ValueError, match=f"manifest {field} must not contain a line break"
+    ):
+        ledger.make_shards(0, 4, workers, "https://primary.example/v1a", "", revision)
+
+
+def test_make_shards_accepts_commas_and_quotes_in_labels() -> None:
+    shards = ledger.make_shards(
+        0,
+        4,
+        ['worker,"a"'],
+        "https://primary.example/v1a",
+        "",
+        'rev,"1"',
+    )
+
+    assert shards[0].worker == 'worker,"a"'
+    assert shards[0].extractor_revision == 'rev,"1"'
+
+
 def test_validate_shards_rejects_a_gap() -> None:
     shards = [
         ledger.Shard("one", 0, 4, "a", "p", "f", "r", "pending"),
@@ -1656,6 +1690,64 @@ def test_write_manifest_rejects_invalid_direct_endpoints_without_artifacts(
 
     assert not path.exists()
     assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("shard_id", "one\ntwo"),
+        ("shard_id", "one\rtwo"),
+        ("worker", "a\nb"),
+        ("worker", "a\rb"),
+        ("extractor_revision", "r\n1"),
+        ("extractor_revision", "r\r1"),
+        ("status", "pending\nx"),
+        ("status", "pending\rx"),
+    ],
+)
+def test_write_manifest_rejects_line_breaks_in_direct_labels_without_artifacts(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    directory = tmp_path / "fresh"
+    path = directory / "manifest.csv"
+    manifest = _direct_manifest(
+        "https://primary.example/v1a", "https://fallback.example/v1a"
+    )
+    shards = [
+        ledger.replace(shard, **{field: value}) if index == 0 else shard
+        for index, shard in enumerate(manifest.shards)
+    ]
+    manifest = ledger.Manifest(
+        manifest.start_height, manifest.end_height, tuple(shards)
+    )
+
+    with pytest.raises(
+        ValueError, match=f"manifest {field} must not contain a line break"
+    ):
+        ledger.write_manifest(path, manifest)
+
+    assert not path.exists()
+    assert not directory.exists()
+
+
+def test_write_manifest_accepts_commas_and_quotes_in_direct_labels(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = _direct_manifest(
+        "https://primary.example/v1a", "https://fallback.example/v1a"
+    )
+    shards = [
+        ledger.replace(shard, worker='a,"b"', extractor_revision='r,"1"')
+        for shard in manifest.shards
+    ]
+    manifest = ledger.Manifest(
+        manifest.start_height, manifest.end_height, tuple(shards)
+    )
+
+    ledger.write_manifest(path, manifest)
+
+    assert ledger.read_manifest(path) == manifest
 
 
 def _manifest_with_endpoints(tmp_path: Path, replacements: dict[str, str]) -> Path:

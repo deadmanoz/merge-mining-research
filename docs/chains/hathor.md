@@ -71,7 +71,12 @@ Hathor-specific repo artifacts:
   request is constructed. Frozen manifests load with strict CSV parsing: an
   exact known header, exactly one physical line per record, complete text
   cells, and no interior or trailing blank lines, with malformed CSV rejected
-  outright. Deduplicated repairs are published through the same
+  outright. Manifest labels are single-line: worker labels and the extractor
+  revision are checked when shards are created, and every serialized free-text
+  label (`shard_id`, `worker`, `extractor_revision`, `status`) is checked again
+  at the write boundary, so a label carrying a carriage return or newline is
+  rejected before any manifest, temporary file, or parent directory is created.
+  Deduplicated repairs are published through the same
   staged, fully synced no-clobber temporary file protocol rather than written
   directly to their output. A shard resumes only when its existing ledger
   heights form an exact contiguous prefix beginning at the shard start; gaps,
@@ -84,7 +89,12 @@ Hathor-specific repo artifacts:
   total attempt count, and successful gap recovery leaves the primary CSV in
   deterministic height order. Payload processing rejects resolved metadata
   rows whose recorded status is not 2xx, whitespace-bearing payload hex, and
-  any artifact paths that alias one another. A successful response must echo
+  any artifact paths that alias one another. Every payload mode's preflight
+  also requires each nonblank canonical transaction ID across all resolved
+  ledger outcomes in the requested range, `non_version_3` included, to map to
+  exactly one height, matching the metadata-ledger audit's canonical-ID rule;
+  repeated legacy noncanonical identifiers remain accepted. A successful
+  response must echo
   the requested transaction ID, use exact integer version 3, and carry an exact
   non-negative integer timestamp. Endpoint padding is trimmed, any remaining
   whitespace is rejected, the primary URL must remain nonblank, and a blank

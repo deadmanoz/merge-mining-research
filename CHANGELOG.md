@@ -53,7 +53,10 @@ absolute http or https endpoint URLs with a hostname, a valid optional port, a
 retained path, and no query or fragment at every manifest and payload boundary,
 reject structurally invalid request URLs as `invalid_url` before pacing or any
 opener call, validate payload run endpoints before locks or archive mutation,
-and require the payload `success` flag to be exactly `true`.
+and require the payload `success` flag to be exactly `true`. Enforce canonical
+transaction ID uniqueness across all resolved outcome types within each payload
+preflight's requested range, and reject carriage returns or newlines in manifest
+worker, shard, revision, and status labels before publication.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

@@ -362,6 +362,128 @@ def test_every_payload_mode_rejects_one_ready_transaction_at_multiple_heights(
     assert not failure_output.exists()
 
 
+def _write_mixed_outcome_reuse_ledger(path: Path) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "hathor_height": 0,
+                "outcome": "non_version_3",
+                "http_status": 200,
+                "block_version": 0,
+                "tx_id": "a" * 64,
+                "endpoint": "primary",
+                "attempt_count": 1,
+                "error_reason": "",
+            }
+        )
+        writer.writerow(
+            {
+                "hathor_height": 1,
+                "outcome": "version_3_ready",
+                "http_status": 200,
+                "block_version": 3,
+                "tx_id": "a" * 64,
+                "endpoint": "primary",
+                "attempt_count": 1,
+                "error_reason": "",
+            }
+        )
+
+
+@pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
+def test_every_payload_mode_rejects_canonical_tx_reuse_across_mixed_outcomes(
+    tmp_path: Path, mode: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    failure_output = tmp_path / "failures.csv"
+    _write_mixed_outcome_reuse_ledger(ledger)
+
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, *_args):
+            raise AssertionError("duplicate metadata must fail before network I/O")
+
+    with pytest.raises(
+        ValueError,
+        match="canonical transaction ID is assigned to multiple heights: 0, 1",
+    ):
+        if mode == "run":
+            payloads.run_extraction(
+                ledger_path=ledger,
+                raw_output=raw_output,
+                failure_output=failure_output,
+                start=0,
+                end=2,
+                client=Client(),
+                primary_endpoint="https://primary.example/v1a",
+                fallback_endpoint="https://fallback.example/v1a",
+            )
+        elif mode == "upgrade":
+            payloads.upgrade_raw(ledger, raw_output, 0, 2)
+        elif mode == "build":
+            payloads.build_supplement(
+                ledger,
+                raw_output,
+                supplement_output,
+                0,
+                2,
+            )
+        else:
+            payloads.audit(ledger, raw_output, supplement_output, 0, 2)
+
+    assert not raw_output.exists()
+    assert not supplement_output.exists()
+    assert not failure_output.exists()
+
+
+def test_payload_ledger_preserves_repeated_legacy_noncanonical_tx_ids(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for height in (0, 2):
+            writer.writerow(
+                {
+                    "hathor_height": height,
+                    "outcome": "non_version_3",
+                    "http_status": 200,
+                    "block_version": 0,
+                    "tx_id": "abc",
+                    "endpoint": "primary",
+                    "attempt_count": 1,
+                    "error_reason": "",
+                }
+            )
+            if height == 0:
+                writer.writerow(
+                    {
+                        "hathor_height": 1,
+                        "outcome": "version_3_ready",
+                        "http_status": 200,
+                        "block_version": 3,
+                        "tx_id": "b" * 64,
+                        "endpoint": "primary",
+                        "attempt_count": 1,
+                        "error_reason": "",
+                    }
+                )
+
+    ready = payloads.load_ready_rows(ledger, 0, 3)
+
+    assert ready == {1: payloads.ReadyRow(1, "b" * 64)}
+
+
 @pytest.mark.parametrize("mode", ["run", "upgrade", "build", "audit"])
 def test_every_payload_mode_rejects_a_ledger_output_collision_before_io(
     tmp_path: Path, mode: str
