@@ -194,6 +194,19 @@ def require_distinct_paths(**paths: Path) -> None:
                 )
 
 
+def require_audit_artifact(path: Path, role: str) -> None:
+    """Require one existing nonempty evidence artifact inside the audit locks.
+
+    Acquisition readers intentionally map a missing or zero-byte file to empty
+    rows so a first run can start from nothing; an audit instead demands real
+    bytes, since a legitimate zero-row snapshot is an exact header-only file.
+    """
+    if not path.exists():
+        raise ValueError(f"{role} artifact is missing")
+    if path.stat().st_size == 0:
+        raise ValueError(f"{role} artifact is empty")
+
+
 def nonnegative_int(value: str) -> int:
     parsed = int(value)
     if parsed < 0:
@@ -1166,58 +1179,75 @@ def audit(
     start: int,
     end: int,
 ) -> dict[str, object]:
-    """Fail closed unless both evidence CSVs exactly cover their ready rows."""
+    """Fail closed unless both evidence CSVs exactly cover their ready rows.
+
+    After path-alias and ledger validation, the raw and supplement snapshots
+    are pinned by the same cooperative exclusive locks held by the upgrade and
+    supplement writers, kept from the first artifact existence check through
+    evidence-root construction and ledger/raw hash generation. Both artifacts
+    must exist as nonempty files, so a legitimate zero-ready audit presents
+    exact header-only schemas instead of absent evidence.
+    """
     require_distinct_paths(
         ledger=ledger_path,
         raw_output=raw_path,
         supplement_output=supplement_path,
     )
     ready_rows = load_ready_rows(ledger_path, start, end)
-    raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
-    supplement_rows, supplement_order = read_csv_rows_with_order(
-        supplement_path, SUPPLEMENT_COLUMNS
-    )
-    check_raw_rows(ready_rows, raw_rows, raw_columns)
-    require_ordered_heights(raw_path, raw_order)
-    require_ordered_heights(supplement_path, supplement_order)
-    raw_missing = set(ready_rows).difference(raw_rows)
-    supplement_missing = set(ready_rows).difference(supplement_rows)
-    supplement_extra = set(supplement_rows).difference(ready_rows)
-    if raw_missing or supplement_missing or supplement_extra:
-        raise ValueError(
-            "payload coverage incomplete: "
-            f"raw_missing={len(raw_missing)} supplement_missing={len(supplement_missing)} "
-            f"supplement_extra={len(supplement_extra)}"
+    locks = acquire_locks([raw_path, supplement_path])
+    try:
+        require_audit_artifact(raw_path, "raw payload")
+        require_audit_artifact(supplement_path, "supplement")
+        raw_columns, raw_rows, raw_order = read_raw_rows(raw_path)
+        supplement_rows, supplement_order = read_csv_rows_with_order(
+            supplement_path, SUPPLEMENT_COLUMNS
         )
-    digest = hashlib.sha256()
-    for height in sorted(ready_rows):
-        raw = raw_rows[height]
-        supplement = supplement_rows[height]
-        if supplement != raw_to_supplement(raw):
+        check_raw_rows(ready_rows, raw_rows, raw_columns)
+        require_ordered_heights(raw_path, raw_order)
+        require_ordered_heights(supplement_path, supplement_order)
+        raw_missing = set(ready_rows).difference(raw_rows)
+        supplement_missing = set(ready_rows).difference(supplement_rows)
+        supplement_extra = set(supplement_rows).difference(ready_rows)
+        if raw_missing or supplement_missing or supplement_extra:
             raise ValueError(
-                f"supplement does not match raw evidence at height {height}"
+                "payload coverage incomplete: "
+                f"raw_missing={len(raw_missing)} supplement_missing={len(supplement_missing)} "
+                f"supplement_extra={len(supplement_extra)}"
             )
-        digest.update(
-            "\t".join(
-                [
-                    str(height),
-                    ready_rows[height].tx_id,
-                    hashlib.sha256(raw["raw_hex"].encode()).hexdigest(),
-                    hashlib.sha256(raw["aux_pow_hex"].encode()).hexdigest(),
-                    hashlib.sha256(supplement["funds_graph_hex"].encode()).hexdigest(),
-                ]
-            ).encode()
-        )
-        digest.update(b"\n")
-    return {
-        "ready_rows": len(ready_rows),
-        "raw_rows": len(raw_rows),
-        "supplement_rows": len(supplement_rows),
-        "raw_schema": "sealed_v1" if raw_columns == RAW_V1_COLUMNS else "sealed_v2",
-        "ledger_sha256": file_sha256(ledger_path),
-        "raw_sha256": file_sha256(raw_path),
-        "evidence_root_sha256": digest.hexdigest(),
-    }
+        digest = hashlib.sha256()
+        for height in sorted(ready_rows):
+            raw = raw_rows[height]
+            supplement = supplement_rows[height]
+            if supplement != raw_to_supplement(raw):
+                raise ValueError(
+                    f"supplement does not match raw evidence at height {height}"
+                )
+            digest.update(
+                "\t".join(
+                    [
+                        str(height),
+                        ready_rows[height].tx_id,
+                        hashlib.sha256(raw["raw_hex"].encode()).hexdigest(),
+                        hashlib.sha256(raw["aux_pow_hex"].encode()).hexdigest(),
+                        hashlib.sha256(
+                            supplement["funds_graph_hex"].encode()
+                        ).hexdigest(),
+                    ]
+                ).encode()
+            )
+            digest.update(b"\n")
+        return {
+            "ready_rows": len(ready_rows),
+            "raw_rows": len(raw_rows),
+            "supplement_rows": len(supplement_rows),
+            "raw_schema": "sealed_v1" if raw_columns == RAW_V1_COLUMNS else "sealed_v2",
+            "ledger_sha256": file_sha256(ledger_path),
+            "raw_sha256": file_sha256(raw_path),
+            "evidence_root_sha256": digest.hexdigest(),
+        }
+    finally:
+        for handle in reversed(locks):
+            handle.close()
 
 
 def parser() -> argparse.ArgumentParser:

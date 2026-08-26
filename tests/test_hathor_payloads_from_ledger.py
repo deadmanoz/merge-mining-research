@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib.util
 import json
 import sys
@@ -1442,6 +1443,174 @@ def test_audit_rejects_raw_rows_in_retry_completion_order(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="ascending height order"):
         payloads.audit(ledger, raw_output, supplement_output, 0, 3)
+
+
+def _write_zero_ready_ledger(path: Path) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=payloads.LEDGER_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "hathor_height": 0,
+                "outcome": "non_version_3",
+                "http_status": 200,
+                "block_version": 0,
+                "tx_id": "b" * 64,
+                "endpoint": "primary",
+                "attempt_count": 1,
+                "error_reason": "",
+            }
+        )
+
+
+def _write_header_only(path: Path, columns: list[str]) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+
+
+def _audit_lock_path(path: Path) -> Path:
+    return path.with_suffix(f"{path.suffix}.lock")
+
+
+@pytest.mark.parametrize("held", ["raw", "supplement"])
+def test_audit_fails_on_a_pre_held_evidence_lock_before_artifact_reads(
+    tmp_path: Path, held: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, payloads.RAW_COLUMNS)
+    _write_header_only(supplement_output, payloads.SUPPLEMENT_COLUMNS)
+    locked = raw_output if held == "raw" else supplement_output
+    # A corrupt companion proves the failure precedes any artifact read.
+    companion = supplement_output if held == "raw" else raw_output
+    companion.write_bytes(b"corrupt,header\n")
+
+    with _audit_lock_path(locked).open("a") as handle:
+        payloads.fcntl.flock(handle, payloads.fcntl.LOCK_EX | payloads.fcntl.LOCK_NB)
+        with pytest.raises(RuntimeError, match="already in use"):
+            payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+
+def test_audit_holds_both_evidence_locks_through_hash_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, payloads.RAW_V1_COLUMNS)
+    _write_header_only(supplement_output, payloads.SUPPLEMENT_COLUMNS)
+
+    hashed: list[Path] = []
+    real_file_sha256 = payloads.file_sha256
+
+    def spy(path: Path) -> str:
+        for artifact in (raw_output, supplement_output):
+            with _audit_lock_path(artifact).open("a") as handle:
+                with pytest.raises(BlockingIOError):
+                    payloads.fcntl.flock(
+                        handle, payloads.fcntl.LOCK_EX | payloads.fcntl.LOCK_NB
+                    )
+        hashed.append(path)
+        return real_file_sha256(path)
+
+    monkeypatch.setattr(payloads, "file_sha256", spy)
+    report = payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+    assert hashed == [ledger, raw_output]
+    assert report["raw_schema"] == "sealed_v1"
+    for artifact in (raw_output, supplement_output):
+        with _audit_lock_path(artifact).open("a") as handle:
+            payloads.fcntl.flock(
+                handle, payloads.fcntl.LOCK_EX | payloads.fcntl.LOCK_NB
+            )
+
+
+@pytest.mark.parametrize("artifact", ["raw", "supplement"])
+@pytest.mark.parametrize("state", ["missing", "empty"])
+def test_audit_requires_existing_nonempty_evidence_artifacts(
+    tmp_path: Path, artifact: str, state: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, payloads.RAW_COLUMNS)
+    _write_header_only(supplement_output, payloads.SUPPLEMENT_COLUMNS)
+    target = raw_output if artifact == "raw" else supplement_output
+    if state == "missing":
+        target.unlink()
+    else:
+        target.write_bytes(b"")
+    role = "raw payload" if artifact == "raw" else "supplement"
+
+    with pytest.raises(ValueError, match=f"^{role} artifact is {state}$"):
+        payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+
+@pytest.mark.parametrize(
+    "raw_columns,expected_schema",
+    [
+        (payloads.RAW_V1_COLUMNS, "sealed_v1"),
+        (payloads.RAW_COLUMNS, "sealed_v2"),
+    ],
+)
+def test_audit_accepts_exact_header_only_artifacts_for_a_zero_ready_range(
+    tmp_path: Path, raw_columns: list[str], expected_schema: str
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, raw_columns)
+    _write_header_only(supplement_output, payloads.SUPPLEMENT_COLUMNS)
+
+    report = payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+    assert report["ready_rows"] == 0
+    assert report["raw_rows"] == 0
+    assert report["supplement_rows"] == 0
+    assert report["raw_schema"] == expected_schema
+    assert report["ledger_sha256"] == hashlib.sha256(ledger.read_bytes()).hexdigest()
+    assert report["raw_sha256"] == hashlib.sha256(raw_output.read_bytes()).hexdigest()
+    assert report["evidence_root_sha256"] == hashlib.sha256(b"").hexdigest()
+
+
+@pytest.mark.parametrize(
+    "raw_columns",
+    [payloads.LEGACY_RAW_COLUMNS, payloads.UNSEALED_RAW_COLUMNS],
+)
+def test_audit_rejects_header_only_unsealed_raw_schemas(
+    tmp_path: Path, raw_columns: list[str]
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, raw_columns)
+    _write_header_only(supplement_output, payloads.SUPPLEMENT_COLUMNS)
+
+    with pytest.raises(ValueError, match="unexpected columns"):
+        payloads.audit(ledger, raw_output, supplement_output, 0, 1)
+
+
+def test_audit_rejects_a_header_only_supplement_with_wrong_columns(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "ledger.csv"
+    raw_output = tmp_path / "raw.csv"
+    supplement_output = tmp_path / "supplement.csv"
+    _write_zero_ready_ledger(ledger)
+    _write_header_only(raw_output, payloads.RAW_COLUMNS)
+    _write_header_only(supplement_output, payloads.RAW_COLUMNS)
+
+    with pytest.raises(ValueError, match="unexpected columns"):
+        payloads.audit(ledger, raw_output, supplement_output, 0, 1)
 
 
 def test_append_writer_rejects_a_truncated_existing_row(tmp_path: Path) -> None:

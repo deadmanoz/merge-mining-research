@@ -64,7 +64,14 @@ opener call, validate payload run endpoints before locks or archive mutation,
 and require the payload `success` flag to be exactly `true`. Enforce canonical
 transaction ID uniqueness across all resolved outcome types within each payload
 preflight's requested range, and reject carriage returns or newlines in manifest
-worker, shard, revision, and status labels before publication.
+worker, shard, revision, and status labels before publication. Audit payload
+snapshots under the same cooperative exclusive evidence locks held by the
+upgrade and supplement writers, keeping both raw and supplement locked from
+the first artifact existence check through evidence-root construction and
+ledger/raw hash generation, and require both artifacts to exist as nonempty
+files, so a legitimate zero-ready audit presents exact LF-terminated
+header-only schemas (sealed v1 or v2 raw plus the supplement header) with
+role-specific errors for missing or empty evidence.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

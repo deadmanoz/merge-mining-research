@@ -126,7 +126,15 @@ Hathor-specific repo artifacts:
   its blank-or-canonical HTTP status and exact timezone-aware UTC timestamp. The
   completed seven-column sealed-v1 estate remains readable and byte-immutable;
   it cannot be mixed with new rows because its missing request provenance cannot
-  be reconstructed honestly. These two workers preserve acquisition provenance;
+  be reconstructed honestly. The completion audit pins its raw and supplement
+  snapshots with the same cooperative exclusive locks the upgrade and supplement
+  writers take, holding both from the first artifact existence check through
+  evidence-root construction and ledger/raw hash generation so a cooperating
+  writer cannot swap in a mixed snapshot mid-audit. Both artifacts must exist
+  as nonempty files: a legitimate zero-ready audit requires exact LF-terminated
+  header-only files (sealed-v1 or sealed-v2 raw plus the supplement header),
+  while missing or zero-byte artifacts fail with role-specific errors. These
+  two workers preserve acquisition provenance;
   they are not the future supported acquisition interface.
 - `scripts/prep/probe_hathor_btc_signal.py` - historical stratified-sample feasibility probe. Its parent mix is sample-specific and is not used for production classification.
 - `scripts/prep/verify_hathor_extraction.py` - early reconstruction sanity-check (note: validates `prev_hash` only - see §2).
