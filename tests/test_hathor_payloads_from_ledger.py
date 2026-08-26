@@ -275,6 +275,18 @@ def test_supplement_is_built_from_complete_source_without_another_api_request(
     )
 
 
+def test_append_writer_rejects_a_truncated_existing_row(tmp_path: Path) -> None:
+    path = tmp_path / "rows.csv"
+    path.write_bytes(b"value\nsealed-without-newline")
+
+    try:
+        payloads.open_csv_writer(path, ["value"])
+    except ValueError as exc:
+        assert "truncated row" in str(exc)
+    else:
+        raise AssertionError("append must reject a missing final newline")
+
+
 def test_record_seal_rejects_a_primary_row_changed_after_capture(
     tmp_path: Path,
 ) -> None:

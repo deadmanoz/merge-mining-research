@@ -81,6 +81,27 @@ def test_fetch_height_records_version_three_without_payload_fetch() -> None:
     }
 
 
+def test_fetch_height_records_version_three_without_tx_id_as_unresolved() -> None:
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 3}},
+                None,
+                False,
+            )
+
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    row = ledger.fetch_height(Client(), shard, 0)
+
+    assert row["outcome"] == "unavailable_block"
+    assert row["block_version"] == 3
+    assert row["error_reason"] == "version_3_missing_tx_id"
+
+
 def test_fetch_height_records_exhausted_failure_with_fallback() -> None:
     class Client:
         max_attempts = 2

@@ -176,8 +176,6 @@ def load_ready_rows(ledger_path: Path, start: int, end: int) -> dict[int, ReadyR
                 raise ValueError(f"ready height {height} has no tx_id")
             if str(row.get("block_version")) != "3":
                 raise ValueError(f"ready height {height} does not record version 3")
-            if height in ready:
-                raise ValueError(f"duplicate ready height in metadata ledger: {height}")
             ready[height] = ReadyRow(height, tx_id)
     if len(seen_heights) != end - start:
         raise ValueError(
@@ -211,6 +209,11 @@ def open_csv_writer(path: Path, columns: list[str]):
     """Open an append-only CSV, writing its header only for a new file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists() and path.stat().st_size > 0
+    if exists:
+        with path.open("rb") as existing:
+            existing.seek(-1, os.SEEK_END)
+            if existing.read(1) != b"\n":
+                raise ValueError(f"refusing to append after a truncated row: {path}")
     handle = path.open("a" if exists else "w", newline="")
     writer = csv.DictWriter(handle, fieldnames=columns)
     if not exists:

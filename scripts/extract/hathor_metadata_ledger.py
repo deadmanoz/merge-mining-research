@@ -333,16 +333,27 @@ def fetch_height(
                 )
             version = block.get("version")
             tx_id = block.get("tx_id") or ""
-            if version == 3 and tx_id:
+            if version == 3:
+                if tx_id:
+                    return ledger_row(
+                        height,
+                        "version_3_ready",
+                        result.status,
+                        version,
+                        tx_id,
+                        endpoint,
+                        attempt_count,
+                        "",
+                    )
                 return ledger_row(
                     height,
-                    "version_3_ready",
+                    "unavailable_block",
                     result.status,
                     version,
-                    tx_id,
+                    "",
                     endpoint,
                     attempt_count,
-                    "",
+                    "version_3_missing_tx_id",
                 )
             return ledger_row(
                 height,
