@@ -11,8 +11,8 @@ transaction and AuxPoW bytes, its derived funds-graph prefix, request
 provenance, and a SHA-256 record seal. Resume and audit reject damaged rows.
 Run one process for each dataset/failure-output pair.
 
-The dataset is private archival data and is intentionally not written under
-the repository's ``data/`` directory.
+The dataset is private archival data. The repository's default ``data/hathor/``
+location is gitignored.
 """
 
 from __future__ import annotations
