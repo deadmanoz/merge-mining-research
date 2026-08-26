@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import fcntl
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -103,6 +104,49 @@ def test_fetch_height_records_exhausted_failure_with_fallback() -> None:
     assert row["endpoint"] == "fallback"
 
 
+def test_fetch_height_records_non_object_json_as_terminal_failure() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getcode(self):
+            return 200
+
+        def read(self):
+            return json.dumps(["not", "an", "object"]).encode()
+
+    def opener(_request, timeout):
+        assert timeout == 30
+        return Response()
+
+    client = ledger.PacedHttpClient(
+        1000,
+        30,
+        1,
+        opener=opener,
+        sleep=lambda _seconds: None,
+    )
+    shard = ledger.Shard(
+        "one",
+        0,
+        1,
+        "a",
+        "https://primary.example/v1a",
+        "https://fallback.example/v1a",
+        "r",
+        "pending",
+    )
+
+    row = ledger.fetch_height(client, shard, 0)
+
+    assert row["outcome"] == "request_failure"
+    assert row["error_reason"] == "json_not_object"
+    assert row["attempt_count"] == 1
+
+
 def test_audit_ledger_requires_complete_exact_range(tmp_path: Path) -> None:
     path = tmp_path / "ledger.csv"
     with path.open("w", newline="") as handle:
@@ -145,6 +189,30 @@ def test_scan_shard_refuses_a_concurrent_ledger_writer(tmp_path: Path) -> None:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(RuntimeError, match="already in use"):
             ledger.scan_shard(object(), shard, ledger_path)
+
+
+def test_scan_shard_fsyncs_each_terminal_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Client:
+        max_attempts = 1
+
+        def get_json(self, _endpoint, _path, _params):
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 0, "tx_id": "abc"}},
+                None,
+                False,
+            )
+
+    fsync_calls: list[int] = []
+    monkeypatch.setattr(ledger.os, "fsync", fsync_calls.append)
+    shard = ledger.Shard("one", 0, 1, "a", "primary", "fallback", "r", "pending")
+
+    assert ledger.scan_shard(Client(), shard, tmp_path / "ledger.csv") == {
+        "non_version_3": 1
+    }
+    assert len(fsync_calls) == 1
 
 
 def test_deduplicate_ledger_writes_a_separate_ordered_repair(tmp_path: Path) -> None:

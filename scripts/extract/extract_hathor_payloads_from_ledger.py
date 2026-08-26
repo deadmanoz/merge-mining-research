@@ -2,13 +2,15 @@
 """Fetch complete Hathor v3 payload evidence from an audited metadata ledger.
 
 The pre-million metadata census already establishes one ``tx_id`` for every
-``version_3_ready`` height. This collector makes exactly one ``/transaction``
-request per missing ready row and writes one complete source record to an
-augmented ``hathor_auxpow_raw.csv``. Each row includes the existing AuxPoW
-columns plus the lossless ``raw_hex`` payload and its derived
-``funds_graph_hex`` bytes. A SHA-256 record seal covers every source field, so
-an interrupted or manually damaged primary row is rejected before a resume or
-publication audit can treat it as complete.
+``version_3_ready`` height. This collector makes one ``/transaction`` request
+per ready row that lacks a sealed source record in the current run and writes
+one complete record to an augmented ``hathor_auxpow_raw.csv``. Failed attempts
+remain append-only history and are retried on later runs until a sealed source
+row exists. Each source row includes the existing AuxPoW columns plus the
+lossless ``raw_hex`` payload and its derived ``funds_graph_hex`` bytes. A
+SHA-256 record seal covers every source field, so an interrupted or manually
+damaged primary row is rejected before a resume or publication audit can treat
+it as complete.
 
 The established three-column ``hathor_funds_graph.csv`` is not written beside
 each fetched row. ``--build-supplement`` creates it atomically from the complete
@@ -306,7 +308,7 @@ def parse_payload(
     http_status: int,
     attempt_count: int,
 ) -> Payload:
-    """Validate one transaction response and derive the established CSV rows."""
+    """Validate payload evidence and any identity fields echoed by the API."""
     if not response.get("success"):
         raise ValueError("api_success_false")
     tx = response.get("tx")

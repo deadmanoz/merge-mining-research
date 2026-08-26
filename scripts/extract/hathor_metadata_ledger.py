@@ -33,6 +33,7 @@ import csv
 import fcntl
 import json
 import math
+import os
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -251,7 +252,10 @@ class PacedHttpClient:
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 status = response.getcode()
-                return HttpResult(status, json.loads(response.read()), None, False)
+                payload = json.loads(response.read())
+                if not isinstance(payload, dict):
+                    return HttpResult(status, None, "json_not_object", False)
+                return HttpResult(status, payload, None, False)
         except HTTPError as error:
             retryable = error.code in {429, 502, 503, 504}
             return HttpResult(error.code, None, f"http_{error.code}", retryable)
@@ -457,6 +461,7 @@ def scan_shard(
                 row = fetch_height(client, shard, height)
                 writer.writerow(row)
                 handle.flush()
+                os.fsync(handle.fileno())
                 outcomes[str(row["outcome"])] += 1
         return outcomes
     finally:
