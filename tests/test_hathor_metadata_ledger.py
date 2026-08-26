@@ -49,6 +49,51 @@ def test_make_shards_is_contiguous_and_deterministic() -> None:
     assert [s.worker for s in shards] == ["worker-a", "worker-b", "worker-c"]
 
 
+def test_make_shards_canonicalizes_endpoint_arguments() -> None:
+    shards = ledger.make_shards(
+        0,
+        4,
+        ["a"],
+        "  https://primary.example/v1a//  ",
+        " https://fallback.example/v1a/ ",
+        "r",
+    )
+
+    assert shards[0].primary_endpoint == "https://primary.example/v1a"
+    assert shards[0].fallback_endpoint == "https://fallback.example/v1a"
+
+
+@pytest.mark.parametrize("fallback", ["", "   ", "/", " /// "])
+def test_make_shards_treats_a_blank_fallback_as_disabled(fallback: str) -> None:
+    shards = ledger.make_shards(
+        0, 4, ["a"], "https://primary.example/v1a", fallback, "r"
+    )
+
+    assert shards[0].fallback_endpoint == ""
+
+
+@pytest.mark.parametrize("primary", ["", "   ", "/", " /// "])
+def test_make_shards_requires_a_nonblank_primary(primary: str) -> None:
+    with pytest.raises(ValueError, match="primary endpoint must be non-empty"):
+        ledger.make_shards(0, 4, ["a"], primary, "fallback", "r")
+
+
+@pytest.mark.parametrize(
+    ("name", "primary", "fallback"),
+    [
+        ("primary", "https://primary.example/v1a next", "fallback"),
+        ("fallback", "primary", "https://fallback.example /v1a"),
+    ],
+)
+def test_make_shards_rejects_remaining_endpoint_whitespace(
+    name: str, primary: str, fallback: str
+) -> None:
+    with pytest.raises(
+        ValueError, match=f"{name} endpoint must not contain whitespace"
+    ):
+        ledger.make_shards(0, 4, ["a"], primary, fallback, "r")
+
+
 def test_validate_shards_rejects_a_gap() -> None:
     shards = [
         ledger.Shard("one", 0, 4, "a", "p", "f", "r", "pending"),
@@ -1036,6 +1081,86 @@ def test_scan_shard_fsyncs_new_file_directory_before_terminal_rows(
     assert b"\r\n" not in (tmp_path / "ledger.csv").read_bytes()
 
 
+def _prefixed_ledger(tmp_path: Path, recorded_heights: list[int]) -> Path:
+    path = tmp_path / "ledger.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        for height in recorded_heights:
+            writer.writerow(
+                ledger.ledger_row(
+                    height, "non_version_3", 200, 0, "abc", "primary", 1, ""
+                )
+            )
+    return path
+
+
+@pytest.mark.parametrize(
+    ("recorded_heights", "first_missing", "first_unexpected"),
+    [([11], 10, 11), ([10, 12], 11, 12)],
+)
+def test_scan_shard_rejects_a_ledger_that_is_not_a_contiguous_prefix(
+    tmp_path: Path,
+    recorded_heights: list[int],
+    first_missing: int,
+    first_unexpected: int,
+) -> None:
+    path = _prefixed_ledger(tmp_path, recorded_heights)
+    before = path.read_bytes()
+    shard = ledger.Shard("one", 10, 14, "a", "primary", "fallback", "r", "pending")
+
+    with pytest.raises(ValueError, match="contiguous prefix") as error:
+        ledger.scan_shard(object(), shard, path)
+
+    assert f"first missing height={first_missing}" in str(error.value)
+    assert f"first unexpected height={first_unexpected}" in str(error.value)
+    assert path.read_bytes() == before
+
+
+def test_scan_shard_still_rejects_out_of_shard_heights(tmp_path: Path) -> None:
+    path = _prefixed_ledger(tmp_path, [0, 1, 4])
+    shard = ledger.Shard("one", 0, 3, "a", "primary", "fallback", "r", "pending")
+
+    with pytest.raises(ValueError, match="out-of-shard"):
+        ledger.scan_shard(object(), shard, path)
+
+
+def test_scan_shard_still_rejects_duplicate_heights(tmp_path: Path) -> None:
+    path = _prefixed_ledger(tmp_path, [0, 0])
+    shard = ledger.Shard("one", 0, 3, "a", "primary", "fallback", "r", "pending")
+
+    with pytest.raises(ValueError, match="duplicate ledger height"):
+        ledger.scan_shard(object(), shard, path)
+
+
+def test_scan_shard_resumes_a_valid_partial_prefix(tmp_path: Path) -> None:
+    path = _prefixed_ledger(tmp_path, [10, 11])
+
+    class Client:
+        max_attempts = 1
+
+        def __init__(self):
+            self.heights: list[int] = []
+
+        def get_json(self, _endpoint, _path, params):
+            self.heights.append(params["height"])
+            return ledger.HttpResult(
+                200,
+                {"success": True, "block": {"version": 0, "tx_id": "abc"}},
+                None,
+                False,
+            )
+
+    client = Client()
+    shard = ledger.Shard("one", 10, 14, "a", "primary", "fallback", "r", "pending")
+
+    assert ledger.scan_shard(client, shard, path) == {"non_version_3": 2}
+    assert client.heights == [12, 13]
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["hathor_height"] for row in rows] == ["10", "11", "12", "13"]
+
+
 def test_deduplicate_ledger_writes_a_separate_ordered_repair(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1072,6 +1197,79 @@ def test_deduplicate_ledger_rejects_conflicting_rows(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="conflicting duplicate"):
         ledger.deduplicate_ledger(source, tmp_path / "repaired.csv")
+
+
+def _deduplication_source(tmp_path: Path) -> Path:
+    source = tmp_path / "ledger.csv"
+    with source.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ledger.LEDGER_COLUMNS)
+        writer.writeheader()
+        writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "p", 1, ""))
+        writer.writerow(ledger.ledger_row(0, "non_version_3", 200, 0, "a", "f", 2, ""))
+    return source
+
+
+def test_deduplicate_ledger_competing_winner_is_never_clobbered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _deduplication_source(tmp_path)
+    repaired = tmp_path / "repaired.csv"
+    real_link = ledger.os.link
+
+    def competing_link(source_path, target):
+        Path(target).write_text("competing repair\n")
+        real_link(source_path, target)
+
+    monkeypatch.setattr(ledger.os, "link", competing_link)
+
+    with pytest.raises(ValueError, match="deduplicated output already exists"):
+        ledger.deduplicate_ledger(source, repaired)
+
+    assert repaired.read_text() == "competing repair\n"
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_deduplicate_ledger_interruption_before_publication_leaves_no_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _deduplication_source(tmp_path)
+    repaired = tmp_path / "repaired.csv"
+
+    def fail_fsync(_fd):
+        raise OSError("simulated fsync failure")
+
+    monkeypatch.setattr(ledger.os, "fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="simulated fsync failure"):
+        ledger.deduplicate_ledger(source, repaired)
+
+    assert not repaired.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def test_deduplicate_ledger_syncs_file_then_links_then_syncs_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _deduplication_source(tmp_path)
+    repaired = tmp_path / "repaired.csv"
+    events: list[str | tuple[str, Path]] = []
+    real_link = ledger.os.link
+    monkeypatch.setattr(ledger.os, "fsync", lambda _fd: events.append("file"))
+
+    def recording_link(source_path, target):
+        events.append("link")
+        real_link(source_path, target)
+
+    monkeypatch.setattr(ledger.os, "link", recording_link)
+    monkeypatch.setattr(
+        ledger,
+        "fsync_directory",
+        lambda directory: events.append(("directory", directory)),
+    )
+
+    assert ledger.deduplicate_ledger(source, repaired) == 1
+
+    assert events == ["file", "link", ("directory", tmp_path)]
 
 
 def _two_shard_manifest() -> ledger.Manifest:
@@ -1142,3 +1340,129 @@ def test_write_manifest_syncs_file_then_links_then_syncs_directory(
 
     assert events == ["file", "link", ("directory", tmp_path)]
     assert ledger.read_manifest(path) == manifest
+
+
+def _direct_manifest(primary: str, fallback: str) -> ledger.Manifest:
+    return ledger.Manifest(
+        0,
+        6,
+        (
+            ledger.Shard("one", 0, 3, "a", primary, fallback, "r", "pending"),
+            ledger.Shard("two", 3, 6, "b", primary, fallback, "r", "pending"),
+        ),
+    )
+
+
+def test_write_manifest_canonicalizes_direct_shard_endpoints(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "manifest.csv"
+    manifest = _direct_manifest(
+        "  https://primary.example/v1a//  ",
+        " https://fallback.example/v1a/ ",
+    )
+
+    ledger.write_manifest(path, manifest)
+
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert {row["primary_endpoint"] for row in rows} == {"https://primary.example/v1a"}
+    assert {row["fallback_endpoint"] for row in rows} == {
+        "https://fallback.example/v1a"
+    }
+    loaded = ledger.read_manifest(path)
+    assert all(
+        shard.primary_endpoint == "https://primary.example/v1a"
+        and shard.fallback_endpoint == "https://fallback.example/v1a"
+        for shard in loaded.shards
+    )
+
+
+@pytest.mark.parametrize(
+    ("primary", "fallback", "message"),
+    [
+        ("", "fallback", "primary endpoint must be non-empty"),
+        ("   ", "fallback", "primary endpoint must be non-empty"),
+        (" /// ", "fallback", "primary endpoint must be non-empty"),
+        (
+            "https://primary.example/v1a next",
+            "fallback",
+            "primary endpoint must not contain whitespace",
+        ),
+        (
+            "primary",
+            "https://fallback.example /v1a",
+            "fallback endpoint must not contain whitespace",
+        ),
+    ],
+)
+def test_write_manifest_rejects_invalid_direct_endpoints_without_artifacts(
+    tmp_path: Path, primary: str, fallback: str, message: str
+) -> None:
+    path = tmp_path / "manifest.csv"
+
+    with pytest.raises(ValueError, match=message):
+        ledger.write_manifest(path, _direct_manifest(primary, fallback))
+
+    assert not path.exists()
+    assert not list(tmp_path.glob(".*.tmp-*"))
+
+
+def _manifest_with_endpoints(tmp_path: Path, replacements: dict[str, str]) -> Path:
+    path = tmp_path / "manifest.csv"
+    ledger.write_manifest(path, _two_shard_manifest())
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        row.update(replacements)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=ledger.MANIFEST_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("primary_endpoint", "", "primary endpoint must be non-empty"),
+        ("primary_endpoint", "   ", "primary endpoint must be non-empty"),
+        (
+            "primary_endpoint",
+            "https://primary.example /v1a",
+            "primary endpoint must not contain whitespace",
+        ),
+        (
+            "fallback_endpoint",
+            "https://fallback.example /v1a",
+            "fallback endpoint must not contain whitespace",
+        ),
+    ],
+)
+def test_read_manifest_rejects_malformed_loaded_endpoints(
+    tmp_path: Path, field: str, value: str, message: str
+) -> None:
+    path = _manifest_with_endpoints(tmp_path, {field: value})
+
+    with pytest.raises(ValueError, match=message):
+        ledger.read_manifest(path)
+
+
+def test_read_manifest_normalizes_trailing_slash_endpoints(tmp_path: Path) -> None:
+    path = _manifest_with_endpoints(
+        tmp_path,
+        {
+            "primary_endpoint": " https://primary.example/v1a// ",
+            "fallback_endpoint": "https://fallback.example/v1a/",
+        },
+    )
+
+    loaded = ledger.read_manifest(path)
+
+    assert all(
+        shard.primary_endpoint == "https://primary.example/v1a"
+        and shard.fallback_endpoint == "https://fallback.example/v1a"
+        for shard in loaded.shards
+    )

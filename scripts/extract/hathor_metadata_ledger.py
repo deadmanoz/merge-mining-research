@@ -46,7 +46,7 @@ import os
 import tempfile
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -164,6 +164,18 @@ def fsync_directory(path: Path) -> None:
         os.close(directory_fd)
 
 
+def canonical_endpoint(value: str, name: str, *, allow_blank: bool) -> str:
+    """Trim endpoint padding and trailing slashes, then reject whitespace."""
+    endpoint = value.strip().rstrip("/")
+    if not endpoint:
+        if allow_blank:
+            return ""
+        raise ValueError(f"{name} endpoint must be non-empty")
+    if any(character.isspace() for character in endpoint):
+        raise ValueError(f"{name} endpoint must not contain whitespace")
+    return endpoint
+
+
 def make_shards(
     start: int,
     end: int,
@@ -179,6 +191,8 @@ def make_shards(
         raise ValueError("at least one non-empty worker is required")
     if len(set(workers)) != len(workers):
         raise ValueError("workers must be unique")
+    primary = canonical_endpoint(primary_endpoint, "primary", allow_blank=False)
+    fallback = canonical_endpoint(fallback_endpoint, "fallback", allow_blank=True)
 
     span = end - start
     width = math.ceil(span / len(workers))
@@ -194,8 +208,8 @@ def make_shards(
                 start_height=shard_start,
                 end_height=shard_end,
                 worker=worker,
-                primary_endpoint=primary_endpoint.rstrip("/"),
-                fallback_endpoint=fallback_endpoint.rstrip("/"),
+                primary_endpoint=primary,
+                fallback_endpoint=fallback,
                 extractor_revision=extractor_revision,
                 status="pending",
             )
@@ -226,14 +240,28 @@ def validate_shards(shards: Iterable[Shard], start: int, end: int) -> list[Shard
 def write_manifest(path: Path, manifest: Manifest) -> None:
     """Write a new manifest, refusing to replace an existing run contract.
 
+    Shard endpoints are canonicalized before any file is created, so a
+    rejected endpoint leaves neither the manifest nor a temporary file behind.
     The complete CSV is staged in a same-directory temporary file, fully
     synced, then published with a no-clobber hard link so the first creator to
     link wins and is never overwritten by a competitor.
     """
     if path.exists():
         raise ValueError(f"manifest already exists: {path}")
+    canonical_shards = [
+        replace(
+            shard,
+            primary_endpoint=canonical_endpoint(
+                shard.primary_endpoint, "primary", allow_blank=False
+            ),
+            fallback_endpoint=canonical_endpoint(
+                shard.fallback_endpoint, "fallback", allow_blank=True
+            ),
+        )
+        for shard in manifest.shards
+    ]
     shards = validate_shards(
-        manifest.shards,
+        canonical_shards,
         manifest.start_height,
         manifest.end_height,
     )
@@ -343,8 +371,12 @@ def read_manifest(
                     row["end_height"], "shard end height"
                 ),
                 worker=row["worker"],
-                primary_endpoint=row["primary_endpoint"].rstrip("/"),
-                fallback_endpoint=row["fallback_endpoint"].rstrip("/"),
+                primary_endpoint=canonical_endpoint(
+                    row["primary_endpoint"], "primary", allow_blank=False
+                ),
+                fallback_endpoint=canonical_endpoint(
+                    row["fallback_endpoint"], "fallback", allow_blank=True
+                ),
                 extractor_revision=row["extractor_revision"],
                 status=row["status"],
             )
@@ -753,7 +785,12 @@ def audit_ledger(path: Path, start: int, end: int) -> Counter[str]:
 
 
 def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
-    """Write an ordered repair only when duplicate rows agree on their identity."""
+    """Write an ordered repair only when duplicate rows agree on their identity.
+
+    The complete CSV is staged in a same-directory temporary file, fully
+    synced, then published with a no-clobber hard link so the first writer to
+    link wins and is never overwritten by a competitor.
+    """
     if output_path.exists():
         raise ValueError(f"deduplicated output already exists: {output_path}")
     rows: dict[int, dict[str, str]] = {}
@@ -771,14 +808,37 @@ def deduplicate_ledger(input_path: Path, output_path: Path) -> int:
                 raise ValueError(f"conflicting duplicate ledger height: {height}")
             duplicate_count += 1
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=LEDGER_COLUMNS, lineterminator="\n")
-        writer.writeheader()
-        for height in sorted(rows):
-            writer.writerow(rows[height])
-        handle.flush()
-        os.fsync(handle.fileno())
-    fsync_directory(output_path.parent)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=output_path.parent,
+            prefix=f".{output_path.name}.tmp-",
+            newline="",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.DictWriter(
+                handle, fieldnames=LEDGER_COLUMNS, lineterminator="\n"
+            )
+            writer.writeheader()
+            for height in sorted(rows):
+                writer.writerow(rows[height])
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, output_path)
+        except FileExistsError:
+            raise ValueError(
+                f"deduplicated output already exists: {output_path}"
+            ) from None
+        temporary.unlink()
+        temporary = None
+        fsync_directory(output_path.parent)
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
     return duplicate_count
 
 
@@ -900,6 +960,16 @@ def scan_shard(
         ]
         if invalid:
             raise ValueError(f"ledger contains out-of-shard height: {invalid[0]}")
+        prefix = set(range(shard.start_height, shard.start_height + len(recorded)))
+        if recorded != prefix:
+            first_missing = min(prefix - recorded, default=None)
+            first_unexpected = min(recorded - prefix, default=None)
+            raise ValueError(
+                "ledger recorded heights do not form a contiguous prefix "
+                f"beginning at shard start {shard.start_height}: "
+                f"first missing height={first_missing}, "
+                f"first unexpected height={first_unexpected}"
+            )
         append = ledger_path.exists() and ledger_path.stat().st_size > 0
         outcomes: Counter[str] = Counter()
         with ledger_path.open("a" if append else "w", newline="") as handle:

@@ -30,7 +30,16 @@ height so an early permanent failure cannot starve later heights, validate each
 load-bearing failure row's blank-or-canonical HTTP status and exact UTC
 timestamp before it can affect scheduling, and publish frozen manifests through
 a fully synced same-directory temporary file linked into place without
-clobbering a competing winner.
+clobbering a competing winner. Canonicalize manifest endpoint arguments before
+any manifest publication by trimming padding and trailing slashes, requiring a
+nonblank whitespace-free primary URL, and treating a blank fallback URL as
+disabled, enforcing the same rule at the write boundary for directly built
+manifests and when loading a frozen manifest so malformed legacy or
+hand-edited endpoints are rejected before any request is constructed. Publish
+deduplicated ledger repairs through the same staged, fully
+synced no-clobber temporary file protocol, and refuse to resume a shard whose
+existing ledger heights do not form an exact contiguous prefix beginning at the
+shard start, rejecting gaps before any append or request.
 
 Keep validation-status tokens byte-exact in add-only monitor artifacts.
 

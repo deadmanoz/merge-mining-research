@@ -52,7 +52,18 @@ Hathor-specific repo artifacts:
   same-directory temporary file and published with a no-clobber hard link, so
   the first creator to link wins and is never overwritten by a competitor. New
   manifest, ledger, and repair directory entries are synced after their files
-  become durable.
+  become durable. Manifest endpoint arguments are canonicalized before any
+  manifest publication: padding and trailing slashes are stripped, the primary
+  URL must remain nonblank and whitespace-free, and a blank fallback URL
+  disables fallback. Manifest publication enforces that canonicalization for
+  directly built manifests too, and loading a frozen manifest applies the same
+  rule, so malformed legacy or hand-edited endpoints are rejected before any
+  request is constructed. Deduplicated repairs are published through the same
+  staged, fully synced no-clobber temporary file protocol rather than written
+  directly to their output. A shard resumes only when its existing ledger
+  heights form an exact contiguous prefix beginning at the shard start; gaps,
+  out-of-shard rows, and duplicates are rejected before the ledger is opened
+  for append or any request is made.
 - `scripts/extract/extract_hathor_payloads_from_ledger.py` - historical
   ledger-driven migration worker. Each transaction request writes one sealed
   source row containing `aux_pow`, `raw`, and locally derived funds+graph
