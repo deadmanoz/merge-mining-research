@@ -463,6 +463,23 @@ def test_failure_history_must_match_the_ready_ledger(tmp_path: Path) -> None:
         payloads.read_failure_rounds(path, ready)
 
 
+@pytest.mark.parametrize(
+    ("contents", "message"),
+    [
+        (",".join(payloads.ACQUISITION_COLUMNS[:-1]) + "\n", "unexpected columns"),
+        (",".join(payloads.ACQUISITION_COLUMNS) + "\n0", "truncated row"),
+    ],
+)
+def test_acquisition_reader_rejects_malformed_schema(
+    tmp_path: Path, contents: str, message: str
+) -> None:
+    path = tmp_path / "acquisition.csv"
+    path.write_text(contents)
+
+    with pytest.raises(ValueError, match=message):
+        payloads.read_acquisition_rows(path)
+
+
 def test_input_and_output_paths_must_be_distinct(tmp_path: Path) -> None:
     ledger = tmp_path / "ledger.csv"
     failures = tmp_path / "failures.csv"

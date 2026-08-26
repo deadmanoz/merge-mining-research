@@ -160,6 +160,19 @@ def test_reconstructs_rfc0006_vector_and_preserves_raw_output_scripts() -> None:
     )
 
 
+def test_self_target_filter_uses_the_encoded_target_and_rejects_invalid_bits() -> None:
+    assert hathor._meets_self_target(
+        {"btc_header_hex": _header(0).hex(), "btc_bits": "207fffff"}
+    )
+    assert not hathor._meets_self_target(
+        {"btc_header_hex": _header(1).hex(), "btc_bits": "207fffff"}
+    )
+    with pytest.raises(ValueError, match="invalid PoW target"):
+        hathor._meets_self_target(
+            {"btc_header_hex": _header(0).hex(), "btc_bits": "20800000"}
+        )
+
+
 def test_publishes_all_terminal_categories_from_ordered_shards(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -328,6 +341,38 @@ def test_stale_with_unparseable_coinbase_remains_unknown(
     assert result[0]["expected_nbits"] == ""
 
 
+def test_incomplete_stale_validation_aborts_without_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.csv"
+    output_dir = tmp_path / "published"
+    _write_shard(source, [_acquisition_row(0)])
+    monkeypatch.setattr(
+        hathor, "_source_observation", lambda _row, _line: _observation(0)
+    )
+    monkeypatch.setattr(hathor, "_meets_self_target", lambda _row: True)
+
+    def classify(
+        candidates: list[dict[str, object]], _rpc: FakeRpc
+    ) -> list[dict[str, object]]:
+        candidates[0]["classification"] = "stale"
+        candidates[0]["btc_height"] = "800000"
+        return candidates
+
+    def validate(stales: list[dict[str, object]], _batch: object) -> None:
+        stales[0]["validation_status"] = "UNKNOWN: missing context"
+
+    monkeypatch.setattr(hathor, "classify_candidates", classify)
+    monkeypatch.setattr(hathor, "validate_stale_header_context", validate)
+    monkeypatch.setattr(hathor, "route_rejected_stale_rows", lambda _rows: None)
+
+    with pytest.raises(RuntimeError, match="validation context is incomplete"):
+        hathor.classify_hathor([source], output_dir, FakeRpc())
+
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".published.*"))
+
+
 def test_hathor_loader_requires_valid_validation_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -337,10 +382,11 @@ def test_hathor_loader_requires_valid_validation_status(
             [
                 "btc_height,btc_header_hash,btc_prev_hash,btc_time,btc_bits,"
                 "coinbase_scriptsig_hex,coinbase_outputs,btc_header_hex,"
-                "hathor_height,classification,validation_status,expected_nbits",
-                "700000,validhash,prev,1,170fffff,03a00a00,51:1,00,1,stale,VALID,170fffff",
-                "700001,badhash,prev,1,170fffff,03a10a00,,00,2,stale,REJECTED,170fffff",
-                "700002,oldhash,prev,1,170fffff,03a20a00,,00,3,stale,,",
+                "hathor_height,child_block_hash,child_header_hex,child_block_time,"
+                "child_nbits,classification,validation_status,expected_nbits",
+                "700000,validhash,prev,1,170fffff,03a00a00,51:1,00,1,,,,,stale,VALID,170fffff",
+                "700001,badhash,prev,1,170fffff,03a10a00,,00,2,,,,,stale,REJECTED,170fffff",
+                "700002,oldhash,prev,1,170fffff,03a20a00,,00,3,,,,,stale,,",
             ]
         )
         + "\n"

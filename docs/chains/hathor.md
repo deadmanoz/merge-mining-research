@@ -86,6 +86,10 @@ btc_header     = bitcoin_header_head || merkle_root || bitcoin_header_tail
 hathor_hash    = reverse(SHA256d(btc_header))
 ```
 
+The acquisition row stores `block_funds || block_graph` as one concatenated
+value. The classifier tries candidate split positions and accepts only the one
+whose reconstructed header authenticates against the Hathor block identity.
+
 Three corrections were needed after the first implementation:
 
 1. Embed `aux_block_hash`, not the final Hathor block hash.
@@ -117,8 +121,9 @@ The classifier processes each sealed observation once:
    is routed to `unknown`, `error_block`, or retained as a rejected stale using
    the shared rejection semantics.
 
-Every authenticated input observation reaches one primary category. The output
-directory contains:
+A malformed seal, proof, target, or incomplete validation context aborts the
+staged run without publication. Otherwise, every authenticated input
+observation reaches one primary category. The output directory contains:
 
 - `hathor_near_blocks.csv`
 - `hathor_canonical_blocks.csv`

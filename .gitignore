@@ -53,6 +53,8 @@ data/*_error_blocks.csv
 data/*_auxpow_chainid_sidecar.csv
 data/coinbase_mergemining_v1.db*
 data/coinbase_mergemining_v1.parquet
+# Hathor's complete acquisition and category family are private run artifacts.
+data/hathor/
 
 # Local-only mirror of the consolidated full canonical inventories, copied from
 # the private per-chain archive for pipeline convenience. Kept out of git per the

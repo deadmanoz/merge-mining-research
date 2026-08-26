@@ -43,15 +43,12 @@ import csv
 import json
 import math
 import os
-import time
 from collections import Counter
 from dataclasses import dataclass
-from http.client import IncompleteRead
 from pathlib import Path
-from typing import Any, Callable, Iterable
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from typing import Any, Iterable
+
+from stale_blocks_analysis.hathor_acquisition import HttpResult, PacedHttpClient
 
 
 DEFAULT_API = "https://node1.mainnet.hathor.network/v1a"
@@ -103,14 +100,6 @@ class Manifest:
     start_height: int
     end_height: int
     shards: tuple[Shard, ...]
-
-
-@dataclass(frozen=True)
-class HttpResult:
-    status: int | None
-    payload: dict[str, Any] | None
-    error: str | None
-    retryable: bool
 
 
 def is_canonical_tx_id(value: object) -> bool:
@@ -338,60 +327,6 @@ def read_manifest(path: Path) -> Manifest:
         raise ValueError("manifest contains an invalid shard row") from exc
     ordered = validate_shards(shards, declared_start, declared_end)
     return Manifest(declared_start, declared_end, tuple(ordered))
-
-
-class PacedHttpClient:
-    """One-request-at-a-time client with bounded retry and endpoint fallback."""
-
-    def __init__(
-        self,
-        requests_per_second: float,
-        timeout: float,
-        max_attempts: int,
-        opener: Callable[..., Any] = urlopen,
-        sleep: Callable[[float], None] = time.sleep,
-        monotonic: Callable[[], float] = time.monotonic,
-    ):
-        self.min_interval = 1.0 / requests_per_second
-        self.timeout = timeout
-        self.max_attempts = max_attempts
-        self.opener = opener
-        self.sleep = sleep
-        self.monotonic = monotonic
-        self._last_request_start: float | None = None
-
-    def get_json(self, endpoint: str, path: str, params: dict[str, int]) -> HttpResult:
-        """Fetch JSON at a paced request rate without hiding terminal failures."""
-        query = urlencode(params)
-        url = f"{endpoint.rstrip('/')}{path}?{query}"
-        request = Request(
-            url, headers={"accept": "application/json", "user-agent": USER_AGENT}
-        )
-        now = self.monotonic()
-        if self._last_request_start is not None:
-            remaining = self.min_interval - (now - self._last_request_start)
-            if remaining > 0:
-                self.sleep(remaining)
-        self._last_request_start = self.monotonic()
-        try:
-            with self.opener(request, timeout=self.timeout) as response:
-                status = response.getcode()
-                try:
-                    body = response.read()
-                except IncompleteRead:
-                    return HttpResult(status, None, "IncompleteRead", True)
-                try:
-                    payload = json.loads(body)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    return HttpResult(status, None, "invalid_json", True)
-                if not isinstance(payload, dict):
-                    return HttpResult(status, None, "json_not_object", True)
-                return HttpResult(status, payload, None, False)
-        except HTTPError as error:
-            retryable = error.code in {429, 500, 502, 503, 504}
-            return HttpResult(error.code, None, f"http_{error.code}", retryable)
-        except (URLError, TimeoutError, OSError, IncompleteRead) as error:
-            return HttpResult(None, None, type(error).__name__, True)
 
 
 def fetch_height(
@@ -854,10 +789,8 @@ def parser() -> argparse.ArgumentParser:
     argument_parser.add_argument(
         "--start",
         type=nonnegative_int,
-        help=(
-            "Inclusive range start for manifest creation or ledger audit "
-            f"(default: {DEFAULT_START})"
-        ),
+        help="Inclusive range start; defaults to 0 for manifest creation and "
+        "is required for ledger audit",
     )
     argument_parser.add_argument(
         "--end",
@@ -935,7 +868,12 @@ def main() -> None:
         raise SystemExit("--manifest requires both --shard-id and --ledger")
     manifest = read_manifest(args.manifest)
     shard = selected_shard(manifest.shards, args.shard_id)
-    client = PacedHttpClient(args.requests_per_second, args.timeout, args.max_attempts)
+    client = PacedHttpClient(
+        args.requests_per_second,
+        args.timeout,
+        args.max_attempts,
+        user_agent=USER_AGENT,
+    )
     if args.retry_output is not None:
         outcomes = retry_ledger(
             client,

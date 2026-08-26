@@ -812,10 +812,9 @@ def load_hathor_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     RPC-miss rows remain unresolved and never enter this loader. By the time
     this loader sees the data, only self-target-PoW-passing stales remain.
 
-    coinbase_outputs is raw pkscript_hex format (the same pattern as
-    Unobtanium / Fractal Bitcoin / Devcoin) because the classifier parses
-    the BTC parent coinbase directly from the reconstructed bytes without
-    routing through an RPC's address decoder.
+    The classifier records each coinbase output as raw ``pkscript_hex:value``.
+    The loader removes the values and semicolon-joins the raw scripts for the
+    established attribution record shape.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["hathor"], min_height=min_height)
 
