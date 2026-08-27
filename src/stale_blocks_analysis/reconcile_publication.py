@@ -1230,6 +1230,4 @@ def render_and_publish(
         json.dumps(summary, indent=2, sort_keys=True) + "\n"
     )
 
-    print(json.dumps(summary, indent=2, sort_keys=True))
-
     return summary
