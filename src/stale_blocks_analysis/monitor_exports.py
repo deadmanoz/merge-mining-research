@@ -58,10 +58,11 @@ DEFAULT_RELEVANCE_INVENTORY = (
     / "btc-stale-relevance"
     / "btc-stale-relevance-inventory.csv"
 )
+# Publication manifests use a stable logical external name so temporary
+# staging basenames do not make otherwise identical builds non-reproducible.
+# Diagnostic library calls still report the sanitized path they actually read.
 REPORTED_RELEVANCE_INVENTORY = "<external>/btc-stale-relevance-inventory.csv"
 
-# ── Monitor-facing exports ──────────────────────────────────────────────
-#
 # The full-evidence exports in ``full_evidence.py`` carry every evidence state,
 # which makes them large (unknown/near rows dominate). This module keeps only
 # the categories the merge-mining-monitor ingests as final —
