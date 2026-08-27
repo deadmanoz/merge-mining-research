@@ -148,7 +148,7 @@ cross-chain accounting snapshot.
 | [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 40 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
 | [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through January 2026 | 177 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
 | [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 98 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
-| [Hathor](docs/chains/hathor.md) | Public REST API; one range-neutral acquisition and classification path | 6 | Pending corpus publication | Pending corpus publication | The committed direct-stale rows remain unchanged; the whole-corpus publication is a separate data update. |
+| [Hathor](docs/chains/hathor.md) | Public REST API; retained corpus through child height 6,593,796 | 6 | 0 | 0 | The unified result covers 6,532,372 version-3 observations and publishes 3,658 canonical parents plus the 6 accepted direct stales. |
 | [Bitcoin Vault](docs/chains/bitcoin-vault.md) | Trezor Blockbook raw-block API; nearly complete AuxPoW lifetime | 9 | 0 | 0 | No node was available, and no later accepted direct stale was found after 2021. |
 | [Electric Cash](docs/chains/elcash.md) | Self-synced local node; standard Namecoin-style AuxPoW | 3 | 0 | 0 | The three accepted stales from June to September 2021 all cross-confirm Bitcoin Vault observations. |
 | [Lyncoin](docs/chains/lyncoin.md) | Live-peer P2P header stream; complete pre-Flex merge-mined era | 0 | 0 | 0 | Complete recovered era with no accepted stale or strict/weak evidence. |

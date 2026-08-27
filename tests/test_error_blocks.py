@@ -82,9 +82,9 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_stale_exclusion_keys(empty)
 
 
-def test_committed_dataset_loads_33_rows() -> None:
+def test_committed_dataset_loads_34_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 33
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 34
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -125,7 +125,7 @@ def test_committed_dataset_schema_and_seed_count() -> None:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 33
+    assert len(rows) == 34
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
@@ -143,9 +143,9 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 33
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 33
-    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 33
+    assert len(rows) == 34
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 34
+    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 34
     assert Counter(row["rejection_reason"] for row in rows) == {
         "bip34_v2_coinbase_height_mismatch": 12,
         "bip34_coinbase_height_mismatch": 9,
@@ -155,8 +155,11 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
         "median_time_past_violation": 1,
         "time_below_mtp": 1,
         "nbits_retarget_not_applied": 1,
+        "bip34_coinbase_height_missing": 1,
     }
-    assert all(row["coinbase_height"] for row in rows)
+    missing_heights = [row for row in rows if not row["coinbase_height"]]
+    assert len(missing_heights) == 1
+    assert missing_heights[0]["rejection_reason"] == "bip34_coinbase_height_missing"
     for row in rows:
         height = int(row["height"])
         version = int(row["btc_header_version"])

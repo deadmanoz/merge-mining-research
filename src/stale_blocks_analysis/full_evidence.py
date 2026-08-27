@@ -486,6 +486,20 @@ def normalize_evidence_row(
         raise ChildHeaderValidationError(
             f"{source.chain} evidence row {row_number}: {detail}"
         ) from exc
+    if source.chain == "hathor" and child_hash:
+        try:
+            child_hash_matches_header = (
+                len(bytes.fromhex(header_hex)) == 80
+                and hash_from_header_bytes(bytes.fromhex(header_hex)).hex()
+                == child_hash
+            )
+        except ValueError:
+            child_hash_matches_header = False
+        if not child_hash_matches_header:
+            raise ChildHeaderValidationError(
+                f"hathor evidence row {row_number}: child_block_hash does not "
+                "match btc_header_hex"
+            )
 
     expected_nbits = row.get("expected_nbits", "").strip()
     normalized_rejection_reason = rejection_reason(row, validation_status)
@@ -1189,9 +1203,11 @@ def hydrate_namecoin_headers(
 
 # ── Live-chain child identity hydration ─────────────────────────────────
 #
-# The six live-lifecycle chains (namecoin, rsk, syscoin, hathor, elastos,
-# fractal) were recovered without child block identity: their artifacts carry
-# the child HEIGHT but no child block hash or timestamp. merge-mining-monitor
+# Five active child chains (namecoin, rsk, syscoin, elastos, fractal) were
+# recovered without child block identity: their artifacts carry the child
+# HEIGHT but no child block hash or timestamp. Hathor is active too, but its
+# API acquisition retains the source-authenticated child identity directly, so
+# it does not need this separate sidecar. merge-mining-monitor
 # keys live-captured events by (source, child_height, child_block_hash), so
 # imported rows need the exact identity to deduplicate against live capture.
 # scripts/extract/recover_child_identity.py recovers and node-verifies the
@@ -1203,15 +1219,20 @@ def hydrate_namecoin_headers(
 
 CHILD_IDENTITY_DIR_NAME = "child-identity"
 
-# The six live-lifecycle chains whose evidence rows REQUIRE a recovered child
-# identity: merge-mining-monitor keys their live-captured events by
+# The five active child chains whose evidence rows REQUIRE a separate recovered
+# child identity: merge-mining-monitor keys their live-captured events by
 # (source, child_height, child_block_hash), and its importer skips rows
 # without exact identity. Hydration targets these chains unconditionally --
 # a missing or empty identity file must surface as missing_identity, never
 # silently narrow the target set.
-LIVE_CHILD_IDENTITY_CHAINS = frozenset(
-    {"namecoin", "rsk", "syscoin", "hathor", "elastos", "fractal"}
+CHILD_IDENTITY_HYDRATION_CHAINS = frozenset(
+    {"namecoin", "rsk", "syscoin", "elastos", "fractal"}
 )
+
+# Hathor is also an active child chain and its published rows must carry the
+# same complete identity before publication. Its acquisition already provides
+# that identity, so it is checked here but is not a sidecar-hydration target.
+CHILD_IDENTITY_REQUIRED_CHAINS = frozenset({*CHILD_IDENTITY_HYDRATION_CHAINS, "hathor"})
 
 RSK_SIDECAR_EXPORT_FIELDS = [
     "rsk_miner",
@@ -1303,12 +1324,13 @@ def hydrate_child_identity(
 ) -> ChildIdentityStats:
     """Fill empty child identity fields from verified recovery rows, in place.
 
-    Targets every live-chain row (``LIVE_CHILD_IDENTITY_CHAINS``) regardless
-    of whether the source prepopulated ``child_block_hash`` -- the
+    Targets every row for a chain in the separate hydration set
+    (``CHILD_IDENTITY_HYDRATION_CHAINS``) regardless of whether the source
+    prepopulated ``child_block_hash`` -- the
     node-verified sidecar is authoritative there, so a raw inventory's
     display-order hash is replaced and a missing identity still counts as a
     shortfall -- plus any other chain's empty-hash rows when identity data
-    was loaded for it. The live set is targeted unconditionally so a
+    was loaded for it. The hydration set is targeted unconditionally so a
     missing, empty, or verification-less identity file surfaces as
     ``missing_identity`` instead of silently narrowing the target set. The
     identity row must agree on ``child_height``; a disagreement leaves the
@@ -1321,15 +1343,34 @@ def hydrate_child_identity(
     chains_with_identity = {chain for chain, _ in identity}
     for row in rows:
         chain = row.get("chain", "")
-        if row.get("child_block_hash") and chain not in LIVE_CHILD_IDENTITY_CHAINS:
-            # Non-live chains keep their source-supplied identity untouched
-            # (the explicit-recovery artifacts are authoritative for it).
-            continue
-        if (
-            chain not in LIVE_CHILD_IDENTITY_CHAINS
-            and chain not in chains_with_identity
-        ):
-            continue
+        if chain not in CHILD_IDENTITY_HYDRATION_CHAINS:
+            if chain in CHILD_IDENTITY_REQUIRED_CHAINS:
+                # Hathor's API acquisition is the authoritative identity
+                # source. Do not replace it from a sidecar, but count an
+                # incomplete non-canonical source row as a publication
+                # shortfall so the monitor gate cannot silently drop it.
+                if (row.get("classification") or "") != "canonical":
+                    child_height = int_or_none(row.get("child_height"))
+                    child_hash = normalize_hash(row.get("child_block_hash"))
+                    child_time = (row.get("child_block_time") or "").strip()
+                    identity_complete = (
+                        child_height is not None
+                        and child_height >= 0
+                        and is_hash(child_hash)
+                        and child_time.isdigit()
+                        and int(child_time) > 0
+                    )
+                    if not identity_complete:
+                        stats.targets += 1
+                        stats.missing_identity += 1
+                continue
+            if row.get("child_block_hash"):
+                # Chains outside the separate hydration set keep their
+                # source-supplied identity untouched (the explicit-recovery
+                # artifacts are authoritative for it).
+                continue
+            if chain not in chains_with_identity:
+                continue
         block_hash = normalize_hash(row.get("btc_header_hash", ""))
         if not is_hash(block_hash):
             continue
@@ -1370,10 +1411,8 @@ def hydrate_child_identity(
                     f"{chain} child identity disagrees with the "
                     f"source-authenticated bundle for BTC header {block_hash}"
                 )
-        # The node-verified identity is authoritative for live chains: a
-        # source-prepopulated hash (e.g. a raw Hathor inventory's
-        # display-order tx_id) is replaced with the verified internal-order
-        # value rather than trusted as-is.
+        # The node-verified identity is authoritative for live chains, so a
+        # source-prepopulated hash is replaced with the verified value.
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         if not row.get("child_block_time"):
             row["child_block_time"] = (candidate.get("child_block_time") or "").strip()

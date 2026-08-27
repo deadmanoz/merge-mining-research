@@ -23,10 +23,10 @@ When the export provides ``parent_median_time_past``, the builder also records
 it in the committed ``data/error-blocks/mtp_context.csv`` sidecar so the
 validator can re-derive time-rule violations offline.
 
-An optional ``--extra-rows PATH`` merges sweep-found rows (a JSON list of
-self-contained row objects, each carrying the same fields as a monitor
-export) into the seed set the same way. Extra rows carry no MTP context;
-their provenance starts with one of the sweep prefixes in
+An optional ``--extra-rows PATH`` merges classifier- or sweep-emitted rows (a
+JSON list of self-contained row objects, each carrying the same fields as a
+monitor export) into the seed set the same way. Extra rows carry no MTP
+context; their provenance starts with one of the prefixes in
 ``SELF_CONTAINED_PROVENANCE_PREFIXES`` and they persist in the committed CSV
 so plain regeneration without ``--extra-rows`` keeps them. Every
 self-contained import (monitor export or extra row) MUST carry a provenance
@@ -115,6 +115,7 @@ MTP_CONTEXT_COLUMNS = ["height", "hash", "parent_median_time_past", "provenance"
 # over-broad ``sweep-`` wildcard would treat any future sweep's rows as
 # self-contained without review).
 SELF_CONTAINED_PROVENANCE_PREFIXES = (
+    "classifier-emitted:",
     "monitor-live-capture:",
     "sweep-rejected-rows:",
     "sweep-version-bip:",
@@ -687,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
         "--extra-rows",
         type=Path,
         default=None,
-        help="merge sweep-found rows (a JSON list of self-contained row "
+        help="merge classifier- or sweep-emitted rows (a JSON list of self-contained row "
         "objects) into the seed set; they persist in the committed CSV",
     )
     parser.add_argument("--allow-partial", action="store_true")

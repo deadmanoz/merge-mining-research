@@ -24,7 +24,7 @@ analysis package:
   this file carries the separate `stale_descendant` classification, and loaders
   admit only `VALID_STALE_DESCENDANT` rows.
 - `error-blocks/error_blocks.csv` - the error-blocks dataset and publication
-  gate: 33 full-proof-of-work Bitcoin headers that each fail a contextual
+  gate: 34 full-proof-of-work Bitcoin headers that each fail a contextual
   consensus rule, keyed off `classification == "error_block"` (there is no
   `exclusion_scope` column). It supersedes the deleted
   `stale_block_exclusions.csv` overlay: its rows are removed from all public

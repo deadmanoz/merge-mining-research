@@ -2248,8 +2248,8 @@ def test_error_observation_baseline_refuses_regression(
         baseline_dir,
         chain="error-block-observations",
         source_kind="error_block_catalogue",
-        error_block=74,
-        source_rows=74,
+        error_block=75,
+        source_rows=75,
     )
     parser, args = _preflight_args(
         module, tmp_path, data_dir=module.DATA_DIR, archive_dir=archive_dir
@@ -2365,6 +2365,154 @@ def test_full_inventory_coverage_applies_validated_stale_replacement(
     assert "private inventory is below the publication baseline (2 < 3)" in error
 
 
+def test_full_inventory_requires_assessed_unknown_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        f"btc_header_hash,classification\n{'11' * 32},unknown\n{'22' * 32},unknown\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        source_rows=2,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.write_text(
+        "chain,source_path,source_row_number,btc_header_hash,"
+        "btc_stale_relevance,relevance_reason,source_classification\n"
+        f"namecoin,namecoin/classified/namecoin_stale_blocks.csv,2,"
+        f"{'11' * 32},,,unknown\n"
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert (
+        "namecoin relevance inventory assessed-unknown identities do not match "
+        "private source (missing 1, extra 0)"
+    ) in capsys.readouterr().err
+
+
+def test_full_inventory_coverage_derives_hash_from_header(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    header_hash = parse_header_fields(TEST_PARENT_HEADER)["hash"]
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        f"btc_header_hash,btc_header_hex,classification\n"
+        f"malformed,{TEST_PARENT_HEADER},unknown\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        source_rows=1,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.write_text(
+        "chain,source_path,source_row_number,btc_header_hash,"
+        "btc_stale_relevance,relevance_reason,source_classification\n"
+        f"namecoin,namecoin/classified/namecoin_stale_blocks.csv,2,"
+        f"{header_hash},,,unknown\n"
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_full_inventory_excludes_error_block_from_unknown_coverage(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    excluded_hash = "33" * 32
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    error_blocks = data_dir / "error-blocks" / "error_blocks.csv"
+    error_blocks.parent.mkdir(parents=True)
+    error_blocks.write_text(
+        f"height,hash,classification\n2,{excluded_hash},error_block\n"
+    )
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        f"btc_height,btc_header_hash,classification\n2,{excluded_hash},unknown\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        source_rows=1,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_missing_relevance_inventory_reports_preflight_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("classification\nunknown\n")
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        source_rows=1,
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.unlink()
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert "--relevance-inventory must name an existing CSV" in capsys.readouterr().err
+
+
 def test_full_inventory_coverage_counts_split_canonical_companion(
     tmp_path: Path,
 ) -> None:
@@ -2396,6 +2544,11 @@ def test_full_inventory_coverage_counts_split_canonical_companion(
     )
     parser, args = _preflight_args(
         module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.write_text(
+        "chain,source_path,source_row_number,btc_header_hash,"
+        "btc_stale_relevance,relevance_reason,source_classification\n"
+        "namecoin,namecoin/classified/namecoin_unknown_blocks.csv,2,,,,unknown\n"
     )
 
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
@@ -2431,6 +2584,12 @@ def test_full_inventory_coverage_unions_disjoint_canonical_companion(
     )
     parser, args = _preflight_args(
         module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+    args.relevance_inventory.write_text(
+        "chain,source_path,source_row_number,btc_header_hash,"
+        "btc_stale_relevance,relevance_reason,source_classification\n"
+        f"namecoin,namecoin/classified/namecoin_stale_blocks.csv,3,"
+        f"{'44' * 32},,,unknown\n"
     )
 
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)

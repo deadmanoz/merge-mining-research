@@ -74,11 +74,12 @@ coiledcoin's `eligius_attack_window`.
 
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from publication surfaces. This dataset supersedes
-the former `data/stale_block_exclusions.csv` overlay. The current 33 rows
+the former `data/stale_block_exclusions.csv` overlay. The current 34 rows
 comprise 31 carried-over consensus-invalid keys, the 946,213
-`time_below_mtp` row recovered from merge-mining-monitor live evidence, and
-the 717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
-(witnessed independently by emercoin and syscoin). The
+`time_below_mtp` row recovered from merge-mining-monitor live evidence, the
+717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
+(witnessed independently by emercoin and syscoin), and the 649,674
+`bip34_coinbase_height_missing` row emitted by the Hathor classifier. The
 former `exclusion_scope` column is gone: the gate keys off
 `classification == "error_block"`, and blank or unknown classifications fail
 closed when the dataset is loaded. The single former `direct_stale_only` key
@@ -88,8 +89,8 @@ remains in the upstream catalogue and in `data/stale_descendants.csv`. It is
 not an error-block exclusion: projection of a raw source row still requires
 the accepted sidecar's chain-specific observation and the compact
 `data/stale_descendant_corrections.csv` exact-key correction overlay. Of the
-invalid keys, 21 fail the applicable
-BIP34 coinbase-height rule, three fail BIP66's minimum version 3 rule, five
+invalid keys, 21 carry a mismatched BIP34 coinbase height, one omits the
+required BIP34 height, three fail BIP66's minimum version 3 rule, five
 fail BIP65's minimum version 4 rule, one violates median-time-past, one is
 time-too-old against median-time-past, one carries a 103-byte coinbase
 scriptSig above Bitcoin's 100-byte limit, and one failed to apply the
@@ -216,7 +217,7 @@ Each `<chain>_evidence.csv` uses this normalized schema:
 | --- | --- |
 | `chain`, `source_kind`, `source_path`, `source_row_number` | Source identity and row provenance. External archive roots are redacted as `<chain-archive>/...`. |
 | `artifact_scope` | `full_classifier_inventory`, `stale_only_publication`, or `stale_descendant_sidecar`. |
-| `child_height`, `child_block_hash`, `child_header_hex`, `child_block_time`, `child_nbits` | Child-chain location and authenticated header evidence when available. `child_block_hash` is the internal/wire-order double-SHA256 digest, `child_header_hex` is the 80-byte canonical header serialization, `child_block_time` is the header timestamp, and `child_nbits` is eight lowercase hexadecimal characters. For Xaya, the header and timestamp come from `CPureBlockHeader`, while effective `child_nbits` comes from the adjacent `PowData` wrapper. For the six live-lifecycle chains the existing hash and timestamp remain hydrated from `data/child-identity/` (see below); their historical data is not re-derived by this work. |
+| `child_height`, `child_block_hash`, `child_header_hex`, `child_block_time`, `child_nbits` | Child-chain location and authenticated header evidence when available. `child_block_hash` is the internal/wire-order double-SHA256 digest, `child_header_hex` is the 80-byte canonical header serialization, `child_block_time` is the header timestamp, and `child_nbits` is eight lowercase hexadecimal characters. For Xaya, the header and timestamp come from `CPureBlockHeader`, while effective `child_nbits` comes from the adjacent `PowData` wrapper. For the five identity-hydration chains the existing hash and timestamp remain hydrated from `data/child-identity/` (see below); their historical data is not re-derived by this work. Hathor publishes its source-authenticated block identity and timestamp directly. |
 | `btc_height`, `btc_header_hash`, `btc_prev_hash`, `btc_time`, `btc_bits`, `btc_nonce`, `btc_header_hex` | Normalized Bitcoin parent header fields. |
 | `coinbase_scriptsig_hex`, `coinbase_outputs`, `full_coinbase_hex` | Coinbase evidence. Hathor-style full rows with only `full_coinbase_hex` are parsed during export. |
 | `classification` | Preserved source classification: `canonical`, `stale`, `unknown` (normalized from the legacy `orphan` spelling on read), `stale_descendant`, `near`, or source-specific values. |
@@ -253,30 +254,32 @@ in its provenance: VCash, for example, is a 68-row partial canonical subset
 rather than a complete chain recovery, so no stale, strict, or weak total may
 be inferred from it.
 
-Parallel-schema chains that do not split, such as RSK (miner-address schema)
-and Hathor (canonical in-file), keep their single commingled private inventory.
+RSK keeps its miner-address parallel schema in one private inventory. Hathor's
+unified classifier writes the standard terminal category files for canonical,
+stale, unknown, near, and error-block rows.
 
 ## Live-chain child identity: `data/child-identity/`
 
-The six live-lifecycle chains (Namecoin, RSK, Syscoin, Hathor, Elastos,
-Fractal) were recovered without child block identity: their acquisition
-artifacts carry the child height but no child block hash or timestamp.
+Five active child chains (Namecoin, RSK, Syscoin, Elastos, and Fractal) were
+recovered without child block identity: their acquisition artifacts carry the
+child height but no child block hash or timestamp. Hathor is active too, but
+its API acquisition retains the source-authenticated block identity and
+timestamp directly, so it is not a separate hydration target.
 merge-mining-monitor keys live-captured events by
 `(source, child_height, child_block_hash)`, so imported rows need the exact
 identity to deduplicate against live capture.
 
 `scripts/extract/recover_child_identity.py` recovers the identity per parent
-header by height -> hash -> block RPC against the still-reachable child nodes
-(a public API for Hathor). Every row is verified by re-deriving the Bitcoin
+header by height -> hash -> block RPC against the still-reachable child nodes.
+Every row is verified by re-deriving the Bitcoin
 parent linkage from the fetched child block and requiring it to match the
 row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
 the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
-true)` proof for Fractal, `sha256d(bitcoinMergedMiningHeader)` for RSK (uncle
-rows resolve through `eth_getUncleByBlockNumberAndIndex`), and the block-id
-identity for Hathor, whose merge-mined block hash IS its BTC parent header
-hash. All 2,287 chain/header observations across the six chains verified
+true)` proof for Fractal, and `sha256d(bitcoinMergedMiningHeader)` for RSK
+(uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,281
+chain/header observations across the five chains verified
 against today's canonical child chains (1,919 distinct Bitcoin parent
-headers; 232 parents were observed by more than one chain, a single miner
+headers; 229 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
@@ -285,8 +288,8 @@ Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 integer and the child hash and time are valid. `btc_header_hash` stays in
 display (RPC) order like every other
 pipeline artifact; `child_block_hash` follows the pipeline's established
-column contract of internal (wire) byte order for the Bitcoin-family chains
-and Hathor, and forward order for RSK, whose keccak block hashes have no
+column contract of internal (wire) byte order for the Bitcoin-family chains,
+and forward order for RSK, whose keccak block hashes have no
 reversed display convention -- the same orders merge-mining-monitor stores,
 so its importer decodes the column without re-reversing. The RSK file adds
 the fields merge-mining-monitor's `rsk_merge_mining_evidence` sidecar
@@ -338,8 +341,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 73-row aggregate
-for the 33 catalogue parents. Its rows retain the original archive or
+`error-block-observations_monitor_evidence.csv` is a separate 74-row aggregate
+for the 34 catalogue parents. Its rows retain the original archive or
 live-observation source coordinates but use `classification=error_block` and
 the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
@@ -359,7 +362,7 @@ Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes
 `child_header_hex`, `child_block_time`, and `child_nbits`; rows from the 17
 historical child-header refresh pipelines carry a complete authenticated
-bundle. The six live-lifecycle
+bundle. The five identity-hydration
 chains additionally publish `child_block_hash` / `child_block_time` hydrated
 from `data/child-identity/` (coverage recorded in the counts `notes` as
 `child_identity_hydration=hydrated:N`; a publication build fails closed when
@@ -456,8 +459,9 @@ carries the strongest verdict any chain's evidence establishes, so the same
 header can appear in more than one chain's file with the same verdict.
 Every complete-coverage per-chain monitor-evidence export gets a file; a
 header-only file means the chain has no admitted rows. Canonical-only partial
-sources such as VCash and stale-only publication inputs such as Hathor are
-omitted because they cannot establish a zero result.
+sources such as VCash and stale-only publication inputs are omitted because
+they cannot establish a zero result. Hathor's complete retained corpus
+publication therefore carries a header-only zero-result file.
 `strict-weak-orphans-counts.csv`
 summarizes the per-chain bucket counts. Generated by
 `scripts/reports/build_strict_weak_orphans.py` (`just strict-weak-orphans`);

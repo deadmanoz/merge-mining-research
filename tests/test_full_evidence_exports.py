@@ -9,6 +9,7 @@ import pytest
 
 import stale_blocks_analysis.monitor_exports as monitor_exports
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
+from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.full_evidence import (
     EVIDENCE_FIELDS,
     EvidenceSource,
@@ -451,8 +452,10 @@ def test_hathor_style_canonical_rows_are_exported(tmp_path: Path) -> None:
         [
             {
                 "hathor_height": "100",
-                "hathor_block_hash": "aa" * 32,
-                "hathor_timestamp": "1700000001",
+                "child_block_hash": hash_from_header_bytes(
+                    bytes.fromhex(header_hex)
+                ).hex(),
+                "child_block_time": "1700000001",
                 "btc_prev_hash": "11" * 32,
                 "btc_time": "1700000000",
                 "btc_bits": "1d00ffff",
@@ -476,6 +479,11 @@ def test_hathor_style_canonical_rows_are_exported(tmp_path: Path) -> None:
     rows = _read_csv(output_dir / "hathor_evidence.csv")
     assert rows[0]["classification"] == "canonical"
     assert rows[0]["btc_height"] == "800000"
+    assert (
+        rows[0]["child_block_hash"]
+        == hash_from_header_bytes(bytes.fromhex(header_hex)).hex()
+    )
+    assert rows[0]["child_block_time"] == "1700000001"
     assert rows[0]["coinbase_scriptsig_hex"] == "aabbcc"
     assert (
         "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa:5000000000" in rows[0]["coinbase_outputs"]
@@ -486,6 +494,29 @@ def test_hathor_style_canonical_rows_are_exported(tmp_path: Path) -> None:
     assert hathor["canonical"] == "1"
     assert hathor["canonical_evidence_status"] == "canonical_retained"
     assert summary["status_counts"]["canonical_retained"] == 1
+
+
+def test_hathor_child_hash_must_match_reconstructed_header(tmp_path: Path) -> None:
+    source = EvidenceSource(
+        chain="hathor",
+        display_name="Hathor",
+        path=tmp_path / "hathor_stale_blocks.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+    header_hex, _header_hash = _header()
+    row = {
+        "btc_header_hex": header_hex,
+        "child_block_hash": "aa" * 32,
+        "classification": "canonical",
+    }
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match="hathor evidence row 2: child_block_hash does not match",
+    ):
+        normalize_evidence_row(source, row, list(row), 2)
 
 
 def test_validated_stales_are_marked_as_stale_only_publication(tmp_path: Path) -> None:
@@ -2068,6 +2099,7 @@ def test_monitor_export_hydrates_child_identity_and_rsk_sidecar_columns(
                 "btc_header_hash": nmc_hash,
                 "btc_header_hex": nmc_hex,
                 "nmc_height": "300",
+                "child_block_hash": "ee" * 32,
                 "classification": "stale",
                 "validation_status": "VALID",
                 "expected_nbits": "1d00ffff",
@@ -2261,6 +2293,42 @@ def test_publication_flag_fails_on_unhydrated_live_chain_rows(tmp_path: Path) ->
         )
 
 
+def test_publication_flag_fails_on_missing_hathor_source_identity(
+    tmp_path: Path,
+) -> None:
+    # Hathor does not need a child-identity sidecar, but its source-authenticated
+    # identity is still required for non-canonical rows consumed by the monitor.
+    import pytest
+
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="8a" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "hathor_validated_stales.csv",
+        [
+            {
+                "btc_height": "860001",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "hathor_height": "501",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="hathor: missing_identity=1"):
+        build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            relevance_inventory=None,
+            fail_on_missing_child_identity=True,
+        )
+
+
 def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> None:
     # A live chain with NO identity file at all (missing, empty, or holding
     # no verified rows) must still trip the publication gate: the live set is
@@ -2274,13 +2342,13 @@ def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> 
     output_dir = tmp_path / "monitor"
     header_hex, header_hash = _header(prev_hash="99" * 32)
     _write_csv(
-        data_dir / "validated-stales" / "hathor_validated_stales.csv",
+        data_dir / "validated-stales" / "namecoin_validated_stales.csv",
         [
             {
                 "btc_height": "710000",
                 "btc_header_hash": header_hash,
                 "btc_header_hex": header_hex,
-                "hathor_height": "600",
+                "namecoin_height": "600",
                 "classification": "stale",
                 "validation_status": "VALID",
                 "expected_nbits": "1d00ffff",
@@ -2288,7 +2356,7 @@ def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> 
         ],
     )
 
-    with pytest.raises(ValueError, match="hathor: missing_identity=1"):
+    with pytest.raises(ValueError, match="namecoin: missing_identity=1"):
         build_monitor_evidence_exports(
             data_dir=data_dir,
             output_dir=output_dir,
@@ -2418,63 +2486,6 @@ def test_canonical_live_rows_do_not_trip_the_publication_gate(
     assert (
         syscoin["notes"] == "child_identity_hydration=hydrated:1/canonical_unhydrated:1"
     )
-
-
-def test_live_chain_prepopulated_child_hash_is_replaced_by_verified_identity(
-    tmp_path: Path,
-) -> None:
-    # A raw inventory can prepopulate child_block_hash in display order (the
-    # Hathor extractor writes the API tx_id); for live chains the
-    # node-verified sidecar is authoritative, so the hash is replaced with
-    # the internal-order value and the missing timestamp is filled -- and a
-    # prepopulated row with NO identity still trips the publication gate.
-    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
-
-    data_dir = tmp_path / "data"
-    output_dir = tmp_path / "monitor"
-    header_hex, header_hash = _header(prev_hash="dd" * 32)
-    display_hash = "00" * 8 + "ee" * 24
-    internal_hash = bytes.fromhex(display_hash)[::-1].hex()
-    _write_csv(
-        data_dir / "validated-stales" / "hathor_validated_stales.csv",
-        [
-            {
-                "btc_height": "710001",
-                "btc_header_hash": header_hash,
-                "btc_header_hex": header_hex,
-                "hathor_height": "601",
-                "hathor_block_hash": display_hash,  # display-order prepopulation
-                "classification": "stale",
-                "validation_status": "VALID",
-                "expected_nbits": "1d00ffff",
-            }
-        ],
-    )
-    _write_csv(
-        data_dir / "child-identity" / "hathor_child_identity.csv",
-        [
-            {
-                "chain": "hathor",
-                "btc_header_hash": header_hash,
-                "child_height": "601",
-                "child_block_hash": internal_hash,
-                "child_block_time": "1637668048",
-                "verification": "hathor_block_id_match",
-                "note": "",
-            }
-        ],
-    )
-
-    build_monitor_evidence_exports(
-        data_dir=data_dir,
-        output_dir=output_dir,
-        relevance_inventory=None,
-        fail_on_missing_child_identity=True,
-    )
-
-    rows = _read_csv(output_dir / "hathor_monitor_evidence.csv")
-    assert rows[0]["child_block_hash"] == internal_hash
-    assert rows[0]["child_block_time"] == "1637668048"
 
 
 def test_live_identity_must_agree_with_source_authenticated_child_bundle(

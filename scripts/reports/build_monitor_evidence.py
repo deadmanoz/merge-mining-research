@@ -31,16 +31,16 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
     HISTORICAL_CHILD_HEADER_CHAINS,
-    LIVE_CHILD_IDENTITY_CHAINS,
+    CHILD_IDENTITY_REQUIRED_CHAINS,
     RSK_SIDECAR_EXPORT_FIELDS,
     EvidenceSource,
+    parse_header_fields,
     discover_canonical_sources,
     discover_evidence_sources,
     discover_unknown_sources,
     int_or_none,
     is_hash,
     normalize_evidence_row,
-    parse_header_fields,
     verified_header_hex,
     write_csv,
 )
@@ -453,7 +453,10 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: child fields disagree with "
                         f"serialized child header ({exc})"
                     ) from exc
-            if chain in LIVE_CHILD_IDENTITY_CHAINS and classification != "canonical":
+            if (
+                chain in CHILD_IDENTITY_REQUIRED_CHAINS
+                and classification != "canonical"
+            ):
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
                 child_time = (row.get("child_block_time") or "").strip()
                 if (
@@ -1099,6 +1102,144 @@ def _classification_counts(path: Path) -> Counter[str]:
         )
 
 
+def _canonical_source_path(value: str | Path, chain: str) -> str:
+    """Normalize a source path to the portion below its chain directory."""
+    path = Path(value)
+    chain_indexes = [index for index, part in enumerate(path.parts) if part == chain]
+    if chain_indexes:
+        return Path(*path.parts[chain_indexes[-1] + 1 :]).as_posix()
+    return path.name
+
+
+class _UnknownIdentityDigest:
+    """Compact, order-independent digest for a source-identity multiset."""
+
+    __slots__ = ("count", "additive", "xor")
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.additive = 0
+        self.xor = 0
+
+    def add(self, identity: tuple[str, str, str, str]) -> None:
+        token = hashlib.sha256("\x00".join(identity).encode()).digest()
+        value = int.from_bytes(token, "big")
+        self.count += 1
+        self.additive = (self.additive + value) % (1 << 256)
+        self.xor ^= value
+
+    def update(self, other: "_UnknownIdentityDigest") -> None:
+        self.count += other.count
+        self.additive = (self.additive + other.additive) % (1 << 256)
+        self.xor ^= other.xor
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _UnknownIdentityDigest):
+            return NotImplemented
+        return (
+            self.count,
+            self.additive,
+            self.xor,
+        ) == (other.count, other.additive, other.xor)
+
+
+def _unknown_observation_identities(
+    path: Path,
+    chain: str,
+    excluded_keys: set[tuple[int, str]] = frozenset(),
+) -> _UnknownIdentityDigest:
+    """Return a compact digest of unknown source identities."""
+    identities = _UnknownIdentityDigest()
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        for row_number, row in enumerate(reader, start=2):
+            classification = (row.get("classification") or "").strip().lower()
+            if classification not in {"", "unknown", "orphan"}:
+                continue
+            block_hash = ""
+            for column in ("btc_header_hash", "btc_hash", "hash"):
+                if column in fieldnames:
+                    block_hash = (row.get(column) or "").strip().lower()
+                    break
+            if not is_hash(block_hash):
+                for column in ("btc_header_hex", "header"):
+                    if column in fieldnames:
+                        block_hash = parse_header_fields(row.get(column) or "").get(
+                            "hash", ""
+                        )
+                        break
+            height_text = ""
+            for column in ("btc_height", "btc_stale_height", "height"):
+                value = (row.get(column) or "").strip()
+                if value:
+                    height_text = value
+                    break
+            if not height_text:
+                parent_height = (row.get("btc_parent_height") or "").strip()
+                try:
+                    height_text = str(int(parent_height) + 1)
+                except ValueError:
+                    pass
+            try:
+                if (int(height_text), block_hash) in excluded_keys:
+                    continue
+            except ValueError:
+                pass
+            identities.add(
+                (
+                    chain,
+                    _canonical_source_path(path, chain),
+                    str(row_number),
+                    block_hash,
+                )
+            )
+    return identities
+
+
+def _assessed_unknown_identities(
+    path: Path,
+) -> dict[str, _UnknownIdentityDigest] | None:
+    """Return compact per-chain digests assessed by the relevance classifier.
+
+    The classifier's inventory carries ``source_classification`` and ``chain``
+    for every row.  Older hand-built fixtures do not, so callers can distinguish
+    an inventory that predates this publication invariant from one that assessed
+    zero unknown rows.  The chain-relative source path, row number, and header hash prevent
+    duplicate or replaced rows from satisfying a count-only coverage check.
+    """
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = set(reader.fieldnames or ())
+        if (
+            not {
+                "chain",
+                "source_path",
+                "source_row_number",
+                "source_classification",
+                "btc_header_hash",
+            }
+            <= fields
+        ):
+            return None
+        identities: dict[str, _UnknownIdentityDigest] = {}
+        for row in reader:
+            classification = (
+                row.get("source_classification") or ""
+            ).strip().lower() or "unknown"
+            if classification not in {"unknown", "orphan"}:
+                continue
+            chain = (row.get("chain") or "").strip()
+            source_path = _canonical_source_path(
+                (row.get("source_path") or "").strip(), chain
+            )
+            source_row_number = (row.get("source_row_number") or "").strip()
+            block_hash = (row.get("btc_header_hash") or "").strip().lower()
+            digest = identities.setdefault(chain, _UnknownIdentityDigest())
+            digest.add((chain, source_path, source_row_number, block_hash))
+        return identities
+
+
 def _classification_hashes(path: Path, classification: str) -> set[str] | None:
     """Return exact header identities, or None for a count-only fixture."""
     hashes: set[str] = set()
@@ -1428,6 +1569,7 @@ def validate_publication_inputs(
         return
 
     problems: list[str] = []
+    assessed_unknown_identities: dict[str, _UnknownIdentityDigest] | None = None
     try:
         (
             baseline,
@@ -1465,6 +1607,9 @@ def validate_publication_inputs(
         problems.append("--relevance-inventory must name an existing CSV")
     else:
         actual_relevance = load_orphan_relevance_verdicts(args.relevance_inventory)
+        assessed_unknown_identities = _assessed_unknown_identities(
+            args.relevance_inventory
+        )
         if len(actual_relevance) < expected_verdicts:
             problems.append(
                 "relevance inventory has fewer final verdicts than the publication "
@@ -1632,6 +1777,46 @@ def validate_publication_inputs(
                         else:
                             source_hashes |= companion_hashes
                 unknown_source = unknown.get(chain)
+                expected_unknown_identities = _unknown_observation_identities(
+                    source.path, chain, excluded_keys
+                )
+                if unknown_source is not None and unknown_source.path is not None:
+                    expected_unknown_identities.update(
+                        _unknown_observation_identities(
+                            unknown_source.path, chain, excluded_keys
+                        )
+                    )
+                if expected_unknown_identities.count:
+                    if assessed_unknown_identities is None:
+                        problems.append(
+                            f"{chain} relevance inventory lacks assessed-unknown "
+                            "coverage columns"
+                        )
+                    else:
+                        actual_unknown_identities = assessed_unknown_identities.get(
+                            chain, _UnknownIdentityDigest()
+                        )
+                        if expected_unknown_identities != actual_unknown_identities:
+                            missing_count = max(
+                                expected_unknown_identities.count
+                                - actual_unknown_identities.count,
+                                0,
+                            )
+                            extra_count = max(
+                                actual_unknown_identities.count
+                                - expected_unknown_identities.count,
+                                0,
+                            )
+                            detail = (
+                                f"missing {missing_count}, extra {extra_count}"
+                                if missing_count or extra_count
+                                else "same row count, differing identities"
+                            )
+                            problems.append(
+                                f"{chain} relevance inventory assessed-unknown "
+                                "identities do not match private source "
+                                f"({detail})"
+                            )
                 descendant_sources = [source]
                 if unknown_source is not None:
                     descendant_sources.append(unknown_source)
