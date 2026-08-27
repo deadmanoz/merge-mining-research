@@ -128,9 +128,13 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   `data/error-blocks/error_blocks.csv`), and the
   `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
-  `full_evidence.py` owns source normalization and full-evidence generation;
+  `evidence_sources.py` owns source discovery, `evidence_normalization.py`
+  owns the shared row contract, and `evidence_hydration.py` owns Namecoin
+  and child-identity hydration. `full_evidence.py` assembles full-evidence
+  generation and re-exports the established helper surface.
   `monitor_exports.py` owns the final-category monitor projection and its
-  publication constants.
+  publication constants; `monitor_publication.py` owns fail-closed
+  publication validation and staged writes.
   The pool-attribution layer (`pool_identification`, `stale_merge`,
   `template_producers`, `attribution`; see `docs/pool-attribution.md`) is a
   separate pass over already-loaded records — the acquisition/recovery side
