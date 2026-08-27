@@ -30,26 +30,28 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from stale_blocks_analysis.full_evidence import (  # noqa: E402
     DATA_DIR,
-    DEFAULT_RELEVANCE_INVENTORY,
     HISTORICAL_CHILD_HEADER_CHAINS,
     LIVE_CHILD_IDENTITY_CHAINS,
-    MONITOR_COUNT_FIELDS,
-    MONITOR_EVIDENCE_FIELDS,
-    MONITOR_OUTPUT_DIR,
-    REPORTED_RELEVANCE_INVENTORY,
     RSK_SIDECAR_EXPORT_FIELDS,
     EvidenceSource,
-    build_monitor_evidence_exports,
     discover_canonical_sources,
     discover_evidence_sources,
     discover_unknown_sources,
     int_or_none,
     is_hash,
-    load_orphan_relevance_verdicts,
     normalize_evidence_row,
     parse_header_fields,
     verified_header_hex,
     write_csv,
+)
+from stale_blocks_analysis.monitor_exports import (  # noqa: E402
+    DEFAULT_RELEVANCE_INVENTORY,
+    MONITOR_COUNT_FIELDS,
+    MONITOR_EVIDENCE_FIELDS,
+    MONITOR_OUTPUT_DIR,
+    REPORTED_RELEVANCE_INVENTORY,
+    build_monitor_evidence_exports,
+    load_orphan_relevance_verdicts,
 )
 from stale_blocks_analysis.config import BIP34_HEIGHT, CHAIN_SPECS  # noqa: E402
 from stale_blocks_analysis.config import MONITOR_VALIDATION_CONTRACTS  # noqa: E402

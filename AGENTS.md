@@ -128,6 +128,9 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   `data/error-blocks/error_blocks.csv`), and the
   `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
+  `full_evidence.py` owns source normalization and full-evidence generation;
+  `monitor_exports.py` owns the final-category monitor projection and its
+  publication constants.
   The pool-attribution layer (`pool_identification`, `stale_merge`,
   `template_producers`, `attribution`; see `docs/pool-attribution.md`) is a
   separate pass over already-loaded records — the acquisition/recovery side

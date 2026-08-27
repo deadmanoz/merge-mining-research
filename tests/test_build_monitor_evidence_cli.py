@@ -10,10 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from stale_blocks_analysis.full_evidence import (
-    MONITOR_EVIDENCE_FIELDS,
-    parse_header_fields,
-)
+from stale_blocks_analysis.full_evidence import parse_header_fields
+from stale_blocks_analysis.monitor_exports import MONITOR_EVIDENCE_FIELDS
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "reports" / "build_monitor_evidence.py"

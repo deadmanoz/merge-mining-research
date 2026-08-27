@@ -18,7 +18,6 @@ from .auxpow_parse import (
 )
 from .config import CHAIN_SPECS, DATA_DIR
 from .full_evidence import (
-    MONITOR_EVIDENCE_FIELDS,
     int_or_none,
     is_hash,
     normalize_hash,
@@ -26,6 +25,7 @@ from .full_evidence import (
     safe_path,
     write_csv,
 )
+from .monitor_exports import MONITOR_EVIDENCE_FIELDS
 
 ERROR_OBSERVATION_ARTIFACT = "error-block-observations"
 ERROR_OBSERVATION_SCOPE = "error-block-observations"

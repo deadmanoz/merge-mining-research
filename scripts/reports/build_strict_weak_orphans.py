@@ -36,7 +36,7 @@ from stale_blocks_analysis.config import (  # noqa: E402
     RELEVANCE_WEAK_BTC_ORPHAN,
     RESULTS_DIR,
 )
-from stale_blocks_analysis.full_evidence import MONITOR_OUTPUT_DIR  # noqa: E402
+from stale_blocks_analysis.monitor_exports import MONITOR_OUTPUT_DIR  # noqa: E402
 
 DEFAULT_OUTPUT_DIR = RESULTS_DIR / "strict-weak-orphans"
 COUNTS_FIELDS = ["chain", "strict_btc_orphan", "weak_btc_orphan", "total"]
