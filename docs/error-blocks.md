@@ -99,9 +99,9 @@ child-chain commit-time evidence showing the `nTime` more than two hours
 beyond the commit time itself — did not occur in the swept corpus. By
 contrast, `time_below_mtp` and `median_time_past_violation` *are*
 mechanically re-checkable, because the canonical parent's median-time-past is
-committed canonical-chain context. This is why the dataset contains a
-`time_below_mtp` row (946,213) and a `median_time_past_violation` row
-(380,992) but no `time_beyond_future_limit` rows. See the time-rule sweep
+committed canonical-chain context. This is why the dataset contains two
+`time_below_mtp` rows (946,213 and 957,780) and a `median_time_past_violation`
+row (380,992) but no `time_beyond_future_limit` rows. See the time-rule sweep
 report for the full resolution.
 
 `nbits_retarget_not_applied` is distinct from a plain `nBits mismatch`

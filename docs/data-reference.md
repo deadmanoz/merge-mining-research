@@ -91,10 +91,10 @@ the accepted sidecar's chain-specific observation and the compact
 `data/stale_descendant_corrections.csv` exact-key correction overlay. Of the
 invalid keys, 21 carry a mismatched BIP34 coinbase height, one omits the
 required BIP34 height, three fail BIP66's minimum version 3 rule, five
-fail BIP65's minimum version 4 rule, one violates median-time-past, one is
-time-too-old against median-time-past, one carries a 103-byte coinbase
-scriptSig above Bitcoin's 100-byte limit, and one failed to apply the
-difficulty retarget at an epoch boundary. The dataset retains the signed
+fail BIP65's minimum version 4 rule, one violates median-time-past, two are
+time-too-old against median-time-past (946,213 and 957,780), one carries a
+103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
+apply the difficulty retarget at an epoch boundary. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
 than a self-contained AuxPoW proof. It is applied by public loaders, upstream
