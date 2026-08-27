@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
+import stale_blocks_analysis.monitor_exports as monitor_exports
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.full_evidence import (
     EVIDENCE_FIELDS,
     EvidenceSource,
     SourceStats,
     build_full_evidence_exports,
-    build_monitor_evidence_exports,
     discover_evidence_sources,
     hydrate_child_identity,
     load_child_identity,
@@ -21,6 +21,9 @@ from stale_blocks_analysis.full_evidence import (
     normalize_evidence_row,
     safe_path,
     write_csv,
+)
+from stale_blocks_analysis.monitor_exports import (
+    build_monitor_evidence_exports,
 )
 
 
@@ -826,7 +829,7 @@ def _monitor_fixture_rows(
 
 
 def test_monitor_export_keeps_only_final_categories(tmp_path: Path) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -909,7 +912,7 @@ def test_monitor_export_skip_canonical_excludes_in_file_and_companion_rows(
     # include_canonical=False is the all-chain diagnostic configuration. Every
     # other monitor test uses the publication default, so this pins: no
     # canonical rows survive, and the companion file is not merged.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -959,7 +962,7 @@ def test_monitor_export_skip_canonical_excludes_in_file_and_companion_rows(
 def test_monitor_export_split_archive_uses_committed_validated_stales(
     tmp_path: Path,
 ) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     archive_dir = tmp_path / "archive"
@@ -1055,7 +1058,7 @@ def test_monitor_export_split_archive_uses_committed_validated_stales(
 
 
 def test_monitor_export_flags_missing_relevance_inventory(tmp_path: Path) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -1097,7 +1100,7 @@ def test_monitor_export_flags_missing_relevance_inventory(tmp_path: Path) -> Non
 def test_relevance_verdicts_prefer_strict_over_weak_regardless_of_order(
     tmp_path: Path,
 ) -> None:
-    from stale_blocks_analysis.full_evidence import load_orphan_relevance_verdicts
+    from stale_blocks_analysis.monitor_exports import load_orphan_relevance_verdicts
 
     inventory = tmp_path / "inventory.csv"
     hash_a = "aa" * 32
@@ -1119,7 +1122,7 @@ def test_relevance_verdicts_prefer_strict_over_weak_regardless_of_order(
 
 
 def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -1197,10 +1200,7 @@ def test_monitor_export_includes_valid_stale_descendants(tmp_path: Path) -> None
 
 def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import stale_blocks_analysis.full_evidence as full_evidence
-
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
     header_hex, header_hash = _header(prev_hash="aa" * 32)
@@ -1255,7 +1255,7 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
             }
         ],
     )
-    full_evidence.build_monitor_evidence_exports(
+    monitor_exports.build_monitor_evidence_exports(
         data_dir=data_dir,
         output_dir=output_dir,
         relevance_inventory=None,
@@ -1449,7 +1449,7 @@ def test_monitor_export_does_not_reclassify_stale_without_sidecar_observation(
 def test_publication_flag_rejects_unrepresented_descendant_observations(
     tmp_path: Path,
 ) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     valid_hex, valid_hash = _header(prev_hash="aa" * 32)
@@ -1512,7 +1512,7 @@ def test_publication_flag_rejects_unrepresented_descendant_observations(
 
 
 def test_canonical_companion_file_is_discovered_and_merged(tmp_path: Path) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "out"
@@ -1676,7 +1676,7 @@ def test_monitor_export_hydrates_empty_namecoin_header_from_prototype(
     # btc_header_hex must be hydrated from the data/prototype/ extract whose
     # header hashes to the row's btc_header_hash, and the coverage must show
     # up in the counts notes.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -1730,7 +1730,7 @@ def test_monitor_export_rejects_and_counts_wrong_namecoin_header(
     # A prototype candidate whose header does NOT hash to the row's
     # btc_header_hash must never be written, and must be counted as a
     # hash-mismatch rejection in the coverage notes.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -1803,7 +1803,7 @@ def test_monitor_export_reports_consensus_exclusions(
         lambda: {(331735, excluded_hash)},
     )
 
-    full_evidence.build_monitor_evidence_exports(
+    monitor_exports.build_monitor_evidence_exports(
         data_dir=data_dir, output_dir=output_dir, relevance_inventory=None
     )
 
@@ -1851,7 +1851,7 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
     # After the bucket split, unknown rows live in <chain>_unknown_blocks.csv,
     # NOT the stale inventory. The monitor export must merge that companion
     # unconditionally, else every strict/weak orphan silently vanishes.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -1949,7 +1949,7 @@ def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) 
 def test_evidence_exports_reject_mixed_unknown_storage(
     tmp_path: Path, builder: str
 ) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     header_hex, header_hash = _header()
@@ -1977,10 +1977,8 @@ def test_evidence_exports_reject_mixed_unknown_storage(
 def test_monitor_export_discovers_and_normalizes_vcash_canonical_source(
     tmp_path: Path,
 ) -> None:
-    from stale_blocks_analysis.full_evidence import (
-        EVIDENCE_FIELDS,
-        build_monitor_evidence_exports,
-    )
+    from stale_blocks_analysis.full_evidence import EVIDENCE_FIELDS
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2042,7 +2040,7 @@ def test_monitor_export_hydrates_child_identity_and_rsk_sidecar_columns(
     # A verified data/child-identity/ row must fill the empty child identity
     # columns, the RSK export alone must carry the seven sidecar columns, and
     # the coverage must land in the counts notes.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2143,7 +2141,7 @@ def test_monitor_export_refuses_unverified_or_mismatched_child_identity(
     # An identity row without a verification never hydrates (missing), and a
     # verified identity recorded at a different child height is refused and
     # counted, so a stale identity file can never mislabel evidence.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2219,7 +2217,7 @@ def test_publication_flag_fails_on_unhydrated_live_chain_rows(tmp_path: Path) ->
     # silently shrink the imported evidence.
     import pytest
 
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2270,7 +2268,7 @@ def test_publication_flag_fails_when_identity_file_is_absent(tmp_path: Path) -> 
     # fail_on_missing_child_identity by narrowing the target set.
     import pytest
 
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2307,7 +2305,7 @@ def test_verified_identity_rows_with_blank_child_fields_are_rejected(
     # surfaces as missing_identity, and the publication gate stays closed.
     import pytest
 
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2357,7 +2355,7 @@ def test_canonical_live_rows_do_not_trip_the_publication_gate(
     # stale/orphan identity sidecars; their shortfall is note-only
     # (canonical_unhydrated), never fatal, so a canonical-bearing build is
     # not blocked by the stale-focused sidecars.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2430,7 +2428,7 @@ def test_live_chain_prepopulated_child_hash_is_replaced_by_verified_identity(
     # node-verified sidecar is authoritative, so the hash is replaced with
     # the internal-order value and the missing timestamp is filled -- and a
     # prepopulated row with NO identity still trips the publication gate.
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "monitor"
@@ -2482,7 +2480,7 @@ def test_live_chain_prepopulated_child_hash_is_replaced_by_verified_identity(
 def test_live_identity_must_agree_with_source_authenticated_child_bundle(
     tmp_path: Path,
 ) -> None:
-    from stale_blocks_analysis.full_evidence import build_monitor_evidence_exports
+    from stale_blocks_analysis.monitor_exports import build_monitor_evidence_exports
 
     data_dir = tmp_path / "data"
     parent_hex, parent_hash = _header(prev_hash="ee" * 32)

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Split monitor-facing evidence projection from full-evidence source
+normalization without changing schemas, publication contracts, or output data.
+
 Unify Hathor acquisition and classification around one range-neutral dataset.
 Record terminal metadata for the caller-declared height range, retain every
 version-3 proof and its funds-and-graph bytes in one sealed acquisition row,
