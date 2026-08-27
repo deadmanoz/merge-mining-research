@@ -1,4 +1,4 @@
-"""Publication-safety tests for the monitor-evidence command."""
+"""Publication-writing contract tests for monitor evidence."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import stale_blocks_analysis.monitor_publication as monitor_publication
 from stale_blocks_analysis.full_evidence import parse_header_fields
 from stale_blocks_analysis.monitor_exports import MONITOR_EVIDENCE_FIELDS
 
@@ -24,6 +25,10 @@ TEST_PARENT_HEADER = (
 
 
 def _load_module():
+    return monitor_publication
+
+
+def _load_cli_module():
     spec = importlib.util.spec_from_file_location("build_monitor_evidence", SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -92,7 +97,7 @@ def _write_baseline(
 def _preflight_args(module, tmp_path: Path, *, data_dir: Path, archive_dir: Path):
     inventory = tmp_path / "relevance.csv"
     inventory.write_text("btc_header_hash,btc_stale_relevance,relevance_reason\n")
-    parser = module.build_parser()
+    parser = _load_cli_module().build_parser()
     args = parser.parse_args(
         [
             "--data-dir",
@@ -108,10 +113,24 @@ def _preflight_args(module, tmp_path: Path, *, data_dir: Path, archive_dir: Path
     return parser, args
 
 
+def _run(module, argv: list[str]) -> dict[str, object]:
+    """Exercise publication writing without assigning CLI ownership to it."""
+    parser = _load_cli_module().build_parser()
+    args = parser.parse_args(argv)
+    if args.add_error_observations:
+        if args.allow_partial or args.skip_canonical:
+            parser.error(
+                "--add-error-observations cannot be combined with partial-build options"
+            )
+        return module.build_error_observation_update(args)
+    module.validate_publication_inputs(args, parser)
+    return module.build_transactionally(args)
+
+
 def test_publication_build_refuses_missing_private_inputs_before_writing(
     tmp_path: Path,
 ) -> None:
-    module = _load_module()
+    module = _load_cli_module()
     output_dir = tmp_path / "monitor"
 
     with pytest.raises(SystemExit, match="2"):
@@ -132,7 +151,7 @@ def test_publication_build_refuses_missing_private_inputs_before_writing(
 def test_allow_partial_is_an_explicit_diagnostic_escape_hatch(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    module = _load_module()
+    module = _load_cli_module()
     output_dir = tmp_path / "monitor"
     output_dir.mkdir()
     unrelated = output_dir / "operator-notes.txt"
@@ -161,7 +180,7 @@ def test_allow_partial_is_an_explicit_diagnostic_escape_hatch(
 
 
 def test_allow_partial_refuses_committed_output_directory() -> None:
-    module = _load_module()
+    module = _load_cli_module()
 
     with pytest.raises(SystemExit, match="2"):
         module.main(["--allow-partial"])
@@ -308,14 +327,15 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
 
     monkeypatch.setattr(module, "write_error_observation_artifact", write_aggregate)
 
-    module.main(
+    _run(
+        module,
         [
             "--add-error-observations",
             "--output-dir",
             str(output_dir),
             "--chain-archive-dir",
             str(tmp_path / "archive"),
-        ]
+        ],
     )
 
     assert normal_artifact.read_bytes() == original_normal_artifact
@@ -351,7 +371,7 @@ def test_error_aggregate_rejects_partial_publication_baseline(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="namecoin stale is below floor"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_error_aggregate_rejects_missing_ordinary_artifact(
@@ -368,7 +388,7 @@ def test_error_aggregate_rejects_missing_ordinary_artifact(
     with pytest.raises(
         ValueError, match="namecoin monitor-evidence artifact is missing"
     ):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_error_aggregate_rejects_truncated_ordinary_artifact(
@@ -385,7 +405,7 @@ def test_error_aggregate_rejects_truncated_ordinary_artifact(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="missing monitor-evidence fields"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_error_aggregate_rejects_invalid_relevance_on_confirmed_row(
@@ -410,7 +430,7 @@ def test_error_aggregate_rejects_invalid_relevance_on_confirmed_row(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="stale row has invalid relevance"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_monitor_artifact_rejects_missing_parent_hash(tmp_path: Path) -> None:
@@ -992,7 +1012,7 @@ def test_error_aggregate_rejects_manifest_count_drift(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="canonical decimal encoding"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_monitor_artifact_rejects_rejection_reason_on_accepted_stale(
@@ -1284,7 +1304,7 @@ def test_error_aggregate_rejects_manifest_artifact_path_drift(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="manifest and count artifact paths"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_error_aggregate_rejects_count_scope_drift(
@@ -1397,7 +1417,7 @@ def test_error_aggregate_rejects_dropped_ordinary_identity(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="newly admitted stale identity"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_identity_floor_preserves_child_observation_multiplicity(
@@ -1726,7 +1746,7 @@ def test_error_aggregate_default_directory_uses_immutable_identity_snapshot(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", output_dir)
 
     with pytest.raises(ValueError, match="immutable ordinary-publication baseline"):
-        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
 
 
 def test_error_aggregate_rejects_external_logical_artifact_paths(
@@ -1765,7 +1785,6 @@ def test_error_aggregate_rejects_project_relative_logical_artifact_paths(
 ) -> None:
     module = _load_module()
     project_root = tmp_path / "project"
-    monkeypatch.setattr(module, "PROJECT_ROOT", project_root)
     committed_dir = tmp_path / "committed"
     _write_add_only_baseline(committed_dir, stale=1)
     partial_dir = project_root / "results" / "release-candidate"
@@ -1883,7 +1902,7 @@ def test_error_aggregate_rejects_orphan_bucket_on_non_unknown_row(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     with pytest.raises(ValueError, match="unsupported monitor classification"):
-        module.main(["--add-error-observations", "--output-dir", str(partial_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(partial_dir)])
 
 
 def test_error_aggregate_rejects_truncated_aggregate_floor(
@@ -1946,7 +1965,7 @@ def test_error_aggregate_rejects_truncated_aggregate_floor(
     with pytest.raises(
         ValueError, match="error-block-observations monitor_rows is below floor"
     ):
-        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
 
 
 def test_error_aggregate_rejects_replaced_published_identity(
@@ -1972,7 +1991,7 @@ def test_error_aggregate_rejects_replaced_published_identity(
     monkeypatch.setattr(module, "write_error_observation_artifact", write_replacement)
 
     with pytest.raises(ValueError, match="drops missing 1 published parent identities"):
-        module.main(["--add-error-observations", "--output-dir", str(output_dir)])
+        _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
 
 
 def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(
@@ -1993,14 +2012,15 @@ def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(
     )
 
     with pytest.raises(ValueError, match="ordinary monitor artifacts overlap"):
-        module.main(
+        _run(
+            module,
             [
                 "--add-error-observations",
                 "--output-dir",
                 str(output_dir),
                 "--data-dir",
                 str(data_dir),
-            ]
+            ],
         )
 
 
@@ -2072,14 +2092,15 @@ def test_error_aggregate_rejects_hash_overlap_without_ordinary_height(
     )
 
     with pytest.raises(ValueError, match="ordinary monitor artifacts overlap"):
-        module.main(
+        _run(
+            module,
             [
                 "--add-error-observations",
                 "--output-dir",
                 str(output_dir),
                 "--data-dir",
                 str(data_dir),
-            ]
+            ],
         )
 
 
@@ -2134,7 +2155,8 @@ def test_late_vcash_validation_failure_preserves_existing_publication_set(
         )
 
     with pytest.raises(ValueError, match="does not match child_block_hash"):
-        module.main(
+        _run(
+            module,
             [
                 "--allow-partial",
                 "--data-dir",
@@ -2143,7 +2165,7 @@ def test_late_vcash_validation_failure_preserves_existing_publication_set(
                 str(output_dir),
                 "--relevance-inventory",
                 str(tmp_path / "missing.csv"),
-            ]
+            ],
         )
 
     assert {path.name for path in output_dir.iterdir()} == set(existing)
@@ -2172,7 +2194,7 @@ def test_publication_build_rejects_merely_discoverable_partial_archive(
             for index in range(1, 22)
         )
     )
-    parser = module.build_parser()
+    parser = _load_cli_module().build_parser()
     args = parser.parse_args(
         [
             "--data-dir",

@@ -19,32 +19,36 @@ from .config import (
     RELEVANCE_WEAK_BTC_ORPHAN,
     RESULTS_DIR,
 )
-from .full_evidence import (
-    DATA_DIR,
-    EVIDENCE_FIELDS,
-    ChildIdentityStats,
-    EvidenceSource,
+from .config import DATA_DIR
+from .evidence_hydration import (
     RSK_SIDECAR_EXPORT_FIELDS,
+    ChildIdentityStats,
+    hydrate_child_identity,
+    hydrate_namecoin_headers,
+    load_child_identity,
+    namecoin_header_candidate_paths,
+)
+from .evidence_normalization import (
+    EVIDENCE_FIELDS,
     SourceStats,
     canonical_evidence_status,
     collect_source_rows,
     dedupe_canonical_companion_rows,
-    discover_canonical_sources,
-    discover_evidence_sources,
-    discover_unknown_sources,
     enforce_unknown_split_contract,
-    hydrate_child_identity,
-    hydrate_namecoin_headers,
     int_or_none,
     is_hash,
-    load_child_identity,
     merge_stats,
-    namecoin_header_candidate_paths,
     normalize_hash,
     note_child_height_availability,
     safe_path,
-    stale_descendant_source,
     write_csv,
+)
+from .evidence_sources import (
+    EvidenceSource,
+    discover_canonical_sources,
+    discover_evidence_sources,
+    discover_unknown_sources,
+    stale_descendant_source,
 )
 from .stale_blocks import (
     load_stale_descendant_correction_keys,
