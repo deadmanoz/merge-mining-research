@@ -101,16 +101,16 @@ cache used for optional mainchain lookups.
 `data/error-blocks/error_blocks.csv` is the consensus-invalid error-blocks
 dataset and exact-key exclusion gate over the
 pinned upstream dataset and committed per-chain inputs. It supersedes the
-former `data/stale_block_exclusions.csv` overlay. Its 34 rows carry 31
-consensus-invalid keys plus three later observations. Of the 31 carried-over
+former `data/stale_block_exclusions.csv` overlay. Its 35 rows carry 31
+consensus-invalid keys plus four later observations. Of the 31 carried-over
 keys, 21 fail BIP34's coinbase-height
 rule, three version 2 headers after height 363,725 fail BIP66's minimum version
 3 rule, five headers below version 4 after height 388,381 fail BIP65's minimum
 version 4 rule, one violates median-time-past, and one has a 103-byte coinbase
-scriptSig. The three added rows are the 946,213 `time_below_mtp` block (from
-merge-mining-monitor live evidence), the 717,696 `nbits_retarget_not_applied`
-block (found by the rejected-row sweep), and the 649,674
-`bip34_coinbase_height_missing` block emitted by the Hathor classifier. The
+scriptSig. The four added rows are the 946,213 and 957,780 `time_below_mtp`
+blocks (from merge-mining-monitor live evidence), the 717,696
+`nbits_retarget_not_applied` block (found by the rejected-row sweep), and the
+649,674 `bip34_coinbase_height_missing` block emitted by the Hathor classifier. The
 former overlay's 32nd key, a
 direct-stale-only correction at Bitcoin
 height 656,478, is not an error block: its predecessor is a known stale rather

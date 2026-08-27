@@ -74,9 +74,9 @@ coiledcoin's `eligius_attack_window`.
 
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from publication surfaces. This dataset supersedes
-the former `data/stale_block_exclusions.csv` overlay. The current 34 rows
-comprise 31 carried-over consensus-invalid keys, the 946,213
-`time_below_mtp` row recovered from merge-mining-monitor live evidence, the
+the former `data/stale_block_exclusions.csv` overlay. The current 35 rows
+comprise 31 carried-over consensus-invalid keys, the 946,213 and 957,780
+`time_below_mtp` rows recovered from merge-mining-monitor live evidence, the
 717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
 (witnessed independently by emercoin and syscoin), and the 649,674
 `bip34_coinbase_height_missing` row emitted by the Hathor classifier. The
@@ -341,8 +341,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 74-row aggregate
-for the 34 catalogue parents. Its rows retain the original archive or
+`error-block-observations_monitor_evidence.csv` is a separate 78-row aggregate
+for the 35 catalogue parents. Its rows retain the original archive or
 live-observation source coordinates but use `classification=error_block` and
 the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for

@@ -145,9 +145,9 @@ re-derive offline.
 
 ### Composition and per-rule counts
 
-The dataset holds **34 rows** (34 distinct `(height, hash)` blocks), spanning
-Bitcoin heights 225,013 through 946,213. Thirty-one are carried over from the
-former exclusion overlay; height 946,213 (`time_below_mtp`, from
+The dataset holds **35 rows** (35 distinct `(height, hash)` blocks), spanning
+Bitcoin heights 225,013 through 957,780. Thirty-one are carried over from the
+former exclusion overlay; heights 946,213 and 957,780 (`time_below_mtp`, from
 merge-mining-monitor live evidence) and height 717,696
 (`nbits_retarget_not_applied`, found by the rejected-row sweep) were added by
 the error-block work. The unified Hathor classifier adds height 649,674
@@ -163,14 +163,14 @@ the error-block work. The unified Hathor classifier adds height 649,674
 | `bip66_block_version_below_3` | 3 |
 | `coinbase_scriptsig_length_above_100` | 1 |
 | `median_time_past_violation` | 1 |
-| `time_below_mtp` | 1 |
+| `time_below_mtp` | 2 |
 | `nbits_retarget_not_applied` | 1 |
-| **Total** | **34** |
+| **Total** | **35** |
 
-Because one invalid block is witnessed by several sibling chains, the 34
-blocks produce 74 per-chain observations: namecoin 32, devcoin 16, ixcoin 13,
-rsk 5, syscoin 2, elastos 1, emercoin 1, groupcoin 1, hathor 1, i0coin 1, and
-unobtanium 1.
+Because one invalid block is witnessed by several sibling chains, the 35
+blocks produce 78 per-chain observations: namecoin 33, devcoin 16, ixcoin 13,
+rsk 5, syscoin 3, elastos 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
+i0coin 1, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
 
