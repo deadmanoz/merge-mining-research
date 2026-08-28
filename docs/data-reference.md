@@ -279,9 +279,9 @@ parent linkage from the fetched child block and requiring it to match the
 row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
 the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, and `sha256d(bitcoinMergedMiningHeader)` for RSK
-(uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,281
+(uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,286
 chain/header observations across the five chains verified
-against today's canonical child chains (1,919 distinct Bitcoin parent
+against today's canonical child chains (1,924 distinct Bitcoin parent
 headers; 229 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 

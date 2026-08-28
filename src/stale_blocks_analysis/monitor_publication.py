@@ -2041,7 +2041,11 @@ def _load_error_update_baseline(
 ) -> tuple[
     list[dict[str, str]],
     dict[str, object],
-    tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
+    tuple[
+        set[tuple[int, str]],
+        set[tuple[str, int, str, int, str]],
+        dict[tuple[str, int, str, int, str], tuple[str, ...]],
+    ],
 ]:
     """Load a complete normal publication before adding its error aggregate."""
     counts_path = output_dir / PUBLICATION_COUNTS.name
