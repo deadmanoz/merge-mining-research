@@ -21,7 +21,9 @@ from stale_blocks_analysis.auxpow_parse import (
     CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
     parse_parent_header,
+    standard_auxpow_extraction_columns,
 )
+from stale_blocks_analysis.config import CHAIN_SPECS
 
 CSV_COLUMNS = [
     "height",
@@ -360,3 +362,269 @@ def test_elastos_tip_uses_current_height_not_block_count() -> None:
 
     assert module.get_chain_tip(_TipRpc()) == 4242
     assert calls_seen == [("getcurrentheight", [])]
+
+
+SHA256D_STATS = (
+    "auxpow_blocks",
+    "skipped_empty",
+    "skipped_short",
+    "skipped_non_sha256d",
+    "skipped_no_auxpow_flag",
+    "skipped_parse_error",
+)
+FLAG_STATS = (
+    "auxpow_blocks",
+    "skipped_empty",
+    "skipped_short",
+    "skipped_no_auxpow_flag",
+    "skipped_parse_error",
+)
+THIN_EXTRACTORS = (
+    (
+        "extract_argentum_auxpow",
+        "argentum",
+        "ARG_RPC_PASS",
+        SHA256D_STATS,
+        0,
+        "skipped_non_sha256d",
+        ("non-sha256d", "skipped_non_sha256d"),
+        "getblock",
+    ),
+    (
+        "extract_bitmark_auxpow",
+        "bitmark",
+        "BTMK_RPC_PASS",
+        SHA256D_STATS,
+        0,
+        "skipped_non_sha256d",
+        ("non-sha256d", "skipped_non_sha256d"),
+        "getblock",
+    ),
+    (
+        "extract_crown_auxpow",
+        "crown",
+        "CRW_RPC_PASS",
+        FLAG_STATS,
+        1,
+        "skipped_no_auxpow_flag",
+        ("no-flag", "skipped_no_auxpow_flag"),
+        "getblock",
+    ),
+    (
+        "extract_fractal_auxpow",
+        "fractal",
+        None,
+        FLAG_STATS,
+        0x20260100,
+        "skipped_no_auxpow_flag",
+        None,
+        "getblockheader",
+    ),
+    (
+        "extract_myriadcoin_auxpow",
+        "myriadcoin",
+        "XMY_RPC_PASS",
+        SHA256D_STATS,
+        1 << 9,
+        "skipped_non_sha256d",
+        ("non-sha256d", "skipped_non_sha256d"),
+        "getblock",
+    ),
+    (
+        "extract_unobtanium_auxpow",
+        "unobtanium",
+        "UNO_RPC_PASS",
+        FLAG_STATS,
+        1,
+        "skipped_no_auxpow_flag",
+        None,
+        "getblock",
+    ),
+)
+
+
+def _load_extractor(name: str):
+    path = REPO / "scripts" / "extract" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_wrap_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _ExtractionRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        return kwargs["stats"]
+
+
+def test_standard_auxpow_parse_row_uses_spec_height_column() -> None:
+    spec = CHAIN_SPECS["argentum"]
+    parent_raw = _parent_header(7)
+    auxpow = {
+        "parent_header_raw": parent_raw,
+        "coinbase_tx": {
+            "vin": [{"scriptsig": b""}],
+            "vout": [{"value": 1, "pkscript": b"\x51"}],
+        },
+    }
+    child_fields = {
+        "child_block_hash": "aa" * 32,
+        "child_header_hex": "bb" * 40,
+        "child_block_time": "1",
+        "child_nbits": "1d00ffff",
+    }
+
+    row = extract_driver.standard_auxpow_parse_row(
+        spec, 1_825_000, auxpow, child_fields
+    )
+
+    parent = parse_parent_header(parent_raw)
+    assert row[spec.height_column] == 1_825_000
+    assert row["child_block_hash"] == child_fields["child_block_hash"]
+    assert row["btc_header_hash"] == parent["hash"]
+    assert row["btc_prev_hash"] == parent["prev_hash"]
+    assert row["btc_time"] == parent["time"]
+    assert row["btc_bits"] == parent["bits_hex"]
+    assert row["btc_height"] == ""
+    assert row["coinbase_scriptsig_hex"] == ""
+    assert row["coinbase_outputs"] == "51"
+    assert row["btc_header_hex"] == parent["header_hex"]
+
+
+def test_standard_extractor_cli_defaults_start_output_and_tip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    spec = CHAIN_SPECS["argentum"]
+    rec = _ExtractionRecorder()
+    monkeypatch.setattr(extract_driver, "run_extraction", rec)
+    monkeypatch.chdir(tmp_path)
+
+    class _TipRpc:
+        def batch(self, calls):
+            assert calls == [
+                {"jsonrpc": "1.0", "id": 0, "method": "getblockcount", "params": []}
+            ]
+            return [{"id": 0, "result": 99}]
+
+    extract_driver.run_standard_extractor_cli(
+        [],
+        spec,
+        rpc=_TipRpc(),
+        gate=lambda _version, _stats: True,
+        stats_keys=SHA256D_STATS,
+    )
+
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert call["start"] == spec.activation_height
+    assert call["end"] == 100
+    assert call["output_path"] == Path("data/argentum_auxpow_raw.csv")
+    assert call["append"] is False
+    assert list(call["stats"]) == list(SHA256D_STATS)
+
+
+def test_standard_extractor_cli_resume_uses_spec_height_column(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    spec = CHAIN_SPECS["argentum"]
+    rec = _ExtractionRecorder()
+    monkeypatch.setattr(extract_driver, "run_extraction", rec)
+    out_path = tmp_path / "resume.csv"
+    out_path.write_text(f"{spec.height_column},btc_header_hash\n1825010,abc\n")
+
+    extract_driver.run_standard_extractor_cli(
+        ["--resume", "--end", "1825020", "--output", str(out_path)],
+        spec,
+        rpc=object(),
+        gate=lambda _version, _stats: True,
+        stats_keys=SHA256D_STATS,
+    )
+
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert call["start"] == 1_825_011
+    assert call["end"] == 1_825_020
+    assert call["append"] is True
+    assert call["output_path"] == out_path
+
+
+@pytest.mark.parametrize(
+    "module_name,key,password_env,stats_keys,rejected_version,reject_key,progress_extra,fetch_method",
+    THIN_EXTRACTORS,
+)
+def test_thin_extractor_forwards_shared_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    module_name: str,
+    key: str,
+    password_env: str | None,
+    stats_keys: tuple[str, ...],
+    rejected_version: int,
+    reject_key: str,
+    progress_extra: tuple[str, str] | None,
+    fetch_method: str,
+) -> None:
+    if password_env is not None:
+        monkeypatch.setenv(password_env, "secret")
+    if key == "fractal":
+        monkeypatch.setenv("FRACTAL_RPC_USER", "fractal")
+        monkeypatch.setenv("FRACTAL_RPC_PASSWORD", "secret")
+    rec = _ExtractionRecorder()
+    monkeypatch.setattr("stale_blocks_analysis.extract_driver.run_extraction", rec)
+    module = _load_extractor(module_name)
+    out_path = tmp_path / "out.csv"
+    spec = CHAIN_SPECS[key]
+
+    module.main(["--start", "10", "--end", "12", "--output", str(out_path)])
+
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert call["csv_columns"] == standard_auxpow_extraction_columns(spec.height_column)
+    assert call["gate"] is module._gate
+    assert list(call["stats"]) == list(stats_keys)
+    assert call["append"] is False
+    assert call["start"] == 10
+    assert call["end"] == 12
+    assert call["output_path"] == out_path
+    assert call["block_fetch_method"] == fetch_method
+    assert call["progress_extra"] == progress_extra
+    if key == "fractal":
+        assert call["block_fetch_params"] is module._fetch_params
+        assert module._fetch_params("ab") == ["ab", False, True]
+
+    gate_stats = {name: 0 for name in stats_keys}
+    assert module._gate(rejected_version, gate_stats) is False
+    assert gate_stats[reject_key] == 1
+
+
+@pytest.mark.parametrize(
+    "module_name,password_env,message",
+    (
+        ("extract_argentum_auxpow", "ARG_RPC_PASS", "ARG_RPC_PASS env var not set"),
+        ("extract_bitmark_auxpow", "BTMK_RPC_PASS", "BTMK_RPC_PASS env var not set"),
+        ("extract_crown_auxpow", "CRW_RPC_PASS", "CRW_RPC_PASS env var not set"),
+        ("extract_myriadcoin_auxpow", "XMY_RPC_PASS", "XMY_RPC_PASS env var not set"),
+        ("extract_unobtanium_auxpow", "UNO_RPC_PASS", "UNO_RPC_PASS env var not set"),
+    ),
+)
+def test_password_required_extractors_exit_2_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    module_name: str,
+    password_env: str,
+    message: str,
+) -> None:
+    monkeypatch.delenv(password_env, raising=False)
+    rec = _ExtractionRecorder()
+    monkeypatch.setattr("stale_blocks_analysis.extract_driver.run_extraction", rec)
+    module = _load_extractor(module_name)
+
+    with pytest.raises(SystemExit) as exc:
+        module.main(["--start", "1", "--end", "2"])
+
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+    assert rec.calls == []

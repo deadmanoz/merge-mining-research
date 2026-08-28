@@ -122,6 +122,8 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   (batched JSON-RPC client),   `btc_classify` (`classify_candidates` and the
   `run_classifier` driver), `classifier_cli` (the thin-chain classify
   command: `scripts/classify/classify_stales.py --chain <key>`),
+  `extract_driver` (batched raw-hex extraction plus the thin-adopter CLI
+  lifecycle; wrappers keep child-RPC construction and the version gate),
   `btc_nbits_validation` (the contamination gate),
   `btc_stale_validation` (the combined expected-`nBits`, active-parent,
   median-time-past, historical minimum-version, coinbase scriptSig-length, and
@@ -157,7 +159,12 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   sharing `scripts/analysis/_sweep_common.py`, and
   `scripts/reports/report_error_blocks_by_chain.py` (per-chain diagnostic
   views). Thin AuxPoW classification is `scripts/classify/classify_stales.py
-  --chain <key>` (a `CHAIN_SPECS` row, not a new sibling script). Hathor uses
+  --chain <key>` (a `CHAIN_SPECS` row, not a new sibling script). Thin
+  raw-hex AuxPoW extractors that already use `run_extraction` keep a short
+  wrapper for child-RPC construction and the version gate; CLI lifecycle
+  and row construction live in `extract_driver`. A new thin raw-hex chain
+  adds a `CHAIN_SPECS` row, a `_gate`, and that wrapper — not a copied
+  `main()`. Hathor uses
   a range-neutral metadata ledger plus one sealed acquisition dataset, which
   `scripts/classify/classify_hathor.py` classifies directly without persisted
   classifier phases. Scripts import the installed package and many default to

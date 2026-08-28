@@ -4,8 +4,10 @@ Roughly a dozen ``scripts/extract/extract_*_auxpow.py`` scripts talk to a
 child-chain node via ``child_rpc.RpcClient`` and share the same outer shape:
 resolve the height range, batch ``getblockhash`` then a block/header fetch,
 apply a per-chain AuxPoW gate, parse the embedded Bitcoin parent header plus
-coinbase, and append rows to a CSV. Only the gate and the block-to-row parse
-genuinely differ per chain; this module owns the rest.
+coinbase, and append rows to a CSV. ``run_extraction`` owns the batched
+loop; ``run_standard_extractor_cli`` owns the thin-adopter CLI lifecycle
+(argparse, resume, stats, shared parse-row). Only the version gate and
+child-RPC construction stay in the wrapper.
 
 This driver is adopted only where a script's existing loop is byte-identical
 to it modulo chain name, RPC block-fetch method/params, and one optional
@@ -23,13 +25,24 @@ only (the caller supplies the already-constructed ``RpcClient``).
 
 from __future__ import annotations
 
+import argparse
 import csv
+import os
 import struct
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
-from .auxpow_parse import ChildHeaderValidationError, parse_child_header, read_auxpow
+from .auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
+    parse_coinbase_height,
+    parse_parent_header,
+    read_auxpow,
+    standard_auxpow_extraction_columns,
+)
+from .bitcoin_binary import format_outputs_pkhex
+from .config import PROJECT_ROOT, ChainSpec
 
 # gate(version, stats) -> True to keep parsing the block, False to skip it.
 # A gate that returns False is responsible for tallying its own skip reason
@@ -239,3 +252,107 @@ def run_extraction(
         print(f"  {k}: {v:,}")
     print(f"  output: {output_path}")
     return stats
+
+
+def standard_auxpow_parse_row(
+    spec: ChainSpec, height: int, auxpow: dict, child_fields: dict
+) -> dict:
+    """Build one standard raw-hex AuxPoW CSV row keyed by ``spec.height_column``."""
+    parent = parse_parent_header(auxpow["parent_header_raw"])
+    tx = auxpow["coinbase_tx"]
+    scriptsig = tx["vin"][0]["scriptsig"] if tx["vin"] else b""
+    btc_height = parse_coinbase_height(scriptsig)
+    return {
+        spec.height_column: height,
+        **child_fields,
+        "btc_header_hash": parent["hash"],
+        "btc_prev_hash": parent["prev_hash"],
+        "btc_time": parent["time"],
+        "btc_bits": parent["bits_hex"],
+        "btc_height": btc_height if btc_height is not None else "",
+        "coinbase_scriptsig_hex": scriptsig.hex(),
+        "coinbase_outputs": format_outputs_pkhex(tx["vout"]),
+        "btc_header_hex": parent["header_hex"],
+    }
+
+
+def run_standard_extractor_cli(
+    argv: list[str] | None,
+    spec: ChainSpec,
+    *,
+    rpc,
+    gate: BlockGate,
+    stats_keys: Sequence[str],
+    block_fetch_method: str = "getblock",
+    block_fetch_params: Callable[[str], list] = _default_block_fetch_params,
+    progress_extra: tuple | None = None,
+    progress_interval: int = 10_000,
+    batch_size: int = 100,
+    description: str | None = None,
+    scan_prefix: str = "Extracting AuxPoW",
+) -> None:
+    """Run the thin raw-hex extractor CLI for one ``ChainSpec``.
+
+    Owns argparse, tip resolution, resume, the ordered ``stats`` contract,
+    shared parse-row, and the ``run_extraction`` call. Does not build an
+    ``RpcClient`` and does not read child-chain env vars. ``stats_keys`` is
+    the complete insertion-order tuple the wrapper historically printed;
+    every gate counter must already be present — a missing key becomes a
+    ``KeyError`` that ``run_extraction`` then records as
+    ``skipped_parse_error``, silently dropping the row.
+    """
+    if spec.activation_height is None:
+        raise ValueError(
+            f"{spec.key} has no activation_height; run_standard_extractor_cli "
+            "requires a numeric --start default"
+        )
+
+    parser = argparse.ArgumentParser(
+        description=description or f"Extract BTC AuxPoW from {spec.display_name}"
+    )
+    parser.add_argument("--start", type=int, default=spec.activation_height)
+    parser.add_argument("--end", type=int, default=None, help="Exclusive")
+    parser.add_argument(
+        "--output", default=os.path.relpath(spec.input_csv, PROJECT_ROOT)
+    )
+    parser.add_argument("--batch-size", type=int, default=batch_size)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.end is None:
+        args.end = get_chain_tip(rpc) + 1
+        print(f"Chain tip: {args.end - 1}")
+
+    start = args.start
+    out_path = Path(args.output)
+    if args.resume and out_path.exists():
+        resumed = resume_start(out_path, spec.height_column, args.start)
+        if resumed > args.start:
+            start = resumed
+            print(f"Resuming from height {start}")
+
+    total = args.end - start
+    print(f"{scan_prefix}: {start:,} → {args.end - 1:,} ({total:,} blocks)")
+
+    stats = {key: 0 for key in stats_keys}
+    append = args.resume and out_path.exists() and start > args.start
+
+    def parse_row(height: int, auxpow: dict, child_fields: dict) -> dict:
+        return standard_auxpow_parse_row(spec, height, auxpow, child_fields)
+
+    run_extraction(
+        rpc=rpc,
+        start=start,
+        end=args.end,
+        batch_size=args.batch_size,
+        output_path=out_path,
+        csv_columns=standard_auxpow_extraction_columns(spec.height_column),
+        gate=gate,
+        parse_row=parse_row,
+        stats=stats,
+        append=append,
+        block_fetch_method=block_fetch_method,
+        block_fetch_params=block_fetch_params,
+        progress_extra=progress_extra,
+        progress_interval=progress_interval,
+    )
