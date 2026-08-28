@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import struct
 import time
 from pathlib import Path
@@ -41,6 +42,7 @@ from .auxpow_parse import (
     standard_auxpow_extraction_columns,
 )
 from .bitcoin_binary import format_outputs_pkhex
+from .config import PROJECT_ROOT, ChainSpec
 
 # gate(version, stats) -> True to keep parsing the block, False to skip it.
 # A gate that returns False is responsible for tallying its own skip reason
@@ -204,6 +206,7 @@ def run_extraction(
             writer.writerow(row)
 
     total = end - start
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=csv_columns)
         if mode == "w":
@@ -288,10 +291,8 @@ def _rpc_client(rpc):
 
 def run_standard_extractor_cli(
     argv: list[str] | None,
+    spec: ChainSpec,
     *,
-    height_column: str,
-    activation_height: int,
-    output_default: str,
     rpc,
     gate: BlockGate,
     stats_keys: Sequence[str],
@@ -303,24 +304,33 @@ def run_standard_extractor_cli(
     description: str | None = None,
     scan_prefix: str = "Extracting AuxPoW",
 ) -> None:
-    """Run the thin raw-hex extractor CLI.
+    """Run the thin raw-hex extractor CLI for one ``ChainSpec``.
 
     Owns argparse, tip resolution, resume, the ordered ``stats`` contract,
-    shared parse-row, and the ``run_extraction`` call. Does not import
-    ``config`` (mkdir side effects), does not build an ``RpcClient``, and
-    does not read child-chain env vars. Callers pass the ``CHAIN_SPECS``
-    height/activation/output values as literals so ``--help`` stays
-    side-effect-free. ``rpc`` may be an already-built client or a zero-arg
-    factory invoked after argparse. ``stats_keys`` is the complete
+    shared parse-row, and the ``run_extraction`` call. Defaults come from
+    ``spec`` (``activation_height``, repo-relative ``input_csv``,
+    ``height_column``). Does not build an ``RpcClient`` and does not read
+    child-chain env vars. ``rpc`` may be an already-built client or a
+    zero-arg factory invoked after argparse. ``stats_keys`` is the complete
     insertion-order tuple the wrapper historically printed; every gate
     counter must already be present — a missing key becomes a ``KeyError``
     that ``run_extraction`` then records as ``skipped_parse_error``,
     silently dropping the row.
     """
-    parser = argparse.ArgumentParser(description=description or "Extract BTC AuxPoW")
-    parser.add_argument("--start", type=int, default=activation_height)
+    if spec.activation_height is None:
+        raise ValueError(
+            f"{spec.key} has no activation_height; run_standard_extractor_cli "
+            "requires a numeric --start default"
+        )
+
+    parser = argparse.ArgumentParser(
+        description=description or f"Extract BTC AuxPoW from {spec.display_name}"
+    )
+    parser.add_argument("--start", type=int, default=spec.activation_height)
     parser.add_argument("--end", type=int, default=None, help="Exclusive")
-    parser.add_argument("--output", default=output_default)
+    parser.add_argument(
+        "--output", default=os.path.relpath(spec.input_csv, PROJECT_ROOT)
+    )
     parser.add_argument("--batch-size", type=int, default=batch_size)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
@@ -333,7 +343,7 @@ def run_standard_extractor_cli(
     start = args.start
     out_path = Path(args.output)
     if args.resume and out_path.exists():
-        resumed = resume_start(out_path, height_column, args.start)
+        resumed = resume_start(out_path, spec.height_column, args.start)
         if resumed > args.start:
             start = resumed
             print(f"Resuming from height {start}")
@@ -345,7 +355,9 @@ def run_standard_extractor_cli(
     append = args.resume and out_path.exists() and start > args.start
 
     def parse_row(height: int, auxpow: dict, child_fields: dict) -> dict:
-        return standard_auxpow_parse_row(height_column, height, auxpow, child_fields)
+        return standard_auxpow_parse_row(
+            spec.height_column, height, auxpow, child_fields
+        )
 
     run_extraction(
         rpc=rpc,
@@ -353,7 +365,7 @@ def run_standard_extractor_cli(
         end=args.end,
         batch_size=args.batch_size,
         output_path=out_path,
-        csv_columns=standard_auxpow_extraction_columns(height_column),
+        csv_columns=standard_auxpow_extraction_columns(spec.height_column),
         gate=gate,
         parse_row=parse_row,
         stats=stats,

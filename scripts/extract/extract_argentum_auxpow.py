@@ -53,6 +53,7 @@ import sys
 
 from stale_blocks_analysis import extract_driver
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.config import CHAIN_SPECS
 
 # --- Configuration ---
 RPC_URL = os.environ.get("ARG_RPC_URL", "http://127.0.0.1:13581")
@@ -63,10 +64,7 @@ VERSION_AUXPOW = 1 << 8
 BLOCK_VERSION_ALGO = 7 << 9  # 3-bit algo field at nVersion[9:12]
 BLOCK_VERSION_SHA256D = 1 << 9  # ARG: SHA-256d == 0x0200 (NOT the default)
 
-# Matches CHAIN_SPECS["argentum"] without importing config (mkdir side effects).
-HEIGHT_COLUMN = "arg_height"
-ACTIVATION_HEIGHT = 1_825_000
-DEFAULT_OUTPUT = "data/argentum_auxpow_raw.csv"
+_SPEC = CHAIN_SPECS["argentum"]
 _STATS_KEYS = (
     "auxpow_blocks",
     "skipped_empty",
@@ -109,9 +107,7 @@ def main(argv: list[str] | None = None) -> None:
     """Keep the SHA-256d gate and delegate CLI lifecycle."""
     extract_driver.run_standard_extractor_cli(
         argv,
-        height_column=HEIGHT_COLUMN,
-        activation_height=ACTIVATION_HEIGHT,
-        output_default=DEFAULT_OUTPUT,
+        _SPEC,
         rpc=_require_rpc,
         gate=_gate,
         stats_keys=_STATS_KEYS,
