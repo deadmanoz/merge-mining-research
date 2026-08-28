@@ -84,6 +84,83 @@ def test_child_identity_recovery_refuses_empty_target_set(tmp_path: Path) -> Non
         mod.load_targets(evidence)
 
 
+def test_error_observation_rsk_targets_merge_into_identity_work_list(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    ledger = tmp_path / "error_block_observations.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "namecoin",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+        for height, digest in (
+            (789982, "aa"),
+            (793596, "bb"),
+            (793505, "cc"),
+            (804553, "dd"),
+            (5287383, "ee"),
+        ):
+            writer.writerow(
+                {
+                    "chain": "rsk",
+                    "btc_header_hash": digest * 32,
+                    "child_height": str(height),
+                }
+            )
+
+    extra = mod.load_error_observation_rsk_targets(ledger)
+    assert extra == [
+        ("aa" * 32, 789982),
+        ("cc" * 32, 793505),
+        ("bb" * 32, 793596),
+        ("dd" * 32, 804553),
+        ("ee" * 32, 5287383),
+    ]
+    merged = mod.merge_identity_targets([("22" * 32, 2)], extra)
+    assert ("aa" * 32, 789982) in merged
+    assert ("22" * 32, 2) in merged
+    assert len(merged) == 6
+
+
+def test_error_observation_rsk_targets_refuse_height_disagreement(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    ledger = tmp_path / "error_block_observations.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "rsk",
+                "btc_header_hash": "aa" * 32,
+                "child_height": "1",
+            }
+        )
+        writer.writerow(
+            {
+                "chain": "rsk",
+                "btc_header_hash": "aa" * 32,
+                "child_height": "2",
+            }
+        )
+
+    with pytest.raises(SystemExit, match="maps to child height"):
+        mod.load_error_observation_rsk_targets(ledger)
+
+
 @pytest.mark.parametrize(
     ("relative_path", "loader_name"),
     [

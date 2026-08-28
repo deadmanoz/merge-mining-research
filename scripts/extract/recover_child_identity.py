@@ -19,7 +19,12 @@ match the row's own `btc_header_hash`:
   fractal   getblockheader(hash, false, true): 80-byte FB header + CAuxPow;
             parent header parsed from the proof, FB hash/time from the header
   rsk       sha256d(bitcoinMergedMiningHeader[:80]); uncle rows resolved via
-            eth_getUncleByBlockNumberAndIndex(uncle_parent_height, uncle_index)
+            eth_getUncleByBlockNumberAndIndex(uncle_parent_height, uncle_index).
+            When classified metadata is absent, recovery tries the recorded
+            height as a canonical child via eth_getBlockByNumber. Uncles
+            still need archive metadata. The RSK target list also includes
+            error-observation ledger parents, which ordinary inventories
+            exclude.
 A mismatch means today's canonical child chain does not contain the child
 block that carried the recovered proof (child-side reorg, or a re-mined
 slot). Such rows are written with an empty child identity and a reason so the
@@ -66,6 +71,8 @@ import requests
 # Repo `src/` is on sys.path when installed via `pip install -e .`.
 from stale_blocks_analysis.auxpow_parse import read_auxpow
 from stale_blocks_analysis.child_rpc import RpcClient
+from stale_blocks_analysis.config import DATA_DIR
+from stale_blocks_analysis.error_observations import ERROR_OBSERVATION_LEDGER
 from stale_blocks_analysis.full_evidence import CHILD_IDENTITY_HYDRATION_CHAINS
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
@@ -170,6 +177,50 @@ def load_targets(evidence_path: Path) -> list[tuple[str, int]]:
         ((btc_hash, height) for btc_hash, (height, _) in targets.items()),
         key=lambda item: (item[1], item[0]),
     )
+
+
+def load_error_observation_rsk_targets(ledger_path: Path) -> list[tuple[str, int]]:
+    """RSK error-observation parents excluded from ordinary inventories."""
+    if not ledger_path.is_file():
+        return []
+    targets: dict[str, tuple[int, int]] = {}
+    with ledger_path.open(newline="") as handle:
+        for row_number, row in enumerate(csv.DictReader(handle), start=2):
+            if (row.get("chain") or "").strip() != "rsk":
+                continue
+            btc_hash = (row.get("btc_header_hash") or "").strip().lower()
+            height_text = (row.get("child_height") or "").strip()
+            if not btc_hash or not height_text:
+                raise SystemExit(
+                    f"{ledger_path}:{row_number}: RSK error-observation row "
+                    "missing btc_header_hash/child_height"
+                )
+            height = int(height_text)
+            if btc_hash in targets and targets[btc_hash][0] != height:
+                first_height, first_row = targets[btc_hash]
+                raise SystemExit(
+                    f"{ledger_path}: {btc_hash} maps to child height "
+                    f"{first_height} (row {first_row}) and {height} "
+                    f"(row {row_number})"
+                )
+            targets.setdefault(btc_hash, (height, row_number))
+    return sorted(
+        ((btc_hash, height) for btc_hash, (height, _) in targets.items()),
+        key=lambda item: (item[1], item[0]),
+    )
+
+
+def merge_identity_targets(
+    ordinary: list[tuple[str, int]], extra: list[tuple[str, int]]
+) -> list[tuple[str, int]]:
+    """Union target lists; refuse the same parent at two child heights."""
+    merged: dict[str, int] = {}
+    for btc_hash, height in [*ordinary, *extra]:
+        existing = merged.get(btc_hash)
+        if existing is not None and existing != height:
+            raise SystemExit(f"{btc_hash} maps to child height {existing} and {height}")
+        merged[btc_hash] = height
+    return sorted(merged.items(), key=lambda item: (item[1], item[0]))
 
 
 def load_rsk_metadata(paths: list[Path]) -> dict[str, dict[str, str]]:
@@ -310,9 +361,18 @@ def recover_rsk(chain: str, url: str, targets, limit, metadata) -> list[dict]:
         row = {"chain": chain, "btc_header_hash": btc_hash, "child_height": height}
         meta = metadata.get(btc_hash)
         if meta is None:
-            row["note"] = "missing_recovery_metadata"
-            rows.append(row)
-            continue
+            # Error-observation parents are excluded from ordinary inventories
+            # and may have no classified-archive row on this host. Try the
+            # recorded height as a canonical child; uncles still need metadata.
+            meta = {
+                "rsk_height": str(height),
+                "rsk_timestamp": "",
+                "rsk_miner": "",
+                "merge_mining_hash": "",
+                "is_uncle": "0",
+                "uncle_index": "",
+                "uncle_parent_height": "",
+            }
         is_uncle = meta["is_uncle"] == "1"
         if is_uncle:
             # Malformed classified metadata is a data problem, not a node
@@ -468,6 +528,13 @@ def main() -> None:
         if not evidence_path.exists():
             raise SystemExit(f"missing work list: {evidence_path}")
         targets = load_targets(evidence_path)
+        if chain == "rsk":
+            targets = merge_identity_targets(
+                targets,
+                load_error_observation_rsk_targets(
+                    DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER
+                ),
+            )
         url = DEFAULT_URLS[chain]
         limit = args.limit if args.limit is not None else len(targets)
         if chain in ("namecoin", "syscoin"):
