@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import os
 import struct
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,7 +26,7 @@ from stale_blocks_analysis.auxpow_parse import (
     parse_parent_header,
     standard_auxpow_extraction_columns,
 )
-from stale_blocks_analysis.config import CHAIN_SPECS
+from stale_blocks_analysis.config import PROJECT_ROOT, CHAIN_SPECS
 
 CSV_COLUMNS = [
     "height",
@@ -478,7 +481,7 @@ def test_standard_auxpow_parse_row_uses_spec_height_column() -> None:
     }
 
     row = extract_driver.standard_auxpow_parse_row(
-        spec, 1_825_000, auxpow, child_fields
+        spec.height_column, 1_825_000, auxpow, child_fields
     )
 
     parent = parse_parent_header(parent_raw)
@@ -511,7 +514,9 @@ def test_standard_extractor_cli_defaults_start_output_and_tip(
 
     extract_driver.run_standard_extractor_cli(
         [],
-        spec,
+        height_column=spec.height_column,
+        activation_height=spec.activation_height,
+        output_default="data/argentum_auxpow_raw.csv",
         rpc=_TipRpc(),
         gate=lambda _version, _stats: True,
         stats_keys=SHA256D_STATS,
@@ -537,7 +542,9 @@ def test_standard_extractor_cli_resume_uses_spec_height_column(
 
     extract_driver.run_standard_extractor_cli(
         ["--resume", "--end", "1825020", "--output", str(out_path)],
-        spec,
+        height_column=spec.height_column,
+        activation_height=spec.activation_height,
+        output_default="data/argentum_auxpow_raw.csv",
         rpc=object(),
         gate=lambda _version, _stats: True,
         stats_keys=SHA256D_STATS,
@@ -561,7 +568,9 @@ def test_standard_extractor_cli_help_does_not_construct_rpc() -> None:
     with pytest.raises(SystemExit) as exc:
         extract_driver.run_standard_extractor_cli(
             ["--help"],
-            CHAIN_SPECS["argentum"],
+            height_column="arg_height",
+            activation_height=1_825_000,
+            output_default="data/argentum_auxpow_raw.csv",
             rpc=factory,
             gate=lambda _version, _stats: True,
             stats_keys=SHA256D_STATS,
@@ -618,6 +627,9 @@ def test_thin_extractor_forwards_shared_loop(
     gate_stats = {name: 0 for name in stats_keys}
     assert module._gate(rejected_version, gate_stats) is False
     assert gate_stats[reject_key] == 1
+    assert module.HEIGHT_COLUMN == spec.height_column
+    assert module.ACTIVATION_HEIGHT == spec.activation_height
+    assert module.DEFAULT_OUTPUT == os.path.relpath(spec.input_csv, PROJECT_ROOT)
 
 
 @pytest.mark.parametrize(
@@ -683,3 +695,35 @@ def test_thin_extractor_help_does_not_need_credentials(
     assert exc.value.code == 0
     assert "usage:" in capsys.readouterr().out.lower()
     assert rec.calls == []
+
+
+def test_extract_driver_import_does_not_load_config() -> None:
+    script = """
+import sys
+assert "stale_blocks_analysis.config" not in sys.modules
+import stale_blocks_analysis.extract_driver
+assert "stale_blocks_analysis.config" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "extract_argentum_auxpow",
+        "extract_fractal_auxpow",
+    ),
+)
+def test_wrapper_help_subprocess_does_not_load_config(module_name: str) -> None:
+    path = REPO / "scripts" / "extract" / f"{module_name}.py"
+    script = f"""
+import runpy
+import sys
+sys.argv = [{str(path)!r}, "--help"]
+try:
+    runpy.run_path({str(path)!r}, run_name="__main__")
+except SystemExit as exc:
+    assert exc.code in (0, None)
+assert "stale_blocks_analysis.config" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)

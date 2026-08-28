@@ -30,7 +30,6 @@ import os
 
 from stale_blocks_analysis import extract_driver
 from stale_blocks_analysis.child_rpc import RpcClient
-from stale_blocks_analysis.config import CHAIN_SPECS
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
 load_local_rpc_env()
@@ -50,7 +49,10 @@ AUXPOW_FLAG = 0x100
 AUXPOW_CHAIN_ID = 0x2024
 CHAIN_ID_SHIFT = 16
 
-_SPEC = CHAIN_SPECS["fractal"]
+# Matches CHAIN_SPECS["fractal"] without importing config (mkdir side effects).
+HEIGHT_COLUMN = "fb_height"
+ACTIVATION_HEIGHT = 1
+DEFAULT_OUTPUT = "data/fractal_auxpow_raw.csv"
 _STATS_KEYS = (
     "auxpow_blocks",
     "skipped_empty",
@@ -89,7 +91,9 @@ def main(argv: list[str] | None = None) -> None:
     """Keep the Fractal gate and delegate CLI lifecycle."""
     extract_driver.run_standard_extractor_cli(
         argv,
-        _SPEC,
+        height_column=HEIGHT_COLUMN,
+        activation_height=ACTIVATION_HEIGHT,
+        output_default=DEFAULT_OUTPUT,
         rpc=rpc,
         gate=_gate,
         stats_keys=_STATS_KEYS,

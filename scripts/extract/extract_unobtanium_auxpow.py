@@ -21,7 +21,6 @@ import sys
 
 from stale_blocks_analysis import extract_driver
 from stale_blocks_analysis.child_rpc import RpcClient
-from stale_blocks_analysis.config import CHAIN_SPECS
 
 # --- Configuration ---
 RPC_URL = os.environ.get("UNO_RPC_URL", "http://127.0.0.1:65535")
@@ -30,7 +29,10 @@ RPC_PASS = os.environ.get("UNO_RPC_PASS", "")
 
 VERSION_AUXPOW = 1 << 8
 
-_SPEC = CHAIN_SPECS["unobtanium"]
+# Matches CHAIN_SPECS["unobtanium"] without importing config (mkdir side effects).
+HEIGHT_COLUMN = "uno_height"
+ACTIVATION_HEIGHT = 600_000
+DEFAULT_OUTPUT = "data/unobtanium_auxpow_raw.csv"
 _STATS_KEYS = (
     "auxpow_blocks",
     "skipped_empty",
@@ -69,7 +71,9 @@ def main(argv: list[str] | None = None) -> None:
     """Keep the AuxPoW-flag gate and delegate CLI lifecycle."""
     extract_driver.run_standard_extractor_cli(
         argv,
-        _SPEC,
+        height_column=HEIGHT_COLUMN,
+        activation_height=ACTIVATION_HEIGHT,
+        output_default=DEFAULT_OUTPUT,
         rpc=_require_rpc,
         gate=_gate,
         stats_keys=_STATS_KEYS,
