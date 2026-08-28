@@ -146,19 +146,19 @@ does not perform full historical Bitcoin consensus validation, and none of the
 1,330 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
-The error-blocks dataset records 32 consensus-invalid Namecoin candidates: 21
+The error-blocks dataset records 33 consensus-invalid Namecoin candidates: 21
 fail BIP34's coinbase-height rule, three fail BIP66's minimum block version,
-five fail BIP65's minimum block version, two violate the median-time-past rule
-(380,992 `median_time_past_violation` and 946,213 `time_below_mtp`), and one
-has a 103-byte coinbase scriptSig. A separate direct-only correction moves the
-candidate at Bitcoin height 656,478 out of the direct-stale set and into the
-accepted stale-descendant sidecar because its predecessor is a known stale,
-not an active-chain block.
+five fail BIP65's minimum block version, three violate the median-time-past
+rule (380,992 `median_time_past_violation` plus the 946,213 and 957,780
+`time_below_mtp` rows), and one has a 103-byte coinbase scriptSig. A separate
+direct-only correction moves the candidate at Bitcoin height 656,478 out of
+the direct-stale set and into the accepted stale-descendant sidecar because
+its predecessor is a known stale, not an active-chain block.
 
 Accordingly, the defensible public statement for this release is:
 
 > Namecoin preserves 1,625 distinct direct-stale Bitcoin header candidates that
-> pass the declared available-evidence header-context checks. Thirty-two
+> pass the declared available-evidence header-context checks. Thirty-three
 > additional candidates are excluded because they fail a necessary Bitcoin
 > rule, and one former direct-stale row is retained separately as an accepted
 > stale descendant. Full Bitcoin block validity has not been established for
