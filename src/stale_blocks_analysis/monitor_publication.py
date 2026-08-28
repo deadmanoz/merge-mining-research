@@ -2154,7 +2154,10 @@ def _load_error_update_baseline(
                 {
                     (expected.get("artifact_scope") or "").strip(),
                     "canonical_blocks",
+                    "full_classifier_inventory",
                     "partial_canonical_subset",
+                    "stale_descendant_sidecar",
+                    "stale_only_publication",
                 }
             ),
         )

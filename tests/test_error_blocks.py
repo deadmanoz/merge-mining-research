@@ -82,9 +82,9 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_stale_exclusion_keys(empty)
 
 
-def test_committed_dataset_loads_34_rows() -> None:
+def test_committed_dataset_loads_35_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 34
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 35
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -125,13 +125,13 @@ def test_committed_dataset_schema_and_seed_count() -> None:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 34
+    assert len(rows) == 35
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
     assert all(len(r["btc_header_hex"]) == 160 for r in rows)
-    # The 946213 time-too-old row from merge-mining-monitor live evidence.
-    assert sum(1 for r in rows if r["rejection_reason"] == "time_below_mtp") == 1
+    # The 946213 and 957780 time-too-old rows from merge-mining-monitor live evidence.
+    assert sum(1 for r in rows if r["rejection_reason"] == "time_below_mtp") == 2
     # The 717696 retarget-boundary row from the rejected-row sweep.
     assert (
         sum(1 for r in rows if r["rejection_reason"] == "nbits_retarget_not_applied")
@@ -143,9 +143,9 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 34
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 34
-    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 34
+    assert len(rows) == 35
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 35
+    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 35
     assert Counter(row["rejection_reason"] for row in rows) == {
         "bip34_v2_coinbase_height_mismatch": 12,
         "bip34_coinbase_height_mismatch": 9,
@@ -153,7 +153,7 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
         "bip65_block_version_below_4": 5,
         "coinbase_scriptsig_length_above_100": 1,
         "median_time_past_violation": 1,
-        "time_below_mtp": 1,
+        "time_below_mtp": 2,
         "nbits_retarget_not_applied": 1,
         "bip34_coinbase_height_missing": 1,
     }
@@ -637,7 +637,7 @@ _BUILDER_PRIVATE_INPUTS = [
 # recovered-headers cache). They let the builder's CORE tests run in a plain
 # public checkout (CI), where the private evidence archives in
 # _BUILDER_PRIVATE_INPUTS are absent. The private-input tests below remain as
-# an additional integration layer over the full 33-row committed dataset.
+# an additional integration layer over the full 35-row committed dataset.
 _FIXTURE_DIR = REPO / "tests" / "fixtures" / "error_blocks"
 _FIXTURE_SEED = _FIXTURE_DIR / "seed.csv"
 
@@ -1206,9 +1206,9 @@ def test_builder_merges_monitor_export(
     assert row["rejection_reason"] == "bip65_block_version_below_4"
     assert row["rules_violated"] == "bip65_block_version_below_4"
     assert row["provenance"] == "monitor-live-capture:namecoin:1"
-    # The merged output is the committed 33 rows plus the new one, still
+    # The merged output is the committed 35 rows plus the new one, still
     # sorted by (height, hash).
-    assert len(rows) == 34
+    assert len(rows) == 36
     keys = [(int(r["height"]), r["hash"]) for r in rows]
     assert keys == sorted(keys)
 
@@ -1798,7 +1798,7 @@ def test_builder_commits_new_time_below_mtp_row_with_mtp_context(
         assert len(merged) == 1
         assert merged[0]["hash"] == block_hash
         assert merged[0]["rules_violated"] == "time_below_mtp"
-        assert len(rows) == 34
+        assert len(rows) == 36
         with ERROR_BLOCKS_MTP_CONTEXT_CSV.open(newline="") as f:
             sidecar = {
                 (r["height"], r["hash"]): r["parent_median_time_past"]
@@ -1888,7 +1888,7 @@ def test_builder_commits_extra_rows_time_below_mtp_row_with_mtp_context(
         assert len(merged) == 1
         assert merged[0]["hash"] == block_hash
         assert merged[0]["rules_violated"] == "time_below_mtp"
-        assert len(rows) == 34
+        assert len(rows) == 36
         # ...AND the sidecar entry is written for the extra-rows row.
         with ERROR_BLOCKS_MTP_CONTEXT_CSV.open(newline="") as f:
             sidecar = {

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Sweep stale/unknown classified rows for time-rule error blocks.
 
-The 946213 error-block class is a full-proof-of-work Bitcoin header whose
-``nTime`` violates a time rule. This sweep re-examines two operator-approved
+The 946213 and 957780 error-block class is a full-proof-of-work Bitcoin header
+whose ``nTime`` violates a time rule. This sweep re-examines two operator-approved
 candidate classes across the reachable per-chain classified inventories (the
 authoritative copies live on the chain archive host, set via the
 ``ERROR_BLOCKS_ARCHIVE_HOST`` env var; see ``STALE_INVENTORIES`` /
@@ -667,8 +667,9 @@ def render_report(
         "",
         "Re-examination of stale-classified rows and BIP34-height unknown rows",
         "across the reachable per-chain classified inventories on the chain",
-        "archive host, for error blocks of the 946213 class: full-proof-of-work",
-        "Bitcoin headers whose `nTime` violates a time rule. Full PoW and the",
+        "archive host, for error blocks of the 946213 and 957780 class:",
+        "full-proof-of-work Bitcoin headers whose `nTime` violates a time",
+        "rule. Full PoW and the",
         "header `nTime` are re-derived from the committed header bytes via",
         "`hash_meets_btc_difficulty`, never inherited from a classification",
         "label. The canonical parent context (`time`/`mediantime` of the",
@@ -777,10 +778,11 @@ def render_report(
     if total_below == 0:
         lines.append(
             "- No `time_below_mtp` (time-too-old) violations among "
-            "trustworthy-height candidates: the 946213 class does not recur "
-            "in these historical classified inventories. The 946213 row "
-            "itself is recent (2026) and not present in these historical "
-            "inventories, so it does not appear here as already-catalogued."
+            "trustworthy-height candidates: the 946213 and 957780 class does "
+            "not recur in these historical classified inventories. The "
+            "946213 and 957780 rows themselves are recent (2026) and not "
+            "present in these historical inventories, so they do not appear "
+            "here as already-catalogued."
         )
     if total_no_height:
         lines.append(

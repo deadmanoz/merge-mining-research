@@ -4,8 +4,9 @@ Generated: 2026-07-30 04:52 UTC
 
 Re-examination of stale-classified rows and BIP34-height unknown rows
 across the reachable per-chain classified inventories on the chain
-archive host, for error blocks of the 946213 class: full-proof-of-work
-Bitcoin headers whose `nTime` violates a time rule. Full PoW and the
+archive host, for error blocks of the 946213 and 957780 class:
+full-proof-of-work Bitcoin headers whose `nTime` violates a time
+rule. Full PoW and the
 header `nTime` are re-derived from the committed header bytes via
 `hash_meets_btc_difficulty`, never inherited from a classification
 label. The canonical parent context (`time`/`mediantime` of the
@@ -81,7 +82,7 @@ against it is uninterpretable; those full-PoW rows are tallied as
 ## Negative results
 
 - Chains with full-PoW candidates but no time-rule violation (trustworthy heights): argentum, bitmark, coiledcoin, crown, elcash, emercoin, groupcoin, huntercoin, i0coin, myriadcoin, terracoin, xaya, syscoin, elastos, fractal.
-- No `time_below_mtp` (time-too-old) violations among trustworthy-height candidates: the 946213 class does not recur in these historical classified inventories. The 946213 row itself is recent (2026) and not present in these historical inventories, so it does not appear here as already-catalogued.
+- No `time_below_mtp` (time-too-old) violations among trustworthy-height candidates: the 946213 and 957780 class does not recur in these historical classified inventories. The 946213 and 957780 rows themselves are recent (2026) and not present in these historical inventories, so they do not appear here as already-catalogued.
 - 1352175 unknown rows were skipped for lacking a parseable claimed height (no `btc_height`, a malformed value, an implausible value above the canonical tip, or a `btc_height` disagreeing with the decoded BIP34 coinbase height).
 - 1366885 full-PoW candidates carried a non-authoritative claimed height (unknown rows, and the canonical-fill-scratch stale inventories): their `btc_height` is not verified against the canonical chain, so no valid time-rule check is possible. They are negatives, not violations.
 - No NEW confirmed time-rule error blocks promoted: see the future-limit caveat and the review list below. (2026-07-30 follow-up: all 15 flags resolved as late-mined, 0 violations; see below.)
@@ -161,5 +162,5 @@ more than 2h beyond the commit time itself — the commit-time upper
 bound makes that a provable violation. None of these candidates came
 close. By contrast, `time_below_mtp` IS mechanically re-checkable:
 the parent's median-time-past is committed canonical-chain context.
-This is why the dataset contains a `time_below_mtp` row (946213) but
-no `time_beyond_future_limit` rows.
+This is why the dataset contains two `time_below_mtp` rows (946213 and
+957780) but no `time_beyond_future_limit` rows.

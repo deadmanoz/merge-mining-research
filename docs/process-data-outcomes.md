@@ -18,10 +18,10 @@ regenerated from their original sources, and the upstream
 `bitcoin-data/stale-blocks` pin
 has been bumped to a revision that already includes this project's historical
 1,089-row Namecoin addition. The consensus-invalid handling is now the
-first-class error-blocks dataset (`data/error-blocks/error_blocks.csv`, 34
+first-class error-blocks dataset (`data/error-blocks/error_blocks.csv`, 35
 rows), which supersedes the former 32-key exclusion overlay: it carries the 31
-consensus-invalid keys plus the 946,213 `time_below_mtp` row, the 717,696
-`nbits_retarget_not_applied` row, and the Hathor-witnessed 649,674
+consensus-invalid keys plus the 946,213 and 957,780 `time_below_mtp` rows, the
+717,696 `nbits_retarget_not_applied` row, and the Hathor-witnessed 649,674
 `bip34_coinbase_height_missing` row. The former direct-stale-only correction
 (656,478) is now a stale-descendant single-home. It is not an error-block
 exclusion, but raw source projection requires the compact

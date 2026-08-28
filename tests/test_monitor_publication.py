@@ -2270,8 +2270,8 @@ def test_error_observation_baseline_refuses_regression(
         baseline_dir,
         chain="error-block-observations",
         source_kind="error_block_catalogue",
-        error_block=75,
-        source_rows=75,
+        error_block=79,
+        source_rows=79,
     )
     parser, args = _preflight_args(
         module, tmp_path, data_dir=module.DATA_DIR, archive_dir=archive_dir

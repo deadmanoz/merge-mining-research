@@ -83,6 +83,20 @@ def test_946213_time_below_mtp_revalidates() -> None:
     assert mod.validate_row(row) == []
 
 
+def test_957780_time_below_mtp_revalidates() -> None:
+    import csv as _csv
+
+    mod = _load_validator()
+    with ERROR_BLOCKS_CSV.open(newline="") as f:
+        row = next(r for r in _csv.DictReader(f) if r["height"] == "957780")
+    assert "time_below_mtp" in row["rules_violated"]
+    assert row["provenance"].startswith("monitor-live-capture:")
+    assert row["hash"] == (
+        "0000000000000000000198e12592edbe83c84a78f75b3f8d67a3fe2075ef2ffb"
+    )
+    assert mod.validate_row(row) == []
+
+
 def test_380992_median_time_past_violation_revalidates() -> None:
     import csv as _csv
 

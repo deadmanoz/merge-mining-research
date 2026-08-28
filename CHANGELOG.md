@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Catalogue Bitcoin height 957780 (`time_below_mtp`) from merge-mining-monitor
+live capture, with recovered Namecoin, Syscoin, Fractal, and Elastos witnesses.
+The error-block dataset is now 35 parents and the monitor-facing
+error-observation aggregate is 78 rows.
+
 Split monitor-facing evidence projection from full-evidence source
 normalization without changing schemas, publication contracts, or output data.
 
