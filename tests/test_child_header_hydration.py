@@ -131,6 +131,32 @@ def test_error_observation_rsk_targets_merge_into_identity_work_list(
     assert len(merged) == 6
 
 
+def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    missing = tmp_path / "missing.csv"
+    with pytest.raises(SystemExit, match="error-observation ledger is missing"):
+        mod.load_error_observation_rsk_targets(missing)
+
+    empty = tmp_path / "error_block_observations.csv"
+    with empty.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "namecoin",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+    with pytest.raises(SystemExit, match="no RSK error-observation targets"):
+        mod.load_error_observation_rsk_targets(empty)
+
+
 def test_error_observation_rsk_targets_refuse_height_disagreement(
     tmp_path: Path,
 ) -> None:

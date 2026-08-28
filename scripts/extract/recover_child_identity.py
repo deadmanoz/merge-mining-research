@@ -182,7 +182,7 @@ def load_targets(evidence_path: Path) -> list[tuple[str, int]]:
 def load_error_observation_rsk_targets(ledger_path: Path) -> list[tuple[str, int]]:
     """RSK error-observation parents excluded from ordinary inventories."""
     if not ledger_path.is_file():
-        return []
+        raise SystemExit(f"{ledger_path}: error-observation ledger is missing")
     targets: dict[str, tuple[int, int]] = {}
     with ledger_path.open(newline="") as handle:
         for row_number, row in enumerate(csv.DictReader(handle), start=2):
@@ -204,6 +204,8 @@ def load_error_observation_rsk_targets(ledger_path: Path) -> list[tuple[str, int
                     f"(row {row_number})"
                 )
             targets.setdefault(btc_hash, (height, row_number))
+    if not targets:
+        raise SystemExit(f"{ledger_path}: no RSK error-observation targets")
     return sorted(
         ((btc_hash, height) for btc_hash, (height, _) in targets.items()),
         key=lambda item: (item[1], item[0]),
