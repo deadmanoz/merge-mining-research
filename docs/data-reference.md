@@ -74,9 +74,9 @@ coiledcoin's `eligius_attack_window`.
 
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from publication surfaces. This dataset supersedes
-the former `data/stale_block_exclusions.csv` overlay. The current 34 rows
-comprise 31 carried-over consensus-invalid keys, the 946,213
-`time_below_mtp` row recovered from merge-mining-monitor live evidence, the
+the former `data/stale_block_exclusions.csv` overlay. The current 35 rows
+comprise 31 carried-over consensus-invalid keys, the 946,213 and 957,780
+`time_below_mtp` rows recovered from merge-mining-monitor live evidence, the
 717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
 (witnessed independently by emercoin and syscoin), and the 649,674
 `bip34_coinbase_height_missing` row emitted by the Hathor classifier. The
@@ -91,10 +91,10 @@ the accepted sidecar's chain-specific observation and the compact
 `data/stale_descendant_corrections.csv` exact-key correction overlay. Of the
 invalid keys, 21 carry a mismatched BIP34 coinbase height, one omits the
 required BIP34 height, three fail BIP66's minimum version 3 rule, five
-fail BIP65's minimum version 4 rule, one violates median-time-past, one is
-time-too-old against median-time-past, one carries a 103-byte coinbase
-scriptSig above Bitcoin's 100-byte limit, and one failed to apply the
-difficulty retarget at an epoch boundary. The dataset retains the signed
+fail BIP65's minimum version 4 rule, one violates median-time-past, two are
+time-too-old against median-time-past (946,213 and 957,780), one carries a
+103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
+apply the difficulty retarget at an epoch boundary. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
 than a self-contained AuxPoW proof. It is applied by public loaders, upstream
@@ -341,8 +341,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 74-row aggregate
-for the 34 catalogue parents. Its rows retain the original archive or
+`error-block-observations_monitor_evidence.csv` is a separate 78-row aggregate
+for the 35 catalogue parents. Its rows retain the original archive or
 live-observation source coordinates but use `classification=error_block` and
 the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
