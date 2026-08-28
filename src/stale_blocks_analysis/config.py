@@ -5,9 +5,9 @@ relevance-bucket vocabulary shared with the merge-mining-monitor, chain
 chronology, and the CHAIN_SPECS registry. Imported by every other module
 in the package; depends on nothing internal (stdlib only).
 
-Importing this module has one side effect: creating the output directories
-(RESULTS_DIR, CACHE_DIR) if they don't exist. Other modules assume these
-directories exist at import time, so don't remove the mkdir loop below.
+This module is a registry: it names paths and chain rows. Importing it
+must not create directories. Writers create ``RESULTS_DIR``, ``CACHE_DIR``,
+and other output parents when they actually write.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ DATA_DIR = PROJECT_ROOT / "data"
 # path is a published cross-repo contract consumed by merge-mining-monitor's
 # historical-source manifest, so changes here must land in lockstep there.
 VALIDATED_STALES_DIR = DATA_DIR / "validated-stales"
-VALIDATED_STALES_DIR.mkdir(parents=True, exist_ok=True)
 STALE_DIR = Path(os.environ.get("STALE_BLOCKS_DIR", DATA_DIR / "stale-blocks"))
 STALE_CSV = STALE_DIR / "stale-blocks.csv"
 BLOCKS_DIR = STALE_DIR / "blocks"
@@ -93,8 +92,6 @@ ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
 # Output locations (all relative to the project root).
 RESULTS_DIR = PROJECT_ROOT / "results"
 CACHE_DIR = PROJECT_ROOT / "cache"
-for _d in (RESULTS_DIR, CACHE_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
 
 # AuxPoW-recovered stale blocks (Namecoin merged mining side channel).
 # See docs/chains/namecoin.md for methodology.
@@ -525,8 +522,9 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 # scripts/extract/extract_<chain>_auxpow.py (chain ID, proof activation or extraction floor), and
 # the per-chain provenance docs (docs/chains/<chain>.md). These specs are the
 # live source of truth: run_classifier(CHAIN_SPECS[...]) drives the ~19 thin
-# classify wrappers and full_evidence reads them directly, so edits here change
-# runtime behaviour.
+# classify wrappers, thin raw-hex extractors read activation / height /
+# input_csv from the same row, and full_evidence reads them directly, so
+# edits here change runtime behaviour.
 #
 # Field provenance and conventions:
 #   - key: the canonical chain key, matching CHAINS_BY_AUXPOW_ACTIVATION

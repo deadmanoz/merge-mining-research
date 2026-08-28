@@ -34,7 +34,7 @@ Crown is a 2014 Bitcoin/Dash-derived chain. It carries Dash's masternode and on-
 
 **Reference scripts.**
 
-- `scripts/extract/extract_crown_auxpow.py:1` - RPC raw-hex `getblock` + binary `CAuxPow` parse. Single-algo, so the only filter is the `VERSION_AUXPOW` version-bit gate (`extract_crown_auxpow.py:109`), which covers both pre-activation PoW blocks and the entire PoS era.
+- `scripts/extract/extract_crown_auxpow.py` - RPC raw-hex `getblock` + binary `CAuxPow` parse. Single-algo, so the only filter is the `VERSION_AUXPOW` version-bit gate (`_gate`), which covers both pre-activation PoW blocks and the entire PoS era.
 - `scripts/classify/classify_crown_stales.py:1` - BTC RPC batch classifier (self-target PoW filter + dedup + `getblockheader` lookups; canonical/stale/unknown trichotomy).
 - `node-infra/crown/{Dockerfile,docker-compose.yml,bootstrap.sh,justfile,peers.list,README.md}` - build infrastructure with the `ubuntu:18.04` (bionic) toolchain.
 
