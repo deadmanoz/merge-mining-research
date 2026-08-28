@@ -96,15 +96,16 @@ from _sweep_common import (  # noqa: E402
     UNKNOWN_INVENTORY_BASELINE_ROWS,
     _REGEN_CHAINS,
     _REGEN_STAGING,
+    add_common_sweep_args,
+    check_sweep_coverage,
+    choose_inventory_reader,
     header_display_hash,
     load_dataset_keys,
     load_nbits_by_epoch,
-    local_mirror_reader,
-    require_full_coverage_for_committed,
-    resolve_output_path,
     reverify_against_canonical_target,
     ssh_inventory_reader,
     validate_partial_args,
+    write_sweep_report,
 )
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     hash_meets_btc_difficulty,
@@ -882,12 +883,13 @@ def render_report(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--chain-archive-root",
-        type=Path,
-        default=None,
-        help="read inventories from a local mirror (<root>/<chain>/<filename>) "
-        f"instead of ssh {ARCHIVE_HOST}",
+    add_common_sweep_args(
+        parser,
+        default_report=DEFAULT_REPORT,
+        archive_help=(
+            "read inventories from a local mirror (<root>/<chain>/<filename>) "
+            f"instead of ssh {ARCHIVE_HOST}"
+        ),
     )
     parser.add_argument(
         "--mtp-cache",
@@ -895,19 +897,12 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_MTP_CACHE,
         help="canonical time/MTP cache path (gitignored scratch)",
     )
-    parser.add_argument("--output", type=Path, default=DEFAULT_REPORT)
-    parser.add_argument("--allow-partial", action="store_true")
-    parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if validate_partial_args(args):
         return 2
 
-    reader: InventoryReader = (
-        local_mirror_reader(args.chain_archive_root)
-        if args.chain_archive_root is not None
-        else ssh_inventory_reader
-    )
+    reader = choose_inventory_reader(args, default_reader=ssh_inventory_reader)
     dataset_keys = load_dataset_keys()
 
     # Pass 1: collect PoW-verified candidates per chain (fail soft per chain).
@@ -927,19 +922,7 @@ def main(argv: list[str] | None = None) -> int:
             report.error = str(exc)
         reports.append(report)
 
-    reachable = [r for r in reports if r.reachable]
-    if not reachable:
-        for r in reports:
-            print(f"error: {r.chain}: {r.error}", file=sys.stderr)
-        print(
-            "sweep failed: no inventories reachable (no report written)",
-            file=sys.stderr,
-        )
-        return 1
-
-    # A partial sweep (some inventories unreachable) must not overwrite the
-    # committed report without --allow-partial.
-    if require_full_coverage_for_committed(
+    if check_sweep_coverage(
         args,
         reports,
         expected_inventory_rows=INVENTORY_BASELINE_ROWS,
@@ -1011,19 +994,18 @@ def main(argv: list[str] | None = None) -> int:
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    output = resolve_output_path(args, DEFAULT_REPORT)
-    if output is None:
-        return 2
-    # Preserve the manually-written follow-up investigation section (the
-    # future-limit resolution the sweep cannot regenerate) across the
-    # overwrite: carry it forward from the report being replaced.
-    prior_text = output.read_text() if output.exists() else ""
-    report_text = render_report(reports, generated_at, prior_text)
+    def render(output: Path) -> str:
+        # Preserve the manually-written follow-up investigation section (the
+        # future-limit resolution the sweep cannot regenerate) across the
+        # overwrite: carry it forward from the report being replaced.
+        prior_text = output.read_text() if output.exists() else ""
+        return render_report(reports, generated_at, prior_text)
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(report_text)
-    print(f"wrote sweep report to {output}")
+    write_rc = write_sweep_report(args, default_report=DEFAULT_REPORT, render=render)
+    if write_rc:
+        return write_rc
 
+    reachable = [r for r in reports if r.reachable]
     total_new = sum(len(r.new_findings) for r in reachable)
     print(
         f"swept {sum(r.candidates for r in reachable)} full-PoW candidates "

@@ -9,8 +9,10 @@ the regen-chain inventory maps, the claimed-height plausibility bound, and
 the ``--allow-partial`` / ``--output-dir`` fail-closed output guard (a
 partial sweep's ``--output-dir`` must be a disposable directory outside the
 committed artifact locations). That
-substrate lives here, once; the per-sweep gate logic, candidate/report
-dataclasses, and report rendering stay in each sweep.
+substrate lives here, once, along with the shared CLI flags, reader
+choice, coverage preflight, and report write path. The per-sweep gate
+logic, candidate/report dataclasses, and report rendering stay in each
+sweep.
 
 Reconciliation note: the rejected-rows sweep originally read inventories
 over ssh with a 120s timeout while the other three sweeps used 600s. The
@@ -54,6 +56,7 @@ import is not available. The sweeps follow the established
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import subprocess
@@ -503,6 +506,94 @@ def require_full_coverage_for_committed(
         file=sys.stderr,
     )
     return 1
+
+
+def add_common_sweep_args(
+    parser: argparse.ArgumentParser,
+    *,
+    default_report: Path,
+    archive_help: str,
+) -> None:
+    """Register the four flags shared by every error-block sweep.
+
+    Time-rule still adds ``--mtp-cache`` itself. ``archive_help`` stays
+    per-sweep so the two-source sweeps can describe the mirror override
+    for both archive and validated-stales paths.
+    """
+    parser.add_argument(
+        "--chain-archive-root",
+        type=Path,
+        default=None,
+        help=archive_help,
+    )
+    parser.add_argument("--output", type=Path, default=default_report)
+    parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument("--output-dir", type=Path, default=None)
+
+
+def choose_inventory_reader(
+    args: object, *, default_reader: InventoryReader
+) -> InventoryReader:
+    """Use a local archive mirror when requested, else the sweep's default."""
+    root = getattr(args, "chain_archive_root", None)
+    if root is not None:
+        return local_mirror_reader(root)
+    return default_reader
+
+
+def check_sweep_coverage(
+    args: object,
+    reports: list[object],
+    *,
+    expected_inventory_rows: Mapping[str, int] | None = None,
+    inventory_row_counts: Callable[[object], Mapping[str, int]] | None = None,
+) -> int:
+    """Refuse an empty or incomplete sweep before any later I/O.
+
+    This is a preflight: time-rule must call it before ``fetch_mtp_context``.
+    Returns 0 when the sweep may continue, or 1 after printing the
+    unreachable-all or incomplete-coverage refusal.
+    """
+    reachable = [r for r in reports if getattr(r, "reachable", True)]
+    if not reachable:
+        for report in reports:
+            print(
+                f"error: {_report_label(report)}: {getattr(report, 'error', '')}",
+                file=sys.stderr,
+            )
+        print(
+            "sweep failed: no inventories reachable (no report written)",
+            file=sys.stderr,
+        )
+        return 1
+    return require_full_coverage_for_committed(
+        args,
+        reports,
+        expected_inventory_rows=expected_inventory_rows,
+        inventory_row_counts=inventory_row_counts,
+    )
+
+
+def write_sweep_report(
+    args: object,
+    *,
+    default_report: Path,
+    render: Callable[[Path], str],
+) -> int:
+    """Resolve the output path, render, and write. No coverage check, no MTP.
+
+    ``render`` receives the resolved output Path so time-rule can read
+    ``prior_text`` from the file it is about to replace. Returns 0, or 2
+    when ``resolve_output_path`` refuses the write.
+    """
+    output = resolve_output_path(args, default_report)
+    if output is None:
+        return 2
+    report_text = render(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(report_text)
+    print(f"wrote sweep report to {output}")
+    return 0
 
 
 def resolve_output_path(args: object, default_report: Path) -> Path | None:
