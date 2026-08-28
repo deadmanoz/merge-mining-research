@@ -552,6 +552,9 @@ MIN_HEIGHT = 421_344  # epoch 209 (first DAA ≥ BIP 152 activation at 420,000)
 #     two never drift.
 #   - child_nbits_from_header: false only when a chain stores its effective
 #     AuxPoW target outside the 80-byte child header (currently Xaya PowData).
+#   - bits_source_is_decimal: true only when the raw extract's ``btc_bits``
+#     column is a decimal integer (currently Bitcoin Vault). False means
+#     lowercase 8-char hex, the classifier default.
 
 
 @dataclass(frozen=True)
@@ -568,6 +571,7 @@ class ChainSpec:
     output_csv: Path
     validated_csv: Path
     child_nbits_from_header: bool = True
+    bits_source_is_decimal: bool = False
 
 
 def _chain_input_csv(key: str) -> Path:
@@ -834,6 +838,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
         input_csv=_chain_input_csv("bitcoin-vault"),
         output_csv=_chain_output_csv("bitcoin-vault"),
         validated_csv=BITCOIN_VAULT_CSV,
+        bits_source_is_decimal=True,
     ),
     "elcash": ChainSpec(
         key="elcash",
