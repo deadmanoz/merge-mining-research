@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import os
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -66,11 +68,61 @@ class _Recorder:
 
 def _run_main(monkeypatch, module, argv):
     rec = _Recorder()
-    monkeypatch.setattr(module, "run_classifier", rec)
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    if hasattr(module, "run_classifier"):
+        monkeypatch.setattr(module, "run_classifier", rec)
     monkeypatch.setattr(sys, "argv", argv)
-    module.main()
+    try:
+        module.main()
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            raise
     assert len(rec.calls) == 1, "main() must call run_classifier exactly once"
     return rec.calls[0]
+
+
+THIN_WRAPPERS = (
+    ("classify_argentum_stales", "argentum", False),
+    ("classify_bitmark_stales", "bitmark", False),
+    ("classify_bitcoin_vault_stales", "bitcoin-vault", True),
+    ("classify_crown_stales", "crown", False),
+    ("classify_devcoin_stales", "devcoin", False),
+    ("classify_elcash_stales", "elcash", False),
+    ("classify_fractal_stales", "fractal", False),
+    ("classify_ixcoin_stales", "ixcoin", False),
+    ("classify_myriadcoin_stales", "myriadcoin", False),
+    ("classify_syscoin_stales", "syscoin", False),
+    ("classify_terracoin_stales", "terracoin", False),
+    ("classify_unobtanium_stales", "unobtanium", False),
+    ("classify_xaya_stales", "xaya", False),
+)
+
+
+@pytest.mark.parametrize("module_name,key,decimal", THIN_WRAPPERS)
+def test_thin_delegate_forwards_standard(monkeypatch, module_name, key, decimal):
+    mod = _load(module_name)
+    call = _run_main(
+        monkeypatch,
+        mod,
+        [
+            "x",
+            "--input",
+            "in.csv",
+            "--output",
+            "out.csv",
+            "--all-valid",
+            "v.csv",
+            "--validated-output",
+            "validated.csv",
+        ],
+    )
+    assert call["spec"].key == key
+    assert call["input_path"] == "in.csv"
+    assert call["output_path"] == "out.csv"
+    assert call["all_valid_path"] == "v.csv"
+    assert call["validated_output_path"] == "validated.csv"
+    assert call.get("bits_source_is_decimal", False) is decimal
+    assert call.get("rpc") is not None
 
 
 def test_ixcoin_wrapper_forwards_standard(monkeypatch, tmp_path):
@@ -151,6 +203,22 @@ def test_syscoin_wrapper_forwards_standard(monkeypatch):
         defaults["validated_output_path"]
         == "data/validated-stales/syscoin_validated_stales.csv"
     )
+
+
+def test_terracoin_wrapper_preserves_directoryless_defaults(monkeypatch):
+    mod = _load("classify_terracoin_stales")
+    defaults = _run_main(monkeypatch, mod, ["x"])
+    assert defaults["input_path"] == "terracoin_auxpow_raw.csv"
+    assert defaults["output_path"] == "terracoin_stale_blocks.csv"
+
+
+def test_unobtanium_wrapper_expands_home_defaults(monkeypatch):
+    mod = _load("classify_unobtanium_stales")
+    defaults = _run_main(monkeypatch, mod, ["x"])
+    home = os.path.expanduser("~")
+    assert defaults["input_path"] == f"{home}/uno-extract/unobtanium_auxpow_raw.csv"
+    assert defaults["output_path"] == f"{home}/uno-extract/unobtanium_stale_blocks.csv"
+    assert defaults["all_valid_path"] == f"{home}/uno-extract/unobtanium_btc_valid.csv"
 
 
 def test_elastos_bespoke_classifier_reproduces_committed_schema():
@@ -578,3 +646,74 @@ def test_devcoin_wrapper_forwards_rpc_and_keep_near(monkeypatch):
     assert rpc is not None
     assert rpc.url == "http://10.1.2.9:8332"
     assert rpc.auth == ("bob", "hunter2")
+
+
+def test_classify_stales_chain_ixcoin_forwards(monkeypatch):
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    mod = _load("classify_stales")
+    assert (
+        mod.main(["--chain", "ixcoin", "--input", "in.csv", "--output", "out.csv"]) == 0
+    )
+    assert rec.calls[0]["spec"].key == "ixcoin"
+    assert rec.calls[0]["input_path"] == "in.csv"
+    assert rec.calls[0]["output_path"] == "out.csv"
+
+
+def test_classify_stales_chain_bitcoin_vault_decimal(monkeypatch):
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    mod = _load("classify_stales")
+    assert mod.main(["--chain", "bitcoin-vault", "--input", "in.csv"]) == 0
+    assert rec.calls[0]["spec"].key == "bitcoin-vault"
+    assert rec.calls[0]["bits_source_is_decimal"] is True
+
+
+def test_classify_stales_chain_syscoin_default_input(monkeypatch):
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    mod = _load("classify_stales")
+    assert mod.main(["--chain", "syscoin"]) == 0
+    assert rec.calls[0]["input_path"] == "data/auxpow_raw.csv"
+
+
+@pytest.mark.parametrize("chain", ["huntercoin", "rsk", "not-a-chain"])
+def test_classify_stales_refuses_non_thin_chain(monkeypatch, chain):
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    mod = _load("classify_stales")
+    with pytest.raises(SystemExit) as exc:
+        mod.main(["--chain", chain])
+    assert exc.value.code not in (0, None)
+    assert rec.calls == []
+
+
+def test_shared_summary_uses_display_name_and_validated_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from stale_blocks_analysis.classifier_cli import run_standard_classifier_cli
+
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    assert (
+        run_standard_classifier_cli(["--input", "in.csv"], CHAIN_SPECS["elcash"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "Electric Cash classification complete" in out
+    assert "validated_output_path" in out
+
+
+def test_classify_stales_help_without_editable_install() -> None:
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, str(CLASSIFY / "classify_stales.py"), "--help"],
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--chain" in result.stdout
+    assert "--keep-near" in result.stdout
+    assert "--input" in result.stdout

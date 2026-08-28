@@ -1,4 +1,8 @@
-"""Shared CLI helpers for the ``scripts/classify/*.py`` classifier fleet.
+"""Shared CLI helpers for the thin ``run_classifier`` fleet.
+
+``run_standard_classifier_cli`` is the one driver for the 13 thin chains.
+``scripts/classify/classify_stales.py --chain <key>`` is the canonical
+entry; the named ``classify_<chain>_stales.py`` wrappers delegate to it.
 
 Before this module, the ``classify_<chain>_stales.py`` wrappers each
 hand-rolled their own argparse for the Bitcoin Core RPC endpoint and the
@@ -52,9 +56,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
+from .btc_classify import run_classifier
 from .btc_rpc import BtcRpc, get_btc_auth
 from .btc_rpc_transports import make_rpc
 from .config import PROJECT_ROOT, ChainSpec
@@ -193,3 +199,102 @@ def add_standard_output_args(
         help="Also retain headers that fail their encoded self-target ('near') as sibling "
         "evidence for shared-parent fork detection",
     )
+
+
+# Thin run_classifier chains: the shared command and the 13 delegate wrappers.
+# Huntercoin / emercoin / doichain (normalizers) and the bespoke classifiers
+# are intentionally absent.
+THIN_CLASSIFIER_CHAINS = frozenset(
+    {
+        "argentum",
+        "bitmark",
+        "bitcoin-vault",
+        "crown",
+        "devcoin",
+        "elcash",
+        "fractal",
+        "ixcoin",
+        "myriadcoin",
+        "syscoin",
+        "terracoin",
+        "unobtanium",
+        "xaya",
+    }
+)
+
+_SUMMARY_KEYS = (
+    "total",
+    "btc_valid",
+    "stale",
+    "unknown",
+    "valid",
+    "rejected",
+    "validation_unknown",
+    "output_path",
+    "validated_output_path",
+)
+
+
+def cli_path_overrides(key: str) -> dict[str, str]:
+    """Historical CLI path defaults that differ from ``ChainSpec`` paths.
+
+    Unobtanium values are home-expanded here so argparse never stores a
+    literal ``~/...`` default.
+    """
+    if key == "syscoin":
+        return {"input_default": "data/auxpow_raw.csv"}
+    if key == "terracoin":
+        return {
+            "input_default": "terracoin_auxpow_raw.csv",
+            "output_default": "terracoin_stale_blocks.csv",
+        }
+    if key == "unobtanium":
+        return {
+            "input_default": os.path.expanduser(
+                "~/uno-extract/unobtanium_auxpow_raw.csv"
+            ),
+            "output_default": os.path.expanduser(
+                "~/uno-extract/unobtanium_stale_blocks.csv"
+            ),
+        }
+    return {}
+
+
+def run_standard_classifier_cli(argv: list[str] | None, spec: ChainSpec) -> int:
+    """Run the thin-wrapper classifier CLI for one ``ChainSpec``.
+
+    ``argv`` is the remaining argument list (no ``--chain``). Refuses
+    chains that are not in :data:`THIN_CLASSIFIER_CHAINS`.
+    """
+    if spec.key not in THIN_CLASSIFIER_CHAINS:
+        print(
+            f"error: {spec.key} is not a thin run_classifier chain",
+            file=sys.stderr,
+        )
+        return 2
+
+    parser = argparse.ArgumentParser(
+        description=f"Classify {spec.display_name} AuxPoW as stale/unknown"
+    )
+    add_standard_output_args(parser, spec, **cli_path_overrides(spec.key))
+    add_rpc_args(parser)
+    args = parser.parse_args(argv)
+
+    summary = run_classifier(
+        spec,
+        input_path=args.input,
+        output_path=args.output,
+        validated_output_path=args.validated_output,
+        all_valid=True,
+        all_valid_path=args.all_valid,
+        keep_near=args.keep_near,
+        bits_source_is_decimal=spec.bits_source_is_decimal,
+        rpc=rpc_from_args(args),
+    )
+    print(f"{spec.display_name} classification complete")
+    for key in _SUMMARY_KEYS:
+        print(f"  {key}: {summary[key]}")
+    if args.keep_near:
+        print(f"  near: {summary['near']}")
+        print(f"  near_output_path: {summary['near_output_path']}")
+    return 0

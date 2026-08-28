@@ -72,6 +72,15 @@ def test_keys_match_key_field() -> None:
         assert spec.key == key, f"dict key {key!r} != spec.key {spec.key!r}"
 
 
+def test_bitcoin_vault_is_the_only_decimal_bits_spec() -> None:
+    assert CHAIN_SPECS["bitcoin-vault"].bits_source_is_decimal is True
+    assert all(
+        not spec.bits_source_is_decimal
+        for key, spec in CHAIN_SPECS.items()
+        if key != "bitcoin-vault"
+    )
+
+
 def test_xaya_uses_powdata_nbits_and_other_specs_use_header_nbits() -> None:
     assert CHAIN_SPECS["xaya"].child_nbits_from_header is False
     assert all(
