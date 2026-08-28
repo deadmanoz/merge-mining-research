@@ -144,8 +144,11 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
 - `scripts/`: extraction, classification, analysis, and utility scripts,
   organized into family subdirectories: `extract/`, `classify/`, `analysis/`,
   `reports/`, `prep/`. `compute_chain_novelty.py` and `fetch-data.sh` stay at
-  the `scripts/` root. Unknown-ancestry reconciliation lives at
-  `scripts/analysis/reconcile_unknown_stale_ancestry.py`. The error-blocks
+  the `scripts/` root. Unknown-ancestry reconciliation is coordinated by
+  `scripts/analysis/reconcile_unknown_stale_ancestry.py`; observation loading,
+  ancestry traversal, and report publication live in
+  `reconcile_observations.py`, `ancestry_walk.py`, and
+  `reconcile_publication.py` in the installed package. The error-blocks
   workflow adds `scripts/prep/build_error_blocks.py` (the dataset builder),
   `scripts/analysis/validate_error_blocks.py` (the offline re-derivation
   validator, wired into tests), four population sweeps under `scripts/analysis/`
