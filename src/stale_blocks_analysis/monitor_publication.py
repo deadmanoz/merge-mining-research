@@ -15,7 +15,11 @@ from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
-from .auxpow_chainid import hash_from_header_bytes
+from .auxpow_chainid import (
+    hash_from_display_hex,
+    hash_from_header_bytes,
+    hash_to_internal_hex,
+)
 from .auxpow_parse import (
     ChildHeaderValidationError,
     hash_meets_btc_difficulty,
@@ -2358,6 +2362,25 @@ def _validate_error_observation_update_floor(
         )
 
 
+def _error_observation_witness_aliases(
+    witness: tuple[str, int, str, int, str], *, allow_rsk_hash_flip: bool
+) -> set[tuple[str, int, str, int, str]]:
+    """Match a legacy 27-column RSK hash in either published byte order."""
+    aliases = {witness}
+    chain, child_height, child_hash, btc_height, parent_hash = witness
+    if allow_rsk_hash_flip and chain == "rsk" and is_hash(child_hash):
+        aliases.add(
+            (
+                chain,
+                child_height,
+                hash_to_internal_hex(hash_from_display_hex(child_hash)),
+                btc_height,
+                parent_hash,
+            )
+        )
+    return aliases
+
+
 def _validate_error_observation_update_identities(
     baseline: tuple[
         set[tuple[int, str]],
@@ -2373,7 +2396,14 @@ def _validate_error_observation_update_identities(
 ) -> None:
     """Reject an aggregate replacement that drops published exact identities."""
     missing_parents = baseline[0] - regenerated[0]
-    missing_witnesses = baseline[1] - regenerated[1]
+    allow_rsk_hash_flip = not baseline[2]
+    missing_witnesses = {
+        witness
+        for witness in baseline[1]
+        if _error_observation_witness_aliases(
+            witness, allow_rsk_hash_flip=allow_rsk_hash_flip
+        ).isdisjoint(regenerated[1])
+    }
     changed_sidecars = [
         witness
         for witness, payload in baseline[2].items()

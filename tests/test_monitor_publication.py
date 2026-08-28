@@ -2127,6 +2127,91 @@ def test_error_aggregate_rejects_regenerated_27_column_file(
         _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
 
 
+def test_error_aggregate_upgrades_legacy_reversed_rsk_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    forward = "7e26d8a3de73a67b4bbe35bfd0763556504ef02ee5eb84e15c1c99024a6a0077"
+    reversed_hash = bytes.fromhex(forward)[::-1].hex()
+    _append_error_observation_baseline(
+        output_dir, child_hash=reversed_hash, parent_hash="02" * 32
+    )
+    with (output_dir / "error-block-observations_monitor_evidence.csv").open(
+        newline=""
+    ) as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["chain"] = "rsk"
+    rows[0]["child_height"] = "789982"
+    with (output_dir / "error-block-observations_monitor_evidence.csv").open(
+        "w", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    def write_forward(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "rsk",
+                    "child_height": "789982",
+                    "child_block_hash": forward,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                    "rsk_miner": "07c5446adb392be116f4859a722589f3fa8223e4",
+                    "merge_mining_hash": (
+                        "6381b3a089cfdd2852ac0edba8e3c234"
+                        "b16321167e8b71c45a75db1148c11c2f"
+                    ),
+                    "is_uncle": "0",
+                    "rsk_merkle_proof": "04",
+                    "rsk_coinbase_tail": "05",
+                }
+            ],
+        )
+        return {"rows": 1, "parents": 1, "source_chain_counts": {"rsk": 1}}
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_forward)
+    _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
+
+
+def test_union_baseline_does_not_alias_rsk_hash_order(tmp_path: Path) -> None:
+    module = _load_module()
+    forward = "7e26d8a3de73a67b4bbe35bfd0763556504ef02ee5eb84e15c1c99024a6a0077"
+    reversed_hash = bytes.fromhex(forward)[::-1].hex()
+    parent = ("100", "02" * 32)
+    sidecar = (
+        "07c5446adb392be116f4859a722589f3fa8223e4",
+        "00" * 32,
+        "0",
+        "",
+        "",
+        "",
+        "",
+    )
+    baseline_witness = ("rsk", 789982, reversed_hash, 100, parent[1])
+    regenerated_witness = ("rsk", 789982, forward, 100, parent[1])
+    with pytest.raises(ValueError, match="missing 1 published witness identities"):
+        module._validate_error_observation_update_identities(
+            ({(100, parent[1])}, {baseline_witness}, {baseline_witness: sidecar}),
+            (
+                {(100, parent[1])},
+                {regenerated_witness},
+                {regenerated_witness: sidecar},
+            ),
+            tmp_path / "monitor-evidence-counts.csv",
+        )
+
+
 def test_error_observation_validator_is_not_the_ordinary_artifact_counter(
     tmp_path: Path,
 ) -> None:
