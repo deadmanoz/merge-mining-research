@@ -99,16 +99,17 @@ from _sweep_common import (  # noqa: E402
     InventoryReader,
     STALE_INVENTORY_BASELINE_ROWS,
     _SCRATCH_CHAINS,
+    add_common_sweep_args,
+    check_sweep_coverage,
+    choose_inventory_reader,
     header_display_hash,
     load_dataset_keys,
     load_nbits_by_epoch,
-    local_mirror_reader,
-    require_full_coverage_for_committed,
-    resolve_output_path,
     reverify_against_canonical_target,
     reverify_full_pow,
     ssh_inventory_reader,
     validate_partial_args,
+    write_sweep_report,
 )
 from stale_blocks_analysis.auxpow_parse import hash_meets_btc_difficulty  # noqa: E402
 from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
@@ -729,26 +730,20 @@ def render_report(reports: list[ChainReport], generated_at: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--chain-archive-root",
-        type=Path,
-        default=None,
-        help="read inventories from a local mirror (<root>/<chain>/<filename>) "
-        f"instead of ssh {ARCHIVE_HOST}",
+    add_common_sweep_args(
+        parser,
+        default_report=DEFAULT_REPORT,
+        archive_help=(
+            "read inventories from a local mirror (<root>/<chain>/<filename>) "
+            f"instead of ssh {ARCHIVE_HOST}"
+        ),
     )
-    parser.add_argument("--output", type=Path, default=DEFAULT_REPORT)
-    parser.add_argument("--allow-partial", action="store_true")
-    parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if validate_partial_args(args):
         return 2
 
-    reader: InventoryReader = (
-        local_mirror_reader(args.chain_archive_root)
-        if args.chain_archive_root is not None
-        else ssh_inventory_reader
-    )
+    reader = choose_inventory_reader(args, default_reader=ssh_inventory_reader)
     dataset_keys = load_dataset_keys()
 
     reports = [
@@ -756,19 +751,7 @@ def main(argv: list[str] | None = None) -> int:
         for chain, path in CHAIN_INVENTORIES.items()
     ]
 
-    reachable = [r for r in reports if r.reachable]
-    if not reachable:
-        for r in reports:
-            print(f"error: {r.chain}: {r.error}", file=sys.stderr)
-        print(
-            "sweep failed: no inventories reachable (no report written)",
-            file=sys.stderr,
-        )
-        return 1
-
-    # A partial sweep (some inventories unreachable) must not overwrite the
-    # committed report without --allow-partial.
-    if require_full_coverage_for_committed(
+    if check_sweep_coverage(
         args,
         reports,
         expected_inventory_rows=REJECTED_INVENTORY_BASELINE_ROWS,
@@ -777,15 +760,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    report_text = render_report(reports, generated_at)
+    write_rc = write_sweep_report(
+        args,
+        default_report=DEFAULT_REPORT,
+        render=lambda output: render_report(reports, generated_at),
+    )
+    if write_rc:
+        return write_rc
 
-    output = resolve_output_path(args, DEFAULT_REPORT)
-    if output is None:
-        return 2
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(report_text)
-    print(f"wrote sweep report to {output}")
-
+    reachable = [r for r in reports if r.reachable]
     total_new = sum(len(r.new_findings) for r in reachable)
     total_anomalies = sum(len(r.target_anomalies) for r in reachable)
     total_untrustworthy = sum(r.untrustworthy_height for r in reachable)
