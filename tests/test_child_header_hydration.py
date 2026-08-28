@@ -84,6 +84,158 @@ def test_child_identity_recovery_refuses_empty_target_set(tmp_path: Path) -> Non
         mod.load_targets(evidence)
 
 
+def test_error_observation_rsk_targets_merge_into_identity_work_list(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    ledger = tmp_path / "error_block_observations.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "namecoin",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+        for height, digest in (
+            (789982, "aa"),
+            (793596, "bb"),
+            (793505, "cc"),
+            (804553, "dd"),
+            (5287383, "ee"),
+        ):
+            writer.writerow(
+                {
+                    "chain": "rsk",
+                    "btc_header_hash": digest * 32,
+                    "child_height": str(height),
+                }
+            )
+
+    extra = mod.load_error_observation_rsk_targets(ledger)
+    assert extra == [
+        ("aa" * 32, 789982),
+        ("cc" * 32, 793505),
+        ("bb" * 32, 793596),
+        ("dd" * 32, 804553),
+        ("ee" * 32, 5287383),
+    ]
+    merged = mod.merge_identity_targets([("22" * 32, 2)], extra)
+    assert ("aa" * 32, 789982) in merged
+    assert ("22" * 32, 2) in merged
+    assert len(merged) == 6
+
+
+def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    missing = tmp_path / "missing.csv"
+    with pytest.raises(SystemExit, match="error-observation ledger is missing"):
+        mod.load_error_observation_rsk_targets(missing)
+
+    empty = tmp_path / "error_block_observations.csv"
+    with empty.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "namecoin",
+                "btc_header_hash": "11" * 32,
+                "child_height": "1",
+            }
+        )
+    with pytest.raises(SystemExit, match="no RSK error-observation targets"):
+        mod.load_error_observation_rsk_targets(empty)
+
+
+def test_error_observation_rsk_targets_refuse_height_disagreement(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    ledger = tmp_path / "error_block_observations.csv"
+    with ledger.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["chain", "btc_header_hash", "child_height"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "chain": "rsk",
+                "btc_header_hash": "aa" * 32,
+                "child_height": "1",
+            }
+        )
+        writer.writerow(
+            {
+                "chain": "rsk",
+                "btc_header_hash": "aa" * 32,
+                "child_height": "2",
+            }
+        )
+
+    with pytest.raises(SystemExit, match="maps to child height"):
+        mod.load_error_observation_rsk_targets(ledger)
+
+
+def test_recover_rsk_uses_canonical_block_when_metadata_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    header = "00" * 80
+    btc_hash = mod.display_hash(mod.sha256d(bytes.fromhex(header)))
+    height = 793505
+    block = {
+        "bitcoinMergedMiningHeader": "0x" + header,
+        "number": hex(height),
+        "timestamp": hex(1_538_453_154),
+        "miner": "0x" + "07" * 20,
+        "hashForMergedMining": "0x" + "63" * 32,
+        "hash": "0x" + "10" * 32,
+        "bitcoinMergedMiningMerkleProof": "0x04",
+        "bitcoinMergedMiningCoinbaseTransaction": "0x05",
+    }
+
+    class FakeRpc:
+        def __init__(self, url, jsonrpc="2.0"):
+            self.url = url
+
+        def call(self, method, params):
+            assert method == "eth_getBlockByNumber"
+            assert params == [hex(height), False]
+            return block
+
+    monkeypatch.setattr(mod, "RpcClient", FakeRpc)
+    rows = mod.recover_rsk("rsk", "http://example.invalid", [(btc_hash, height)], 1, {})
+    assert rows[0]["verification"] == "merged_mining_header_match"
+    assert rows[0]["is_uncle"] == "0"
+    assert rows[0]["child_block_hash"] == "10" * 32
+    assert rows[0]["rsk_miner"] == "07" * 20
+
+    mismatch = dict(block)
+    mismatch["bitcoinMergedMiningHeader"] = "0x" + "11" * 80
+
+    class MismatchRpc(FakeRpc):
+        def call(self, method, params):
+            return mismatch
+
+    monkeypatch.setattr(mod, "RpcClient", MismatchRpc)
+    failed = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height)], 1, {}
+    )
+    assert not failed[0].get("verification")
+    assert failed[0]["note"].startswith("parent_mismatch:")
+
+
 @pytest.mark.parametrize(
     ("relative_path", "loader_name"),
     [

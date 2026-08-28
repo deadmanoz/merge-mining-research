@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Publish error-block observations on the 34-column monitor union schema,
+hydrate RSK sidecar cells from committed child-identity, and keep RSK keccak
+child hashes in forward node order. Ordinary publication still excludes those
+five RSK error parents; recovery now includes them in the RSK identity work
+list and will try a canonical `eth_getBlockByNumber` when classified uncle
+metadata is absent.
+
 Catalogue Bitcoin height 957780 (`time_below_mtp`) from merge-mining-monitor
 live capture, with recovered Namecoin, Syscoin, Fractal, and Elastos witnesses.
 The error-block dataset is now 35 parents and the monitor-facing
