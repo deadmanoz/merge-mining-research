@@ -259,6 +259,32 @@ def test_error_observation_rejects_missing_rsk_child_identity(tmp_path) -> None:
         build_error_observation_rows(data_dir=data_dir)
 
 
+def test_error_observation_corroborates_rsk_child_timestamp(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rsk = next(row for row in rows if row["chain"] == "rsk")
+    rsk["child_block_time"] = "1"
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+    with pytest.raises(ValueError, match="child_block_time disagrees"):
+        build_error_observation_rows(data_dir=data_dir)
+
+    rsk["child_block_time"] = ""
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+    identity = load_child_identity(data_dir)[("rsk", rsk["btc_header_hash"])]
+    exported = next(
+        row
+        for row in build_error_observation_rows(data_dir=data_dir)[0]
+        if row["chain"] == "rsk" and row["btc_header_hash"] == rsk["btc_header_hash"]
+    )
+    assert exported["child_block_time"] == identity["child_block_time"]
+
+
 def test_error_observation_rejects_reversed_rsk_hash_without_overwriting(
     tmp_path,
 ) -> None:

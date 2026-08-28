@@ -400,6 +400,14 @@ def _attach_rsk_error_observation_sidecars(
             or candidate_height != row_height
         ):
             raise ValueError(f"{row_id}: child_height disagrees with child-identity")
+        identity_time = (candidate.get("child_block_time") or "").strip()
+        ledger_time = (row.get("child_block_time") or "").strip()
+        if ledger_time and identity_time and ledger_time != identity_time:
+            raise ValueError(
+                f"{row_id}: child_block_time disagrees with child-identity"
+            )
+        if not ledger_time and identity_time:
+            row["child_block_time"] = identity_time
         for field in RSK_SIDECAR_EXPORT_FIELDS:
             row[field] = (candidate.get(field) or "").strip()
         validate_rsk_sidecar_cells(row, row_id=row_id)
