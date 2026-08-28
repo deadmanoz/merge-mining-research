@@ -87,8 +87,9 @@ unknown). Anything before Fork 1 carries no AuxPoW proof and is out of scope.
 **Reference scripts.**
 
 - `scripts/extract/extract_bitmark_auxpow.py` - RPC raw-hex extraction with the
-  `nVersion`-bit algo filter (`FIRST_AUXPOW_HEIGHT = 450_947`,
-  `BLOCK_VERSION_ALGO = 7 << 9`, `ALGO_SHA256D = 1`, `VERSION_AUXPOW = 1 << 8`),
+  `nVersion`-bit algo filter (`CHAIN_SPECS["bitmark"].activation_height` =
+  450,947, `BLOCK_VERSION_ALGO = 7 << 9`, `ALGO_SHA256D = 1`,
+  `VERSION_AUXPOW = 1 << 8`),
   parsing the standard Namecoin-style `CAuxPow` parent header and coinbase.
 - `scripts/classify/classify_bitmark_stales.py` - BTC RPC batch classifier
   (self-target PoW filter, dedup, nBits-by-epoch contamination filter, and

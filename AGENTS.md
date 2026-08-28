@@ -309,8 +309,9 @@ Preserve these distinctions:
 ## Code Conventions
 
 - Keep shared paths, protocol constants, the relevance vocabulary, and chain
-  chronology in `src/stale_blocks_analysis/config.py`. `config.py`
-  intentionally creates output directories at import time.
+  chronology in `src/stale_blocks_analysis/config.py`. Importing that
+  registry must not create directories. Writers create `results/`, `cache/`,
+  and other output parents when they write.
 - Loader functions in `stale_blocks.py` should return the established row shape:
   `height`, `hash`, `source`, and when available `_scriptsig_hex` and
   `_outputs_str`. The current recovery pipeline does not return pool labels.
