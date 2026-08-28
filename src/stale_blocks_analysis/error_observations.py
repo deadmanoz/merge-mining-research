@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -320,23 +321,25 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
 
 
 I32_MAX = 2_147_483_647
+_PUBLISHED_HEX = re.compile(r"^[0-9a-fA-F]+$")
+_PUBLISHED_I32 = re.compile(r"^[+]?[0-9]+$")
 
 
 def _published_hex_byte_length(value: str) -> int | None:
-    """Count bytes in unprefixed hex; reject 0x so the monitor decoder accepts it."""
+    """Count bytes in unprefixed hex the monitor's `hex::decode` will accept."""
     stripped = (value or "").strip()
-    if not stripped or stripped.lower().startswith("0x") or len(stripped) % 2:
+    if not stripped or len(stripped) % 2 or not _PUBLISHED_HEX.fullmatch(stripped):
         return None
-    try:
-        return len(bytes.fromhex(stripped))
-    except ValueError:
-        return None
+    return len(stripped) // 2
 
 
 def _published_i32(value: str) -> int | None:
-    """Parse a monitor-importable signed 32-bit cell."""
-    parsed = int_or_none((value or "").strip())
-    if parsed is None or parsed < 0 or parsed > I32_MAX:
+    """Parse a monitor-importable signed 32-bit cell (`i32::from_str`)."""
+    stripped = (value or "").strip()
+    if not _PUBLISHED_I32.fullmatch(stripped):
+        return None
+    parsed = int(stripped)
+    if parsed < 0 or parsed > I32_MAX:
         return None
     return parsed
 

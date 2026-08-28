@@ -311,3 +311,13 @@ def test_rsk_sidecar_rejects_0x_prefix_and_i32_overflow() -> None:
     overflow["uncle_parent_height"] = "2147483648"
     with pytest.raises(ValueError, match="signed 32-bit"):
         validate_rsk_sidecar_cells(overflow, row_id="overflow")
+
+    spaced = dict(row)
+    spaced["rsk_miner"] = row["rsk_miner"][:4] + "  " + row["rsk_miner"][4:]
+    with pytest.raises(ValueError, match="unprefixed 20-byte hex"):
+        validate_rsk_sidecar_cells(spaced, row_id="spaced")
+
+    underscored = dict(row)
+    underscored["uncle_index"] = "1_0"
+    with pytest.raises(ValueError, match="signed 32-bit"):
+        validate_rsk_sidecar_cells(underscored, row_id="underscore")
