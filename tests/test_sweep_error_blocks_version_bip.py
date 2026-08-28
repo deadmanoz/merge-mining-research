@@ -6,10 +6,8 @@ with synthetic in-memory inventories and injected readers.
 
 from __future__ import annotations
 
-import csv
-import hashlib
+import argparse
 import importlib.util
-import io
 import sys
 from pathlib import Path
 
@@ -32,7 +30,14 @@ def _load_sweep():
 
 sweep = _load_sweep()
 
-from _sweep_test_helpers import _bip34_scriptsig, _header_hex  # noqa: E402
+from _sweep_test_helpers import (  # noqa: E402
+    _bip34_scriptsig,
+    _display_hash,
+    _header_hex,
+    _inventory as _inventory_csv,
+    _reader,
+    _synthetic_nbits_from_rows,
+)
 
 # A bits value whose target is so large any header hash passes (exp 0x21).
 EASY_BITS = "2100ffff"
@@ -58,11 +63,6 @@ FIELDS = [
 # coinbase-height prefix), both inside the plausible range.
 BIP65_ERA_HEIGHT = 400_000
 BIP34_ERA_HEIGHT = 300_000
-
-
-def _display_hash(header_hex: str) -> str:
-    digest = hashlib.sha256(hashlib.sha256(bytes.fromhex(header_hex)).digest()).digest()
-    return digest[::-1].hex()
 
 
 def _row(
@@ -93,40 +93,11 @@ def _row(
 
 
 def _inventory(rows: list[dict[str, str]]) -> str:
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=FIELDS)
-    writer.writeheader()
-    writer.writerows(rows)
-    return buf.getvalue()
-
-
-def _reader(mapping: dict[str, str]):
-    def read(chain: str, path: str) -> str:
-        if path not in mapping:
-            raise OSError(f"no such inventory: {path}")
-        return mapping[path]
-
-    return read
+    return _inventory_csv(rows, FIELDS)
 
 
 def _synthetic_nbits_by_epoch(rows: list[dict[str, str]]) -> dict[int, int]:
-    """An epoch table agreeing with the synthetic rows' EASY_BITS target.
-
-    The shared canonical-target check corroborates a row's ``expected_nbits``
-    against the epoch table at the claimed height's epoch start and fails
-    closed on a disagreement. The synthetic rows use the trivially-met
-    EASY_BITS, which disagrees with the REAL (hard) epoch-table value at
-    these heights; map each row's epoch start to EASY_BITS so the
-    canonical-target check can pass for a full-PoW finding.
-    """
-    table: dict[int, int] = {}
-    for row in rows:
-        try:
-            height = int(row["btc_height"])
-        except ValueError:
-            continue  # no parseable height: no epoch-start entry needed
-        table[(height // 2016) * 2016] = int(EASY_BITS, 16)
-    return table
+    return _synthetic_nbits_from_rows(rows, EASY_BITS)
 
 
 def _sweep(
@@ -650,3 +621,68 @@ def test_main_partial_sweep_writes_partial_with_allow_partial(
     assert sweep.main() == 0
     report = (out_dir / sweep.DEFAULT_REPORT.name).read_text()
     assert "Unreachable inventories" in report
+
+
+def test_choose_inventory_reader_prefers_archive_root(tmp_path: Path) -> None:
+    (tmp_path / "devcoin").mkdir()
+    (tmp_path / "devcoin" / "stale.csv").write_text("from-mirror")
+    args = argparse.Namespace(chain_archive_root=tmp_path)
+
+    def default_reader(chain: str, path: str) -> str:
+        raise AssertionError(f"default reader used for {path}")
+
+    reader = sweep.choose_inventory_reader(args, default_reader=default_reader)
+    assert reader("devcoin", "/remote/stale.csv") == "from-mirror"
+
+
+def test_main_reads_both_sources_from_chain_archive_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # --chain-archive-root must override BOTH the archive stale reader and
+    # the committed validated-stales path for a two-source sweep.
+    archive = tmp_path / "archive"
+    (archive / "devcoin").mkdir(parents=True)
+    stale_name = "devcoin_stale_blocks.csv"
+    validated_name = "devcoin_validated_stales.csv"
+    violating = _row(BIP65_ERA_HEIGHT, 3, EASY_BITS, scriptsig_height=BIP65_ERA_HEIGHT)
+    clean = _row(BIP65_ERA_HEIGHT, 4, EASY_BITS, scriptsig_height=BIP65_ERA_HEIGHT)
+    (archive / "devcoin" / stale_name).write_text(_inventory([violating]))
+    (archive / "devcoin" / validated_name).write_text(_inventory([clean]))
+
+    monkeypatch.setattr(
+        sweep, "STALE_INVENTORIES", {"devcoin": f"/remote/{stale_name}"}
+    )
+    monkeypatch.setattr(
+        sweep,
+        "validated_stales_inventories",
+        lambda glob_pattern: {"devcoin": f"data/validated-stales/{validated_name}"},
+    )
+
+    def boom(chain: str, path: str) -> str:
+        raise AssertionError(f"default reader used for {path}")
+
+    monkeypatch.setattr(sweep, "ssh_inventory_reader", boom)
+    monkeypatch.setattr(sweep, "local_validated_reader", boom)
+    monkeypatch.setattr(
+        sweep,
+        "load_nbits_by_epoch",
+        lambda: _synthetic_nbits_by_epoch([violating, clean]),
+    )
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sweep_error_blocks_version_bip.py",
+            "--chain-archive-root",
+            str(archive),
+            "--allow-partial",
+            "--output-dir",
+            str(out_dir),
+        ],
+    )
+    assert sweep.main() == 0
+    report = (out_dir / sweep.DEFAULT_REPORT.name).read_text()
+    assert "| devcoin | stale | 1 |" in report
+    assert "| devcoin | validated | 1 |" in report
+    assert "NEW confirmed error blocks: 1" in report

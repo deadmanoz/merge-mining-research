@@ -6,10 +6,7 @@ with synthetic in-memory inventories and injected readers.
 
 from __future__ import annotations
 
-import csv
-import hashlib
 import importlib.util
-import io
 import sys
 from pathlib import Path
 
@@ -32,7 +29,14 @@ def _load_sweep():
 
 sweep = _load_sweep()
 
-from _sweep_test_helpers import _bip34_scriptsig, _header_hex  # noqa: E402
+from _sweep_test_helpers import (  # noqa: E402
+    _bip34_scriptsig,
+    _display_hash,
+    _header_hex,
+    _inventory as _inventory_csv,
+    _reader,
+    _synthetic_nbits_from_rows,
+)
 
 # A bits value whose target is so large any header hash passes (exp 0x21).
 EASY_BITS = "2100ffff"
@@ -58,11 +62,6 @@ FIELDS = [
 # plausible range.
 BIP34_ERA_HEIGHT = 300_000
 PRE_BIP34_HEIGHT = 100_000
-
-
-def _display_hash(header_hex: str) -> str:
-    digest = hashlib.sha256(hashlib.sha256(bytes.fromhex(header_hex)).digest()).digest()
-    return digest[::-1].hex()
 
 
 def _row(
@@ -93,40 +92,11 @@ def _row(
 
 
 def _inventory(rows: list[dict[str, str]]) -> str:
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=FIELDS)
-    writer.writeheader()
-    writer.writerows(rows)
-    return buf.getvalue()
-
-
-def _reader(mapping: dict[str, str]):
-    def read(chain: str, path: str) -> str:
-        if path not in mapping:
-            raise OSError(f"no such inventory: {path}")
-        return mapping[path]
-
-    return read
+    return _inventory_csv(rows, FIELDS)
 
 
 def _synthetic_nbits_by_epoch(rows: list[dict[str, str]]) -> dict[int, int]:
-    """An epoch table agreeing with the synthetic rows' EASY_BITS target.
-
-    The shared canonical-target check corroborates a row's ``expected_nbits``
-    against the epoch table at the claimed height's epoch start and fails
-    closed on a disagreement. The synthetic rows use the trivially-met
-    EASY_BITS, which disagrees with the REAL (hard) epoch-table value at
-    these heights; map each row's epoch start to EASY_BITS so the
-    canonical-target check can pass for a full-PoW finding.
-    """
-    table: dict[int, int] = {}
-    for row in rows:
-        try:
-            height = int(row["btc_height"])
-        except ValueError:
-            continue  # no parseable height: no epoch-start entry needed
-        table[(height // 2016) * 2016] = int(EASY_BITS, 16)
-    return table
+    return _synthetic_nbits_from_rows(rows, EASY_BITS)
 
 
 def _sweep(
