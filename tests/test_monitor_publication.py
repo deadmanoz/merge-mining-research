@@ -2151,6 +2151,77 @@ def test_error_observation_validator_is_not_the_ordinary_artifact_counter(
         module._load_monitor_artifact_counts(path, "error-block-observations")
 
 
+def test_error_aggregate_rejects_changed_union_sidecar_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    sidecar = {
+        "chain": "rsk",
+        "child_height": "1",
+        "child_block_hash": "01" * 32,
+        "btc_height": "100",
+        "btc_header_hash": "02" * 32,
+        "rsk_miner": "07c5446adb392be116f4859a722589f3fa8223e4",
+        "merge_mining_hash": (
+            "6381b3a089cfdd2852ac0edba8e3c234b16321167e8b71c45a75db1148c11c2f"
+        ),
+        "is_uncle": "0",
+        "rsk_merkle_proof": "04",
+        "rsk_coinbase_tail": "05",
+    }
+    _write_error_observation_csv(
+        output_dir / "error-block-observations_monitor_evidence.csv", [sidecar]
+    )
+    counts_path = output_dir / "monitor-evidence-counts.csv"
+    with counts_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        counts = list(reader)
+    assert fieldnames is not None
+    aggregate = {field: "0" for field in fieldnames}
+    aggregate.update(
+        {
+            "chain": "error-block-observations",
+            "source_kind": "error_block_catalogue",
+            "artifact_scope": "error-block-observations",
+            "artifact_path": (
+                "results/monitor-evidence/error-block-observations_monitor_evidence.csv"
+            ),
+            "error_block": "1",
+            "monitor_rows": "1",
+            "source_rows": "1",
+        }
+    )
+    counts.append(aggregate)
+    with counts_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(counts)
+    manifest_path = output_dir / "monitor-evidence-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
+    manifest["counts"] = _manifest_counts(counts)
+    manifest_path.write_text(json.dumps(manifest))
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    def write_changed(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        changed = dict(sidecar)
+        changed["rsk_miner"] = "32dfc7a84f24b10a5dded1d8b24f48b96ab77373"
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [changed],
+        )
+        return {"rows": 1, "parents": 1, "source_chain_counts": {"rsk": 1}}
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_changed)
+    with pytest.raises(ValueError, match="changed 1 published sidecar payloads"):
+        _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
+
+
 def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

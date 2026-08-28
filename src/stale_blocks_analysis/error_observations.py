@@ -319,11 +319,13 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
     return observations
 
 
-def _hex_byte_length(value: str) -> int | None:
-    stripped = (value or "").strip().lower()
-    if stripped.startswith("0x"):
-        stripped = stripped[2:]
-    if not stripped or len(stripped) % 2:
+I32_MAX = 2_147_483_647
+
+
+def _published_hex_byte_length(value: str) -> int | None:
+    """Count bytes in unprefixed hex; reject 0x so the monitor decoder accepts it."""
+    stripped = (value or "").strip()
+    if not stripped or stripped.lower().startswith("0x") or len(stripped) % 2:
         return None
     try:
         return len(bytes.fromhex(stripped))
@@ -331,30 +333,41 @@ def _hex_byte_length(value: str) -> int | None:
         return None
 
 
+def _published_i32(value: str) -> int | None:
+    """Parse a monitor-importable signed 32-bit cell."""
+    parsed = int_or_none((value or "").strip())
+    if parsed is None or parsed < 0 or parsed > I32_MAX:
+        return None
+    return parsed
+
+
 def validate_rsk_sidecar_cells(row: dict[str, str], *, row_id: str) -> None:
     """Reject RSK sidecar values that the monitor importer would skip."""
-    miner_len = _hex_byte_length(row.get("rsk_miner") or "")
+    miner_len = _published_hex_byte_length(row.get("rsk_miner") or "")
     if miner_len != 20:
-        raise ValueError(f"{row_id}: rsk_miner must be exactly 20 bytes")
-    mm_len = _hex_byte_length(row.get("merge_mining_hash") or "")
+        raise ValueError(f"{row_id}: rsk_miner must be unprefixed 20-byte hex")
+    mm_len = _published_hex_byte_length(row.get("merge_mining_hash") or "")
     if mm_len != 32:
-        raise ValueError(f"{row_id}: merge_mining_hash must be exactly 32 bytes")
+        raise ValueError(f"{row_id}: merge_mining_hash must be unprefixed 32-byte hex")
     is_uncle = (row.get("is_uncle") or "").strip()
     if is_uncle not in {"0", "1"}:
         raise ValueError(f"{row_id}: is_uncle must be 0 or 1")
     uncle_index = (row.get("uncle_index") or "").strip()
     uncle_parent_height = (row.get("uncle_parent_height") or "").strip()
     if is_uncle == "1":
-        if int_or_none(uncle_index) is None or int_or_none(uncle_parent_height) is None:
-            raise ValueError(f"{row_id}: uncle placement must be present")
-        if int(uncle_index) < 0 or int(uncle_parent_height) < 0:
-            raise ValueError(f"{row_id}: uncle placement must be non-negative")
+        if (
+            _published_i32(uncle_index) is None
+            or _published_i32(uncle_parent_height) is None
+        ):
+            raise ValueError(
+                f"{row_id}: uncle placement must be a non-negative signed 32-bit int"
+            )
     elif uncle_index or uncle_parent_height:
         raise ValueError(f"{row_id}: uncle placement must be blank for is_uncle=0")
     for name in ("rsk_merkle_proof", "rsk_coinbase_tail"):
         value = (row.get(name) or "").strip()
-        if value and _hex_byte_length(value) is None:
-            raise ValueError(f"{row_id}: {name} must be blank or valid hex")
+        if value and _published_hex_byte_length(value) is None:
+            raise ValueError(f"{row_id}: {name} must be blank or unprefixed hex")
 
 
 def _attach_rsk_error_observation_sidecars(

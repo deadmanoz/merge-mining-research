@@ -288,3 +288,26 @@ def test_error_observation_rejects_reversed_rsk_hash_without_overwriting(
 
     identity_after = load_child_identity(data_dir)
     assert identity_after[("rsk", rsk_parent)]["child_block_hash"] != ledger_hash
+
+
+def test_rsk_sidecar_rejects_0x_prefix_and_i32_overflow() -> None:
+    row = {
+        "rsk_miner": "07c5446adb392be116f4859a722589f3fa8223e4",
+        "merge_mining_hash": "6381b3a089cfdd2852ac0edba8e3c234b16321167e8b71c45a75db1148c11c2f",
+        "is_uncle": "1",
+        "uncle_index": "0",
+        "uncle_parent_height": "789984",
+        "rsk_merkle_proof": "04",
+        "rsk_coinbase_tail": "05",
+    }
+    validate_rsk_sidecar_cells(row, row_id="ok")
+
+    prefixed = dict(row)
+    prefixed["rsk_miner"] = "0x" + row["rsk_miner"]
+    with pytest.raises(ValueError, match="unprefixed 20-byte hex"):
+        validate_rsk_sidecar_cells(prefixed, row_id="prefixed")
+
+    overflow = dict(row)
+    overflow["uncle_parent_height"] = "2147483648"
+    with pytest.raises(ValueError, match="signed 32-bit"):
+        validate_rsk_sidecar_cells(overflow, row_id="overflow")

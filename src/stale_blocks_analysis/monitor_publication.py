@@ -672,15 +672,22 @@ def _load_monitor_artifact_counts(
 
 def _load_error_observation_identity_sets(
     path: Path,
-) -> tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]]:
+) -> tuple[
+    set[tuple[int, str]],
+    set[tuple[str, int, str, int, str]],
+    dict[tuple[str, int, str, int, str], tuple[str, ...]],
+]:
     """Load exact parent and witness identities from an error aggregate.
 
     Accepts the legacy 27-column header or the 34-column union so an add-only
     upgrade can read today's committed baseline before writing the replacement.
-    Sidecar completeness is enforced separately on staged and final artifacts.
+    34-column baselines also keep the published sidecar payload so an add-only
+    replacement cannot silently rewrite RSK evidence. Sidecar completeness is
+    enforced separately on staged and final artifacts.
     """
     parent_identities: set[tuple[int, str]] = set()
     witness_identities: set[tuple[str, int, str, int, str]] = set()
+    sidecar_payloads: dict[tuple[str, int, str, int, str], tuple[str, ...]] = {}
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or ())
@@ -705,6 +712,7 @@ def _load_error_observation_identity_sets(
                 f"{path}: missing error-observation identity fields: "
                 + ", ".join(sorted(missing))
             )
+        union_schema = fieldnames == list(ERROR_OBSERVATION_FIELDS)
         for row_number, row in enumerate(reader, start=2):
             chain = (row.get("chain") or "").strip()
             child_height = int_or_none((row.get("child_height") or "").strip())
@@ -730,7 +738,12 @@ def _load_error_observation_identity_sets(
                     f"{path}:{row_number}: duplicate error-observation witness"
                 )
             witness_identities.add(witness)
-    return parent_identities, witness_identities
+            if union_schema:
+                sidecar_payloads[witness] = tuple(
+                    (row.get(field) or "").strip()
+                    for field in RSK_SIDECAR_EXPORT_FIELDS
+                )
+    return parent_identities, witness_identities, sidecar_payloads
 
 
 def validate_error_observation_publication(path: Path) -> None:
@@ -2247,7 +2260,7 @@ def _load_error_update_baseline(
     ):
         raise ValueError(f"{output_dir}: error-observation artifact is missing")
     else:
-        baseline_identities = (set(), set())
+        baseline_identities = (set(), set(), {})
     _validate_add_only_baseline_floors(count_rows, counts_path)
     committed_identities = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
     committed_identity_sequences = _load_monitor_final_identity_sequences(
@@ -2346,20 +2359,35 @@ def _validate_error_observation_update_floor(
 
 
 def _validate_error_observation_update_identities(
-    baseline: tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
-    regenerated: tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]],
+    baseline: tuple[
+        set[tuple[int, str]],
+        set[tuple[str, int, str, int, str]],
+        dict[tuple[str, int, str, int, str], tuple[str, ...]],
+    ],
+    regenerated: tuple[
+        set[tuple[int, str]],
+        set[tuple[str, int, str, int, str]],
+        dict[tuple[str, int, str, int, str], tuple[str, ...]],
+    ],
     counts_path: Path,
 ) -> None:
     """Reject an aggregate replacement that drops published exact identities."""
     missing_parents = baseline[0] - regenerated[0]
     missing_witnesses = baseline[1] - regenerated[1]
-    if not missing_parents and not missing_witnesses:
+    changed_sidecars = [
+        witness
+        for witness, payload in baseline[2].items()
+        if regenerated[2].get(witness) != payload
+    ]
+    if not missing_parents and not missing_witnesses and not changed_sidecars:
         return
     details: list[str] = []
     if missing_parents:
         details.append(f"missing {len(missing_parents)} published parent identities")
     if missing_witnesses:
         details.append(f"missing {len(missing_witnesses)} published witness identities")
+    if changed_sidecars:
+        details.append(f"changed {len(changed_sidecars)} published sidecar payloads")
     raise ValueError(
         f"{counts_path}: regenerated error-observation aggregate drops "
         + "; ".join(details)
