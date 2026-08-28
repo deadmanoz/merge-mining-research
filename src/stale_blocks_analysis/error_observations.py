@@ -17,6 +17,10 @@ from .auxpow_parse import (
     validate_available_child_header_fields,
 )
 from .config import CHAIN_SPECS, DATA_DIR
+from .evidence_hydration import (
+    RSK_SIDECAR_EXPORT_FIELDS,
+    load_child_identity,
+)
 from .full_evidence import (
     int_or_none,
     is_hash,
@@ -30,7 +34,7 @@ from .monitor_exports import MONITOR_EVIDENCE_FIELDS
 ERROR_OBSERVATION_ARTIFACT = "error-block-observations"
 ERROR_OBSERVATION_SCOPE = "error-block-observations"
 ERROR_OBSERVATION_STATUS = "VALID_ERROR_BLOCK"
-ERROR_OBSERVATION_FIELDS = MONITOR_EVIDENCE_FIELDS
+ERROR_OBSERVATION_FIELDS = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
 ERROR_OBSERVATION_LEDGER = "error_block_observations.csv"
 
 _LEDGER_FIELDS = {
@@ -257,7 +261,7 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 raise ValueError(
                     f"{path}:{row_number}: malformed child_block_hash_order"
                 )
-            if child_hash_order == "display" and child_hash:
+            if child_hash_order == "display" and child_hash and chain != "rsk":
                 child_hash = hash_to_internal_hex(hash_from_display_hex(child_hash))
             child_header = (row.get("child_header_hex") or "").strip().lower()
             child_header_bytes: bytes | None = None
@@ -313,6 +317,76 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 raise ValueError(f"{path}:{row_number}: duplicate witness {key}")
             observations[key] = row
     return observations
+
+
+def _hex_byte_length(value: str) -> int | None:
+    stripped = (value or "").strip().lower()
+    if stripped.startswith("0x"):
+        stripped = stripped[2:]
+    if not stripped or len(stripped) % 2:
+        return None
+    try:
+        return len(bytes.fromhex(stripped))
+    except ValueError:
+        return None
+
+
+def validate_rsk_sidecar_cells(row: dict[str, str], *, row_id: str) -> None:
+    """Reject RSK sidecar values that the monitor importer would skip."""
+    miner_len = _hex_byte_length(row.get("rsk_miner") or "")
+    if miner_len != 20:
+        raise ValueError(f"{row_id}: rsk_miner must be exactly 20 bytes")
+    mm_len = _hex_byte_length(row.get("merge_mining_hash") or "")
+    if mm_len != 32:
+        raise ValueError(f"{row_id}: merge_mining_hash must be exactly 32 bytes")
+    is_uncle = (row.get("is_uncle") or "").strip()
+    if is_uncle not in {"0", "1"}:
+        raise ValueError(f"{row_id}: is_uncle must be 0 or 1")
+    uncle_index = (row.get("uncle_index") or "").strip()
+    uncle_parent_height = (row.get("uncle_parent_height") or "").strip()
+    if is_uncle == "1":
+        if int_or_none(uncle_index) is None or int_or_none(uncle_parent_height) is None:
+            raise ValueError(f"{row_id}: uncle placement must be present")
+        if int(uncle_index) < 0 or int(uncle_parent_height) < 0:
+            raise ValueError(f"{row_id}: uncle placement must be non-negative")
+    elif uncle_index or uncle_parent_height:
+        raise ValueError(f"{row_id}: uncle placement must be blank for is_uncle=0")
+    for name in ("rsk_merkle_proof", "rsk_coinbase_tail"):
+        value = (row.get(name) or "").strip()
+        if value and _hex_byte_length(value) is None:
+            raise ValueError(f"{row_id}: {name} must be blank or valid hex")
+
+
+def _attach_rsk_error_observation_sidecars(
+    rows: list[dict[str, str]], *, data_dir: Path
+) -> None:
+    """Copy RSK sidecar fields only; never replace the ledger child hash."""
+    identity = load_child_identity(data_dir)
+    for row in rows:
+        if row["chain"] != "rsk":
+            continue
+        parent_hash = normalize_hash(row["btc_header_hash"])
+        candidate = identity.get(("rsk", parent_hash))
+        row_id = f"error-observation rsk {parent_hash}"
+        if candidate is None:
+            raise ValueError(f"{row_id}: missing child-identity")
+        ledger_hash = normalize_hash(row.get("child_block_hash"))
+        identity_hash = normalize_hash(candidate.get("child_block_hash"))
+        if ledger_hash != identity_hash:
+            raise ValueError(
+                f"{row_id}: child_block_hash disagrees with child-identity"
+            )
+        candidate_height = int_or_none(candidate.get("child_height"))
+        row_height = int_or_none(row.get("child_height"))
+        if (
+            candidate_height is None
+            or row_height is None
+            or candidate_height != row_height
+        ):
+            raise ValueError(f"{row_id}: child_height disagrees with child-identity")
+        for field in RSK_SIDECAR_EXPORT_FIELDS:
+            row[field] = (candidate.get(field) or "").strip()
+        validate_rsk_sidecar_cells(row, row_id=row_id)
 
 
 def build_error_observation_rows(
@@ -375,6 +449,7 @@ def build_error_observation_rows(
             }
         )
         rows.append(row)
+    _attach_rsk_error_observation_sidecars(rows, data_dir=data_dir)
     rows.sort(
         key=lambda row: (
             row["chain"],

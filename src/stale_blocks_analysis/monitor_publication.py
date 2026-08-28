@@ -38,8 +38,10 @@ from .config import (
 from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
 from .error_observations import (
     ERROR_OBSERVATION_ARTIFACT,
+    ERROR_OBSERVATION_FIELDS,
     build_error_observation_rows,
     error_observation_count_row,
+    validate_rsk_sidecar_cells,
     write_error_observation_artifact,
 )
 from .evidence_hydration import (
@@ -671,11 +673,25 @@ def _load_monitor_artifact_counts(
 def _load_error_observation_identity_sets(
     path: Path,
 ) -> tuple[set[tuple[int, str]], set[tuple[str, int, str, int, str]]]:
-    """Load exact parent and witness identities from an error aggregate."""
+    """Load exact parent and witness identities from an error aggregate.
+
+    Accepts the legacy 27-column header or the 34-column union so an add-only
+    upgrade can read today's committed baseline before writing the replacement.
+    Sidecar completeness is enforced separately on staged and final artifacts.
+    """
     parent_identities: set[tuple[int, str]] = set()
     witness_identities: set[tuple[str, int, str, int, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        if fieldnames not in (
+            list(MONITOR_EVIDENCE_FIELDS),
+            list(ERROR_OBSERVATION_FIELDS),
+        ):
+            raise ValueError(
+                f"{path}: error-observation header must be the 27-column "
+                "legacy schema or the 34-column union"
+            )
         required = {
             "chain",
             "child_height",
@@ -683,7 +699,7 @@ def _load_error_observation_identity_sets(
             "btc_height",
             "btc_header_hash",
         }
-        missing = required - set(reader.fieldnames or ())
+        missing = required - set(fieldnames)
         if missing:
             raise ValueError(
                 f"{path}: missing error-observation identity fields: "
@@ -715,6 +731,33 @@ def _load_error_observation_identity_sets(
                 )
             witness_identities.add(witness)
     return parent_identities, witness_identities
+
+
+def validate_error_observation_publication(path: Path) -> None:
+    """Require the union schema and semantic RSK sidecars on a published aggregate."""
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        if fieldnames != list(ERROR_OBSERVATION_FIELDS):
+            raise ValueError(
+                f"{path}: error-observation header must exactly match the "
+                "34-column union schema"
+            )
+        for row_number, row in enumerate(reader, start=2):
+            chain = (row.get("chain") or "").strip()
+            if chain == "rsk":
+                validate_rsk_sidecar_cells(row, row_id=f"{path}:{row_number}")
+                continue
+            extra = [
+                field
+                for field in RSK_SIDECAR_EXPORT_FIELDS
+                if (row.get(field) or "").strip()
+            ]
+            if extra:
+                raise ValueError(
+                    f"{path}:{row_number}: non-RSK error-observation row has "
+                    f"sidecar values: {', '.join(extra)}"
+                )
 
 
 def _load_ordinary_monitor_parent_identities(
@@ -2447,9 +2490,11 @@ def build_error_observation_update(args: argparse.Namespace) -> dict[str, object
         observed_rows = int_or_none(str(artifact.get("rows") or ""))
         if observed_rows is None or observed_rows < 0:
             raise ValueError("error-observation artifact has an invalid row count")
-        regenerated_identities = _load_error_observation_identity_sets(
+        staged_aggregate = (
             staging_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
         )
+        validate_error_observation_publication(staged_aggregate)
+        regenerated_identities = _load_error_observation_identity_sets(staged_aggregate)
         _validate_error_observation_update_identities(
             baseline_identities,
             regenerated_identities,

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import stale_blocks_analysis.monitor_publication as monitor_publication
+from stale_blocks_analysis.error_observations import ERROR_OBSERVATION_FIELDS
 from stale_blocks_analysis.full_evidence import parse_header_fields
 from stale_blocks_analysis.monitor_exports import MONITOR_EVIDENCE_FIELDS
 
@@ -261,6 +262,20 @@ def _write_add_only_baseline(output_dir: Path, *, stale: int) -> Path:
     return normal_artifact
 
 
+def _write_error_observation_csv(
+    path: Path,
+    rows: list[dict[str, str]],
+    *,
+    fields: list[str] | None = None,
+) -> None:
+    fieldnames = list(fields or ERROR_OBSERVATION_FIELDS)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+
 def _append_error_observation_baseline(
     output_dir: Path, *, child_hash: str, parent_hash: str
 ) -> None:
@@ -294,9 +309,18 @@ def _append_error_observation_baseline(
     manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
     manifest["counts"] = _manifest_counts(counts)
     manifest_path.write_text(json.dumps(manifest))
-    (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
-        "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
-        f"namecoin,1,{child_hash},100,{parent_hash}\n"
+    _write_error_observation_csv(
+        output_dir / "error-block-observations_monitor_evidence.csv",
+        [
+            {
+                "chain": "namecoin",
+                "child_height": "1",
+                "child_block_hash": child_hash,
+                "btc_height": "100",
+                "btc_header_hash": parent_hash,
+            }
+        ],
+        fields=MONITOR_EVIDENCE_FIELDS,
     )
 
 
@@ -312,10 +336,24 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     def write_aggregate(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
-        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
-            "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
-            f"namecoin,1,{'01' * 32},100,{'02' * 32}\n"
-            f"namecoin,2,{'03' * 32},100,{'02' * 32}\n"
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "namecoin",
+                    "child_height": "1",
+                    "child_block_hash": "01" * 32,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                },
+                {
+                    "chain": "namecoin",
+                    "child_height": "2",
+                    "child_block_hash": "03" * 32,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                },
+            ],
         )
         return {
             "rows": 2,
@@ -1941,9 +1979,18 @@ def test_error_aggregate_rejects_truncated_aggregate_floor(
     manifest["artifacts"]["error-block-observations"] = aggregate["artifact_path"]
     manifest["counts"] = _manifest_counts(counts)
     manifest_path.write_text(json.dumps(manifest))
-    (output_dir / "error-block-observations_monitor_evidence.csv").write_text(
-        "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
-        f"namecoin,1,{'01' * 32},100,{'02' * 32}\n"
+    _write_error_observation_csv(
+        output_dir / "error-block-observations_monitor_evidence.csv",
+        [
+            {
+                "chain": "namecoin",
+                "child_height": "1",
+                "child_block_hash": "01" * 32,
+                "btc_height": "100",
+                "btc_header_hash": "02" * 32,
+            }
+        ],
+        fields=MONITOR_EVIDENCE_FIELDS,
     )
     committed_dir = tmp_path / "committed"
     shutil.copytree(output_dir, committed_dir)
@@ -1952,9 +1999,17 @@ def test_error_aggregate_rejects_truncated_aggregate_floor(
     def write_truncated_aggregate(
         staging_dir: Path, **_kwargs: object
     ) -> dict[str, object]:
-        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
-            "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
-            f"namecoin,1,{'01' * 32},100,{'02' * 32}\n"
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "namecoin",
+                    "child_height": "1",
+                    "child_block_hash": "01" * 32,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                }
+            ],
         )
         return {"rows": 1}
 
@@ -1982,9 +2037,17 @@ def test_error_aggregate_rejects_replaced_published_identity(
     monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
 
     def write_replacement(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
-        (staging_dir / "error-block-observations_monitor_evidence.csv").write_text(
-            "chain,child_height,child_block_hash,btc_height,btc_header_hash\n"
-            f"namecoin,1,{'03' * 32},101,{'04' * 32}\n"
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "namecoin",
+                    "child_height": "1",
+                    "child_block_hash": "03" * 32,
+                    "btc_height": "101",
+                    "btc_header_hash": "04" * 32,
+                }
+            ],
         )
         return {"rows": 1}
 
@@ -1992,6 +2055,100 @@ def test_error_aggregate_rejects_replaced_published_identity(
 
     with pytest.raises(ValueError, match="drops missing 1 published parent identities"):
         _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
+
+
+def test_error_aggregate_upgrades_legacy_27_column_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    _append_error_observation_baseline(
+        output_dir, child_hash="01" * 32, parent_hash="02" * 32
+    )
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    def write_union(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "namecoin",
+                    "child_height": "1",
+                    "child_block_hash": "01" * 32,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                }
+            ],
+        )
+        return {"rows": 1, "parents": 1, "source_chain_counts": {"namecoin": 1}}
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_union)
+    _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
+
+    with (output_dir / "error-block-observations_monitor_evidence.csv").open(
+        newline=""
+    ) as handle:
+        assert list(csv.DictReader(handle).fieldnames or []) == list(
+            ERROR_OBSERVATION_FIELDS
+        )
+
+
+def test_error_aggregate_rejects_regenerated_27_column_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    _write_add_only_baseline(output_dir, stale=1)
+    committed_dir = tmp_path / "committed"
+    shutil.copytree(output_dir, committed_dir)
+    monkeypatch.setattr(module, "MONITOR_OUTPUT_DIR", committed_dir)
+
+    def write_legacy(staging_dir: Path, **_kwargs: object) -> dict[str, object]:
+        _write_error_observation_csv(
+            staging_dir / "error-block-observations_monitor_evidence.csv",
+            [
+                {
+                    "chain": "namecoin",
+                    "child_height": "1",
+                    "child_block_hash": "01" * 32,
+                    "btc_height": "100",
+                    "btc_header_hash": "02" * 32,
+                }
+            ],
+            fields=MONITOR_EVIDENCE_FIELDS,
+        )
+        return {"rows": 1, "parents": 1, "source_chain_counts": {"namecoin": 1}}
+
+    monkeypatch.setattr(module, "write_error_observation_artifact", write_legacy)
+    with pytest.raises(ValueError, match="34-column union schema"):
+        _run(module, ["--add-error-observations", "--output-dir", str(output_dir)])
+
+
+def test_error_observation_validator_is_not_the_ordinary_artifact_counter(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    path = tmp_path / "error-block-observations_monitor_evidence.csv"
+    _write_error_observation_csv(
+        path,
+        [
+            {
+                "chain": "namecoin",
+                "child_height": "1",
+                "child_block_hash": "01" * 32,
+                "btc_height": "100",
+                "btc_header_hash": "02" * 32,
+                "classification": "error_block",
+            }
+        ],
+    )
+
+    module.validate_error_observation_publication(path)
+    with pytest.raises(ValueError, match="error-block-observations schema"):
+        module._load_monitor_artifact_counts(path, "error-block-observations")
 
 
 def test_error_aggregate_rejects_ordinary_overlap_with_error_block_catalogue(

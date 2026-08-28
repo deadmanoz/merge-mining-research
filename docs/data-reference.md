@@ -271,6 +271,9 @@ identity to deduplicate against live capture.
 
 `scripts/extract/recover_child_identity.py` recovers the identity per parent
 header by height -> hash -> block RPC against the still-reachable child nodes.
+The RSK work list also includes error-observation ledger parents, which
+ordinary inventories exclude; when classified uncle metadata is absent it
+tries the recorded height as a canonical child.
 Every row is verified by re-deriving the Bitcoin
 parent linkage from the fetched child block and requiring it to match the
 row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
@@ -342,14 +345,27 @@ shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
 `error-block-observations_monitor_evidence.csv` is a separate 78-row aggregate
-for the 35 catalogue parents. Its rows retain the original archive or
+for the 35 catalogue parents. It uses the 34-column union schema: the shared
+27 monitor-evidence columns plus the seven RSK sidecar columns
+(`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
+`uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
+leave those sidecar cells blank. RSK rows must carry a semantically valid
+sidecar (20-byte miner, 32-byte merge-mining hash, `is_uncle` `0`/`1`, uncle
+placement present only for uncles, proof/tail blank or hex) copied from
+`data/child-identity/rsk_child_identity.csv` without replacing the ledger
+child hash. RSK keccak child hashes stay in forward node order; Bitcoin-family
+`child_block_hash_order=display` hashes are exported in internal order. The
+five RSK error-observation parents are excluded from ordinary RSK publication,
+so this aggregate is the only published place those sidecars live.
+
+Its rows retain the original archive or
 live-observation source coordinates but use `classification=error_block` and
 the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
 a retarget violation. The compact recovered witness ledger lives at
 `data/error-blocks/error_block_observations.csv`; it is checked against the
 current parent catalogue before publication. Every ledger row must identify its
-child either with a well-formed internal-order hash or with a serialized child
+child either with a well-formed hash or with a serialized child
 header from which that hash can be authenticated. Extending an already
 complete publication uses `just monitor-evidence --add-error-observations --output-dir <disposable-baseline-dir>` after copying the complete publication
 into that disposable baseline directory,
