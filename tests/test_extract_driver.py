@@ -551,6 +551,26 @@ def test_standard_extractor_cli_resume_uses_spec_height_column(
     assert call["output_path"] == out_path
 
 
+def test_standard_extractor_cli_help_does_not_construct_rpc() -> None:
+    called: list[bool] = []
+
+    def factory():
+        called.append(True)
+        raise AssertionError("rpc factory must not run for --help")
+
+    with pytest.raises(SystemExit) as exc:
+        extract_driver.run_standard_extractor_cli(
+            ["--help"],
+            CHAIN_SPECS["argentum"],
+            rpc=factory,
+            gate=lambda _version, _stats: True,
+            stats_keys=SHA256D_STATS,
+        )
+
+    assert exc.value.code == 0
+    assert called == []
+
+
 @pytest.mark.parametrize(
     "module_name,key,password_env,stats_keys,rejected_version,reject_key,progress_extra,fetch_method",
     THIN_EXTRACTORS,
@@ -627,4 +647,39 @@ def test_password_required_extractors_exit_2_when_unset(
 
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+    assert rec.calls == []
+
+
+@pytest.mark.parametrize(
+    "module_name,password_env",
+    (
+        ("extract_argentum_auxpow", "ARG_RPC_PASS"),
+        ("extract_bitmark_auxpow", "BTMK_RPC_PASS"),
+        ("extract_crown_auxpow", "CRW_RPC_PASS"),
+        ("extract_fractal_auxpow", None),
+        ("extract_myriadcoin_auxpow", "XMY_RPC_PASS"),
+        ("extract_unobtanium_auxpow", "UNO_RPC_PASS"),
+    ),
+)
+def test_thin_extractor_help_does_not_need_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    module_name: str,
+    password_env: str | None,
+) -> None:
+    if password_env is not None:
+        monkeypatch.delenv(password_env, raising=False)
+    monkeypatch.delenv("FRACTAL_RPC_USER", raising=False)
+    monkeypatch.delenv("FRACTAL_RPC_PASSWORD", raising=False)
+    monkeypatch.delenv("FRACTAL_RPC_PASS", raising=False)
+    monkeypatch.delenv("FRACTAL_RPC_COOKIEFILE", raising=False)
+    rec = _ExtractionRecorder()
+    monkeypatch.setattr("stale_blocks_analysis.extract_driver.run_extraction", rec)
+    module = _load_extractor(module_name)
+
+    with pytest.raises(SystemExit) as exc:
+        module.main(["--help"])
+
+    assert exc.value.code == 0
+    assert "usage:" in capsys.readouterr().out.lower()
     assert rec.calls == []

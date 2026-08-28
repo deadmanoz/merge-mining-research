@@ -58,16 +58,19 @@ def _gate(version: int, stats: dict) -> bool:
     return True
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Build child RPC, keep the AuxPoW-flag gate, and delegate CLI lifecycle."""
+def _require_rpc() -> RpcClient:
     if not RPC_PASS:
         print("UNO_RPC_PASS env var not set", file=sys.stderr)
         sys.exit(2)
+    return rpc()
 
+
+def main(argv: list[str] | None = None) -> None:
+    """Keep the AuxPoW-flag gate and delegate CLI lifecycle."""
     extract_driver.run_standard_extractor_cli(
         argv,
         _SPEC,
-        rpc=rpc(),
+        rpc=_require_rpc,
         gate=_gate,
         stats_keys=_STATS_KEYS,
         description="Extract BTC AuxPoW from Unobtanium",

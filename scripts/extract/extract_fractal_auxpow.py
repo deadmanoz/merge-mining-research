@@ -86,11 +86,11 @@ def _gate(version: int, stats: dict) -> bool:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Build child RPC, keep the Fractal gate, and delegate CLI lifecycle."""
+    """Keep the Fractal gate and delegate CLI lifecycle."""
     extract_driver.run_standard_extractor_cli(
         argv,
         _SPEC,
-        rpc=rpc(),
+        rpc=rpc,
         gate=_gate,
         stats_keys=_STATS_KEYS,
         block_fetch_method="getblockheader",

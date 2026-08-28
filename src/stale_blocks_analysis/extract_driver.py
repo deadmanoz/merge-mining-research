@@ -276,6 +276,18 @@ def standard_auxpow_parse_row(
     }
 
 
+def _rpc_client(rpc):
+    """Return an RPC client from an instance or a zero-arg factory.
+
+    A factory is invoked only after argparse, so ``--help`` can exit
+    before wrappers construct child-chain RPC or check required env.
+    An already-built client is recognised by a ``batch`` attribute.
+    """
+    if callable(rpc) and not hasattr(rpc, "batch"):
+        return rpc()
+    return rpc
+
+
 def run_standard_extractor_cli(
     argv: list[str] | None,
     spec: ChainSpec,
@@ -295,11 +307,12 @@ def run_standard_extractor_cli(
 
     Owns argparse, tip resolution, resume, the ordered ``stats`` contract,
     shared parse-row, and the ``run_extraction`` call. Does not build an
-    ``RpcClient`` and does not read child-chain env vars. ``stats_keys`` is
-    the complete insertion-order tuple the wrapper historically printed;
-    every gate counter must already be present — a missing key becomes a
-    ``KeyError`` that ``run_extraction`` then records as
-    ``skipped_parse_error``, silently dropping the row.
+    ``RpcClient`` and does not read child-chain env vars. ``rpc`` may be an
+    already-built client or a zero-arg factory invoked after argparse.
+    ``stats_keys`` is the complete insertion-order tuple the wrapper
+    historically printed; every gate counter must already be present — a
+    missing key becomes a ``KeyError`` that ``run_extraction`` then records
+    as ``skipped_parse_error``, silently dropping the row.
     """
     if spec.activation_height is None:
         raise ValueError(
@@ -318,6 +331,7 @@ def run_standard_extractor_cli(
     parser.add_argument("--batch-size", type=int, default=batch_size)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
+    rpc = _rpc_client(rpc)
 
     if args.end is None:
         args.end = get_chain_tip(rpc) + 1
