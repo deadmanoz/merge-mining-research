@@ -82,9 +82,9 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_stale_exclusion_keys(empty)
 
 
-def test_committed_dataset_loads_35_rows() -> None:
+def test_committed_dataset_loads_39_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 35
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 39
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -125,7 +125,7 @@ def test_committed_dataset_schema_and_seed_count() -> None:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 35
+    assert len(rows) == 39
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
@@ -143,12 +143,12 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 35
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 35
-    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 35
+    assert len(rows) == 39
+    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 39
+    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 39
     assert Counter(row["rejection_reason"] for row in rows) == {
         "bip34_v2_coinbase_height_mismatch": 12,
-        "bip34_coinbase_height_mismatch": 9,
+        "bip34_coinbase_height_mismatch": 13,
         "bip66_block_version_below_3": 3,
         "bip65_block_version_below_4": 5,
         "coinbase_scriptsig_length_above_100": 1,
@@ -268,6 +268,11 @@ def test_656478_remains_in_stale_descendants() -> None:
 def test_656478_has_an_explicit_direct_stale_correction_key() -> None:
     target = "00000000000000000005f8f74e57aa4584aacfed509b8a6feb20bc22e7d60a34"
     assert (656478, target) in load_stale_descendant_correction_keys()
+
+
+def test_941882_has_an_explicit_canonical_bucket_correction_key() -> None:
+    target = "00000000000000000000c81cbf94a12ca498e72eb8530f7061c8746cf9687b2e"
+    assert (941882, target) in load_stale_descendant_correction_keys()
 
 
 def test_error_block_builder_writes_lf_terminated_csvs(tmp_path: Path) -> None:
@@ -637,7 +642,7 @@ _BUILDER_PRIVATE_INPUTS = [
 # recovered-headers cache). They let the builder's CORE tests run in a plain
 # public checkout (CI), where the private evidence archives in
 # _BUILDER_PRIVATE_INPUTS are absent. The private-input tests below remain as
-# an additional integration layer over the full 35-row committed dataset.
+# an additional integration layer over the full 39-row committed dataset.
 _FIXTURE_DIR = REPO / "tests" / "fixtures" / "error_blocks"
 _FIXTURE_SEED = _FIXTURE_DIR / "seed.csv"
 
@@ -645,10 +650,9 @@ _FIXTURE_SEED = _FIXTURE_DIR / "seed.csv"
 def _normalized_bytes(path: Path) -> bytes:
     """Return a file's bytes with CRLF normalized to LF.
 
-    The builder writes CRLF (Python csv module) while git checks out LF
-    (`.gitattributes` `eol=lf`), so a byte-for-byte comparison between builder
-    output and a checked-out file is line-ending-state-dependent. Compare
-    content, not line-ending bytes.
+    Historical fixtures may retain CRLF while generated publication artifacts
+    use LF (`.gitattributes` `eol=lf`). Normalize fixture content for these
+    semantic builder comparisons; byte-idempotency is tested separately.
     """
     return path.read_bytes().replace(b"\r\n", b"\n")
 
@@ -1206,9 +1210,9 @@ def test_builder_merges_monitor_export(
     assert row["rejection_reason"] == "bip65_block_version_below_4"
     assert row["rules_violated"] == "bip65_block_version_below_4"
     assert row["provenance"] == "monitor-live-capture:namecoin:1"
-    # The merged output is the committed 35 rows plus the new one, still
+    # The merged output is the committed 39 rows plus the new one, still
     # sorted by (height, hash).
-    assert len(rows) == 36
+    assert len(rows) == 40
     keys = [(int(r["height"]), r["hash"]) for r in rows]
     assert keys == sorted(keys)
 
@@ -1572,6 +1576,65 @@ def test_error_block_is_a_documented_classification() -> None:
     assert "consensus-invalid" in text
 
 
+def test_reconciled_builder_requires_committed_child_identity_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        "build_error_blocks_reconciled_identity_guard_under_test",
+    )
+
+    rc = module.main(
+        [
+            "--reconciled-error-blocks",
+            str(tmp_path / "peer.csv"),
+            "--reconciled-child-identities",
+            str(tmp_path / "alternate-identities.csv"),
+        ]
+    )
+
+    assert rc == 2
+    assert "child-identity manifest paths" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("flag", "target_name"),
+    [
+        ("--output", "ERROR_BLOCKS_CSV"),
+        ("--seed", "ERROR_BLOCKS_CSV"),
+        ("--error-observation-ledger", "DEFAULT_ERROR_OBSERVATION_LEDGER"),
+    ],
+)
+def test_reconciled_builder_rejects_symlink_alias_for_committed_paths(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+    target_name: str,
+) -> None:
+    module = _load_script(
+        "scripts/prep/build_error_blocks.py",
+        f"build_error_blocks_reconciled_alias_guard_{target_name}",
+    )
+    target = Path(getattr(module, target_name))
+    before = target.read_bytes()
+    alias = tmp_path / target.name
+    alias.symlink_to(target)
+
+    rc = module.main(
+        [
+            "--reconciled-error-blocks",
+            str(tmp_path / "peer.csv"),
+            flag,
+            str(alias),
+        ]
+    )
+
+    assert rc == 2
+    assert alias.is_symlink()
+    assert target.read_bytes() == before
+    assert "committed catalogue output and seed" in capsys.readouterr().err
+
+
 # A bits value whose target is so large any header hash passes (exp 0x21),
 # registered in a fake epoch-table entry so the validator's canonical-target
 # and epoch-table checks accept the synthetic header without grinding real
@@ -1798,7 +1861,7 @@ def test_builder_commits_new_time_below_mtp_row_with_mtp_context(
         assert len(merged) == 1
         assert merged[0]["hash"] == block_hash
         assert merged[0]["rules_violated"] == "time_below_mtp"
-        assert len(rows) == 36
+        assert len(rows) == 40
         with ERROR_BLOCKS_MTP_CONTEXT_CSV.open(newline="") as f:
             sidecar = {
                 (r["height"], r["hash"]): r["parent_median_time_past"]
@@ -1888,7 +1951,7 @@ def test_builder_commits_extra_rows_time_below_mtp_row_with_mtp_context(
         assert len(merged) == 1
         assert merged[0]["hash"] == block_hash
         assert merged[0]["rules_violated"] == "time_below_mtp"
-        assert len(rows) == 36
+        assert len(rows) == 40
         # ...AND the sidecar entry is written for the extra-rows row.
         with ERROR_BLOCKS_MTP_CONTEXT_CSV.open(newline="") as f:
             sidecar = {

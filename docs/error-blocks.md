@@ -67,8 +67,8 @@ cutover at the observed canonical activation heights (227,931 / 363,725 /
 388,381). This is an approximation of Bitcoin Core's actual IsSuperMajority
 enforcement, which required a rolling threshold of 750-of-1000 blocks to
 *lock in* and then 950-of-1000 to *enforce* the new minimum version. The
-approximation is exact for a direct stale, which covers every row currently in
-the dataset, and exactly at the boundary as much as far past it. Core counts
+approximation is exact for a direct stale, which covers every committed
+minimum-version row, and exactly at the boundary as much as far past it. Core counts
 the vote over the block's OWN ancestors, and a direct stale's parent is
 canonical, so its 1000-block window is the same window the canonical block at
 that height has and the two verdicts cannot differ. Distance from activation is
@@ -145,19 +145,21 @@ re-derive offline.
 
 ### Composition and per-rule counts
 
-The dataset holds **35 rows** (35 distinct `(height, hash)` blocks), spanning
+The dataset holds **39 rows** (39 distinct `(height, hash)` blocks), spanning
 Bitcoin heights 225,013 through 957,780. Thirty-one are carried over from the
 former exclusion overlay; heights 946,213 and 957,780 (`time_below_mtp`, from
 merge-mining-monitor live evidence) and height 717,696
 (`nbits_retarget_not_applied`, found by the rejected-row sweep) were added by
 the error-block work. The unified Hathor classifier adds height 649,674
-(`bip34_coinbase_height_missing`). Per-rule counts by primary
+(`bip34_coinbase_height_missing`). Full stale-ancestry reconciliation adds
+heights 331,673, 331,674, 402,610, and 422,059 after their committed bytes
+re-derive `bip34_coinbase_height_mismatch`. Per-rule counts by primary
 `rejection_reason`:
 
 | Rule | Rows |
 |---|---:|
 | `bip34_v2_coinbase_height_mismatch` | 12 |
-| `bip34_coinbase_height_mismatch` | 9 |
+| `bip34_coinbase_height_mismatch` | 13 |
 | `bip34_coinbase_height_missing` | 1 |
 | `bip65_block_version_below_4` | 5 |
 | `bip66_block_version_below_3` | 3 |
@@ -165,10 +167,10 @@ the error-block work. The unified Hathor classifier adds height 649,674
 | `median_time_past_violation` | 1 |
 | `time_below_mtp` | 2 |
 | `nbits_retarget_not_applied` | 1 |
-| **Total** | **35** |
+| **Total** | **39** |
 
-Because one invalid block is witnessed by several sibling chains, the 35
-blocks produce 78 per-chain observations: namecoin 33, devcoin 16, ixcoin 13,
+Because one invalid block is witnessed by several sibling chains, the 39
+blocks produce 86 per-chain observations: namecoin 37, devcoin 18, ixcoin 15,
 rsk 5, syscoin 3, elastos 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
 i0coin 1, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
@@ -202,14 +204,27 @@ required private input is absent, requiring `--allow-partial` plus a
 disposable output directory for any diagnostic run — the same contract as the
 ancestry reconciliation and `just monitor-evidence`.
 
-The offline validator deliberately does NOT verify active-parent placement:
-it does not check that a row's claimed parent (`btc_prev_hash`) is a
-canonical/active Bitcoin block. That check requires canonical chain context
-(a live RPC view of the active chain) and is enforced by the online
-classification pipeline at classification time, not by the offline
-re-derivation. The offline validator's job is to prove the named consensus
-violation from the committed bytes; active-parent/canonical placement is a
-separate, online gate.
+The four reconciled descendant errors take a deterministic publication path.
+The complete ancestry run writes the gitignored
+`data/stale_descendants_error_blocks.csv` peer, then
+`stale_blocks_analysis.reconciled_error_blocks` authenticates its eight child
+observations against exact source coordinates, source-file SHA-256 values, and
+the committed 80-byte child headers in
+`data/error-blocks/reconciled_child_identities.csv`. The error-block builder
+also requires every pinned source row's coinbase scriptSig, and its Bitcoin
+header where present, to match the generated peer exactly. The builder then
+merges the four parents into the catalogue and the eight witnesses into
+`data/error-blocks/error_block_observations.csv`. Run the complete workflow
+with `just reconcile-error-blocks`; rerunning it must be byte-identical.
+
+The offline validator deliberately does NOT require every error block to extend
+an active-chain parent. Direct-stale candidates receive that active-parent
+placement check from the online classification pipeline. The four reconciled
+descendant errors instead extend a stale or invalid parent, and their Bitcoin
+height is derived from the authenticated ancestry path as `prev + 1`. The
+offline validator's job is to prove the named consensus violation from the
+committed bytes; it does not replace either classification-time active-parent
+checks or reconciliation-time ancestry validation.
 
 ## Classification-time labelling
 

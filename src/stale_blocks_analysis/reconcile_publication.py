@@ -629,7 +629,7 @@ def write_csv(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
@@ -1138,6 +1138,7 @@ def render_and_publish(
         [
             "chain",
             "full_inventory_path",
+            "canonical_inventory_path",
             "validated_stale_path",
             "header_hash_column_used",
             "prev_hash_column_used",

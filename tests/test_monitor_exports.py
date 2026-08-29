@@ -570,6 +570,135 @@ def test_monitor_export_projects_reclassified_direct_stale_source_observation(
     assert "reclassified_stale_descendant_observations=1" in namecoin["notes"]
 
 
+def test_monitor_export_projects_corrected_canonical_observations_once_per_chain(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    chain_heights = {
+        "elastos": ("ela_height", "1487545"),
+        "fractal": ("fb_height", "1615397"),
+        "syscoin": ("sys_height", "1501974"),
+    }
+    source_rows = []
+    for chain, (height_field, child_height) in chain_heights.items():
+        _write_csv(
+            data_dir / f"{chain}_canonical_blocks.csv",
+            [
+                {
+                    "btc_height": "941882",
+                    "btc_header_hash": header_hash,
+                    "btc_prev_hash": "aa" * 32,
+                    "btc_time": "1700000000",
+                    "btc_bits": "1d00ffff",
+                    "btc_header_hex": header_hex,
+                    height_field: child_height,
+                    "classification": "canonical",
+                    "validation_status": "",
+                }
+            ],
+        )
+        source_rows.append(f"{chain}:data/{chain}_canonical_blocks.csv:2")
+    _write_csv(
+        data_dir / "stale_descendants.csv",
+        [
+            {
+                "btc_height": "941882",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "source_rows": "|".join(source_rows),
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "stale_descendant_corrections.csv",
+        [
+            {
+                "btc_height": "941882",
+                "btc_header_hash": header_hash,
+                "correction_reason": "reclassified_from_canonical",
+            }
+        ],
+    )
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+    )
+
+    for chain in chain_heights:
+        rows = _read_csv(output_dir / f"{chain}_monitor_evidence.csv")
+        assert len(rows) == 1
+        assert rows[0]["btc_header_hash"] == header_hash
+        assert rows[0]["classification"] == "stale_descendant"
+        assert rows[0]["validation_status"] == "VALID_STALE_DESCENDANT"
+        assert rows[0]["relevance_reason"] == "valid_stale_descendant"
+        assert not any(row["classification"] == "canonical" for row in rows)
+
+    counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    by_chain = {row["chain"]: row for row in counts}
+    for chain in chain_heights:
+        assert by_chain[chain]["canonical"] == "0"
+        assert by_chain[chain]["stale_descendant"] == "1"
+        assert by_chain[chain]["monitor_rows"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("classification", "correction_reason"),
+    [
+        ("stale", "reclassified_from_canonical"),
+        ("canonical", "reclassified_from_direct_stale"),
+    ],
+)
+def test_collect_source_rows_rejects_mismatched_correction_reason(
+    tmp_path: Path,
+    classification: str,
+    correction_reason: str,
+) -> None:
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    source_path = tmp_path / "namecoin_stale_blocks.csv"
+    _write_csv(
+        source_path,
+        [
+            {
+                "namecoin_height": "532212",
+                "btc_height": "656478",
+                "btc_header_hash": header_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": header_hex,
+                "classification": classification,
+                "validation_status": "VALID" if classification == "stale" else "",
+            }
+        ],
+    )
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=source_path,
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="archive",
+    )
+
+    with pytest.raises(ValueError, match="requires correction_reason"):
+        monitor_exports.collect_source_rows(
+            source,
+            stale_descendant_observations=frozenset(
+                {("namecoin", 656478, header_hash)}
+            ),
+            stale_descendant_corrections={(656478, header_hash): correction_reason},
+        )
+
+
 def test_monitor_export_does_not_reclassify_stale_without_exact_correction_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -606,7 +735,7 @@ def test_monitor_export_does_not_reclassify_stale_without_exact_correction_key(
     rows, stats = full_evidence.collect_source_rows(
         source,
         stale_descendant_observations=frozenset({("namecoin", 656478, header_hash)}),
-        stale_descendant_correction_keys=frozenset(),
+        stale_descendant_corrections={},
     )
 
     assert [row["classification"] for row in rows] == ["stale"]

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import csv
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from .auxpow_chainid import hash_from_header_bytes
 from .auxpow_parse import (
@@ -108,6 +108,11 @@ NON_CHILD_HEIGHT_COLUMNS = {
     "height",
     "root_stale_height",
     "stale_fork_depth",
+}
+
+STALE_DESCENDANT_CORRECTION_REASON_BY_SOURCE_CLASSIFICATION = {
+    "stale": "reclassified_from_direct_stale",
+    "canonical": "reclassified_from_canonical",
 }
 
 
@@ -606,12 +611,44 @@ def iter_source_rows(
             yield normalize_evidence_row(source, row, fieldnames, row_number)
 
 
+def require_matching_stale_descendant_correction(
+    corrections: Mapping[tuple[int, str], str],
+    key: tuple[int, str],
+    source_classification: str,
+    *,
+    label: str,
+) -> bool:
+    """Return whether ``key`` has the correction required by its source bucket.
+
+    A missing correction leaves the source row in its original classification.
+    A present correction with the wrong type is contradictory publication input
+    and therefore fails closed instead of being treated as an absent overlay.
+    """
+    actual_reason = corrections.get(key)
+    if actual_reason is None:
+        return False
+    expected_reason = STALE_DESCENDANT_CORRECTION_REASON_BY_SOURCE_CLASSIFICATION.get(
+        source_classification
+    )
+    if expected_reason is None:
+        raise ValueError(
+            f"{label}: unsupported correction source classification "
+            f"{source_classification!r}"
+        )
+    if actual_reason != expected_reason:
+        raise ValueError(
+            f"{label}: {source_classification} source requires correction_reason="
+            f"{expected_reason}, got {actual_reason!r}"
+        )
+    return True
+
+
 def collect_source_rows(
     source: EvidenceSource,
     *,
     exclude_classifications: frozenset[str] = frozenset(),
     stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
-    stale_descendant_correction_keys: frozenset[tuple[int, str]] = frozenset(),
+    stale_descendant_corrections: Mapping[tuple[int, str], str] | None = None,
     error_blocks_path: Path | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
@@ -623,7 +660,9 @@ def collect_source_rows(
     artifacts. A source row formerly published as a direct stale is projected
     into its accepted ``stale_descendant`` state only when the descendant
     sidecar supplies both its exact chain/height/hash observation and the
-    compact exact-key correction overlay. A stale descendant is never an error
+    compact exact-key correction overlay. This also applies to a canonical
+    archive row corrected after independent Bitcoin Core ancestry checks. A
+    stale descendant is never an error
     block, but the consensus-invalid gate below still filters any exact key the
     dataset records as an error block.
     """
@@ -632,6 +671,7 @@ def collect_source_rows(
     if source.path is None:
         stats.notes.add("no evidence source discovered")
         return rows, stats
+    corrections = stale_descendant_corrections or {}
     if error_blocks_path is None:
         excluded = load_stale_exclusion_keys()
         consensus_invalid = load_consensus_invalid_stale_keys()
@@ -656,9 +696,16 @@ def collect_source_rows(
         if key is not None:
             observation_key = (source.chain, key[0], key[1])
         if (
-            classification == "stale"
+            classification
+            in STALE_DESCENDANT_CORRECTION_REASON_BY_SOURCE_CLASSIFICATION
             and observation_key in stale_descendant_observations
-            and key in stale_descendant_correction_keys
+            and key is not None
+            and require_matching_stale_descendant_correction(
+                corrections,
+                key,
+                classification,
+                label=(f"{source.path}:{normalized.get('source_row_number', '?')}"),
+            )
         ):
             normalized = {
                 **normalized,

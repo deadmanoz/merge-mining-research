@@ -24,7 +24,7 @@ analysis package:
   this file carries the separate `stale_descendant` classification, and loaders
   admit only `VALID_STALE_DESCENDANT` rows.
 - `error-blocks/error_blocks.csv` - the error-blocks dataset and publication
-  gate: 34 full-proof-of-work Bitcoin headers that each fail a contextual
+  gate: 39 full-proof-of-work Bitcoin headers that each fail a contextual
   consensus rule, keyed off `classification == "error_block"` (there is no
   `exclusion_scope` column). It supersedes the deleted
   `stale_block_exclusions.csv` overlay: its rows are removed from all public
@@ -32,10 +32,16 @@ analysis package:
   row (656478) is not here - it is a `stale_descendant` single-home in
   `stale_descendants.csv`; raw source projection requires its separate
   exact-key correction overlay.
-- `stale_descendant_corrections.csv` - the compact exact-key correction
-  overlay for raw source rows originally labelled direct stales. A projection
-  requires agreement between this overlay and the accepted stale-descendant
-  sidecar observation.
+- `stale_descendant_corrections.csv` - the compact typed exact-key correction
+  overlay for raw source rows formerly labelled direct stale or canonical. A
+  projection requires the correction reason to match the source bucket and
+  agreement with the accepted stale-descendant sidecar observation.
+- `error-blocks/error_block_observations.csv` - the recovered child-observation
+  ledger for every catalogued parent.
+- `error-blocks/reconciled_child_identities.csv` - the committed identity and
+  source-authentication manifest for the eight observations imported from the
+  reconciled descendant-error peer. The manifest pins source coordinates and
+  SHA-256 values and carries node-verified 80-byte child headers.
 - `error-blocks/mtp_context.csv` - the median-time-past sidecar: the
   canonical parent's median-time-past for each time-rule error block, keyed
   by `(height, hash)`, so the offline validator can re-derive time-rule

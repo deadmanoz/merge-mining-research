@@ -84,6 +84,7 @@ just full-evidence
 just child-header-coverage
 just strict-weak-orphans
 just monitor-evidence
+just reconcile-error-blocks
 just attribute
 just upstream-check
 just upstream-update
@@ -113,6 +114,12 @@ the private full/unknown inventories needed to reproduce every committed
 descendant are staged under `data/`. Incomplete diagnostics must pass
 `--allow-partial` together with explicit disposable `--results-dir` and
 `--promoted-csv` paths; neither path may be a committed default.
+
+`just reconcile-error-blocks` is the complete publication workflow. It
+rebuilds the accepted descendant sidecar and generated descendant-error peer,
+then authenticates the peer through the committed child-identity manifest and
+updates the error-block catalogue plus observation ledger. Do not substitute a
+partial ancestry run or hand-edit either catalogue artifact.
 
 ## Repository Map
 
@@ -154,6 +161,9 @@ descendant are staged under `data/`. Incomplete diagnostics must pass
   `reconcile_observations.py`, `ancestry_walk.py`, and
   `reconcile_publication.py` in the installed package. The error-blocks
   workflow adds `scripts/prep/build_error_blocks.py` (the dataset builder),
+  `reconciled_error_blocks.py` (the source-coordinate/SHA-authenticated adapter
+  from the generated descendant-error peer to the catalogue and observation
+  ledger, including exact source coinbase and available parent-header checks),
   `scripts/analysis/validate_error_blocks.py` (the offline re-derivation
   validator, wired into tests), four population sweeps under `scripts/analysis/`
   sharing `scripts/analysis/_sweep_common.py`, and
@@ -186,7 +196,12 @@ Be strict about what belongs in git:
   dataset that is also the exact-key exclusion gate preventing
   corrected upstream or archived candidates from re-entering public outputs
   (it supersedes the removed `data/stale_block_exclusions.csv` overlay), along
-  with its `data/error-blocks/mtp_context.csv` sidecar.
+  with its `data/error-blocks/mtp_context.csv` sidecar. Commit the recovered
+  witness ledger `data/error-blocks/error_block_observations.csv` and the
+  source-coordinate, source-SHA, and child-header authentication manifest
+  `data/error-blocks/reconciled_child_identities.csv`. Do not commit the
+  generated `data/stale_descendants_error_blocks.csv` peer or its private
+  source inventories.
 - Do not commit fetched upstream data under `data/stale-blocks/` or
   `data/mining-pools/`.
 - Do not commit attribution run outputs. `just attribute` labels the
@@ -238,6 +253,12 @@ Preserve these distinctions:
   classification. Source rows corrected from direct stales are projected as
   `stale_descendant` only when the accepted sidecar and exact-key correction
   overlay agree.
+- A source-bucket correction is typed and exact. A
+  `reclassified_from_direct_stale` key can admit only the matching stale source
+  row; a `reclassified_from_canonical` key can admit only the matching
+  canonical source row. A complete reconciliation must consume every typed
+  correction. Never promote arbitrary canonical rows merely because their
+  ancestry links to a purported stale root.
 - The word "orphan" is reserved for the strict/weak relevance buckets
   (`strict_btc_orphan`/`weak_btc_orphan`), matching the merge-mining-monitor's
   vocabulary. The broad evidence state is `unknown`. Legacy artifacts (the

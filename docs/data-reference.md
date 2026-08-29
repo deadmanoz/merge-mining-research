@@ -74,12 +74,14 @@ coiledcoin's `eligius_attack_window`.
 
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from publication surfaces. This dataset supersedes
-the former `data/stale_block_exclusions.csv` overlay. The current 35 rows
+the former `data/stale_block_exclusions.csv` overlay. The current 39 rows
 comprise 31 carried-over consensus-invalid keys, the 946,213 and 957,780
 `time_below_mtp` rows recovered from merge-mining-monitor live evidence, the
 717,696 `nbits_retarget_not_applied` row found by the rejected-row sweep
 (witnessed independently by emercoin and syscoin), and the 649,674
-`bip34_coinbase_height_missing` row emitted by the Hathor classifier. The
+`bip34_coinbase_height_missing` row emitted by the Hathor classifier, plus four
+stale-root descendants at 331,673, 331,674, 402,610, and 422,059 whose bytes
+re-derive `bip34_coinbase_height_mismatch`. The
 former `exclusion_scope` column is gone: the gate keys off
 `classification == "error_block"`, and blank or unknown classifications fail
 closed when the dataset is loaded. The single former `direct_stale_only` key
@@ -89,7 +91,7 @@ remains in the upstream catalogue and in `data/stale_descendants.csv`. It is
 not an error-block exclusion: projection of a raw source row still requires
 the accepted sidecar's chain-specific observation and the compact
 `data/stale_descendant_corrections.csv` exact-key correction overlay. Of the
-invalid keys, 21 carry a mismatched BIP34 coinbase height, one omits the
+invalid keys, 25 carry a mismatched BIP34 coinbase height, one omits the
 required BIP34 height, three fail BIP66's minimum version 3 rule, five
 fail BIP65's minimum version 4 rule, one violates median-time-past, two are
 time-too-old against median-time-past (946,213 and 957,780), one carries a
@@ -97,7 +99,7 @@ time-too-old against median-time-past (946,213 and 957,780), one carries a
 apply the difficulty retarget at an epoch boundary. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
-than a self-contained AuxPoW proof. It is applied by public loaders, upstream
+than a self-contained merge-mining proof. It is applied by public loaders, upstream
 novelty calculations, the upstream sidecar builder, full-evidence and
 relevance exports, and unknown-ancestry reconciliation.
 
@@ -115,15 +117,18 @@ class (a share/near row), not an error block: the error-block case is
 specifically the retarget-not-applied at an epoch boundary where the header
 still meets full proof of work.
 
-## Direct-stale corrections: `data/stale_descendant_corrections.csv`
+## Stale-descendant corrections: `data/stale_descendant_corrections.csv`
 
-This compact exact-key overlay records source rows originally labelled as
-direct stales that are instead accepted stale descendants. Each row carries a
-Bitcoin height, header hash, and the fixed
-`reclassified_from_direct_stale` reason. It is deliberately separate from the
-descendant sidecar: monitor projection requires both the overlay key and the
-sidecar's accepted chain-specific observation, so an unrelated sidecar entry
-cannot rewrite a raw direct-stale source row.
+This compact exact-key overlay records source rows whose historical source
+bucket is now known to be wrong. Each row carries a Bitcoin height, header
+hash, and typed reason. `reclassified_from_direct_stale` moves an old
+stale-labelled source row into the descendant class;
+`reclassified_from_canonical` allows exact canonical-bucket observations to
+participate in ancestry reconciliation. The overlay is deliberately separate
+from the descendant sidecar. Publication requires the correction type to match
+the source bucket, requires every correction to be consumed, and still requires
+the sidecar's accepted chain-specific observation. Merely linking a canonical
+row to a purported stale root is not enough to promote it.
 
 ## RSK: `data/validated-stales/rsk_validated_stales.csv`
 
@@ -157,19 +162,25 @@ BTC stale-fork continuations whose ancestry walks back to a known stale root.
 These are kept separate from direct stales. A raw classifier `unknown` row
 stays `unknown`, while this sidecar carries the descendant promotion. It also
 holds one former direct-stale row whose predecessor was shown to be stale
-rather than active. The file retains the gate verdict for transparency, so not
-every row is loadable: loaders take only
+rather than active. The committed file contains only accepted rows. Loaders take
 `classification = stale_descendant` and `validation_status =
-VALID_STALE_DESCENDANT` (currently 21 of 25 rows; the other 4 are
-`REJECTED_bip34_height_mismatch`).
+VALID_STALE_DESCENDANT` (currently all 21 rows).
 
-Those 4 are error blocks: their own committed bytes prove the BIP34
+Four additional reconciled candidates are error blocks: their own committed
+bytes prove the BIP34
 coinbase-height rule broken. The reconciliation now routes such candidates to
 the sidecar's `_error_blocks` peer
 (`data/stale_descendants_error_blocks.csv`, gitignored) with the derived
 pipe-joined `rules_violated`, and keeps this file's `classification` column
-purely `stale_descendant`. The committed file above still predates that split;
-the next publication rebuild drops it to 21 rows and emits those 4 to the peer.
+purely `stale_descendant`. The deterministic catalogue adapter authenticates
+the peer's eight child observations through
+`data/error-blocks/reconciled_child_identities.csv`, then merges its four
+parents into the catalogue and its witnesses into the observation ledger. Each
+identity pins the peer's exact `source_path` and `source_row_number`, the full
+source-file SHA-256, and a complete node-verified child header bundle whose
+hash, timestamp, and `nBits` are re-derived offline. The adapter also requires
+the peer's coinbase scriptSig to match every pinned source row and, where the
+source carries it, requires the peer's Bitcoin header to match as well.
 
 Key columns beyond the standard BTC header fields: `promotion_subclass`,
 `root_stale_hash` / `root_stale_height` / `root_stale_sources` /
@@ -344,8 +355,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 78-row aggregate
-for the 35 catalogue parents. It uses the 34-column union schema: the shared
+`error-block-observations_monitor_evidence.csv` is a separate 86-row aggregate
+for the 39 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
@@ -374,6 +385,13 @@ present and that the regenerated aggregate does not fall below its existing
 floors before replacing only this aggregate and the two metadata files. It
 does not rebuild the normal per-chain LFS artifacts.
 
+That additive workflow recognizes only three exact committed legacy LFS
+payloads by pinned SHA-256. Within those payloads it accepts the two documented
+blank-height legacy row shapes, plus Namecoin's blank parent-nonce cells after
+the serialized header, hash, proof of work, previous hash, time, and `nBits`
+still verify. Default and full publication remain strict, and any byte change
+to an ordinary artifact removes this compatibility path.
+
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes
 `child_header_hex`, `child_block_time`, and `child_nbits`; rows from the 17
@@ -393,12 +411,18 @@ exact-child-identity contract because each row aggregates observations from
 several chains. Its child identity columns therefore stay empty and its counts
 note is `child_identity=represented_by_source_chain_observations`. The
 corresponding source-chain rows are admitted to the monitor payloads through
-`relevance_reason=valid_stale_descendant`. The 28 observations sourced from
-unknown rows preserve that source classification and carry the sidecar's
-`validation_status=VALID_STALE_DESCENDANT` verdict. The Namecoin and RSK
-observations corrected from direct stales are projected as `stale_descendant`
-with the same validation verdict only when the direct-stale correction overlay
-and the sidecar agree on the source chain, Bitcoin height, and header hash.
+`relevance_reason=valid_stale_descendant`. The committed ordinary payloads
+retain the preceding 30 observations: 28 source `unknown` rows plus the two
+Namecoin and RSK rows corrected from direct stales. The current sidecar has 31
+source observations: 26 legacy `unknown`/`orphan` rows, those same two direct
+stale corrections, and three exact canonical-bucket observations for height
+941,882. Corrected observations carry
+`validation_status=VALID_STALE_DESCENDANT` and project once only when the typed
+correction overlay and the sidecar agree on the source chain, Bitcoin height,
+and header hash. The height 941,882 correction is global across Elastos,
+Fractal, and Syscoin. The aggregate-only error-observation update leaves all 28
+ordinary artifacts byte-identical, so the three canonical corrections appear
+in the next complete ordinary publication rebuild.
 The six historical observations carry complete authenticated child
 headers; live-chain observations use the independently verified identities in
 `data/child-identity/`. A publication build fails closed if any accepted

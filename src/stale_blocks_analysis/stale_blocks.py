@@ -1008,10 +1008,10 @@ def load_stale_descendant_observation_keys(
     return frozenset(observations)
 
 
-def load_stale_descendant_correction_keys(
+def load_stale_descendant_corrections(
     path: Path = STALE_DESCENDANT_CORRECTIONS_CSV,
-) -> frozenset[tuple[int, str]]:
-    """Return exact keys explicitly corrected from direct stales.
+) -> dict[tuple[int, str], str]:
+    """Return exact classifier-bucket corrections keyed by Bitcoin identity.
 
     The compact correction overlay is distinct from the accepted descendant
     sidecar. A source row must match both this exact Bitcoin identity and its
@@ -1019,9 +1019,9 @@ def load_stale_descendant_correction_keys(
     a descendant.
     """
     if not path.exists():
-        return frozenset()
+        return {}
 
-    correction_keys: set[tuple[int, str]] = set()
+    corrections: dict[tuple[int, str], str] = {}
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
@@ -1036,7 +1036,10 @@ def load_stale_descendant_correction_keys(
                 + ", ".join(sorted(missing))
             )
         for row_number, row in enumerate(reader, start=2):
-            if row["correction_reason"] != "reclassified_from_direct_stale":
+            if row["correction_reason"] not in {
+                "reclassified_from_direct_stale",
+                "reclassified_from_canonical",
+            }:
                 raise ValueError(f"{path}:{row_number}: unsupported correction_reason")
             try:
                 height = int(row["btc_height"])
@@ -1060,9 +1063,16 @@ def load_stale_descendant_correction_keys(
                     f"{path}:{row_number}: btc_header_hash must be hexadecimal"
                 ) from exc
             key = (height, block_hash)
-            if key in correction_keys:
+            if key in corrections:
                 raise ValueError(
                     f"{path}:{row_number}: duplicate stale-descendant correction key"
                 )
-            correction_keys.add(key)
-    return frozenset(correction_keys)
+            corrections[key] = row["correction_reason"]
+    return corrections
+
+
+def load_stale_descendant_correction_keys(
+    path: Path = STALE_DESCENDANT_CORRECTIONS_CSV,
+) -> frozenset[tuple[int, str]]:
+    """Return exact identities from the typed classifier correction overlay."""
+    return frozenset(load_stale_descendant_corrections(path))

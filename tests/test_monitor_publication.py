@@ -12,7 +12,7 @@ import pytest
 
 import stale_blocks_analysis.monitor_publication as monitor_publication
 from stale_blocks_analysis.error_observations import ERROR_OBSERVATION_FIELDS
-from stale_blocks_analysis.full_evidence import parse_header_fields
+from stale_blocks_analysis.full_evidence import EvidenceSource, parse_header_fields
 from stale_blocks_analysis.monitor_exports import MONITOR_EVIDENCE_FIELDS
 
 REPO = Path(__file__).resolve().parents[1]
@@ -35,6 +35,25 @@ def _load_cli_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _correction_source(
+    tmp_path: Path, *, classification: str, block_hash: str
+) -> EvidenceSource:
+    path = tmp_path / f"namecoin_{classification}_blocks.csv"
+    path.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+        f"2,{block_hash},{classification},"
+        f"{'VALID' if classification == 'stale' else ''}\n"
+    )
+    return EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=path,
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="archive",
+    )
 
 
 def _manifest_counts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -398,6 +417,62 @@ def test_error_aggregate_updates_only_its_metadata_and_artifact(
     assert manifest["counts"][-1]["error_block"] == 2
 
 
+@pytest.mark.dataset
+def test_add_only_loader_accepts_copied_full_pinned_legacy_baseline(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    output_dir = tmp_path / "monitor"
+    shutil.copytree(module.MONITOR_OUTPUT_DIR, output_dir)
+    expected_legacy = {
+        ("i0coin", "strict_btc_orphan"): 2,
+        ("namecoin", "strict_btc_orphan"): 11,
+        ("namecoin", "stale_descendant"): 18,
+        ("rsk", "strict_btc_orphan"): 3,
+        ("rsk", "stale_descendant"): 1,
+    }
+    observed_legacy: dict[tuple[str, str], int] = {}
+    blank_namecoin_nonces = 0
+    for chain in module._ADD_ONLY_LEGACY_PAYLOAD_SHA256:
+        path = output_dir / f"{chain}_monitor_evidence.csv"
+        with path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                if chain == "namecoin" and not (row.get("btc_nonce") or ""):
+                    blank_namecoin_nonces += 1
+                if row.get("btc_height") or "":
+                    continue
+                classification = (row.get("classification") or "").strip()
+                status = (row.get("validation_status") or "").strip()
+                bucket = (row.get("btc_stale_relevance") or "").strip()
+                reason = (row.get("relevance_reason") or "").strip()
+                if (
+                    classification == "unknown"
+                    and bucket == "strict_btc_orphan"
+                    and reason == "strict_height_nbits_match"
+                ):
+                    key = (chain, "strict_btc_orphan")
+                elif (
+                    classification == "unknown"
+                    and status == "VALID_STALE_DESCENDANT"
+                    and not bucket
+                    and reason == "valid_stale_descendant"
+                ):
+                    key = (chain, "stale_descendant")
+                else:
+                    continue
+                observed_legacy[key] = observed_legacy.get(key, 0) + 1
+    assert observed_legacy == expected_legacy
+    assert blank_namecoin_nonces == 268
+
+    count_rows, manifest, _baseline = module._load_error_update_baseline(
+        output_dir,
+        data_dir=module.DATA_DIR,
+    )
+
+    assert count_rows
+    assert manifest["counts"]
+
+
 def test_error_aggregate_rejects_partial_publication_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -541,6 +616,97 @@ def test_monitor_artifact_rejects_mismatched_parent_field(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="btc_nonce disagrees"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def _rewrite_parent_field(artifact: Path, field: str, value: str) -> None:
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0][field] = value
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_add_only_validator_accepts_pinned_namecoin_blank_nonce(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_parent_field(artifact, "btc_nonce", "")
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    counts = module._load_monitor_artifact_counts(
+        artifact,
+        "namecoin",
+        allow_pinned_add_only_legacy=True,
+    )
+
+    assert counts["stale"] == 1
+
+
+def test_default_validator_rejects_pinned_namecoin_blank_nonce(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_parent_field(artifact, "btc_nonce", "")
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    with pytest.raises(ValueError, match="btc_nonce disagrees"):
+        module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def test_add_only_pin_rejects_nonblank_namecoin_nonce_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_parent_field(artifact, "btc_nonce", "1")
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    with pytest.raises(ValueError, match="btc_nonce disagrees"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
+
+
+@pytest.mark.parametrize("field", ["btc_prev_hash", "btc_time", "btc_bits"])
+def test_add_only_pin_rejects_other_blank_namecoin_parent_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_parent_field(artifact, field, "")
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    with pytest.raises(ValueError, match=rf"{field} disagrees"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
 
 
 def test_monitor_artifact_rejects_blank_parent_header_field(tmp_path: Path) -> None:
@@ -710,6 +876,222 @@ def test_monitor_artifact_rejects_confirmed_row_without_btc_height(
 
     with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
         module._load_monitor_artifact_counts(artifact, "namecoin")
+
+
+def _rewrite_as_legacy_heightless_row(
+    artifact: Path, *, kind: str = "strict"
+) -> list[str]:
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    update = {
+        "btc_height": "",
+        "expected_nbits": "",
+        "classification": "unknown",
+        "validation_status": "",
+        "btc_stale_relevance": "strict_btc_orphan",
+        "relevance_reason": "strict_height_nbits_match",
+    }
+    if kind == "descendant":
+        update.update(
+            {
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "btc_stale_relevance": "",
+                "relevance_reason": "valid_stale_descendant",
+            }
+        )
+    rows[0].update(update)
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return fieldnames
+
+
+@pytest.mark.parametrize(
+    ("kind", "category"),
+    [
+        ("strict", "strict_btc_orphan"),
+        ("descendant", "stale_descendant"),
+    ],
+)
+def test_add_only_validator_accepts_pinned_legacy_heightless_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    category: str,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_as_legacy_heightless_row(artifact, kind=kind)
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    counts = module._load_monitor_artifact_counts(
+        artifact,
+        "namecoin",
+        allow_pinned_add_only_legacy=True,
+    )
+
+    assert counts[category] == 1
+    assert counts["monitor_rows"] == 1
+
+
+def test_add_only_validator_rejects_mutated_heightless_strict_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_as_legacy_heightless_row(artifact)
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    rows[0]["provenance"] = "mutated-legacy-row"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
+
+
+def test_add_only_validator_rejects_new_heightless_strict_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    fieldnames = _rewrite_as_legacy_heightless_row(artifact)
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+    with artifact.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    with artifact.open("a", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writerow(rows[0])
+
+    with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
+
+
+def test_add_only_validator_rejects_unpinned_heightless_legacy_shape(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_as_legacy_heightless_row(artifact)
+
+    with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
+
+
+def test_add_only_pin_does_not_accept_malformed_nonblank_height(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    _rewrite_as_legacy_heightless_row(artifact)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    rows[0]["btc_height"] = "01"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    with pytest.raises(ValueError, match="exact unpadded"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("classification", "status", "reason"),
+    [
+        ("stale", "VALID", "valid_direct_stale"),
+        (
+            "stale_descendant",
+            "VALID_STALE_DESCENDANT",
+            "valid_stale_descendant",
+        ),
+    ],
+)
+def test_add_only_pin_does_not_accept_primary_stale_without_height(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    classification: str,
+    status: str,
+    reason: str,
+) -> None:
+    module = _load_module()
+    artifact = _write_add_only_baseline(tmp_path / "monitor", stale=1)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    rows[0].update(
+        {
+            "btc_height": "",
+            "classification": classification,
+            "validation_status": status,
+            "artifact_scope": (
+                "stale_descendant_sidecar"
+                if classification == "stale_descendant"
+                else "full_classifier_inventory"
+            ),
+            "relevance_reason": reason,
+        }
+    )
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setitem(
+        module._ADD_ONLY_LEGACY_PAYLOAD_SHA256,
+        "namecoin",
+        module._sha256_file(artifact),
+    )
+
+    with pytest.raises(ValueError, match="nonnegative Bitcoin height"):
+        module._load_monitor_artifact_counts(
+            artifact,
+            "namecoin",
+            allow_pinned_add_only_legacy=True,
+        )
 
 
 def test_monitor_artifact_rejects_descendant_observation_without_btc_height(
@@ -2583,8 +2965,8 @@ def test_error_observation_baseline_refuses_regression(
         baseline_dir,
         chain="error-block-observations",
         source_kind="error_block_catalogue",
-        error_block=79,
-        source_rows=79,
+        error_block=87,
+        source_rows=87,
     )
     parser, args = _preflight_args(
         module, tmp_path, data_dir=module.DATA_DIR, archive_dir=archive_dir
@@ -3115,6 +3497,53 @@ def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     )
 
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+@pytest.mark.parametrize(
+    ("classification", "correction_reason"),
+    [
+        ("stale", "reclassified_from_canonical"),
+        ("canonical", "reclassified_from_direct_stale"),
+    ],
+)
+def test_accepted_descendant_preflight_rejects_mismatched_correction_reason(
+    tmp_path: Path,
+    classification: str,
+    correction_reason: str,
+) -> None:
+    module = _load_module()
+    block_hash = "22" * 32
+    source = _correction_source(
+        tmp_path, classification=classification, block_hash=block_hash
+    )
+    observations = frozenset({("namecoin", 2, block_hash)})
+
+    with pytest.raises(ValueError, match="requires correction_reason"):
+        module._accepted_descendant_observations(
+            [source],
+            observations,
+            {(2, block_hash): correction_reason},
+            set(),
+            set(),
+        )
+
+
+def test_projected_descendant_count_rejects_canonical_reason_for_stale_source(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    block_hash = "22" * 32
+    source = _correction_source(tmp_path, classification="stale", block_hash=block_hash)
+    observations = frozenset({("namecoin", 2, block_hash)})
+
+    with pytest.raises(ValueError, match="requires correction_reason"):
+        module._projected_stale_descendant_count(
+            source,
+            observations,
+            {(2, block_hash): "reclassified_from_canonical"},
+            set(),
+            set(),
+        )
 
 
 def test_full_inventory_rejects_descendant_sidecar_height_mismatch(

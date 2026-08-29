@@ -101,24 +101,28 @@ cache used for optional mainchain lookups.
 `data/error-blocks/error_blocks.csv` is the consensus-invalid error-blocks
 dataset and exact-key exclusion gate over the
 pinned upstream dataset and committed per-chain inputs. It supersedes the
-former `data/stale_block_exclusions.csv` overlay. Its 35 rows carry 31
-consensus-invalid keys plus four later observations. Of the 31 carried-over
+former `data/stale_block_exclusions.csv` overlay. Its 39 rows carry 31
+consensus-invalid keys plus eight later additions. Of the 31 carried-over
 keys, 21 fail BIP34's coinbase-height
 rule, three version 2 headers after height 363,725 fail BIP66's minimum version
 3 rule, five headers below version 4 after height 388,381 fail BIP65's minimum
 version 4 rule, one violates median-time-past, and one has a 103-byte coinbase
-scriptSig. The four added rows are the 946,213 and 957,780 `time_below_mtp`
+scriptSig. The first four later additions are the 946,213 and 957,780 `time_below_mtp`
 blocks (from merge-mining-monitor live evidence), the 717,696
 `nbits_retarget_not_applied` block (found by the rejected-row sweep), and the
-649,674 `bip34_coinbase_height_missing` block emitted by the Hathor classifier. The
+649,674 `bip34_coinbase_height_missing` block emitted by the Hathor classifier.
+The complete stale-ancestry reconciliation adds four descendants at 331,673,
+331,674, 402,610, and 422,059 whose bytes re-derive
+`bip34_coinbase_height_mismatch`. The
 former overlay's 32nd key, a
 direct-stale-only correction at Bitcoin
 height 656,478, is not an error block: its predecessor is a known stale rather
 than an active-chain block, so it now lives only in the accepted
 stale-descendant sidecar. It is not part of the error-block gate, but projection
-of a raw direct-stale source row additionally requires the compact
+of a corrected source row additionally requires the compact typed
 `data/stale_descendant_corrections.csv` exact-key correction overlay and its
-matching chain-specific sidecar observation. Loaders and upstream-derived reports apply the
+matching chain-specific sidecar observation. This applies to both historical
+direct-stale and exact canonical-bucket corrections. Loaders and upstream-derived reports apply the
 gate by exact `(height, hash)` key, keying off `classification == "error_block"`.
 
 A separate generated evidence layer serves downstream consumers that need more
@@ -154,10 +158,11 @@ predecessor is stale rather than active. The sidecar carries the separate
 `classification=stale_descendant` contribution for multi-block BTC stale-fork
 continuations, and the analysis loader admits only rows with
 `validation_status=VALID_STALE_DESCENDANT`. Current reconciliation evidence
-finds 25 stale-rooted headers (20 direct children + 5 deeper descendants), of
-which 21 are accepted under the declared descendant gate and 4 remain recorded
-as BIP34-height rejections. A follow-up audit confirms
-those 4 are not script artifacts: their coinbase BIP34 heights decode exactly
+finds 25 stale-rooted headers (20 direct children + 5 deeper descendants). The
+21 accepted rows live in `data/stale_descendants.csv`; the four BIP34 failures
+are emitted to the gitignored `_error_blocks` peer and consolidated into the
+error-block catalogue. A follow-up audit confirms those four are not script
+artifacts: their coinbase BIP34 heights decode exactly
 one block above the height implied by stale-root ancestry, while their header
 hashes, PoW, nBits, prev_hash paths, and stale-root Core-parent heights all
 check out.

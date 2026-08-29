@@ -67,6 +67,15 @@ from stale_blocks_analysis.config import (
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_MTP_CONTEXT_CSV,
 )
+from stale_blocks_analysis.error_observations import (
+    ERROR_OBSERVATION_LEDGER,
+    validate_error_observation_ledger,
+)
+from stale_blocks_analysis.reconciled_error_blocks import (
+    build_reconciled_import,
+    merge_ledger_rows,
+    write_ledger,
+)
 
 # The offline re-derivation validator lives under scripts/analysis/; import it
 # via the established scripts sibling-import pattern (the sweeps do the same
@@ -105,6 +114,10 @@ DEFAULT_UPSTREAM_STALE_BLOCKS = Path(
     "~/dev/bitcoin/stale-blocks-research/data/stale-blocks/stale-blocks.csv"
 ).expanduser()
 DEFAULT_RECOVERED_HEADERS = Path("cache/recovered_seed_headers.json")
+DEFAULT_ERROR_OBSERVATION_LEDGER = ERROR_BLOCKS_CSV.parent / ERROR_OBSERVATION_LEDGER
+DEFAULT_RECONCILED_CHILD_IDENTITIES = (
+    ERROR_BLOCKS_CSV.parent / "reconciled_child_identities.csv"
+)
 
 MTP_CONTEXT_COLUMNS = ["height", "hash", "parent_median_time_past", "provenance"]
 
@@ -691,6 +704,24 @@ def main(argv: list[str] | None = None) -> int:
         help="merge classifier- or sweep-emitted rows (a JSON list of self-contained row "
         "objects) into the seed set; they persist in the committed CSV",
     )
+    parser.add_argument(
+        "--reconciled-error-blocks",
+        type=Path,
+        default=None,
+        help="verify and consolidate a stale-descendant reconciliation error peer",
+    )
+    parser.add_argument(
+        "--reconciled-child-identities",
+        type=Path,
+        default=DEFAULT_RECONCILED_CHILD_IDENTITIES,
+        help="node-authenticated child identities for the reconciliation peer",
+    )
+    parser.add_argument(
+        "--error-observation-ledger",
+        type=Path,
+        default=DEFAULT_ERROR_OBSERVATION_LEDGER,
+        help="recovered child-witness ledger updated with reconciled observations",
+    )
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
@@ -710,6 +741,37 @@ def main(argv: list[str] | None = None) -> int:
     elif args.output_dir is not None:
         print("--output-dir is only valid with --allow-partial", file=sys.stderr)
         return 2
+
+    def committed_cli_path(path: Path, expected: Path) -> bool:
+        """Match a committed CLI path without resolving symlink aliases."""
+        return Path(os.path.abspath(path)) == Path(os.path.abspath(expected))
+
+    if args.reconciled_error_blocks is not None and (
+        args.allow_partial
+        or not committed_cli_path(args.output, ERROR_BLOCKS_CSV)
+        or not committed_cli_path(args.seed, ERROR_BLOCKS_CSV)
+        or not committed_cli_path(
+            args.error_observation_ledger, DEFAULT_ERROR_OBSERVATION_LEDGER
+        )
+        or not committed_cli_path(
+            args.reconciled_child_identities, DEFAULT_RECONCILED_CHILD_IDENTITIES
+        )
+    ):
+        print(
+            "--reconciled-error-blocks requires the non-partial committed "
+            "catalogue output and seed, ledger, and child-identity manifest paths",
+            file=sys.stderr,
+        )
+        return 2
+    if args.reconciled_error_blocks is not None:
+        # Keep every later read, temp-file placement, and replacement anchored
+        # to the committed paths. The lexical guard above rejects symlink aliases;
+        # these assignments make the write target explicit even if the guard is
+        # refactored later.
+        args.output = ERROR_BLOCKS_CSV
+        args.seed = ERROR_BLOCKS_CSV
+        args.error_observation_ledger = DEFAULT_ERROR_OBSERVATION_LEDGER
+        args.reconciled_child_identities = DEFAULT_RECONCILED_CHILD_IDENTITIES
 
     try:
         seeds = load_seed_rows(args.seed)
@@ -736,6 +798,7 @@ def main(argv: list[str] | None = None) -> int:
     # dataset, or the committed-dataset validator would fail the new
     # time-rule row for lacking committed MTP context.
     self_contained_rows: list[dict[str, str]] = []
+    reconciled_ledger_rows: tuple[dict[str, str], ...] = ()
     monitor_row: dict[str, str] | None = None
     if args.monitor_export is not None:
         try:
@@ -754,6 +817,23 @@ def main(argv: list[str] | None = None) -> int:
         for extra_row in extra_rows:
             seeds = merge_self_contained_row(seeds, extra_row)
             self_contained_rows.append(extra_row)
+    if args.reconciled_error_blocks is not None:
+        try:
+            reconciled = build_reconciled_import(
+                peer_path=args.reconciled_error_blocks,
+                identity_path=args.reconciled_child_identities,
+                data_dir=ERROR_BLOCKS_CSV.parent.parent,
+            )
+            reconciled_rows = [
+                _self_contained_row(row) for row in reconciled.catalogue_rows
+            ]
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            print(f"error: invalid reconciled error blocks: {exc}", file=sys.stderr)
+            return 1
+        for reconciled_row in reconciled_rows:
+            seeds = merge_self_contained_row(seeds, reconciled_row)
+            self_contained_rows.append(reconciled_row)
+        reconciled_ledger_rows = reconciled.ledger_rows
     rows, errors = build_rows(
         seeds,
         full_evidence_dir=args.full_evidence_dir,
@@ -873,7 +953,30 @@ def main(argv: list[str] | None = None) -> int:
         sidecar_tmp = ERROR_BLOCKS_MTP_CONTEXT_CSV.with_name(
             ERROR_BLOCKS_MTP_CONTEXT_CSV.name + ".tmp"
         )
+        ledger_tmp = args.error_observation_ledger.with_name(
+            args.error_observation_ledger.name + ".tmp"
+        )
         write_csv(rows, dataset_tmp)
+        if reconciled_ledger_rows:
+            try:
+                merged_ledger = merge_ledger_rows(
+                    ledger_path=args.error_observation_ledger,
+                    imported_rows=reconciled_ledger_rows,
+                    catalogue_rows=rows,
+                )
+                write_ledger(merged_ledger, ledger_tmp)
+                validate_error_observation_ledger(
+                    catalogue_path=dataset_tmp,
+                    ledger_path=ledger_tmp,
+                )
+            except (ValueError, KeyError, FileNotFoundError) as exc:
+                dataset_tmp.unlink(missing_ok=True)
+                ledger_tmp.unlink(missing_ok=True)
+                print(
+                    f"error: reconciled catalogue/ledger validation failed: {exc}",
+                    file=sys.stderr,
+                )
+                return 1
         if sidecar_rows:
             # Seed the temp sidecar from the committed one so existing entries
             # are preserved; each update then reads and extends the temp file.
@@ -883,8 +986,15 @@ def main(argv: list[str] | None = None) -> int:
                 update_mtp_context(row, path=sidecar_tmp)
         if sidecar_rows:
             os.replace(sidecar_tmp, ERROR_BLOCKS_MTP_CONTEXT_CSV)
+        if reconciled_ledger_rows:
+            # Ledger-first is fail closed if the process stops between the two
+            # replacements: the aggregate validator sees unexpected witnesses
+            # rather than silently publishing a parent with missing evidence.
+            os.replace(ledger_tmp, args.error_observation_ledger)
         os.replace(dataset_tmp, output)
         print(f"wrote {len(rows)} rows to {output}")
+        if reconciled_ledger_rows:
+            print(f"updated error observation ledger {args.error_observation_ledger}")
         if sidecar_rows:
             print(f"updated MTP context sidecar {ERROR_BLOCKS_MTP_CONTEXT_CSV}")
         return 0

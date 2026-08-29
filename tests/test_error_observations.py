@@ -58,9 +58,10 @@ def test_catalogue_preserves_an_expected_target_that_differs_from_header_bits() 
 
 def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None:
     rows, inventory = build_error_observation_rows()
+    blocks = load_error_blocks()
     expected = {
         (chain, child_height, block.block_hash)
-        for block in load_error_blocks()
+        for block in blocks
         for chain, child_height in block.observations
     }
 
@@ -68,6 +69,24 @@ def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None
         (row["chain"], int(row["child_height"]), row["btc_header_hash"]) for row in rows
     } == expected
     assert inventory["rows"] == len(expected)
+    assert len(blocks) == 39
+    assert inventory["rows"] == 86
+
+
+def test_error_observation_ledger_rejects_wrong_catalogue_row_number(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    assert fieldnames is not None
+    rows[0]["catalogue_row_number"] = "999"
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="wrong catalogue_row_number"):
+        build_error_observation_rows(data_dir=data_dir)
 
 
 def test_error_observation_header_is_the_34_column_union() -> None:

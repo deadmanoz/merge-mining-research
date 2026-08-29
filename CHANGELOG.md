@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Promote four stale-root descendants whose committed headers and coinbases
+re-derive `bip34_coinbase_height_mismatch` into the error-block catalogue.
+Authenticate their eight Namecoin, Devcoin, and Ixcoin child observations by
+source coordinate, archive SHA-256, source coinbase evidence and available
+Bitcoin header, and node-verified 80-byte child header.
+Publish 39 error-block parents and 86 recovered child observations while
+keeping `data/stale_descendants.csv` to its 21 accepted rows.
+
+Route exact `reclassified_from_canonical` corrections through ancestry
+reconciliation without trusting the canonical bucket as a stale root. Recover
+the three Elastos, Fractal, and Syscoin observations for Bitcoin height 941882,
+and require every typed correction to be consumed by its declared source
+bucket during a complete publication run.
+
+Allow the aggregate-only monitor refresh to validate three exact committed
+legacy LFS payloads with known blank-height rows and Namecoin blank parent
+nonces. Pin each complete payload by SHA-256; ordinary and full publication
+remain strict, and any payload mutation disables the compatibility path.
+
 Publish error-block observations on the 34-column monitor union schema,
 hydrate RSK sidecar cells from committed child-identity, and keep RSK keccak
 child hashes in forward node order. Ordinary publication still excludes those
@@ -11,8 +30,8 @@ metadata is absent.
 
 Catalogue Bitcoin height 957780 (`time_below_mtp`) from merge-mining-monitor
 live capture, with recovered Namecoin, Syscoin, Fractal, and Elastos witnesses.
-The error-block dataset is now 35 parents and the monitor-facing
-error-observation aggregate is 78 rows.
+At that publication step, the error-block dataset reached 35 parents and the
+monitor-facing error-observation aggregate reached 78 rows.
 
 Split monitor-facing evidence projection from full-evidence source
 normalization without changing schemas, publication contracts, or output data.

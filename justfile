@@ -40,6 +40,13 @@ upstream-sidecar:
 error-blocks-report *ARGS:
     {{python}} scripts/reports/report_error_blocks_by_chain.py {{ARGS}}
 
+# Reconcile stale-root ancestry, split consensus-invalid descendants into the
+# gitignored peer, then authenticate and consolidate that peer into the
+# committed error-block catalogue plus child-observation ledger.
+reconcile-error-blocks:
+    {{python}} scripts/analysis/reconcile_unknown_stale_ancestry.py
+    {{python}} scripts/prep/build_error_blocks.py --reconciled-error-blocks data/stale_descendants_error_blocks.csv
+
 # Build normalized full-evidence artifacts and manifest (all evidence states;
 # bulky, gitignored).
 full-evidence:

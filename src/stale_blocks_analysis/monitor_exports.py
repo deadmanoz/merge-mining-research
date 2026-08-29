@@ -51,7 +51,7 @@ from .evidence_sources import (
     stale_descendant_source,
 )
 from .stale_blocks import (
-    load_stale_descendant_correction_keys,
+    load_stale_descendant_corrections,
     load_stale_descendant_observation_keys,
 )
 
@@ -310,7 +310,7 @@ def build_monitor_evidence_exports(
     descendant_observations = load_stale_descendant_observation_keys(
         data_dir / "stale_descendants.csv"
     )
-    descendant_correction_keys = load_stale_descendant_correction_keys(
+    descendant_corrections = load_stale_descendant_corrections(
         data_dir / "stale_descendant_corrections.csv"
     )
     represented_descendant_observations: set[tuple[str, int, str]] = set()
@@ -352,7 +352,7 @@ def build_monitor_evidence_exports(
                 source,
                 exclude_classifications=frozenset({"stale"}),
                 stale_descendant_observations=descendant_observations,
-                stale_descendant_correction_keys=descendant_correction_keys,
+                stale_descendant_corrections=descendant_corrections,
                 error_blocks_path=error_blocks_path,
             )
             validated_rows, validated_stats = collect_source_rows(
@@ -364,7 +364,7 @@ def build_monitor_evidence_exports(
             rows, stats = collect_source_rows(
                 source,
                 stale_descendant_observations=descendant_observations,
-                stale_descendant_correction_keys=descendant_correction_keys,
+                stale_descendant_corrections=descendant_corrections,
                 error_blocks_path=error_blocks_path,
             )
         if unknown_companion is not None:
@@ -377,7 +377,10 @@ def build_monitor_evidence_exports(
         skipped_canonical = 0
         if companion is not None:
             companion_rows, companion_stats = collect_source_rows(
-                companion, error_blocks_path=error_blocks_path
+                companion,
+                stale_descendant_observations=descendant_observations,
+                stale_descendant_corrections=descendant_corrections,
+                error_blocks_path=error_blocks_path,
             )
             companion_rows, skipped_canonical = dedupe_canonical_companion_rows(
                 rows, companion_rows

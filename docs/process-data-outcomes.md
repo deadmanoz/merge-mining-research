@@ -1,6 +1,6 @@
 # Stale recovery process, data volumes, and outcomes
 
-Snapshot date: 2026-08-27.
+Snapshot date: 2026-08-29.
 
 This document is the cross-chain accounting view for the stale-block recovery
 work. It is deliberately more operational than the per-chain writeups: it
@@ -18,11 +18,12 @@ regenerated from their original sources, and the upstream
 `bitcoin-data/stale-blocks` pin
 has been bumped to a revision that already includes this project's historical
 1,089-row Namecoin addition. The consensus-invalid handling is now the
-first-class error-blocks dataset (`data/error-blocks/error_blocks.csv`, 35
+first-class error-blocks dataset (`data/error-blocks/error_blocks.csv`, 39
 rows), which supersedes the former 32-key exclusion overlay: it carries the 31
 consensus-invalid keys plus the 946,213 and 957,780 `time_below_mtp` rows, the
 717,696 `nbits_retarget_not_applied` row, and the Hathor-witnessed 649,674
-`bip34_coinbase_height_missing` row. The former direct-stale-only correction
+`bip34_coinbase_height_missing` row, plus four reconciled stale-root
+descendants that fail `bip34_coinbase_height_mismatch`. The former direct-stale-only correction
 (656,478) is now a stale-descendant single-home. It is not an error-block
 exclusion, but raw source projection requires the compact
 `data/stale_descendant_corrections.csv` exact-key correction overlay and
@@ -94,7 +95,9 @@ what each `data/validated-stales/<chain>_validated_stales.csv` row represents.
 **Stale descendant** means a recovered header's `btc_prev_hash` is not
 canonical and its recovered ancestry reaches a known BTC stale root. Most were
 originally classified as `unknown`; one was corrected from direct stale after
-its predecessor was shown to be stale rather than active. These rows are BTC
+its predecessor was shown to be stale rather than active, and one globally
+verified stale descendant is recovered from exact Elastos, Fractal, and Syscoin
+canonical-bucket observations through a typed correction. These rows are BTC
 stale-fork continuations, not one-hop canonical-parent stale blocks. They
 live in `data/stale_descendants.csv` and are loaded only if
 `classification=stale_descendant` and
@@ -107,11 +110,11 @@ whose parent is canonical". The direct canonical-parent stale is the
 
 Current stale-descendant accounting:
 
-| Class in sidecar | Unique headers | Source rows | Valid | Rejected |
+| Class in reconciliation | Unique headers | Source rows | Accepted | Error peer |
 |---|---:|---:|---:|---:|
-| First child of stale root, depth 1 | 20 | 31 | 17 | 3 |
+| First child of stale root, depth 1 | 20 | 32 | 17 | 3 |
 | Deeper stale descendant, depth 2 | 5 | 7 | 4 | 1 |
-| Total stale-rooted candidates | 25 | 38 | 21 | 4 |
+| Total stale-rooted candidates | 25 | 39 | 21 | 4 |
 
 No promoted stale-rooted path goes deeper than depth 2. The wider unknown
 graph does go much deeper, including depth 103 dangling fragments and depth 67
@@ -122,7 +125,8 @@ evidence, not stale-block contributions.
 Validation status:
 
 - 21 rows are promoted into the main stale loader.
-- 4 candidates are retained as `REJECTED_bip34_height_mismatch`.
+- 4 candidates are emitted to `data/stale_descendants_error_blocks.csv` and
+  consolidated into the error-block catalogue.
 - The independent BIP34 audit confirms all 4 rejections are invalid for their
   stale-fork position: header hash, PoW, nBits, prevhash path, and stale-root
   parent checks pass, but the decoded BIP34 height is exactly one block higher
@@ -131,8 +135,26 @@ Validation status:
 Key artifacts:
 
 - `data/stale_descendants.csv`
+- `data/stale_descendant_corrections.csv`
+- Generated `data/stale_descendants_error_blocks.csv`
+- `data/error-blocks/reconciled_child_identities.csv`
+- `data/error-blocks/error_blocks.csv` and
+  `data/error-blocks/error_block_observations.csv`
 - Private stale-ancestry diagnostics: direct matches, descendant paths, root
   summary, reconciliation summary, and the BIP34 rejection audit.
+
+The reconciliation summary retains historical `unknown_rows` field names for
+compatibility. They now count ancestry-candidate observations, including exact
+canonical-bucket observations admitted by a
+`reclassified_from_canonical` correction. They do not claim that those source
+rows were originally classified `unknown`.
+
+The aggregate-only error-observation refresh does not rebuild ordinary monitor
+payloads. All 28 ordinary artifacts remain byte-identical to the preceding
+snapshot, which published 30 descendant source observations. The current
+sidecar's 31 observations, including the three corrected canonical-bucket
+sources at height 941,882, appear together in the next complete ordinary
+publication rebuild.
 
 ## Process Sequence
 
@@ -142,12 +164,13 @@ Key artifacts:
 | 2. Per-chain extraction | Child-chain nodes, snapshots, JSON dumps, REST APIs, or RSKj archive RPC | Extract BTC parent header and, for historical Namecoin-family sources, authenticate and preserve the child block hash, 80-byte header, timestamp, and `nBits` from the same source block. Preserve BTC parent coinbase evidence where available. | Raw extractor outputs, mostly private/gitignored. |
 | 3. Self-target PoW filter | Extracted parent headers | Require `sha256d(header) <= target(nBits)` at the header's encoded target. This does not establish Bitcoin's contemporaneous target. | Self-target-PoW-passing candidate parent headers. |
 | 4. BTC Core classification | Self-target-PoW-passing headers | `getblockheader(hash)` with positive confirmations -> canonical; otherwise, `getblockheader(prev_hash)` with positive confirmations -> stale-labelled candidate; otherwise -> unknown. A known side-chain header with non-positive confirmations is not treated as canonical. | Full classifier outputs, private archive convention (RSK included). |
-| 5. Validation gates | Classified stale/unknown rows | Chain-specific gates such as `validation_status`, active-parent linkage, expected `nBits`, median-time-past, historical minimum block versions, coinbase scriptSig length, BIP34 height, BCH/BSV filters, and stale-descendant ancestry validation. | Compact committed direct-stale loader inputs under `data/validated-stales/` plus `data/stale_descendants.csv`. |
-| 6. Full-evidence export | Full classifier inventories, stale-only publication files, stale-descendant sidecar | `scripts/reports/build_auxpow_full_evidence.py`; normalize all evidence states and record canonical retention and child-header coverage. | Dated external full-evidence artifacts and manifest. |
-| 7. Monitor publication | Full classifier families, validated stale overlays, relevance inventory, stale-descendant sidecar | `scripts/reports/build_monitor_evidence.py`; emit all available canonical rows plus accepted direct stales, descendants, and strict/weak unknown observations. | Committed `results/monitor-evidence/*` artifacts and manifest. |
-| 8. Cross-source accounting | Upstream rows, per-chain direct stales, and valid stale descendants | Apply the documented loader filters, form the union by `(height, hash)`, and retain merge-mining coinbase evidence as a fallback on upstream duplicates. | Aggregate union counts reported above; no standalone merged artifact is committed. |
-| 9. Novelty accounting | Per-chain loaders, upstream rows, activation chronology | `scripts/compute_chain_novelty.py <chain>`. | `results/per-chain-novelty/<chain>.csv`. |
-| 10. Analysis diagnostics | Full unknown inventories | Unknown ancestry, H1/H2 origin tests, and stale-fork event construction. | Private archive families documented by `results/analysis/README.md`. |
+| 5. Validation gates | Classified stale/unknown rows plus exact corrected canonical observations | Chain-specific gates such as `validation_status`, active-parent linkage, expected `nBits`, median-time-past, historical minimum block versions, coinbase scriptSig length, BIP34 height, BCH/BSV filters, and stale-descendant ancestry validation. Exact typed corrections gate any source-bucket reclassification. | Compact committed direct-stale loader inputs under `data/validated-stales/`, 21 accepted rows in `data/stale_descendants.csv`, and a generated four-row descendant-error peer. |
+| 6. Reconciled error consolidation | Descendant-error peer and committed child-identity manifest | Authenticate exact source coordinates and file SHA-256 values, verify child headers, and merge four parents plus eight child observations. | 39-parent error-block catalogue and 86-row observation ledger. |
+| 7. Full-evidence export | Full classifier inventories, stale-only publication files, stale-descendant sidecar | `scripts/reports/build_auxpow_full_evidence.py`; normalize all evidence states and record canonical retention and child-header coverage. | Dated external full-evidence artifacts and manifest. |
+| 8. Monitor publication | Full classifier families, validated stale overlays, relevance inventory, stale-descendant sidecar | `scripts/reports/build_monitor_evidence.py`; emit all available canonical rows plus accepted direct stales, descendants, strict/weak unknown observations, and the error-observation aggregate. | Committed `results/monitor-evidence/*` artifacts and manifest. |
+| 9. Cross-source accounting | Upstream rows, per-chain direct stales, and valid stale descendants | Apply the documented loader filters, form the union by `(height, hash)`, and retain merge-mining coinbase evidence as a fallback on upstream duplicates. | Aggregate union counts reported above; no standalone merged artifact is committed. |
+| 10. Novelty accounting | Per-chain loaders, upstream rows, activation chronology | `scripts/compute_chain_novelty.py <chain>`. | `results/per-chain-novelty/<chain>.csv`. |
+| 11. Analysis diagnostics | Full candidate inventories | Candidate ancestry, H1/H2 origin tests, and stale-fork event construction. | Private archive families documented by `results/analysis/README.md`. |
 
 The 17 historical source paths were rerun through extraction, classification,
 full-evidence, and monitor publication on 2026-07-30. The committed validated
@@ -164,8 +187,9 @@ merge-mining-recovered stales, writing an export as a gitignored run product
 not labelled here. No attribution results are
 committed.
 
-The full extraction/classification/reconciliation sequence is not encoded in
-the `justfile`; only selected evidence exports are. The public repository
+The full extraction and classification sequence is not encoded in the
+`justfile`; selected evidence exports and the deterministic
+`just reconcile-error-blocks` workflow are. The public repository
 retains a coinbase-marker registry and focused tests, but no standalone
 coinbase-census runner. Several chain outputs therefore depend on private
 archive conventions documented in the per-chain files and

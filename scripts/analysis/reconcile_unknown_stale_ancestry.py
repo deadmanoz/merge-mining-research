@@ -40,6 +40,7 @@ from stale_blocks_analysis.reconcile_observations import (  # noqa: F401
     UnknownObservation,
     accepted_stale_root,
     compact_target,
+    discover_canonical_files,
     discover_chain_names,
     expected_bits_for_height,
     fetch_mainchain_status,
@@ -58,6 +59,9 @@ from stale_blocks_analysis.reconcile_observations import (  # noqa: F401
     scan_upstream_stales,
     stale_identity_key,
     stale_sources,
+)
+from stale_blocks_analysis.stale_blocks import (
+    load_stale_descendant_corrections,
 )
 from stale_blocks_analysis.reconcile_publication import (  # noqa: F401
     DESCENDANT_UNJUDGEABLE_FAILURES,
@@ -143,21 +147,41 @@ def main(argv: list[str] | None = None) -> None:
     chain_names, full_files, unknown_files, validated_files = discover_chain_names(
         args.data_dir
     )
+    canonical_files = discover_canonical_files(args.data_dir)
+    chain_names.update(canonical_files)
     if publication_baseline is not None:
         validate_publication_discovery(
             publication_baseline, full_files, unknown_files, parser
         )
     epoch_bits = load_epoch_bits(args.epoch_reference_dir / "btc_nbits_by_epoch.json")
-    state = load_observations(
-        data_dir=args.data_dir,
-        chain_names=chain_names,
-        full_files=full_files,
-        unknown_files=unknown_files,
-        validated_files=validated_files,
-        epoch_bits=epoch_bits,
-        excluded_keys=load_stale_exclusion_keys(),
-        consensus_invalid_keys=load_consensus_invalid_stale_keys(),
+    corrections = load_stale_descendant_corrections(
+        args.data_dir / "stale_descendant_corrections.csv"
     )
+    correction_keys = frozenset(corrections)
+    try:
+        state = load_observations(
+            data_dir=args.data_dir,
+            chain_names=chain_names,
+            full_files=full_files,
+            unknown_files=unknown_files,
+            canonical_files=canonical_files,
+            validated_files=validated_files,
+            epoch_bits=epoch_bits,
+            excluded_keys=load_stale_exclusion_keys(),
+            consensus_invalid_keys=load_consensus_invalid_stale_keys(),
+            stale_descendant_corrections=corrections,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    if publication_baseline is not None:
+        unused_corrections = correction_keys - state["seen_correction_keys"]
+        if unused_corrections:
+            first_height, first_hash = min(unused_corrections)
+            parser.error(
+                "refusing a publication reconciliation with unused descendant "
+                f"corrections ({len(unused_corrections)}; first "
+                f"{first_height}:{first_hash})"
+            )
     mainchain_cache = load_mainchain_cache(args.cache_dir)
 
     mainchain_lookup = partial(is_mainchain, mainchain_cache=mainchain_cache)

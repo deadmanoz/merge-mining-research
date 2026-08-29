@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from functools import lru_cache
 from pathlib import Path
 
@@ -58,6 +58,7 @@ from .evidence_normalization import (
     is_hash,
     normalize_evidence_row,
     parse_header_fields,
+    require_matching_stale_descendant_correction,
     write_csv,
 )
 from .evidence_sources import (
@@ -75,7 +76,7 @@ from .monitor_exports import (
     load_orphan_relevance_verdicts,
 )
 from .stale_blocks import (
-    load_stale_descendant_correction_keys,
+    load_stale_descendant_corrections,
     load_stale_descendant_observation_keys,
 )
 
@@ -101,6 +102,15 @@ def _csv_row_count(path: Path) -> int:
         return sum(1 for _row in csv.DictReader(handle))
 
 
+def _sha256_file(path: Path) -> str:
+    """Return a streaming SHA-256 digest without loading a publication file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 _ORDINARY_MONITOR_CATEGORIES = (
     "canonical",
     "stale",
@@ -111,6 +121,11 @@ _ORDINARY_MONITOR_CATEGORIES = (
 _ORPHAN_RELEVANCE_REASONS = {
     "strict_btc_orphan": "strict_height_nbits_match",
     "weak_btc_orphan": "timestamp_epoch_nbits_match",
+}
+_ADD_ONLY_LEGACY_PAYLOAD_SHA256 = {
+    "i0coin": "c13a2810a9c0d51efc7c1a102dc0686b4fefc106dc8201cd7e02258895d11354",
+    "namecoin": "b30fa66328f93fbc58be6cad9df9b9780477ecbdb6244717a83899204ea8ebf7",
+    "rsk": "9810c68ee9735fd10c494c8687a609ca31577bc283d8d6c0c58d23e1c974a0a5",
 }
 _DESCENDANT_SIDECAR_CHAIN = "stale-descendants"
 _MANIFEST_COUNT_FIELDS = (
@@ -202,15 +217,38 @@ def _load_monitor_artifact_counts(
     *,
     data_dir: Path = DATA_DIR,
     expected_artifact_scope: str | frozenset[str] = "",
+    allow_pinned_add_only_legacy: bool = False,
 ) -> Counter[str]:
-    """Count and validate the published categories in one ordinary artifact."""
+    """Count and validate the published categories in one ordinary artifact.
+
+    Add-only error-observation updates may opt into two historical blank-height
+    row shapes and Namecoin's historical blank parent-nonce cells only when the
+    complete candidate artifact matches its explicit committed Git LFS payload
+    SHA-256. Normal and full publication validation never enables this option
+    and remains strict.
+    """
     counts: Counter[str] = Counter()
     stale_identities: set[tuple[int, str]] = set()
     btc_nbits_by_epoch: dict[int, int] | None = None
     descendant_observations: frozenset[tuple[str, int, str]] | None = None
-    descendant_corrections: frozenset[tuple[int, str]] | None = None
+    descendant_corrections: dict[tuple[int, str], str] | None = None
     descendant_exclusions: set[tuple[int, str]] | None = None
     descendant_consensus_invalid: set[tuple[int, str]] | None = None
+    pinned_legacy_payload_matches: bool | None = None
+
+    def matches_pinned_legacy_payload() -> bool:
+        nonlocal pinned_legacy_payload_matches
+        if pinned_legacy_payload_matches is not None:
+            return pinned_legacy_payload_matches
+        expected_sha256 = _ADD_ONLY_LEGACY_PAYLOAD_SHA256.get(chain)
+        pinned_legacy_payload_matches = bool(
+            allow_pinned_add_only_legacy
+            and expected_sha256
+            and path.name == f"{chain}_monitor_evidence.csv"
+            and _sha256_file(path) == expected_sha256
+        )
+        return pinned_legacy_payload_matches
+
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = reader.fieldnames or []
@@ -328,6 +366,13 @@ def _load_monitor_artifact_counts(
                 ("btc_nonce", "nonce"),
             ):
                 published = row.get(field) or ""
+                if (
+                    field == "btc_nonce"
+                    and not published
+                    and chain == "namecoin"
+                    and matches_pinned_legacy_payload()
+                ):
+                    continue
                 if not published or published != parsed_header[parsed_field]:
                     raise ValueError(
                         f"{path}:{row_number}: {field} disagrees with "
@@ -507,7 +552,7 @@ def _load_monitor_artifact_counts(
                         descendant_observations = (
                             load_stale_descendant_observation_keys(sidecar)
                         )
-                        descendant_corrections = load_stale_descendant_correction_keys(
+                        descendant_corrections = load_stale_descendant_corrections(
                             data_dir / "stale_descendant_corrections.csv"
                         )
                         exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
@@ -524,7 +569,7 @@ def _load_monitor_artifact_counts(
                     descendant_key = (btc_height, parent_hash)
                     if (
                         (chain, btc_height, parent_hash) not in descendant_observations
-                        or descendant_key not in (descendant_corrections or set())
+                        or descendant_key not in (descendant_corrections or {})
                         or descendant_key in (descendant_exclusions or set())
                         or descendant_key in (descendant_consensus_invalid or set())
                     ):
@@ -543,17 +588,26 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation has invalid relevance"
                     )
-                if btc_height is None or btc_height < 0:
+                legacy_heightless_descendant = btc_height is None and (
+                    matches_pinned_legacy_payload()
+                )
+                if (btc_height is None or btc_height < 0) and not (
+                    legacy_heightless_descendant
+                ):
                     raise ValueError(
                         f"{path}:{row_number}: descendant observation lacks a "
                         "nonnegative Bitcoin height"
                     )
+                if legacy_heightless_descendant:
+                    counts["stale_descendant"] += 1
+                    continue
+                assert btc_height is not None
                 if descendant_observations is None:
                     sidecar = data_dir / "stale_descendants.csv"
                     descendant_observations = load_stale_descendant_observation_keys(
                         sidecar
                     )
-                    descendant_corrections = load_stale_descendant_correction_keys(
+                    descendant_corrections = load_stale_descendant_corrections(
                         data_dir / "stale_descendant_corrections.csv"
                     )
                     exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
@@ -588,11 +642,20 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: orphan row has invalid status"
                     )
                 if bucket == "strict_btc_orphan":
-                    if btc_height is None or btc_height < 0:
+                    legacy_heightless_strict = btc_height is None and (
+                        matches_pinned_legacy_payload()
+                    )
+                    if (btc_height is None or btc_height < 0) and not (
+                        legacy_heightless_strict
+                    ):
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row lacks a "
                             "nonnegative Bitcoin height"
                         )
+                    if legacy_heightless_strict:
+                        counts[bucket] += 1
+                        continue
+                    assert btc_height is not None
                     if btc_height < BIP34_HEIGHT:
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row height is "
@@ -1468,7 +1531,7 @@ def _accepted_descendant_count(path: Path) -> int:
 def _projected_stale_descendant_count(
     source: EvidenceSource,
     descendant_observations: frozenset[tuple[str, int, str]],
-    descendant_correction_keys: frozenset[tuple[int, str]],
+    descendant_corrections: Mapping[tuple[int, str], str],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> int:
@@ -1489,14 +1552,24 @@ def _projected_stale_descendant_count(
                 key = (int(normalized["btc_height"]), block_hash)
             except ValueError:
                 continue
-            # A direct-stale correction must match the sidecar's source
+            # A stale-bucket correction must match the sidecar's source
             # observation and the compact exact-key correction overlay.
             if (
-                source.chain,
-                key[0],
-                block_hash,
-            ) in descendant_observations and (
-                key in descendant_correction_keys and key not in consensus_invalid_keys
+                (
+                    source.chain,
+                    key[0],
+                    block_hash,
+                )
+                in descendant_observations
+                and key not in consensus_invalid_keys
+                and (
+                    require_matching_stale_descendant_correction(
+                        descendant_corrections,
+                        key,
+                        "stale",
+                        label=f"{source.path}:{row_number}",
+                    )
+                )
             ):
                 count += 1
     return count
@@ -1505,7 +1578,7 @@ def _projected_stale_descendant_count(
 def _accepted_descendant_observations(
     sources: list[EvidenceSource],
     descendant_observations: frozenset[tuple[str, int, str]],
-    descendant_correction_keys: frozenset[tuple[int, str]],
+    descendant_corrections: Mapping[tuple[int, str], str],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> set[tuple[str, int, str]]:
@@ -1540,9 +1613,14 @@ def _accepted_descendant_observations(
                     if normalized["validation_status"] == "VALID_STALE_DESCENDANT":
                         accepted.add(observation_key)
                     continue
-                if classification != "stale":
+                if classification not in {"stale", "canonical"}:
                     continue
-                if key in descendant_correction_keys:
+                if require_matching_stale_descendant_correction(
+                    descendant_corrections,
+                    key,
+                    classification,
+                    label=f"{source.path}:{row_number}",
+                ):
                     accepted.add(observation_key)
     return accepted
 
@@ -1626,7 +1704,7 @@ def validate_publication_inputs(
         descendant_observations = load_stale_descendant_observation_keys(
             descendants_path
         )
-        descendant_correction_keys = load_stale_descendant_correction_keys(
+        descendant_corrections = load_stale_descendant_corrections(
             args.data_dir / "stale_descendant_corrections.csv"
         )
         descendant_counts = Counter(
@@ -1814,10 +1892,12 @@ def validate_publication_inputs(
                 descendant_sources = [source]
                 if unknown_source is not None:
                     descendant_sources.append(unknown_source)
+                if canonical_source is not None:
+                    descendant_sources.append(canonical_source)
                 accepted_descendants = _accepted_descendant_observations(
                     descendant_sources,
                     descendant_observations,
-                    descendant_correction_keys,
+                    descendant_corrections,
                     excluded_keys,
                     consensus_invalid_keys,
                 )
@@ -1874,7 +1954,7 @@ def validate_publication_inputs(
                     coverage += _projected_stale_descendant_count(
                         source,
                         descendant_observations,
-                        descendant_correction_keys,
+                        descendant_corrections,
                         excluded_keys,
                         consensus_invalid_keys,
                     )
@@ -2214,6 +2294,7 @@ def _load_error_update_baseline(
             artifact_path,
             chain,
             data_dir=data_dir,
+            allow_pinned_add_only_legacy=True,
             expected_artifact_scope=frozenset(
                 {
                     (expected.get("artifact_scope") or "").strip(),

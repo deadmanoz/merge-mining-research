@@ -249,8 +249,10 @@ is not an input to stale-block recovery or the committed loader datasets.
 ├── scripts/                    # extraction, classification, and analysis tooling
 │   ├── extract/ classify/ analysis/ reports/ prep/
 │   └── fetch-data.sh           # clones pinned bitcoin-data/stale-blocks into data/
-├── data/                       # committed stale loader inputs
-│   └── bitcoin-epoch-reference/# public nBits/time reference for relevance gates
+├── data/                       # committed stale and error-block loader inputs
+│   ├── bitcoin-epoch-reference/# public nBits/time reference for relevance gates
+│   ├── error-blocks/           # catalogue, observation ledger, context, identities
+│   └── stale_descendants.csv   # accepted stale-fork continuations
 ├── results/                    # committed reference CSVs and final exports
 │   ├── monitor-evidence/       #   Git LFS-backed per-chain payloads + metadata
 │   ├── analysis/               #   regenerable diagnostics grouped by question
@@ -314,6 +316,7 @@ just refresh-bitcoin-epoch-reference
 just full-evidence
 just strict-weak-orphans
 just monitor-evidence
+just reconcile-error-blocks
 just attribute
 just child-header-coverage --input-dir <staged-evidence-dir> \
   --output <staged-results-dir>/child-header-coverage.csv
@@ -332,6 +335,12 @@ and is accepted only with `--allow-partial` and an explicit, disposable
 artifacts. The command stages the complete generated set before replacing
 prior monitor files, and preserves unrelated files in the output directory if
 the build succeeds or fails.
+
+`just reconcile-error-blocks` requires the complete staged ancestry inventories.
+It rebuilds the 21 accepted stale descendants and four-row generated error
+peer, authenticates the peer's eight child observations against the committed
+identity manifest, and updates the 39-parent catalogue plus 86-row observation
+ledger through a deterministic, fail-closed workflow.
 
 Per-chain extraction and classification entry points are documented in the
 corresponding notes under [`docs/chains/`](docs/chains/). Run an individual

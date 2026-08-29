@@ -52,6 +52,7 @@ _LEDGER_FIELDS = {
     "source_path",
     "source_row_number",
     "source_sha256",
+    "catalogue_row_number",
     "provenance",
 }
 
@@ -244,10 +245,15 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
             source_row = int_or_none(
                 _required(row, "source_row_number", row_number=row_number, path=path)
             )
+            catalogue_row = int_or_none(
+                _required(row, "catalogue_row_number", row_number=row_number, path=path)
+            )
             source_sha256 = normalize_hash(row.get("source_sha256"))
             if (
                 source_row is None
                 or source_row < 1
+                or catalogue_row is None
+                or catalogue_row < 2
                 or (source_sha256 and not is_hash(source_sha256))
                 or (not source_sha256 and row["source_kind"] != "monitor_live_event")
             ):
@@ -417,33 +423,20 @@ def build_error_observation_rows(
     *, data_dir: Path = DATA_DIR
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
     """Expand the recovered witness ledger against the current parent catalogue."""
-    blocks = load_error_blocks(data_dir / "error-blocks" / "error_blocks.csv")
-    ledger = _load_ledger(data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER)
+    blocks, ledger = validate_error_observation_ledger(
+        catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+        ledger_path=data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER,
+    )
+
+    rows: list[dict[str, str]] = []
     targets = {
         (chain, child_height, block.block_hash): block
         for block in blocks
         for chain, child_height in block.observations
     }
-    unexpected = set(ledger) - set(targets)
-    missing = set(targets) - set(ledger)
-    if unexpected or missing:
-        details = []
-        if unexpected:
-            details.append(f"{len(unexpected)} unexpected")
-        if missing:
-            details.append(f"{len(missing)} missing")
-        raise ValueError(
-            "error-observation ledger disagrees with catalogue: " + ", ".join(details)
-        )
-
-    rows: list[dict[str, str]] = []
     for key, block in targets.items():
         chain, child_height, _block_hash = key
         witness = ledger[key]
-        if int(witness["btc_height"]) != block.height:
-            raise ValueError(
-                f"error-observation ledger has wrong parent height for {key}"
-            )
         row = dict.fromkeys(ERROR_OBSERVATION_FIELDS, "")
         row.update(
             {
@@ -488,6 +481,48 @@ def build_error_observation_rows(
         "parents": len(blocks),
         "source_chain_counts": dict(sorted(counts.items())),
     }
+
+
+def validate_error_observation_ledger(
+    *, catalogue_path: Path, ledger_path: Path
+) -> tuple[list[ErrorBlock], dict[tuple[str, int, str], dict[str, str]]]:
+    """Validate exact catalogue-to-ledger witness coverage without exporting."""
+    blocks = load_error_blocks(catalogue_path)
+    ledger = _load_ledger(ledger_path)
+    targets = {
+        (chain, child_height, block.block_hash): block
+        for block in blocks
+        for chain, child_height in block.observations
+    }
+    catalogue_row_numbers = {
+        (block.height, block.block_hash): row_number
+        for row_number, block in enumerate(blocks, start=2)
+    }
+    unexpected = set(ledger) - set(targets)
+    missing = set(targets) - set(ledger)
+    if unexpected or missing:
+        details = []
+        if unexpected:
+            details.append(f"{len(unexpected)} unexpected")
+        if missing:
+            details.append(f"{len(missing)} missing")
+        raise ValueError(
+            "error-observation ledger disagrees with catalogue: " + ", ".join(details)
+        )
+    for key, block in targets.items():
+        witness = ledger[key]
+        if int(witness["btc_height"]) != block.height:
+            raise ValueError(
+                f"error-observation ledger has wrong parent height for {key}"
+            )
+        expected_catalogue_row = catalogue_row_numbers[(block.height, block.block_hash)]
+        if int(witness["catalogue_row_number"]) != expected_catalogue_row:
+            raise ValueError(
+                "error-observation ledger has wrong catalogue_row_number for "
+                f"{key}: expected {expected_catalogue_row}, got "
+                f"{witness['catalogue_row_number']}"
+            )
+    return blocks, ledger
 
 
 def write_error_observation_artifact(

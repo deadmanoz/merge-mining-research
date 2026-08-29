@@ -221,7 +221,7 @@ def expected_bits_for_height(height: str, epoch_bits: dict[int, str]) -> str:
 
 def discover_chain_names(
     data_dir: Path,
-) -> tuple[set[str], dict[str, Path], dict[str, Path]]:
+) -> tuple[set[str], dict[str, Path], dict[str, Path], dict[str, Path]]:
     """Discover per-chain full-inventory and validated-stales CSVs under `data_dir`.
 
     Chain names also include any `docs/chains/<chain>.md` stem even when
@@ -248,6 +248,22 @@ def discover_chain_names(
     if DOCS_CHAINS_DIR.exists():
         chain_names.update(p.stem for p in DOCS_CHAINS_DIR.glob("*.md"))
     return chain_names, full, unknown, validated
+
+
+def discover_canonical_files(data_dir: Path) -> dict[str, Path]:
+    """Discover classifier-emitted canonical companion inventories.
+
+    These files are a third classifier bucket, separate from the stale and
+    unknown inventories. Reconciliation treats their rows as ancestry
+    candidates rather than trusted Bitcoin main-chain facts because an
+    archive bucket can become stale after a node or classifier refresh. Only
+    exact keys in the committed correction overlay enter the ancestry graph;
+    discovery alone never changes a published classification.
+    """
+    return {
+        path.name.removesuffix("_canonical_blocks.csv"): path
+        for path in data_dir.glob("*_canonical_blocks.csv")
+    }
 
 
 def join_sorted(values: Iterable[str]) -> str:
@@ -497,13 +513,18 @@ def load_observations(
     chain_names: set[str],
     full_files: dict[str, Path],
     unknown_files: dict[str, Path],
+    canonical_files: dict[str, Path],
     validated_files: dict[str, Path],
     epoch_bits: dict[int, str],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
+    stale_descendant_corrections: dict[tuple[int, str], str],
 ) -> dict[str, object]:
     """Load inventories and return the reconciliation indexes and anomalies."""
-    direct_stale_only_keys = excluded_keys - consensus_invalid_keys
+    descendant_candidate_keys = (excluded_keys - consensus_invalid_keys) | set(
+        stale_descendant_corrections
+    )
+    seen_correction_keys: set[tuple[int, str]] = set()
     stale_by_hash: dict[str, list[StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
     full_classifications_by_hash: dict[str, set[str]] = defaultdict(set)
@@ -561,13 +582,15 @@ def load_observations(
             nbits_mismatch_counts[key] += 1
             nbits_mismatch_first_row.setdefault(key, row_number)
 
-    def scan_inventory_file(inv_path, chain, notes):
+    def scan_inventory_file(inv_path, chain, notes, *, candidate_only=False):
         """Scan one classifier inventory file (stale-only or unknown) into the
         shared observation indices, dispatching each row by its ``classification``.
 
-        Reading both the stale and unknown files keeps split chains (stale in one
-        file, unknown in the other) and never-split chains (both commingled in the
-        stale file, no unknown file) correct without changing the per-row dispatch.
+        Reading the stale, unknown, and canonical bucket files keeps split chains
+        and never-split chains correct. Canonical-bucket rows use
+        ``candidate_only=True``: exact keys in the correction overlay
+        participate in ancestry traversal but can never become trusted stale
+        roots. Other canonical rows remain inventory accounting only.
         Returns per-file ``(total, stale, unknown, missing_hash, missing_prev,
         recovered_prev, hash_col, prev_col, header_col)``.
         """
@@ -600,15 +623,46 @@ def load_observations(
                 child_height = get_child_height(row, fieldnames)
 
                 exclusion_key = stale_identity_key(row, fieldnames, hash_col)
+                source_classification = classification
                 if classification == "stale":
                     if exclusion_key in consensus_invalid_keys:
                         continue
-                    if exclusion_key in direct_stale_only_keys:
-                        # This is valid stale-chain evidence, but not a direct
-                        # stale root. Feed it through the ancestry walk as an
-                        # unknown observation so it can be published only as a
-                        # stale descendant.
+                    if exclusion_key in descendant_candidate_keys:
+                        # The exact-key correction overlay records source rows
+                        # whose archive label is no longer authoritative. Feed
+                        # them through the ancestry walk so only the validated
+                        # descendant path can publish them.
                         classification = "unknown"
+                        if exclusion_key in stale_descendant_corrections:
+                            if (
+                                stale_descendant_corrections[exclusion_key]
+                                != "reclassified_from_direct_stale"
+                            ):
+                                raise ValueError(
+                                    f"{rel(inv_path)}:{row_number}: correction "
+                                    "reason disagrees with stale source bucket"
+                                )
+                            seen_correction_keys.add(exclusion_key)
+                if candidate_only:
+                    if exclusion_key in consensus_invalid_keys:
+                        continue
+                    if exclusion_key not in stale_descendant_corrections:
+                        continue
+                    if (
+                        stale_descendant_corrections[exclusion_key]
+                        != "reclassified_from_canonical"
+                    ):
+                        raise ValueError(
+                            f"{rel(inv_path)}:{row_number}: correction reason "
+                            "disagrees with canonical source bucket"
+                        )
+                    if source_classification != "canonical":
+                        raise ValueError(
+                            f"{rel(inv_path)}:{row_number}: corrected canonical "
+                            "bucket row must declare classification=canonical"
+                        )
+                    seen_correction_keys.add(exclusion_key)
+                    classification = "unknown"
 
                 if recovered_prev:
                     recovered_prev_rows += 1
@@ -644,9 +698,9 @@ def load_observations(
 
                 if is_hash(block_hash):
                     all_hash_chains[block_hash].add(chain)
-                    if classification:
+                    if source_classification:
                         full_classifications_by_hash[block_hash].add(
-                            f"{chain}:{classification}"
+                            f"{chain}:{source_classification}"
                         )
                     if is_hash(prev_hash):
                         prevs_by_hash[block_hash].add(prev_hash)
@@ -714,9 +768,14 @@ def load_observations(
     for chain in sorted(chain_names):
         full_path = full_files.get(chain)
         unknown_path = unknown_files.get(chain)
+        canonical_path = canonical_files.get(chain)
         validated_path = validated_files.get(chain)
         notes: list[str] = []
-        inventory_paths = [pth for pth in (full_path, unknown_path) if pth is not None]
+        inventory_paths = [
+            (path, False) for path in (full_path, unknown_path) if path is not None
+        ]
+        if canonical_path is not None:
+            inventory_paths.append((canonical_path, True))
 
         if not inventory_paths:
             if validated_path is not None:
@@ -729,6 +788,7 @@ def load_observations(
                 {
                     "chain": chain,
                     "full_inventory_path": "",
+                    "canonical_inventory_path": "",
                     "validated_stale_path": rel(validated_path)
                     if validated_path
                     else "",
@@ -747,9 +807,9 @@ def load_observations(
         total_rows = stale_rows = unknown_count = missing_hash = missing_prev = 0
         recovered_prev_rows = 0
         hash_col = prev_col = header_col = None
-        for inv_path in inventory_paths:
+        for inv_path, candidate_only in inventory_paths:
             (t_, s_, u_, mh_, mp_, rp_, hc_, pc_, hdc_) = scan_inventory_file(
-                inv_path, chain, notes
+                inv_path, chain, notes, candidate_only=candidate_only
             )
             total_rows += t_
             stale_rows += s_
@@ -770,6 +830,9 @@ def load_observations(
             {
                 "chain": chain,
                 "full_inventory_path": rel(full_path) if full_path else "",
+                "canonical_inventory_path": (
+                    rel(canonical_path) if canonical_path else ""
+                ),
                 "validated_stale_path": rel(validated_path) if validated_path else "",
                 "header_hash_column_used": hash_col,
                 "prev_hash_column_used": prev_col
@@ -976,6 +1039,7 @@ def load_observations(
         "unknown_example_by_hash": unknown_example_by_hash,
         "unknown_observations_by_hash": unknown_observations_by_hash,
         "inventory_rows": inventory_rows,
+        "seen_correction_keys": frozenset(seen_correction_keys),
         "upstream_count": upstream_count,
         "known_stale_hashes": known_stale_hashes,
         "auxpow_stale_hashes": auxpow_stale_hashes,
