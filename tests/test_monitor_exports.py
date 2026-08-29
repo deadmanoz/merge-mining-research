@@ -1103,6 +1103,67 @@ def test_canonical_companion_duplicate_rows_are_deduped(tmp_path: Path) -> None:
     assert namecoin_counts["source_rows"] == "2"
 
 
+def test_corrected_canonical_companion_duplicate_is_deduped_before_projection(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "out"
+    header_hex, header_hash = _header(prev_hash="aa" * 32)
+    canonical_row = {
+        "btc_height": "941882",
+        "btc_header_hash": header_hash,
+        "btc_prev_hash": "aa" * 32,
+        "btc_time": "1700000000",
+        "btc_bits": "1d00ffff",
+        "btc_header_hex": header_hex,
+        "ela_height": "1487545",
+        "classification": "canonical",
+        "validation_status": "",
+    }
+    _write_csv(data_dir / "elastos_stale_blocks.csv", [canonical_row])
+    _write_csv(data_dir / "elastos_canonical_blocks.csv", [canonical_row])
+    _write_csv(
+        data_dir / "stale_descendants.csv",
+        [
+            {
+                "btc_height": "941882",
+                "btc_header_hash": header_hash,
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "source_rows": "elastos:data/elastos_stale_blocks.csv:2",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "stale_descendant_corrections.csv",
+        [
+            {
+                "btc_height": "941882",
+                "btc_header_hash": header_hash,
+                "correction_reason": "reclassified_from_canonical",
+            }
+        ],
+    )
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+    )
+
+    rows = _read_csv(output_dir / "elastos_monitor_evidence.csv")
+    assert len(rows) == 1
+    assert rows[0]["btc_header_hash"] == header_hash
+    assert rows[0]["classification"] == "stale_descendant"
+    counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    elastos = next(row for row in counts if row["chain"] == "elastos")
+    assert elastos["source_rows"] == "1"
+    assert elastos["canonical"] == "0"
+    assert elastos["stale_descendant"] == "1"
+    assert "reclassified_stale_descendant_observations=1" in elastos["notes"]
+    assert "skipped_duplicate_canonical_companion_rows=1" in elastos["notes"]
+
+
 def test_monitor_export_hydrates_empty_namecoin_header_from_prototype(
     tmp_path: Path,
 ) -> None:

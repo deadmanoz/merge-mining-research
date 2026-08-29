@@ -151,7 +151,11 @@ def main(argv: list[str] | None = None) -> None:
     chain_names.update(canonical_files)
     if publication_baseline is not None:
         validate_publication_discovery(
-            publication_baseline, full_files, unknown_files, parser
+            publication_baseline,
+            full_files,
+            unknown_files,
+            canonical_files,
+            parser,
         )
     epoch_bits = load_epoch_bits(args.epoch_reference_dir / "btc_nbits_by_epoch.json")
     corrections = load_stale_descendant_corrections(

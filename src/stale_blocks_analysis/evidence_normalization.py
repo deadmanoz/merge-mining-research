@@ -647,17 +647,21 @@ def collect_source_rows(
     source: EvidenceSource,
     *,
     exclude_classifications: frozenset[str] = frozenset(),
+    exclude_canonical_identities: frozenset[tuple[int, str]] = frozenset(),
     stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
     stale_descendant_corrections: Mapping[tuple[int, str], str] | None = None,
     error_blocks_path: Path | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
-    Every normalized row is kept except requested source classifications and
-    exact identities in the committed error-blocks dataset. The stats record
-    error labels rather than dropping malformed rows; classification tallies,
-    rejection counts, and missing-evidence counts feed the counts/manifest
-    artifacts. A source row formerly published as a direct stale is projected
+    Every normalized row is kept except requested source classifications,
+    canonical identities already represented by a primary inventory, and exact
+    identities in the committed error-blocks dataset. Applying canonical
+    duplicate exclusions here keeps them out of both projection and source
+    statistics before any correction changes their final classification. The
+    stats record error labels rather than dropping malformed rows;
+    classification tallies, rejection counts, and missing-evidence counts feed
+    the counts/manifest artifacts. A source row formerly published as a direct stale is projected
     into its accepted ``stale_descendant`` state only when the descendant
     sidecar supplies both its exact chain/height/hash observation and the
     compact exact-key correction overlay. This also applies to a canonical
@@ -683,6 +687,7 @@ def collect_source_rows(
         consensus_invalid = load_consensus_invalid_stale_keys()
     excluded_count = 0
     reclassified_descendant_count = 0
+    skipped_duplicate_canonical_count = 0
     for normalized, errors in iter_source_rows(source):
         classification = normalized["classification"]
         try:
@@ -695,6 +700,9 @@ def collect_source_rows(
         observation_key = None
         if key is not None:
             observation_key = (source.chain, key[0], key[1])
+        if classification == "canonical" and key in exclude_canonical_identities:
+            skipped_duplicate_canonical_count += 1
+            continue
         if (
             classification
             in STALE_DESCENDANT_CORRECTION_REASON_BY_SOURCE_CLASSIFICATION
@@ -748,6 +756,11 @@ def collect_source_rows(
         stats.notes.add(
             "reclassified_stale_descendant_observations="
             f"{reclassified_descendant_count}"
+        )
+    if skipped_duplicate_canonical_count:
+        stats.notes.add(
+            "skipped_duplicate_canonical_companion_rows="
+            f"{skipped_duplicate_canonical_count}"
         )
     return rows, stats
 

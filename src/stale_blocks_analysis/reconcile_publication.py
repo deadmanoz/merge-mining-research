@@ -463,15 +463,16 @@ def validate_publication_discovery(
     baseline: PublicationBaseline,
     full_files: dict[str, Path],
     unknown_files: dict[str, Path],
+    canonical_files: dict[str, Path],
     parser: argparse.ArgumentParser,
 ) -> None:
     """Require source inventories for every chain represented in the baseline."""
-    discovered = set(full_files) | set(unknown_files)
+    discovered = set(full_files) | set(unknown_files) | set(canonical_files)
     missing = sorted(baseline.required_inventory_chains - discovered)
     if missing:
         parser.error(
-            "refusing an incomplete publication reconciliation; missing full/unknown "
-            "inventories for baseline chains: "
+            "refusing an incomplete publication reconciliation; missing full, "
+            "unknown, or canonical inventories for baseline chains: "
             + ", ".join(missing)
             + ". Use --allow-partial only with disposable output paths."
         )

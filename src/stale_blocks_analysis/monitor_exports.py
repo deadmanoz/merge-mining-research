@@ -264,6 +264,32 @@ def monitor_count_row(
     }
 
 
+def _canonical_projection_identities(
+    rows: Iterable[dict[str, str]],
+    corrections: dict[tuple[int, str], str],
+) -> frozenset[tuple[int, str]]:
+    """Return canonical-source identities already represented by ``rows``.
+
+    Corrected canonical rows have already become ``stale_descendant`` by this
+    point, so the typed correction retains their source identity for companion
+    deduplication.
+    """
+    identities: set[tuple[int, str]] = set()
+    for row in rows:
+        height = int_or_none(row.get("btc_height"))
+        block_hash = normalize_hash(row.get("btc_header_hash"))
+        if height is None or height < 0 or not is_hash(block_hash):
+            continue
+        key = (height, block_hash)
+        classification = row.get("classification")
+        if classification == "canonical" or (
+            classification == "stale_descendant"
+            and corrections.get(key) == "reclassified_from_canonical"
+        ):
+            identities.add(key)
+    return frozenset(identities)
+
+
 def build_monitor_evidence_exports(
     *,
     data_dir: Path = DATA_DIR,
@@ -376,8 +402,12 @@ def build_monitor_evidence_exports(
             stats = merge_stats(stats, unknown_stats)
         skipped_canonical = 0
         if companion is not None:
+            represented_canonical = _canonical_projection_identities(
+                rows, descendant_corrections
+            )
             companion_rows, companion_stats = collect_source_rows(
                 companion,
+                exclude_canonical_identities=represented_canonical,
                 stale_descendant_observations=descendant_observations,
                 stale_descendant_corrections=descendant_corrections,
                 error_blocks_path=error_blocks_path,

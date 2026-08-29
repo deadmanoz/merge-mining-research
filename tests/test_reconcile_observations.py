@@ -34,6 +34,7 @@ def _load(
     full_files: dict[str, Path] | None = None,
     canonical_files: dict[str, Path] | None = None,
     correction_keys: frozenset[tuple[int, str]] = frozenset(),
+    corrections: dict[tuple[int, str], str] | None = None,
 ) -> dict[str, object]:
     return load_observations(
         data_dir=data_dir,
@@ -45,9 +46,11 @@ def _load(
         epoch_bits={},
         excluded_keys=set(),
         consensus_invalid_keys=set(),
-        stale_descendant_corrections={
-            key: "reclassified_from_canonical" for key in correction_keys
-        },
+        stale_descendant_corrections=(
+            corrections
+            if corrections is not None
+            else {key: "reclassified_from_canonical" for key in correction_keys}
+        ),
     )
 
 
@@ -163,6 +166,87 @@ def test_uncorrected_canonical_bucket_row_is_not_an_ancestry_candidate(
     assert block_hash not in state["known_stale_hashes"]
     assert block_hash not in state["unknown_prev_by_hash"]
     assert state["unknown_row_counts_by_hash"][block_hash] == 0
+
+
+def test_corrected_commingled_canonical_row_is_an_ancestry_candidate(
+    tmp_path: Path,
+) -> None:
+    block_hash = f"{10:064x}"
+    prev_hash = f"{11:064x}"
+    inventory = tmp_path / "test_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "103",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": prev_hash,
+                "classification": "canonical",
+            }
+        ],
+    )
+
+    state = _load(
+        tmp_path,
+        full_files={"test": inventory},
+        correction_keys=frozenset({(103, block_hash)}),
+    )
+
+    assert block_hash not in state["known_stale_hashes"]
+    assert state["unknown_prev_by_hash"][block_hash] == prev_hash
+    assert state["unknown_row_counts_by_hash"][block_hash] == 1
+    assert state["full_classifications_by_hash"][block_hash] == {"test:canonical"}
+    assert state["seen_correction_keys"] == frozenset({(103, block_hash)})
+
+
+def test_uncorrected_commingled_canonical_row_is_not_an_ancestry_candidate(
+    tmp_path: Path,
+) -> None:
+    block_hash = f"{12:064x}"
+    inventory = tmp_path / "test_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "104",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{13:064x}",
+                "classification": "canonical",
+            }
+        ],
+    )
+
+    state = _load(tmp_path, full_files={"test": inventory})
+
+    assert block_hash not in state["known_stale_hashes"]
+    assert block_hash not in state["unknown_prev_by_hash"]
+    assert state["unknown_row_counts_by_hash"][block_hash] == 0
+    assert state["full_classifications_by_hash"][block_hash] == {"test:canonical"}
+
+
+def test_commingled_canonical_row_rejects_direct_stale_correction_reason(
+    tmp_path: Path,
+) -> None:
+    block_hash = f"{14:064x}"
+    inventory = tmp_path / "test_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "105",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{15:064x}",
+                "classification": "canonical",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="disagrees with canonical source bucket"):
+        _load(
+            tmp_path,
+            full_files={"test": inventory},
+            corrections={(105, block_hash): "reclassified_from_direct_stale"},
+        )
 
 
 def test_active_893766_through_893769_headers_are_not_published() -> None:

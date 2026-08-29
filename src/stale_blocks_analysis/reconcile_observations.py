@@ -587,10 +587,11 @@ def load_observations(
         shared observation indices, dispatching each row by its ``classification``.
 
         Reading the stale, unknown, and canonical bucket files keeps split chains
-        and never-split chains correct. Canonical-bucket rows use
-        ``candidate_only=True``: exact keys in the correction overlay
-        participate in ancestry traversal but can never become trusted stale
-        roots. Other canonical rows remain inventory accounting only.
+        and never-split chains correct. Canonical-bucket files use
+        ``candidate_only=True`` so only exact corrected canonical keys participate
+        in ancestry traversal. The same typed correction applies to canonical
+        rows in a commingled full inventory; uncorrected canonical rows remain
+        inventory accounting only and never become ancestry candidates.
         Returns per-file ``(total, stale, unknown, missing_hash, missing_prev,
         recovered_prev, hash_col, prev_col, header_col)``.
         """
@@ -624,6 +625,14 @@ def load_observations(
 
                 exclusion_key = stale_identity_key(row, fieldnames, hash_col)
                 source_classification = classification
+                correction_reason = stale_descendant_corrections.get(exclusion_key)
+                if candidate_only and source_classification != "canonical":
+                    if correction_reason is not None:
+                        raise ValueError(
+                            f"{rel(inv_path)}:{row_number}: corrected canonical "
+                            "bucket row must declare classification=canonical"
+                        )
+                    continue
                 if classification == "stale":
                     if exclusion_key in consensus_invalid_keys:
                         continue
@@ -643,26 +652,20 @@ def load_observations(
                                     "reason disagrees with stale source bucket"
                                 )
                             seen_correction_keys.add(exclusion_key)
-                if candidate_only:
-                    if exclusion_key in consensus_invalid_keys:
+                elif classification == "canonical":
+                    if correction_reason is None:
+                        if candidate_only:
+                            continue
+                    elif exclusion_key in consensus_invalid_keys:
                         continue
-                    if exclusion_key not in stale_descendant_corrections:
-                        continue
-                    if (
-                        stale_descendant_corrections[exclusion_key]
-                        != "reclassified_from_canonical"
-                    ):
+                    elif correction_reason != "reclassified_from_canonical":
                         raise ValueError(
                             f"{rel(inv_path)}:{row_number}: correction reason "
                             "disagrees with canonical source bucket"
                         )
-                    if source_classification != "canonical":
-                        raise ValueError(
-                            f"{rel(inv_path)}:{row_number}: corrected canonical "
-                            "bucket row must declare classification=canonical"
-                        )
-                    seen_correction_keys.add(exclusion_key)
-                    classification = "unknown"
+                    else:
+                        seen_correction_keys.add(exclusion_key)
+                        classification = "unknown"
 
                 if recovered_prev:
                     recovered_prev_rows += 1

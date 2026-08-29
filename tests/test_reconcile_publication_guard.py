@@ -143,9 +143,34 @@ def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writ
             ]
         )
 
-    assert "missing full/unknown inventories" in capsys.readouterr().err
+    assert "missing full, unknown, or canonical inventories" in capsys.readouterr().err
     assert promoted.read_text() == baseline
     assert not results.exists()
+
+
+def test_publication_discovery_accepts_canonical_only_baseline_chain(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    baseline = module.PublicationBaseline(
+        statuses_by_hash={},
+        observed_chains_by_hash={},
+        unknown_rows_by_hash={},
+        source_observation_counts_by_hash={},
+        notes_by_hash={},
+        required_inventory_chains=frozenset({"namecoin"}),
+    )
+    canonical = tmp_path / "namecoin_canonical_blocks.csv"
+    canonical.write_text("classification\n")
+    parser = module.build_parser()
+
+    module.validate_publication_discovery(
+        baseline,
+        full_files={},
+        unknown_files={},
+        canonical_files={"namecoin": canonical},
+        parser=parser,
+    )
 
 
 def test_publication_mode_rejects_computed_descendant_regression_before_writing(

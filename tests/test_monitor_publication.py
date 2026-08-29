@@ -3449,6 +3449,98 @@ def test_full_inventory_allows_canonical_reclassification_to_valid_stale(
     module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
 
 
+def test_full_inventory_allows_corrected_canonical_as_valid_descendant(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    descendant_hash = "22" * 32
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    (data_dir / "stale_descendants.csv").write_text(
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,2,{descendant_hash},namecoin:2\n"
+    )
+    (data_dir / "stale_descendant_corrections.csv").write_text(
+        "btc_height,btc_header_hash,correction_reason\n"
+        f"2,{descendant_hash},reclassified_from_canonical\n"
+    )
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+        f"2,{descendant_hash},canonical,\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=1,
+        source_rows=1,
+        canonical_hashes=(descendant_hash,),
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+
+def test_corrected_canonical_cannot_double_count_to_hide_final_category_loss(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_module()
+    descendant_hash = "22" * 32
+    data_dir = tmp_path / "data"
+    validated = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    validated.parent.mkdir(parents=True)
+    validated.write_text("classification,validation_status\n")
+    (data_dir / "stale_descendants.csv").write_text(
+        "classification,validation_status,btc_height,btc_header_hash,source_rows\n"
+        f"stale_descendant,VALID_STALE_DESCENDANT,2,{descendant_hash},namecoin:2\n"
+    )
+    (data_dir / "stale_descendant_corrections.csv").write_text(
+        "btc_height,btc_header_hash,correction_reason\n"
+        f"2,{descendant_hash},reclassified_from_canonical\n"
+    )
+    archive_dir = tmp_path / "archive"
+    inventory = (
+        archive_dir / "chains" / "namecoin" / "classified" / "namecoin_stale_blocks.csv"
+    )
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+        f"2,{descendant_hash},canonical,\n"
+        f"3,{'33' * 32},near,\n"
+    )
+    baseline_dir = tmp_path / "baseline"
+    _write_baseline(
+        baseline_dir,
+        chain="namecoin",
+        source_kind="full_inventory",
+        canonical=1,
+        stale=1,
+        source_rows=2,
+        canonical_hashes=(descendant_hash,),
+    )
+    parser, args = _preflight_args(
+        module, tmp_path, data_dir=data_dir, archive_dir=archive_dir
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.validate_publication_inputs(args, parser, baseline_dir=baseline_dir)
+
+    assert (
+        "accepted canonical/stale/descendant evidence is below"
+        in capsys.readouterr().err
+    )
+
+
 def test_full_inventory_allows_corrected_stale_as_valid_descendant(
     tmp_path: Path,
 ) -> None:

@@ -1625,6 +1625,46 @@ def _accepted_descendant_observations(
     return accepted
 
 
+def _accepted_canonical_correction_observations(
+    sources: list[EvidenceSource],
+    descendant_observations: frozenset[tuple[str, int, str]],
+    descendant_corrections: Mapping[tuple[int, str], str],
+    consensus_invalid_keys: set[tuple[int, str]],
+) -> set[tuple[str, int, str]]:
+    """Return accepted descendants whose source row is still canonical."""
+    accepted: set[tuple[str, int, str]] = set()
+    for source in sources:
+        if source.path is None:
+            continue
+        with source.path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row_number, row in enumerate(reader, start=2):
+                normalized, _errors = normalize_evidence_row(
+                    source, row, reader.fieldnames, row_number
+                )
+                if normalized["classification"] != "canonical":
+                    continue
+                block_hash = normalized["btc_header_hash"]
+                try:
+                    key = (int(normalized["btc_height"]), block_hash)
+                except ValueError:
+                    continue
+                observation_key = (source.chain, key[0], block_hash)
+                if (
+                    observation_key not in descendant_observations
+                    or key in consensus_invalid_keys
+                ):
+                    continue
+                if require_matching_stale_descendant_correction(
+                    descendant_corrections,
+                    key,
+                    "canonical",
+                    label=f"{source.path}:{row_number}",
+                ):
+                    accepted.add(observation_key)
+    return accepted
+
+
 def validate_publication_inputs(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
@@ -1900,6 +1940,21 @@ def validate_publication_inputs(
                     descendant_corrections,
                     excluded_keys,
                     consensus_invalid_keys,
+                )
+                corrected_canonical_descendants = (
+                    _accepted_canonical_correction_observations(
+                        descendant_sources,
+                        descendant_observations,
+                        descendant_corrections,
+                        consensus_invalid_keys,
+                    )
+                )
+                # The raw source counts a corrected canonical row in
+                # ``canonical_coverage``, while the exporter moves that same
+                # identity into the descendant category. Remove each exact
+                # typed correction before combining final-category coverage.
+                canonical_coverage = max(
+                    canonical_coverage - len(corrected_canonical_descendants), 0
                 )
                 accepted_descendant_hashes = {
                     block_hash
