@@ -135,8 +135,11 @@ DESCENDANT_UNJUDGEABLE_FAILURES = frozenset(
         "header_hash_mismatch",
         "prev_hash_path_mismatch",
         "pow_target_mismatch",
+        "missing_expected_nbits",
     }
 )
+
+CONSENSUS_INVALID_PARENT_RULE = "consensus_invalid_parent"
 
 
 def descendant_consensus_rules(
@@ -172,6 +175,9 @@ def descendant_consensus_rules(
       plus the fork depth, walked along links this run already verified.
       Without them a coinbase-height mismatch would be equally consistent with
       a wrong height.
+    - ``missing_expected_nbits``: the committed epoch reference cannot identify
+      Bitcoin's canonical target at the inferred height. The candidate must
+      fail closed rather than treating an unperformed comparison as a match.
 
     Second, ``expected_nbits`` and ``header_bits`` must both be present and
     equal. The absence of an ``nbits_epoch_mismatch`` failure does NOT prove
@@ -353,14 +359,26 @@ def partition_ancestry_rows(
     list[dict[str, object]],
     list[dict[str, object]],
 ]:
-    """Separate accepted parents, diagnostics, and consensus-error candidates."""
+    """Select accepted parents, unpublishable rows, and blocking diagnostics.
+
+    The returned diagnostic list is intentionally not a disjoint partition.
+    Every walk into a catalogued consensus-invalid terminal blocks publication
+    and belongs in the disposable error-candidate report, even when incomplete
+    evidence leaves that row correctly classified as ``unpublishable``. Only a
+    fully authenticated full-PoW row may carry ``classification=error_block``.
+    """
     accepted: list[dict[str, object]] = []
     unpublishable: list[dict[str, object]] = []
     error_candidates: list[dict[str, object]] = []
     for row in ancestry_rows:
-        if row["classification"] == "error_block":
+        classification = row["classification"]
+        if classification == "error_block" or (
+            row.get("ancestry_relation") == "consensus_invalid_descendant"
+        ):
             error_candidates.append(row)
-        elif row["classification"] == "stale_descendant" and (
+        if classification == "error_block":
+            continue
+        if classification == "stale_descendant" and (
             row["validation_status"] == "VALID_STALE_DESCENDANT"
         ):
             accepted.append(row)
@@ -612,6 +630,7 @@ def build_descendant_observation_rows(
     child_identities = load_child_identity(data_dir)
     ledger_rows: list[dict[str, object]] = []
     logical_seen: set[tuple[str, int, str, str]] = set()
+    logical_observations: dict[tuple[str, int, str, str], list[UnknownObservation]] = {}
     source_seen: set[tuple[str, str, int, str]] = set()
     for parent_row_number, parent in enumerate(descendant_rows, start=2):
         parent_hash = normalize_hash(str(parent["btc_header_hash"]))
@@ -627,8 +646,11 @@ def build_descendant_observation_rows(
             source_observations,
             key=lambda item: (
                 item.chain,
-                int_or_none(item.child_height) or -1,
+                item.source_path,
                 item.row_number,
+                item.source_sha256,
+                item.source_kind,
+                item.source_classification,
             ),
         ):
             identity = child_identities.get((observation.chain, parent_hash))
@@ -670,16 +692,31 @@ def build_descendant_observation_rows(
                 observation.row_number,
                 observation.source_sha256,
             )
-            if logical_identity in logical_seen:
-                parser.error(
-                    f"duplicate descendant witness identity: {logical_identity}"
-                )
             if source_identity in source_seen:
                 parser.error(
                     f"duplicate descendant source coordinate: {source_identity}"
                 )
-            logical_seen.add(logical_identity)
             source_seen.add(source_identity)
+            if logical_identity in logical_seen:
+                # A never-split inventory can retain the same physical event
+                # that its canonical companion publishes. The authenticated
+                # child identity proves publication multiplicity, while the
+                # source rows still have to reconcile semantically. Keep the
+                # lexicographically first source coordinate from the stable
+                # ordering above; contradictory copies fail closed.
+                try:
+                    select_parent_evidence(
+                        [*logical_observations[logical_identity], observation]
+                    )
+                except ValueError as exc:
+                    parser.error(
+                        "conflicting evidence for authenticated descendant "
+                        f"event {logical_identity}: {exc}"
+                    )
+                logical_observations[logical_identity].append(observation)
+                continue
+            logical_seen.add(logical_identity)
+            logical_observations[logical_identity] = [observation]
             observed_chains.add(observation.chain)
             parent_count += 1
             verification = (identity.get("verification") or "").strip()
@@ -755,6 +792,7 @@ def render_and_publish(
     epoch_bits: dict[int, str],
     stale_by_hash: dict[str, list[StaleObservation]],
     known_stale_hashes: set[str],
+    consensus_invalid_heights_by_hash: dict[str, int],
     auxpow_stale_hashes: set[str],
     upstream_count: int,
     unknown_rows: list[UnknownObservation],
@@ -836,21 +874,35 @@ def render_and_publish(
     candidate_hashes = {
         h
         for h, result in walk_results.items()
-        if result.category in {"direct_stale_child", "stale_descendant"}
+        if result.category
+        in {
+            "direct_stale_child",
+            "stale_descendant",
+            "consensus_invalid_descendant",
+        }
     }
     ancestry_rows = []
     for block_hash in sorted(candidate_hashes):
         result = walk_results[block_hash]
         path = path_for(block_hash)
-        stale_hash = result.terminal_hash
-        root_heights = sorted(
-            {
-                int(obs.btc_height)
-                for obs in stale_by_hash[stale_hash]
-                if int_or_none(obs.btc_height) is not None
-            }
-        )
-        root_height = root_heights[0] if root_heights else None
+        terminal_hash = result.terminal_hash
+        inherited_invalid_parent = result.category == "consensus_invalid_descendant"
+        if inherited_invalid_parent:
+            root_height = consensus_invalid_heights_by_hash.get(terminal_hash)
+            if root_height is None:
+                parser.error(
+                    "consensus-invalid ancestry terminal lacks a canonical height: "
+                    f"{terminal_hash}"
+                )
+        else:
+            root_heights = sorted(
+                {
+                    int(obs.btc_height)
+                    for obs in stale_by_hash[terminal_hash]
+                    if int_or_none(obs.btc_height) is not None
+                }
+            )
+            root_height = root_heights[0] if root_heights else None
         inferred_height = (
             root_height + result.depth if root_height is not None else None
         )
@@ -897,7 +949,9 @@ def render_and_publish(
             validation_failures.append("prev_hash_path_mismatch")
         if not row_bits or not hash_meets_bits(block_hash, row_bits):
             validation_failures.append("pow_target_mismatch")
-        if expected_nbits and row_bits and row_bits.lower() != expected_nbits:
+        if inferred_height is not None and not expected_nbits:
+            validation_failures.append("missing_expected_nbits")
+        elif expected_nbits and row_bits and row_bits.lower() != expected_nbits:
             validation_failures.append("nbits_epoch_mismatch")
         if inferred_height is None:
             validation_failures.append("missing_root_height")
@@ -913,7 +967,15 @@ def render_and_publish(
             if bip34_failure is not None:
                 validation_failures.append(bip34_failure)
 
-        consensus_rules = descendant_consensus_rules(
+        inherited_parent_rule_proven = bool(
+            inherited_invalid_parent
+            and inferred_height is not None
+            and not (DESCENDANT_UNJUDGEABLE_FAILURES & set(validation_failures))
+            and expected_nbits
+            and row_bits
+            and row_bits.lower() == expected_nbits
+        )
+        derived_consensus_rules = descendant_consensus_rules(
             header_hex,
             scriptsig_hex,
             inferred_height,
@@ -921,6 +983,10 @@ def render_and_publish(
             header_bits=row_bits,
             expected_nbits=expected_nbits,
         )
+        consensus_rules = [
+            *([CONSENSUS_INVALID_PARENT_RULE] if inherited_parent_rule_proven else []),
+            *derived_consensus_rules,
+        ]
         # The descendant verdict and the classification are the same judgement
         # on one row, so they must not disagree. The BIP34 verdict above passes
         # a scriptSig that is over-long but correctly prefixed, and never looks
@@ -935,11 +1001,26 @@ def render_and_publish(
             if not validation_failures
             else "REJECTED_" + "|".join(validation_failures)
         )
-        sources, chains, heights, times, bits = stale_sources(stale_by_hash[stale_hash])
+        if inherited_invalid_parent:
+            sources, chains, heights, times, bits = (
+                "",
+                "",
+                str(root_height),
+                "",
+                "",
+            )
+        else:
+            sources, chains, heights, times, bits = stale_sources(
+                stale_by_hash[terminal_hash]
+            )
         final_observed_chains = join_sorted(unknown_chains_by_hash[block_hash])
         source_observation_count = unknown_row_counts_by_hash[block_hash]
-        candidate_cache = mainchain_cache.get(block_hash, {})
-        root_cache = mainchain_cache.get(stale_hash, {})
+        candidate_cache = (
+            {} if inherited_invalid_parent else mainchain_cache.get(block_hash, {})
+        )
+        root_cache = (
+            {} if inherited_invalid_parent else mainchain_cache.get(terminal_hash, {})
+        )
         candidate_cache_verified = bool(
             inferred_height is not None
             and int_or_none(str(candidate_cache.get("height"))) == inferred_height
@@ -962,7 +1043,7 @@ def render_and_publish(
                 normalize_hash(str(root_cache.get("active_hash_at_height") or ""))
             )
             and normalize_hash(str(root_cache.get("active_hash_at_height") or ""))
-            != stale_hash
+            != terminal_hash
         )
         # Publication always refreshes these exact height comparisons in the
         # current run. The committed fields are an offline audit trail and do
@@ -1008,7 +1089,7 @@ def render_and_publish(
                 "observed_btc_heights": join_sorted(observed_heights),
                 "observed_btc_times": join_sorted(observed_times),
                 "observed_btc_bits": join_sorted(observed_bits),
-                "root_stale_hash": stale_hash,
+                "root_stale_hash": terminal_hash,
                 "root_stale_height": "" if root_height is None else root_height,
                 "root_stale_sources": sources,
                 "root_stale_chains": chains,
@@ -1034,10 +1115,11 @@ def render_and_publish(
             }
         )
 
-    # A candidate whose own bytes prove a broken consensus rule is not an
-    # accepted stale descendant. Keep it only in the disposable error-candidate
-    # diagnostic; the publication wrapper requires the canonical authored error
-    # module to cover every such candidate before it installs descendant data.
+    # No consensus-invalid candidate can become an accepted stale descendant.
+    # The disposable diagnostic carries both authenticated full-PoW violations
+    # ready for canonical error-module review and inherited-invalid rows whose
+    # incomplete or low-work evidence must be corrected first. Either blocks
+    # the descendant transaction.
     descendant_rows, unpublishable_rows, error_block_rows = partition_ancestry_rows(
         ancestry_rows
     )

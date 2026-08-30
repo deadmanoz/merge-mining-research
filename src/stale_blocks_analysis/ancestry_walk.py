@@ -11,7 +11,8 @@ class WalkResult:
     """Outcome of walking an unknown header's prev-hash chain to its terminal node.
 
     `terminal_kind` is the raw walk outcome (`known_stale`, `mainchain`,
-    `cross_seen_root`, `cycle_or_bad_data`, or `dangling_unknown`);
+    `consensus_invalid`, `cross_seen_root`, `cycle_or_bad_data`, or
+    `dangling_unknown`);
     `terminal_hash` is the hash the walk stopped at; `depth` is the number of
     prev-hash hops from the walk's start to that terminal. `category` derives
     the reporting bucket from `terminal_kind` (see its docstring).
@@ -29,13 +30,16 @@ class WalkResult:
         row's own prev-hash is a known stale) or `stale_descendant` at
         greater depth; `mainchain` becomes `mainchain_descendant`;
         `cross_seen_root` becomes `unknown_root_seen_elsewhere`;
-        `cycle_or_bad_data` passes through unchanged; anything else is
+        `consensus_invalid` becomes `consensus_invalid_descendant`;
+        `cycle_or_bad_data` passes through unchanged; and anything else is
         `dangling_unknown`.
         """
         if self.terminal_kind == "known_stale":
             return "direct_stale_child" if self.depth == 1 else "stale_descendant"
         if self.terminal_kind == "mainchain":
             return "mainchain_descendant"
+        if self.terminal_kind == "consensus_invalid":
+            return "consensus_invalid_descendant"
         if self.terminal_kind == "cross_seen_root":
             return "unknown_root_seen_elsewhere"
         if self.terminal_kind == "cycle_or_bad_data":
@@ -57,6 +61,7 @@ def classify_walks(
     unknown_prev_chains: dict[str, set[str]],
     all_hash_chains: dict[str, set[str]],
     known_stale_hashes: set[str],
+    consensus_invalid_hashes: set[str],
     is_mainchain: Callable[[str], bool],
     max_depth: int,
 ) -> dict[str, WalkResult]:
@@ -97,6 +102,12 @@ def classify_walks(
             ):
                 return assign("cycle_or_bad_data", current)
             prev_hash = unknown_prev_by_hash[current]
+            # Error-catalogue membership has precedence over every source
+            # bucket and over stale-root placement. A child of a
+            # consensus-invalid block cannot become a valid stale descendant,
+            # even when the child header independently passes its own gates.
+            if prev_hash in consensus_invalid_hashes:
+                return assign("consensus_invalid", prev_hash)
             if prev_hash in known_stale_hashes:
                 return assign("known_stale", prev_hash)
             if is_mainchain(prev_hash):
@@ -123,6 +134,7 @@ def path_for(
     *,
     unknown_prev_by_hash: dict[str, str],
     known_stale_hashes: set[str],
+    consensus_invalid_hashes: set[str],
     is_mainchain: Callable[[str], bool],
 ) -> list[str]:
     """Rebuild one concrete prev-hash path for report rendering."""
@@ -133,7 +145,11 @@ def path_for(
         seen.add(current)
         path.append(current)
         prev_hash = unknown_prev_by_hash[current]
-        if prev_hash in known_stale_hashes or is_mainchain(prev_hash):
+        if (
+            prev_hash in consensus_invalid_hashes
+            or prev_hash in known_stale_hashes
+            or is_mainchain(prev_hash)
+        ):
             path.append(prev_hash)
             break
         current = prev_hash

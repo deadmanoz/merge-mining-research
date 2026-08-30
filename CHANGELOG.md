@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Fail closed when stale-ancestry reconciliation lacks Bitcoin's canonical
+`nBits` for an inferred height. Treat catalogue error blocks as explicit
+invalid ancestry terminals so every child and deeper descendant is emitted
+only as an uncatalogued-error diagnostic. Collapse compatible physical archive
+copies only after they resolve to the same authenticated child event, reject
+conflicting copies, and normalize Bitcoin-family display-order child hashes
+before storing their logical witness identity while keeping RSK hashes forward.
+Keep RPC credentials out of the `just` launcher output when operators supply
+them explicitly.
+
 Keep the authored future-limit follow-up in `docs/error-blocks.md` and make the
 time-rule sweep report fully regenerable without copying prose from the report
 it replaces.

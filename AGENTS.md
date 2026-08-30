@@ -258,8 +258,12 @@ Preserve these distinctions:
   declared trusted-root set, and verifies the complete predecessor path. A
   purported root is direct stale only when its predecessor is on Bitcoin's
   active main chain. Consensus-invalid candidates route to `error_block` before
-  stale-descendant publication. Never promote a row from its source bucket
-  label alone.
+  stale-descendant publication. A catalogued error block is an explicit invalid
+  ancestry terminal: every child or deeper descendant inherits that invalid
+  verdict and blocks publication through the ancestry diagnostic. Correct
+  incomplete or low-work source evidence; admit only an authenticated full-PoW
+  violation to the canonical error module. Never promote a row from its source
+  bucket label alone.
 - Raw classifier rows retain their source classification in source artifacts.
   Monitor publication joins exact authenticated witnesses to the accepted
   parent verdict and emits `classification=stale_descendant`,
@@ -323,8 +327,9 @@ Preserve these distinctions:
   accepted direct-stale statuses are exactly `VALID` and
   `VALID (post-BCH, difficulty matches BTC)`. Either means that this declared
   publication profile passed; neither proves that a complete Bitcoin block was
-  consensus-valid. Loaders read and filter the verdict but never recompute the
-  gate.
+  consensus-valid. A descendant whose inferred height has no committed
+  canonical `nBits` reference is unpublishable. Loaders read and filter the
+  verdict but never recompute the gate.
   RSK does not expose the real parent coinbase and therefore cannot apply the
   two coinbase-dependent checks independently. The exact-key error-blocks
   exclusion gate (`data/error-blocks/error_blocks.csv`)

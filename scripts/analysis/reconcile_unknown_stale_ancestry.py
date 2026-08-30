@@ -173,6 +173,7 @@ def main(argv: list[str] | None = None) -> None:
         "unknown_prev_chains": state["unknown_prev_chains"],
         "all_hash_chains": state["all_hash_chains"],
         "known_stale_hashes": state["known_stale_hashes"],
+        "consensus_invalid_hashes": state["consensus_invalid_hashes"],
         "is_mainchain": mainchain_lookup,
         "max_depth": args.max_depth,
     }
@@ -292,6 +293,7 @@ def main(argv: list[str] | None = None) -> None:
             block_hash,
             unknown_prev_by_hash=state["unknown_prev_by_hash"],
             known_stale_hashes=state["known_stale_hashes"],
+            consensus_invalid_hashes=state["consensus_invalid_hashes"],
             is_mainchain=mainchain_lookup,
         )
 
@@ -305,6 +307,7 @@ def main(argv: list[str] | None = None) -> None:
         epoch_bits=epoch_bits,
         stale_by_hash=state["stale_by_hash"],
         known_stale_hashes=state["known_stale_hashes"],
+        consensus_invalid_heights_by_hash=state["consensus_invalid_heights_by_hash"],
         auxpow_stale_hashes=state["auxpow_stale_hashes"],
         upstream_count=state["upstream_count"],
         unknown_rows=state["unknown_rows"],

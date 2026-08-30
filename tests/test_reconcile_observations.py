@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis.ancestry_walk import classify_walks, path_for
 from stale_blocks_analysis.reconcile_observations import (
     discover_canonical_files,
     fetch_active_hashes_by_height,
@@ -227,7 +228,7 @@ def test_unvalidated_committed_stale_cannot_anchor_a_root(
     assert block_hash not in state["known_stale_hashes"]
 
 
-def test_error_catalogue_hash_precedence_removes_candidate_and_root(
+def test_error_catalogue_hash_precedence_excludes_candidate_but_indexes_terminal(
     tmp_path: Path,
 ) -> None:
     block_hash = f"{5:064x}"
@@ -255,6 +256,96 @@ def test_error_catalogue_hash_precedence_removes_candidate_and_root(
 
     assert block_hash not in state["known_stale_hashes"]
     assert block_hash not in state["unknown_prev_by_hash"]
+    assert state["consensus_invalid_hashes"] == {block_hash}
+    assert state["consensus_invalid_heights_by_hash"] == {block_hash: 102}
+
+
+def test_error_catalogue_parent_is_explicit_invalid_ancestry_terminal(
+    tmp_path: Path,
+) -> None:
+    invalid_parent = f"{5:064x}"
+    child = f"{6:064x}"
+    grandchild = f"{7:064x}"
+    inventory = tmp_path / "test_unknown_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "102",
+                "btc_header_hash": invalid_parent,
+                "btc_prev_hash": f"{4:064x}",
+                "classification": "stale",
+                "validation_status": "VALID",
+            },
+            {
+                "btc_height": "103",
+                "btc_header_hash": child,
+                "btc_prev_hash": invalid_parent,
+                "classification": "unknown",
+                "validation_status": "",
+            },
+            {
+                "btc_height": "104",
+                "btc_header_hash": grandchild,
+                "btc_prev_hash": child,
+                "classification": "unknown",
+                "validation_status": "",
+            },
+        ],
+    )
+
+    state = _load(
+        tmp_path,
+        full_files={"test": inventory},
+        consensus_invalid_keys={(102, invalid_parent)},
+    )
+    walks = classify_walks(
+        unknown_row_counts_by_hash=state["unknown_row_counts_by_hash"],
+        unknown_prev_by_hash=state["unknown_prev_by_hash"],
+        conflicting_unknown_prevs=set(),
+        unknown_prev_chains=state["unknown_prev_chains"],
+        all_hash_chains=state["all_hash_chains"],
+        known_stale_hashes=state["known_stale_hashes"],
+        consensus_invalid_hashes=state["consensus_invalid_hashes"],
+        is_mainchain=lambda _block_hash: False,
+        max_depth=100,
+    )
+
+    assert invalid_parent not in state["unknown_prev_by_hash"]
+    assert walks[child].terminal_kind == "consensus_invalid"
+    assert walks[child].category == "consensus_invalid_descendant"
+    assert walks[child].terminal_hash == invalid_parent
+    assert walks[child].depth == 1
+    assert walks[grandchild].terminal_kind == "consensus_invalid"
+    assert walks[grandchild].category == "consensus_invalid_descendant"
+    assert walks[grandchild].terminal_hash == invalid_parent
+    assert walks[grandchild].depth == 2
+    assert path_for(
+        child,
+        unknown_prev_by_hash=state["unknown_prev_by_hash"],
+        known_stale_hashes=state["known_stale_hashes"],
+        consensus_invalid_hashes=state["consensus_invalid_hashes"],
+        is_mainchain=lambda _block_hash: False,
+    ) == [child, invalid_parent]
+    assert path_for(
+        grandchild,
+        unknown_prev_by_hash=state["unknown_prev_by_hash"],
+        known_stale_hashes=state["known_stale_hashes"],
+        consensus_invalid_hashes=state["consensus_invalid_hashes"],
+        is_mainchain=lambda _block_hash: False,
+    ) == [grandchild, child, invalid_parent]
+
+
+def test_error_catalogue_rejects_conflicting_heights_for_one_hash(
+    tmp_path: Path,
+) -> None:
+    block_hash = f"{8:064x}"
+
+    with pytest.raises(ValueError, match="assigns conflicting heights"):
+        _load(
+            tmp_path,
+            consensus_invalid_keys={(102, block_hash), (103, block_hash)},
+        )
 
 
 def test_active_893766_through_893769_headers_are_not_published() -> None:

@@ -597,9 +597,15 @@ def load_observations(
     consensus_invalid_keys: set[tuple[int, str]],
 ) -> dict[str, object]:
     """Load inventories and return the reconciliation indexes and anomalies."""
-    consensus_invalid_hashes = {
-        block_hash for _height, block_hash in consensus_invalid_keys
-    }
+    consensus_invalid_heights_by_hash: dict[str, int] = {}
+    for height, block_hash in sorted(consensus_invalid_keys):
+        prior_height = consensus_invalid_heights_by_hash.setdefault(block_hash, height)
+        if prior_height != height:
+            raise ValueError(
+                "consensus-invalid catalogue assigns conflicting heights to "
+                f"{block_hash}: {prior_height} and {height}"
+            )
+    consensus_invalid_hashes = set(consensus_invalid_heights_by_hash)
     stale_by_hash: dict[str, list[StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
     full_classifications_by_hash: dict[str, set[str]] = defaultdict(set)
@@ -705,6 +711,12 @@ def load_observations(
 
                 source_classification = classification
                 if block_hash in consensus_invalid_hashes:
+                    # The reviewed catalogue, rather than an archive row, is
+                    # the authoritative ancestry terminal for this hash. Keep
+                    # it out of the candidate cohort so an already-admitted
+                    # error block is not re-emitted as an uncatalogued error
+                    # candidate. Descendants still resolve to it through the
+                    # explicit terminal index returned below.
                     continue
 
                 if recovered_prev:
@@ -1075,4 +1087,6 @@ def load_observations(
         "known_stale_hashes": known_stale_hashes,
         "auxpow_stale_hashes": auxpow_stale_hashes,
         "unknown_prev_by_hash": unknown_prev_by_hash,
+        "consensus_invalid_hashes": consensus_invalid_hashes,
+        "consensus_invalid_heights_by_hash": consensus_invalid_heights_by_hash,
     }

@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from stale_blocks_analysis.reconcile_observations import UnknownObservation
+from stale_blocks_analysis.ancestry_walk import WalkResult
+from stale_blocks_analysis.reconcile_observations import (
+    StaleObservation,
+    UnknownObservation,
+    hash_meets_bits,
+    header_hash,
+)
 from stale_blocks_analysis.reconcile_publication import (
+    CONSENSUS_INVALID_PARENT_RULE,
     DESCENDANT_UNJUDGEABLE_FAILURES,
     OUTPUT_SUMMARY,
     PublicationBaseline,
@@ -19,6 +29,7 @@ from stale_blocks_analysis.reconcile_publication import (
     descendant_consensus_rules,
     descendant_notes,
     partition_ancestry_rows,
+    render_and_publish,
     select_parent_evidence,
     validate_publication_discovery,
     validate_publication_rows,
@@ -31,6 +42,8 @@ BASELINE_HASH = "11" * 32
 # used as the matched header/expected pair the rule derivation requires at the
 # height-400,001 candidates below.
 BITS = "1806b99f"
+EASY_BITS = "207fffff"
+IMPOSSIBLE_BITS = "03000001"
 
 
 def _load_module():
@@ -93,6 +106,132 @@ def _diagnostic_output_args(tmp_path: Path) -> list[str]:
         "--error-candidates-csv",
         str(tmp_path / "staged" / "error_candidates.csv"),
     ]
+
+
+def _header_with_pow_result(
+    prev_hash: str, *, bits: str, should_meet_target: bool
+) -> tuple[str, str]:
+    prefix = (
+        (1).to_bytes(4, "little", signed=True)
+        + bytes.fromhex(prev_hash)[::-1]
+        + bytes(32)
+        + (1_700_000_000).to_bytes(4, "little")
+        + bytes.fromhex(bits)[::-1]
+    )
+    for nonce in range(1_000):
+        header_hex = (prefix + nonce.to_bytes(4, "little")).hex()
+        block_hash = header_hash(header_hex)
+        if hash_meets_bits(block_hash, bits) is should_meet_target:
+            return header_hex, block_hash
+    raise AssertionError("failed to construct deterministic header with requested PoW")
+
+
+def _render_single_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    terminal_kind: str,
+    terminal_height: int,
+    epoch_bits: dict[int, str],
+    evidence: str = "valid",
+) -> tuple[dict[str, object], Path, Path, str, str]:
+    terminal_hash = "22" * 32
+    candidate_bits = IMPOSSIBLE_BITS if evidence == "failed_pow" else EASY_BITS
+    header_hex, block_hash = _header_with_pow_result(
+        terminal_hash,
+        bits=candidate_bits,
+        should_meet_target=evidence != "failed_pow",
+    )
+    observation = UnknownObservation(
+        chain="namecoin",
+        source_path="data/namecoin_stale_blocks.csv",
+        row_number=2,
+        block_hash=block_hash,
+        prev_hash=terminal_hash,
+        btc_height=str(terminal_height + 1),
+        child_height="",
+        btc_time="1700000000",
+        bits=candidate_bits,
+        scriptsig_hex="",
+        outputs="",
+        header_hex="" if evidence == "missing_header" else header_hex,
+        source_kind="full_inventory",
+        source_classification="unknown",
+        source_sha256="bb" * 32,
+    )
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", block_hash): {
+                "child_height": "817177",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1774280993",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    parent_verdicts = tmp_path / "staged" / "stale_descendants.csv"
+    observations = tmp_path / "staged" / "stale_descendant_observations.csv"
+    error_candidates = tmp_path / "staged" / "error_candidates.csv"
+    args = SimpleNamespace(
+        parent_verdicts_csv=parent_verdicts,
+        observations_csv=observations,
+        error_candidates_csv=error_candidates,
+        check_mainchain=False,
+        rpc_url="",
+    )
+    stale_by_hash = {}
+    known_stale_hashes: set[str] = set()
+    consensus_invalid_heights: dict[str, int] = {}
+    if terminal_kind == "known_stale":
+        stale_by_hash[terminal_hash] = [
+            StaleObservation(
+                chain="upstream",
+                source_kind="upstream",
+                source_path="data/stale-blocks/stale-blocks.csv",
+                row_number=2,
+                block_hash=terminal_hash,
+                prev_hash="33" * 32,
+                btc_height=str(terminal_height),
+                child_height="",
+                btc_time="",
+                bits=EASY_BITS,
+            )
+        ]
+        known_stale_hashes.add(terminal_hash)
+    else:
+        consensus_invalid_heights[terminal_hash] = terminal_height
+
+    summary = render_and_publish(
+        args=args,
+        parser=argparse.ArgumentParser(),
+        data_dir=tmp_path,
+        results_dir=tmp_path / "results",
+        cache_dir=tmp_path / "cache",
+        publication_baseline=None,
+        epoch_bits=epoch_bits,
+        stale_by_hash=stale_by_hash,
+        known_stale_hashes=known_stale_hashes,
+        consensus_invalid_heights_by_hash=consensus_invalid_heights,
+        auxpow_stale_hashes=set(),
+        upstream_count=len(known_stale_hashes),
+        unknown_rows=[observation],
+        unknown_row_counts_by_hash=Counter({block_hash: 1}),
+        unknown_chains_by_hash={block_hash: {"namecoin"}},
+        unknown_example_by_hash={block_hash: observation},
+        unknown_observations_by_hash={block_hash: [observation]},
+        inventory_rows=[],
+        anomalies=[],
+        walk_results={block_hash: WalkResult(terminal_kind, terminal_hash, 1)},
+        path_for=lambda _block_hash: [block_hash, terminal_hash],
+        mainchain_cache={},
+        mainchain_cache_dirty=False,
+        rel_fn=str,
+        descendant_bip34_verdict_fn=lambda *_args: ("not_applicable", None),
+    )
+    return summary, parent_verdicts, error_candidates, block_hash, terminal_hash
 
 
 def test_descendant_ledger_uses_identity_height_when_source_height_is_untrusted(
@@ -189,6 +328,209 @@ def test_descendant_ledger_rejects_trusted_source_height_disagreement(
             data_dir=tmp_path,
             parser=argparse.ArgumentParser(),
         )
+
+
+def test_descendant_ledger_collapses_compatible_authenticated_event_copies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    child_hash = "aa" * 32
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", BASELINE_HASH): {
+                "child_height": "817177",
+                "child_block_hash": child_hash,
+                "child_block_time": "1774280993",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    common = {
+        "chain": "namecoin",
+        "block_hash": BASELINE_HASH,
+        "prev_hash": "22" * 32,
+        "btc_height": "941882",
+        "child_height": "817177",
+        "btc_time": "1774281079",
+        "bits": "17021a91",
+        "scriptsig_hex": "03aabb",
+        "outputs": "",
+        "header_hex": "00" * 80,
+    }
+    physical_copies = [
+        UnknownObservation(
+            **common,
+            source_path="data/z_full_inventory.csv",
+            row_number=2,
+            source_kind="full_inventory",
+            source_classification="canonical",
+            source_sha256="cc" * 32,
+        ),
+        UnknownObservation(
+            **common,
+            source_path="data/a_canonical_blocks.csv",
+            row_number=9,
+            source_kind="canonical_blocks",
+            source_classification="canonical",
+            source_sha256="dd" * 32,
+        ),
+    ]
+
+    def build(observations: list[UnknownObservation]):
+        parent = {"btc_height": "941882", "btc_header_hash": BASELINE_HASH}
+        rows = build_descendant_observation_rows(
+            [parent],
+            {BASELINE_HASH: observations},
+            data_dir=tmp_path,
+            parser=argparse.ArgumentParser(),
+        )
+        return rows, parent
+
+    rows, parent = build(physical_copies)
+    reversed_rows, reversed_parent = build(list(reversed(physical_copies)))
+
+    assert rows == reversed_rows
+    assert len(rows) == 1
+    assert rows[0]["source_path"] == "data/a_canonical_blocks.csv"
+    assert rows[0]["source_row_number"] == "9"
+    assert parent["source_observation_count"] == 1
+    assert reversed_parent["source_observation_count"] == 1
+
+
+def test_descendant_ledger_rejects_conflicting_authenticated_event_copies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", BASELINE_HASH): {
+                "child_height": "817177",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1774280993",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    common = {
+        "chain": "namecoin",
+        "block_hash": BASELINE_HASH,
+        "prev_hash": "22" * 32,
+        "btc_height": "941882",
+        "child_height": "817177",
+        "bits": "17021a91",
+        "scriptsig_hex": "03aabb",
+        "outputs": "",
+        "header_hex": "00" * 80,
+        "source_kind": "full_inventory",
+        "source_classification": "canonical",
+    }
+    observations = [
+        UnknownObservation(
+            **common,
+            source_path="data/full.csv",
+            row_number=2,
+            btc_time="1774281079",
+            source_sha256="cc" * 32,
+        ),
+        UnknownObservation(
+            **common,
+            source_path="data/canonical.csv",
+            row_number=2,
+            btc_time="1774281080",
+            source_sha256="dd" * 32,
+        ),
+    ]
+
+    with pytest.raises(SystemExit, match="2"):
+        build_descendant_observation_rows(
+            [{"btc_height": "941882", "btc_header_hash": BASELINE_HASH}],
+            {BASELINE_HASH: observations},
+            data_dir=tmp_path,
+            parser=argparse.ArgumentParser(),
+        )
+
+    assert "conflicting evidence for authenticated descendant event" in (
+        capsys.readouterr().err
+    )
+
+
+def test_descendant_ledger_keeps_distinct_authenticated_child_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", BASELINE_HASH): {
+                "child_height": "817177",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1774280993",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            },
+            ("syscoin", BASELINE_HASH): {
+                "child_height": "2272433",
+                "child_block_hash": "bb" * 32,
+                "child_block_time": "1774281093",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            },
+        },
+    )
+    common = {
+        "block_hash": BASELINE_HASH,
+        "prev_hash": "22" * 32,
+        "btc_height": "941882",
+        "btc_time": "1774281079",
+        "bits": "17021a91",
+        "scriptsig_hex": "03aabb",
+        "outputs": "",
+        "header_hex": "00" * 80,
+        "source_kind": "full_inventory",
+        "source_classification": "unknown",
+    }
+    observations = [
+        UnknownObservation(
+            **common,
+            chain="namecoin",
+            source_path="data/namecoin.csv",
+            row_number=2,
+            child_height="817177",
+            source_sha256="cc" * 32,
+        ),
+        UnknownObservation(
+            **common,
+            chain="syscoin",
+            source_path="data/syscoin.csv",
+            row_number=2,
+            child_height="2272433",
+            source_sha256="dd" * 32,
+        ),
+    ]
+    parent = {"btc_height": "941882", "btc_header_hash": BASELINE_HASH}
+
+    rows = build_descendant_observation_rows(
+        [parent],
+        {BASELINE_HASH: observations},
+        data_dir=tmp_path,
+        parser=argparse.ArgumentParser(),
+    )
+
+    assert [(row["chain"], row["child_block_hash"]) for row in rows] == [
+        ("namecoin", "aa" * 32),
+        ("syscoin", "bb" * 32),
+    ]
+    assert parent["observed_chains"] == "namecoin|syscoin"
+    assert parent["source_observation_count"] == 2
 
 
 def test_parent_evidence_reconciles_compatible_sources_independent_of_order() -> None:
@@ -309,11 +651,18 @@ def test_publication_partition_never_emits_rejected_parent() -> None:
         "classification": "error_block",
         "validation_status": "REJECTED_bip34_height_mismatch",
     }
+    inherited_unpublishable = {
+        "classification": "unpublishable",
+        "ancestry_relation": "consensus_invalid_descendant",
+        "validation_status": "REJECTED_missing_header_hex",
+    }
 
-    assert partition_ancestry_rows([accepted, rejected, error_candidate]) == (
+    assert partition_ancestry_rows(
+        [accepted, rejected, error_candidate, inherited_unpublishable]
+    ) == (
         [accepted],
-        [rejected],
-        [error_candidate],
+        [rejected, inherited_unpublishable],
+        [error_candidate, inherited_unpublishable],
     )
 
 
@@ -506,6 +855,111 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
     assert parent_verdicts.is_file()
     assert parent_verdicts.read_text().count("\n") == 1
     assert (results / OUTPUT_SUMMARY).is_file()
+
+
+def test_candidate_without_canonical_nbits_is_unpublishable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary, parent_verdicts, error_candidates, _block_hash, _terminal_hash = (
+        _render_single_candidate(
+            tmp_path,
+            monkeypatch,
+            terminal_kind="known_stale",
+            terminal_height=100,
+            epoch_bits={},
+        )
+    )
+
+    assert summary["accepted_stale_descendant_hashes"] == 0
+    assert summary["unpublishable_candidate_hashes"] == 1
+    assert summary["error_candidate_hashes"] == 0
+    with parent_verdicts.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
+    with error_candidates.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
+    with (tmp_path / "results" / "unknown-stale-anomalies.csv").open(
+        newline=""
+    ) as handle:
+        [anomaly] = list(csv.DictReader(handle))
+    assert "missing_expected_nbits" in anomaly["details"]
+
+
+def test_consensus_invalid_terminal_routes_descendant_to_error_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary, parent_verdicts, error_candidates, block_hash, terminal_hash = (
+        _render_single_candidate(
+            tmp_path,
+            monkeypatch,
+            terminal_kind="consensus_invalid",
+            terminal_height=100,
+            epoch_bits={0: EASY_BITS},
+        )
+    )
+
+    assert summary["accepted_stale_descendant_hashes"] == 0
+    assert summary["unpublishable_candidate_hashes"] == 0
+    assert summary["error_candidate_hashes"] == 1
+    with parent_verdicts.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
+    with error_candidates.open(newline="") as handle:
+        [candidate] = list(csv.DictReader(handle))
+    assert candidate["classification"] == "error_block"
+    assert candidate["ancestry_relation"] == "consensus_invalid_descendant"
+    assert candidate["btc_height"] == "101"
+    assert candidate["btc_header_hash"] == block_hash
+    assert candidate["root_stale_hash"] == terminal_hash
+    assert candidate["root_stale_height"] == "100"
+    assert candidate["rules_violated"] == CONSENSUS_INVALID_PARENT_RULE
+    assert candidate["validation_status"].startswith(
+        f"REJECTED_{CONSENSUS_INVALID_PARENT_RULE}"
+    )
+    assert candidate["active_mainchain_status"] == "not_checked"
+    assert candidate["root_active_mainchain_status"] == "not_checked"
+    assert candidate["active_mainchain_verification_source"] == ""
+
+
+@pytest.mark.parametrize(
+    ("evidence", "epoch_bits", "expected_failure"),
+    [
+        ("valid", {}, "missing_expected_nbits"),
+        ("missing_header", {0: EASY_BITS}, "missing_header_hex"),
+        ("failed_pow", {0: IMPOSSIBLE_BITS}, "pow_target_mismatch"),
+    ],
+)
+def test_unjudgeable_consensus_invalid_descendant_blocks_without_error_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    evidence: str,
+    epoch_bits: dict[int, str],
+    expected_failure: str,
+) -> None:
+    summary, parent_verdicts, error_candidates, _block_hash, _terminal_hash = (
+        _render_single_candidate(
+            tmp_path,
+            monkeypatch,
+            terminal_kind="consensus_invalid",
+            terminal_height=100,
+            epoch_bits=epoch_bits,
+            evidence=evidence,
+        )
+    )
+
+    assert summary["accepted_stale_descendant_hashes"] == 0
+    assert summary["unpublishable_candidate_hashes"] == 1
+    assert summary["error_candidate_hashes"] == 1
+    with parent_verdicts.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
+    with error_candidates.open(newline="") as handle:
+        [candidate] = list(csv.DictReader(handle))
+    assert candidate["classification"] == "unpublishable"
+    assert candidate["ancestry_relation"] == "consensus_invalid_descendant"
+    assert candidate["rules_violated"] == ""
+    assert expected_failure in candidate["validation_status"]
+    assert candidate["active_mainchain_status"] == "not_checked"
+    assert candidate["root_active_mainchain_status"] == "not_checked"
 
 
 def test_descendant_consensus_rules_needs_judgeable_evidence():

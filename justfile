@@ -49,7 +49,7 @@ validate-error-blocks:
 # module. Bitcoin Core RPC credentials may be passed through as arguments or
 # the normal environment. Any uncatalogued error candidate fails closed.
 reconcile-stale-ancestry *ARGS:
-    {{python}} scripts/prep/publish_stale_ancestry.py {{ARGS}}
+    @{{python}} scripts/prep/publish_stale_ancestry.py {{ARGS}}
 
 # Build normalized full-evidence artifacts and manifest (all evidence states;
 # bulky, gitignored).

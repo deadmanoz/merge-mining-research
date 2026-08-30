@@ -148,6 +148,95 @@ def test_observation_ledger_rejects_identity_regressions(
         load_stale_descendant_observations(observations, parents_path=parents)
 
 
+def test_display_order_child_hash_is_normalized_to_internal_identity(
+    tmp_path: Path,
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+    expected: dict[str, str | int] = {}
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = next(row for row in rows if row["child_header_hex"])
+        internal_hash = row["child_block_hash"]
+        row["child_block_hash"] = bytes.fromhex(internal_hash)[::-1].hex()
+        row["child_block_hash_order"] = "display"
+        expected.update(
+            {
+                "chain": row["chain"],
+                "child_height": int(row["child_height"]),
+                "child_hash": internal_hash,
+                "parent_hash": row["btc_header_hash"],
+            }
+        )
+
+    _rewrite(observations, mutate)
+
+    loaded = load_stale_descendant_observations(observations, parents_path=parents)
+    observation = next(
+        item
+        for item in loaded
+        if item.chain == expected["chain"]
+        and item.child_height == expected["child_height"]
+    )
+
+    assert observation.child_hash == expected["child_hash"]
+    assert observation.row["child_block_hash"] == expected["child_hash"]
+    assert observation.logical_identity == (
+        expected["chain"],
+        expected["child_height"],
+        expected["child_hash"],
+        expected["parent_hash"],
+    )
+
+
+def test_display_order_child_hash_must_match_authenticated_header(
+    tmp_path: Path,
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = next(row for row in rows if row["child_header_hex"])
+        row["child_block_hash_order"] = "display"
+
+    _rewrite(observations, mutate)
+
+    with pytest.raises(ValueError, match="child_header_hex does not match"):
+        load_stale_descendant_observations(observations, parents_path=parents)
+
+
+def test_rsk_display_order_child_hash_stays_forward(tmp_path: Path) -> None:
+    parents, observations = _copy_module(tmp_path)
+    expected: dict[str, str | int] = {}
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = next(row for row in rows if row["chain"] == "rsk")
+        row["child_block_hash_order"] = "display"
+        expected.update(
+            {
+                "child_height": int(row["child_height"]),
+                "child_hash": row["child_block_hash"],
+                "parent_hash": row["btc_header_hash"],
+            }
+        )
+
+    _rewrite(observations, mutate)
+
+    loaded = load_stale_descendant_observations(observations, parents_path=parents)
+    observation = next(
+        item
+        for item in loaded
+        if item.chain == "rsk" and item.child_height == expected["child_height"]
+    )
+
+    assert observation.child_hash == expected["child_hash"]
+    assert observation.row["child_block_hash"] == expected["child_hash"]
+    assert observation.logical_identity == (
+        "rsk",
+        expected["child_height"],
+        expected["child_hash"],
+        expected["parent_hash"],
+    )
+
+
 def test_parent_observation_count_must_match_ledger(tmp_path: Path) -> None:
     parents, observations = _copy_module(tmp_path)
     _rewrite(

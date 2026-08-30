@@ -181,9 +181,11 @@ def main(argv: list[str] | None = None) -> int:
             if error_candidate_count:
                 raise ValueError(
                     "reconciliation emitted "
-                    f"{error_candidate_count} uncatalogued consensus-invalid "
-                    "candidate(s); review and admit them to the canonical error "
-                    "catalogue and observation ledger before publication"
+                    f"{error_candidate_count} blocking consensus-invalid ancestry "
+                    "diagnostic row(s); review and correct incomplete or low-work "
+                    "source evidence, and admit only authenticated full-PoW "
+                    "violations to the canonical error catalogue and observation "
+                    "ledger before publication"
                 )
             _install_transaction(
                 {

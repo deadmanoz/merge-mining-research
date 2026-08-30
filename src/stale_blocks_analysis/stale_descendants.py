@@ -299,7 +299,7 @@ def load_stale_descendant_observations(
             if order not in {"display", "internal"}:
                 raise ValueError(f"{path}:{row_number}: invalid child hash order")
             validation_hash = child_hash
-            if order == "display":
+            if order == "display" and chain != "rsk":
                 validation_hash = hash_to_internal_hex(
                     hash_from_display_hex(child_hash)
                 )
@@ -315,6 +315,8 @@ def load_stale_descendant_observations(
                 )
             except ChildHeaderValidationError as exc:
                 raise ValueError(f"{path}:{row_number}: {exc}") from exc
+            child_hash = validation_hash
+            row["child_block_hash"] = child_hash
             source_row = _exact_nonnegative_int(
                 _required(row, "source_row_number", path=path, row_number=row_number),
                 path=path,

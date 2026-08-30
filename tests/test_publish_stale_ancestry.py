@@ -152,6 +152,7 @@ def test_invalid_canonical_error_module_stops_before_ancestry(
 @pytest.mark.parametrize("candidate_count", [0, 1])
 def test_publication_installs_only_descendant_interfaces_after_zero_error_candidates(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
     candidate_count: int,
 ) -> None:
     module = _load_module()
@@ -194,11 +195,14 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     )
 
     result = module.main(["--rpc-source-label", "test-node"])
+    error = capsys.readouterr().err
 
     assert ancestry_calls == 1
     if candidate_count:
         assert result == 1
         assert installed == []
+        assert "blocking consensus-invalid ancestry diagnostic row" in error
+        assert "admit only authenticated full-PoW violations" in error
     else:
         assert result == 0
         assert len(installed) == 1

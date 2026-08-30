@@ -155,7 +155,13 @@ witness ledger records the archive bucket for audit; it does not decide the
 parent verdict. The four ancestry-derived error blocks are reviewed members of
 the canonical `error_blocks.csv` and `error_block_observations.csv` module.
 Reconciliation treats their hashes as terminal error verdicts and fails closed
-if it finds any additional consensus-invalid candidate.
+if it finds any additional consensus-invalid candidate. Children and deeper
+descendants of a catalogued error terminal inherit that invalid verdict and go
+only to the disposable error-candidate diagnostic. The diagnostic also retains
+incomplete or low-work rows as publication blockers, but only an authenticated
+full-PoW violation is classified for canonical error-module admission. A
+candidate is likewise unpublishable when the committed epoch reference cannot
+supply canonical `expected_nbits` for its inferred height.
 
 Key columns beyond the standard BTC header fields include
 `active_mainchain_status` and `root_active_mainchain_status` for the placement
@@ -171,6 +177,10 @@ The witness ledger follows the error-observation provenance shape: parent and
 child identities, child header evidence, source coordinates and SHA-256,
 height/identity provenance, parent row number, and a composite provenance
 field. Source paths are publication coordinates, not classification rules.
+When a never-split inventory and its canonical companion contain the same
+authenticated child event, reconciliation keeps one deterministic source
+coordinate only after their parent evidence is compatible. Conflicting copies
+fail closed, and distinct authenticated events remain distinct witnesses.
 
 ## Upstream contribution sidecar: `data/new_stale_blocks_for_upstream.csv`
 
