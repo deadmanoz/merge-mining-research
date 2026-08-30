@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Preserve address-derived payout recipients through canonical coinbase-output
+reconciliation so legacy bare-address and `address:value` evidence still
+supports pool attribution. Match refined P2PK outputs by their recipient
+HASH160 without treating P2SH or witness programs as the same target.
+
 Fail closed when stale-ancestry reconciliation lacks Bitcoin's canonical
 `nBits` for an inferred height. Treat catalogue error blocks as explicit
 invalid ancestry terminals so every child and deeper descendant is emitted

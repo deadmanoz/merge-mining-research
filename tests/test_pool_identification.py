@@ -14,6 +14,7 @@ from stale_blocks_analysis.bitcoin_binary import (
     _b58_decode_to_hash160,
     _bech32_decode_to_program,
 )
+from stale_blocks_analysis.coinbase_output_claims import CoinbaseOutputClaim
 
 
 def _reset_runtime(monkeypatch, clone_dir):
@@ -120,6 +121,53 @@ def test_payout_address_p2sh_match(pool_clone):
     spk = bytes([0xA9, 0x14]) + h160 + bytes([0x87])
 
     assert pi.identify_pool(b"nomatch", [(0, spk)]) == "AddrPool"
+    assert (
+        pi.identify_pool(
+            b"nomatch",
+            output_claims=(CoinbaseOutputClaim(0, script_hex=spk.hex()),),
+        )
+        == "AddrPool"
+    )
+
+
+def test_p2pkh_recipient_claim_does_not_impersonate_p2sh_marker(pool_clone):
+    """Recipient-only evidence is P2PKH/P2PK semantic evidence, not P2SH."""
+    _clone_dir, add_pool = pool_clone
+    addr = "3Awm3FNpmwrbvAFVThRUFqgpbVuqWisni9"
+    add_pool("addrpool.json", pool_id="addrpool", name="AddrPool", addresses=[addr])
+
+    h160 = _b58_decode_to_hash160(addr)
+    assert h160 is not None
+    claim = CoinbaseOutputClaim(0, recipient_hash160=h160.hex())
+
+    assert pi.identify_pool(b"nomatch", output_claims=(claim,)) == "Unknown"
+
+
+def test_exact_p2pk_output_retains_its_p2pkh_recipient_match(pool_clone):
+    """An exact P2PK refinement still pays the address-derived recipient."""
+    _clone_dir, add_pool = pool_clone
+    addr = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+    add_pool("addrpool.json", pool_id="addrpool", name="AddrPool", addresses=[addr])
+    p2pk = bytes.fromhex(
+        "4104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61"
+        "deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf1"
+        "1d5fac"
+    )
+    claim = CoinbaseOutputClaim(0, script_hex=p2pk.hex())
+
+    assert pi.identify_pool(b"nomatch", [(0, p2pk)]) == "AddrPool"
+    assert pi.identify_pool(b"nomatch", output_claims=(claim,)) == "AddrPool"
+
+
+def test_pool_identification_rejects_mixed_exact_and_semantic_output_inputs(
+    pool_clone,
+):
+    _clone_dir, add_pool = pool_clone
+    add_pool("pool.json", pool_id="pool", name="Pool", tags=["/Pool/"])
+    claim = CoinbaseOutputClaim(0, script_hex="51")
+
+    with pytest.raises(ValueError, match="exact outputs or semantic output claims"):
+        pi.identify_pool(b"nomatch", [(0, b"\x51")], output_claims=(claim,))
 
 
 def test_p2wpkh_20_byte_match(pool_clone):

@@ -11,11 +11,16 @@ so this module can be imported early without pulling matplotlib, RPC, or
 enrichment dependencies.
 """
 
+from collections.abc import Iterable
 import hashlib
 import json
 
 from .bitcoin_binary import _b58_decode_to_hash160, _bech32_decode_to_program
 from .coinbase_markers import parse_op_return_payload
+from .coinbase_output_claims import (
+    CoinbaseOutputClaim,
+    recipient_hash160_for_script,
+)
 from .config import LOCAL_MINING_POOLS_DIR
 
 # ── Local pool overrides ──────────────────────────────────────────────────
@@ -533,7 +538,10 @@ def pool_dataset_fingerprint() -> str:
 
 
 def identify_pool_detailed(
-    sig: bytes | None, outputs: list[tuple[int, bytes]] | None = None
+    sig: bytes | None,
+    outputs: list[tuple[int, bytes]] | None = None,
+    *,
+    output_claims: Iterable[CoinbaseOutputClaim] | None = None,
 ) -> tuple[str, str]:
     """Identify a pool and report what kind of evidence matched.
 
@@ -543,7 +551,18 @@ def identify_pool_detailed(
     consumers that make tag-evidence-only claims (the template-producer
     fold) gate on the method.
     """
-    if not sig and not outputs:
+    if outputs is not None and output_claims is not None:
+        raise ValueError("pass exact outputs or semantic output claims, not both")
+
+    claims = tuple(output_claims or ())
+    claimed_exact_outputs = [
+        (claim.value_sats or 0, bytes.fromhex(claim.script_hex))
+        for claim in claims
+        if claim.script_hex
+    ]
+    exact_outputs = outputs or claimed_exact_outputs
+
+    if not sig and not exact_outputs and not claims:
         return "Unknown", "none"
 
     pool_tags, addr_pools = _ensure_runtime_pool_tables()
@@ -559,28 +578,58 @@ def identify_pool_detailed(
     # 2. OP_RETURN data in coinbase outputs (e.g. "Mined by 1hash.com").
     #    Only the pushed payload is searched: matching raw script bytes
     #    would let a push-length byte or an opcode form part of a tag.
-    if outputs:
-        for _value, spk in outputs:
+    if exact_outputs:
+        for _value, spk in exact_outputs:
             payload = parse_op_return_payload(spk)
             if payload:
                 for tag, name in pool_tags:
                     if tag in payload:
                         return name, "op_return"
 
-        # 3. Payout script matching (last resort for tagless miners). The
-        #    table is keyed by complete canonical scripts, so only a real
-        #    P2PKH, P2SH, or P2WPKH output matches, and each address type
-        #    matches only its own outputs.
+        # 3. Payout matching (last resort for tagless miners). Exact P2PKH,
+        #    P2SH, and P2WPKH scripts match their complete registry marker.
+        #    A P2PK script may additionally match the P2PKH address derived
+        #    from its public key. P2SH and witness targets remain distinct.
+    if outputs is not None:
         for _value, spk in outputs:
             name = addr_pools.get(spk)
             if name:
                 return name, "address"
+            recipient = recipient_hash160_for_script(spk.hex())
+            if recipient:
+                p2pkh_marker = b"\x76\xa9\x14" + bytes.fromhex(recipient) + b"\x88\xac"
+                name = addr_pools.get(p2pkh_marker)
+                if name:
+                    return name, "address"
+    else:
+        for claim in claims:
+            if claim.script_hex:
+                script = bytes.fromhex(claim.script_hex)
+                name = addr_pools.get(script)
+                if name:
+                    return name, "address"
+                recipient = recipient_hash160_for_script(claim.script_hex)
+            else:
+                recipient = claim.recipient_hash160
+            if recipient:
+                # A legacy decoded P2PKH-style address proves its recipient
+                # HASH160 but not whether the original Bitcoin output used
+                # P2PKH or P2PK. Match the semantic recipient only against a
+                # P2PKH registry marker. P2SH and witness markers carrying the
+                # same payload remain different payment targets.
+                p2pkh_marker = b"\x76\xa9\x14" + bytes.fromhex(recipient) + b"\x88\xac"
+                name = addr_pools.get(p2pkh_marker)
+                if name:
+                    return name, "address"
 
     return "Unknown", "none"
 
 
 def identify_pool(
-    sig: bytes | None, outputs: list[tuple[int, bytes]] | None = None
+    sig: bytes | None,
+    outputs: list[tuple[int, bytes]] | None = None,
+    *,
+    output_claims: Iterable[CoinbaseOutputClaim] | None = None,
 ) -> str:
     """Identify pool from coinbase scriptSig, OP_RETURN data, and output addresses."""
-    return identify_pool_detailed(sig, outputs)[0]
+    return identify_pool_detailed(sig, outputs, output_claims=output_claims)[0]

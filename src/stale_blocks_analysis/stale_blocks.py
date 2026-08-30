@@ -22,7 +22,10 @@ import csv
 from dataclasses import dataclass
 from typing import Literal
 
-from .coinbase_output_claims import parse_coinbase_output_claims
+from .coinbase_output_claims import (
+    parse_coinbase_output_claims,
+    render_coinbase_output_claims,
+)
 from .config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
     MIN_HEIGHT,
@@ -755,12 +758,8 @@ def load_lyncoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def _outputs_for_tagging(raw_outputs: str) -> str:
-    """Return every exact script recoverable from mixed output evidence."""
-    return ";".join(
-        claim.script_hex
-        for claim in parse_coinbase_output_claims(raw_outputs)
-        if claim.script_hex
-    )
+    """Return canonical output claims for downstream pool tagging."""
+    return render_coinbase_output_claims(parse_coinbase_output_claims(raw_outputs))
 
 
 def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:

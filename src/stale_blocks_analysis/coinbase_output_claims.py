@@ -78,7 +78,7 @@ class CoinbaseOutputClaim:
                 f"exact script {script_hex!r} does not satisfy prefix {prefix_hex!r}"
             )
         if recipient_hash160 and script_hex:
-            script_recipient = _recipient_hash160_for_script(script_hex)
+            script_recipient = recipient_hash160_for_script(script_hex)
             if script_recipient != recipient_hash160:
                 raise ValueError(
                     "exact script does not pay the claimed recipient HASH160"
@@ -103,7 +103,7 @@ def _hash160(payload: bytes) -> str:
     return hashlib.new("ripemd160", hashlib.sha256(payload).digest()).hexdigest()
 
 
-def _recipient_hash160_for_script(script_hex: str) -> str:
+def recipient_hash160_for_script(script_hex: str) -> str:
     """Return the recipient HASH160 encoded by P2PKH or P2PK, else blank."""
     script = bytes.fromhex(script_hex)
     if (
@@ -367,7 +367,7 @@ def _merge_two_claims(
         )
     recipient_hash160 = next(iter(recipients), "")
     if recipient_hash160 and script_hex:
-        script_recipient = _recipient_hash160_for_script(script_hex)
+        script_recipient = recipient_hash160_for_script(script_hex)
         if script_recipient != recipient_hash160:
             raise ValueError(
                 f"script at coinbase output {existing.position} does not pay "
@@ -659,7 +659,7 @@ def _claim_refines(old: CoinbaseOutputClaim, new: CoinbaseOutputClaim) -> bool:
     if old.recipient_hash160:
         new_recipient = new.recipient_hash160
         if new.script_hex:
-            new_recipient = _recipient_hash160_for_script(new.script_hex)
+            new_recipient = recipient_hash160_for_script(new.script_hex)
         if new_recipient != old.recipient_hash160:
             return False
     return True

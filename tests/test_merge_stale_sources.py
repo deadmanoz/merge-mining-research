@@ -24,12 +24,12 @@ def test_disjoint_records_all_kept_and_sorted_by_height():
 
 def test_exact_duplicate_primary_wins_and_is_enriched():
     primary = [_rec(100, "a", source="stale-blocks")]  # no _scriptsig_hex
-    auxpow = [_rec(100, "a", source="auxpow", _scriptsig_hex="dead", _outputs_str="o")]
+    auxpow = [_rec(100, "a", source="auxpow", _scriptsig_hex="dead", _outputs_str="51")]
     merged = merge_stale_sources(primary, auxpow)
     assert len(merged) == 1
     assert merged[0]["source"] == "stale-blocks"  # primary identity preserved
     assert merged[0]["_scriptsig_hex"] == "dead"  # AuxPoW coinbase carried as fallback
-    assert merged[0]["_outputs_str"] == "o"
+    assert merged[0]["_outputs_str"] == "51:"
 
 
 def test_competing_same_height_hashes_are_both_kept():
@@ -39,7 +39,7 @@ def test_competing_same_height_hashes_are_both_kept():
 
 def test_existing_primary_coinbase_is_not_overwritten():
     primary = [_rec(100, "a", _scriptsig_hex="keep")]
-    auxpow = [_rec(100, "a", _scriptsig_hex="new", _outputs_str="o")]
+    auxpow = [_rec(100, "a", _scriptsig_hex="new", _outputs_str="51")]
     merged = merge_stale_sources(primary, auxpow)
     assert len(merged) == 1
     assert merged[0]["_scriptsig_hex"] == "keep"
@@ -128,7 +128,7 @@ def test_exact_duplicate_fills_missing_coinbase_fields_independently():
             "hash": "aa",
             "source": "i0coin",
             "_scriptsig_hex": "ccdd",
-            "_outputs_str": "raw:76a914",
+            "_outputs_str": "51",
         }
     ]
 
@@ -138,7 +138,7 @@ def test_exact_duplicate_fills_missing_coinbase_fields_independently():
     # The existing scriptSig is never overwritten; the missing outputs are
     # filled from the later observation of the same coinbase.
     assert merged[0]["_scriptsig_hex"] == "aabb"
-    assert merged[0]["_outputs_str"] == "raw:76a914"
+    assert merged[0]["_outputs_str"] == "51:"
 
 
 def test_addr_to_spk_decodes_syscoin_p2pkh_addresses():
@@ -390,19 +390,32 @@ def test_duplicate_observations_union_their_outputs():
             "hash": "aa",
             "source": "ixcoin",
             "_scriptsig_hex": "aabb",
-            "_outputs_str": "6a0b4d696e6564206279205831;41049e4a",
+            "_outputs_str": (
+                "6a0b4d696e6564206279205831;"
+                "76a914d785df31eaf070be3482390a3a2a0fac95768f7188ac"
+            ),
         }
     ]
 
     merged = merge_stale_sources(primary, auxpow)
 
-    entries = merged[0]["_outputs_str"].split(";")
-    assert "NGDwrUEyBNkfxtrE7SK53f2fcTDq9YRSHC" in entries
-    assert "6a0b4d696e6564206279205831" in entries
-    assert "41049e4a" in entries
+    assert merged[0]["_outputs_str"] == (
+        "6a0b4d696e6564206279205831:|"
+        "76a914d785df31eaf070be3482390a3a2a0fac95768f7188ac:"
+    )
     # A repeated observation adds nothing.
     again = merge_stale_sources(merged, auxpow)
     assert again[0]["_outputs_str"] == merged[0]["_outputs_str"]
+
+
+def test_duplicate_observations_reject_conflicting_output_claims():
+    import pytest
+
+    primary = [_rec(100, "a", _outputs_str="51")]
+    auxpow = [_rec(100, "a", _outputs_str="52")]
+
+    with pytest.raises(ValueError, match="conflicting scripts"):
+        merge_stale_sources(primary, auxpow)
 
 
 def test_addr_to_spk_keeps_the_witness_version():
@@ -495,8 +508,10 @@ def test_outputs_alone_are_enough_to_identify(monkeypatch):
 
     seen = {}
 
-    def fake_identify(sig, outputs=None):
-        seen["sig"], seen["outputs"] = sig, outputs
+    def fake_identify(sig, outputs=None, *, output_claims=None):
+        seen["sig"] = sig
+        seen["outputs"] = outputs
+        seen["output_claims"] = output_claims
         return "OutputsOnlyPool", "address"
 
     monkeypatch.setattr(stale_merge, "identify_pool_detailed", fake_identify)
@@ -514,7 +529,8 @@ def test_outputs_alone_are_enough_to_identify(monkeypatch):
 
     assert out[0]["pool"] == "OutputsOnlyPool"
     assert seen["sig"] == b""
-    assert seen["outputs"] is not None
+    assert seen["outputs"] is None
+    assert seen["output_claims"][0].recipient_hash160
 
 
 def test_parse_coinbase_rejects_a_truncated_output_script():

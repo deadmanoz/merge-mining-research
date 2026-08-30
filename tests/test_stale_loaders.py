@@ -341,5 +341,53 @@ def test_stale_descendant_tagging_reads_canonical_script_value_outputs() -> None
         stale_blocks._outputs_for_tagging(
             f"{payout}:313110129|{op_return}:0|6a*:0|:100"
         )
-        == f"{payout};{op_return}"
+        == f"{payout}:313110129|{op_return}:0|6a*:0|:100"
     )
+
+
+@pytest.mark.parametrize(
+    ("raw_outputs", "expected_marker", "expected_value"),
+    [
+        ("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU", "~", ""),
+        ("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU:1.25", "", "125000000"),
+    ],
+)
+def test_stale_descendant_p2pkh_recipient_claims_reach_pool_tagging(
+    tmp_path, monkeypatch, raw_outputs, expected_marker, expected_value
+) -> None:
+    from stale_blocks_analysis import pool_identification, stale_merge
+    from stale_blocks_analysis.coinbase_output_claims import (
+        parse_coinbase_output_claims,
+    )
+
+    block_hash = "ab" * 32
+    parent = StaleDescendantParent(
+        331736,
+        block_hash,
+        2,
+        {"coinbase_outputs": raw_outputs},
+    )
+    monkeypatch.setattr(
+        stale_blocks,
+        "load_stale_descendant_parents",
+        lambda _path: {(parent.height, parent.block_hash): parent},
+    )
+    monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
+
+    recipient = parse_coinbase_output_claims(raw_outputs)[0].recipient_hash160
+    p2pkh_marker = bytes.fromhex(f"76a914{recipient}88ac")
+    monkeypatch.setattr(pool_identification, "_RUNTIME_POOL_TAGS", [])
+    monkeypatch.setattr(
+        pool_identification,
+        "_RUNTIME_OUTPUT_ADDR_POOLS",
+        {p2pkh_marker: "RecipientPool"},
+    )
+
+    rows = stale_blocks.load_stale_descendants(min_height=0)
+
+    assert (
+        rows[0]["_outputs_str"] == f"{expected_marker}pkh({recipient}):{expected_value}"
+    )
+    tagged = stale_merge.tag_stale_blocks(rows)
+    assert tagged[0]["pool"] == "RecipientPool"
+    assert tagged[0]["_pool_match"] == "address"
