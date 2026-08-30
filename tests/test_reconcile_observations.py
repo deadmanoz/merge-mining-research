@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from stale_blocks_analysis.reconcile_observations import (
     fetch_active_hashes_by_height,
     load_observations,
 )
-from stale_blocks_analysis.reconcile_publication import write_csv
+from stale_blocks_analysis.reconcile_publication import (
+    build_descendant_observation_rows,
+    write_csv,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 ACTIVE_CANONICAL_DESCENDANTS = {
@@ -35,6 +39,7 @@ def _load(
     *,
     chain: str = "test",
     full_files: dict[str, Path] | None = None,
+    unknown_files: dict[str, Path] | None = None,
     canonical_files: dict[str, Path] | None = None,
     validated_files: dict[str, Path] | None = None,
     consensus_invalid_keys: set[tuple[int, str]] | None = None,
@@ -43,7 +48,7 @@ def _load(
         data_dir=data_dir,
         chain_names={chain},
         full_files=full_files or {},
-        unknown_files={},
+        unknown_files=unknown_files or {},
         canonical_files=canonical_files or {},
         validated_files=validated_files or {},
         epoch_bits={},
@@ -77,6 +82,99 @@ def test_reconciliation_blanks_declared_scan_order_child_height(
 
     [observation] = state["unknown_observations_by_hash"][block_hash]
     assert observation.child_height == ""
+
+
+@pytest.mark.parametrize("chain", ("namecoin", "coiledcoin", "i0coin"))
+def test_split_unknown_scan_order_height_uses_authenticated_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    chain: str,
+) -> None:
+    block_hash = f"{1:064x}"
+    inventory = tmp_path / f"{chain}_unknown_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "100",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{2:064x}",
+                "child_height": "817176",
+                "classification": "unknown",
+            }
+        ],
+    )
+
+    state = _load(
+        tmp_path,
+        chain=chain,
+        unknown_files={chain: inventory},
+    )
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+
+    assert observation.child_height == ""
+    assert observation.source_kind == "full_inventory"
+    assert observation.source_path == str(inventory)
+    assert len(observation.source_sha256) == 64
+
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            (chain, block_hash): {
+                "child_height": "817177",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1700000000",
+                "verification": "test-authenticated-identity",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    parent = {"btc_height": "100", "btc_header_hash": block_hash}
+
+    rows = build_descendant_observation_rows(
+        [parent],
+        {block_hash: [observation]},
+        data_dir=tmp_path,
+        parser=argparse.ArgumentParser(),
+    )
+
+    assert rows[0]["child_height"] == "817177"
+    assert rows[0]["child_height_provenance"] == (
+        "child-identity:test-authenticated-identity"
+    )
+    assert rows[0]["identity_provenance"] == (
+        "child-identity:test-authenticated-identity"
+    )
+    assert rows[0]["source_kind"] == "full_inventory"
+
+
+def test_split_unknown_keeps_authenticated_height_for_other_chains(
+    tmp_path: Path,
+) -> None:
+    block_hash = f"{1:064x}"
+    inventory = tmp_path / "syscoin_unknown_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{2:064x}",
+                "child_height": "817176",
+                "classification": "unknown",
+            }
+        ],
+    )
+
+    state = _load(
+        tmp_path,
+        chain="syscoin",
+        unknown_files={"syscoin": inventory},
+    )
+
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+    assert observation.child_height == "817176"
+    assert observation.source_kind == "full_inventory"
 
 
 def test_reconciliation_writer_uses_lf_line_endings(tmp_path: Path) -> None:

@@ -141,7 +141,9 @@ provenance:
 - `data/stale_descendants.csv` contains 21 accepted Bitcoin parent verdicts.
   Loaders require `classification=stale_descendant` and
   `validation_status=VALID_STALE_DESCENDANT`, authenticate the serialized
-  parent header, and require the persisted Bitcoin Core off-active verdicts.
+  parent header, require the persisted Bitcoin Core off-active verdicts, and
+  reconcile the root height, fork depth, path endpoints, and serialized
+  predecessor links.
 - `data/stale_descendant_observations.csv` contains 32 authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence.
@@ -176,7 +178,10 @@ validation result.
 The witness ledger follows the error-observation provenance shape: parent and
 child identities, child header evidence, source coordinates and SHA-256,
 height/identity provenance, parent row number, and a composite provenance
-field. Source paths are publication coordinates, not classification rules.
+field. A split `_unknown_blocks.csv` row retains that exact path while its
+`source_kind` identifies the shared `full_inventory` schema family, including
+the family's child-height trust rules. Source paths are publication
+coordinates, not classification rules.
 When a never-split inventory and its canonical companion contain the same
 authenticated child event, reconciliation keeps one deterministic source
 coordinate only after their parent evidence is compatible. Conflicting copies

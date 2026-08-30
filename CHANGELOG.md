@@ -12,6 +12,13 @@ before storing their logical witness identity while keeping RSK hashes forward.
 Keep RPC credentials out of the `just` launcher output when operators supply
 them explicitly.
 
+Treat split unknown inventories as the same source family as their complete
+classifier inventories so scan-order child heights cannot become authenticated
+publication facts. Reject every low-level ancestry output that resolves under a
+canonical data or results publication surface. Authenticate each committed
+parent's stale-root height, fork depth, path endpoints, and every serialized
+predecessor link before accepting its ancestry verdict.
+
 Keep the authored future-limit follow-up in `docs/error-blocks.md` and make the
 time-rule sweep report fully regenerable without copying prose from the report
 it replaces.

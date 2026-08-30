@@ -815,7 +815,9 @@ def load_observations(
             (path, kind)
             for path, kind in (
                 (full_path, "full_inventory"),
-                (unknown_path, "unknown_blocks"),
+                # The unknown companion is a bucket-split view of the full
+                # classifier inventory, so it has the same source semantics.
+                (unknown_path, "full_inventory"),
             )
             if path is not None
         ]

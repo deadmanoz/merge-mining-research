@@ -115,6 +115,127 @@ def test_parent_verdict_derives_nonce_from_serialized_header(tmp_path: Path) -> 
     assert all(parent.row["btc_nonce"] for parent in parents.values())
 
 
+def test_parent_verdict_rejects_height_depth_disagreement(tmp_path: Path) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = rows[0]
+        row["root_stale_height"] = str(int(row["root_stale_height"]) - 1)
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="stale_fork_depth does not match"):
+        load_stale_descendant_parents(parents)
+
+
+def test_parent_verdict_rejects_relation_depth_disagreement(tmp_path: Path) -> None:
+    parents, _observations = _copy_module(tmp_path)
+    _rewrite(
+        parents,
+        lambda rows: rows[0].__setitem__("ancestry_relation", "stale_descendant"),
+    )
+
+    with pytest.raises(ValueError, match="ancestry_relation does not match"):
+        load_stale_descendant_parents(parents)
+
+
+def test_parent_verdict_rejects_path_length_disagreement(tmp_path: Path) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = rows[0]
+        row["path_hashes"] = f"{row['path_hashes']}>{row['root_stale_hash']}"
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="path_hashes length does not match"):
+        load_stale_descendant_parents(parents)
+
+
+@pytest.mark.parametrize("endpoint", ["candidate", "root"])
+def test_parent_verdict_rejects_path_endpoint_disagreement(
+    tmp_path: Path, endpoint: str
+) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = rows[0]
+        path_hashes = row["path_hashes"].split(">")
+        index = 0 if endpoint == "candidate" else -1
+        path_hashes[index] = "ff" * 32
+        row["path_hashes"] = ">".join(path_hashes)
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="path_hashes endpoints do not match"):
+        load_stale_descendant_parents(parents)
+
+
+def test_parent_verdict_rejects_path_predecessor_disagreement(
+    tmp_path: Path,
+) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = rows[0]
+        wrong_root = "ff" * 32
+        row["root_stale_hash"] = wrong_root
+        path_hashes = row["path_hashes"].split(">")
+        path_hashes[-1] = wrong_root
+        row["path_hashes"] = ">".join(path_hashes)
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="path_hashes predecessor link disagrees"):
+        load_stale_descendant_parents(parents)
+
+
+def test_parent_verdict_requires_every_intermediate_path_node(
+    tmp_path: Path,
+) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        descendant = next(row for row in rows if row["stale_fork_depth"] == "2")
+        intermediate_hash = descendant["path_hashes"].split(">")[1]
+        intermediate_height = str(int(descendant["btc_height"]) - 1)
+        rows[:] = [
+            row
+            for row in rows
+            if not (
+                row["btc_header_hash"] == intermediate_hash
+                and row["btc_height"] == intermediate_height
+            )
+        ]
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="has no authenticated parent verdict"):
+        load_stale_descendant_parents(parents)
+
+
+def test_parent_verdict_path_must_end_at_a_trusted_stale_root(
+    tmp_path: Path,
+) -> None:
+    parents, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        descendant = next(row for row in rows if row["stale_fork_depth"] == "2")
+        intermediate_hash = descendant["path_hashes"].split(">")[1]
+        descendant["root_stale_hash"] = intermediate_hash
+        descendant["root_stale_height"] = str(int(descendant["btc_height"]) - 1)
+        descendant["stale_fork_depth"] = "1"
+        descendant["ancestry_relation"] = "direct_stale_child"
+        descendant["path_hashes"] = (
+            f"{descendant['btc_header_hash']}>{intermediate_hash}"
+        )
+
+    _rewrite(parents, mutate)
+
+    with pytest.raises(ValueError, match="instead of a trusted stale root"):
+        load_stale_descendant_parents(parents)
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

@@ -27,7 +27,6 @@ from stale_blocks_analysis.config import (
     BIP34_HEIGHT,
     BIP34_VERSION_2_HEIGHT,
     CHAIN_SPECS,
-    ERROR_BLOCKS_CSV,
 )
 from stale_blocks_analysis.coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
@@ -415,21 +414,36 @@ def validate_output_mode(
             parser.error(f"{label} aliases {previous}: {resolved}")
         seen[resolved] = label
     committed_outputs = {
-        parent_verdicts_csv_default.resolve(): "--parent-verdicts-csv",
-        observations_csv_default.resolve(): "--observations-csv",
+        parent_verdicts_csv_default.resolve(): "stale-descendant parent verdicts",
+        observations_csv_default.resolve(): "stale-descendant observation ledger",
     }
-    for path, label in committed_outputs.items():
-        if path in seen:
+    for path, artifact in committed_outputs.items():
+        offending_label = seen.get(path)
+        if offending_label is not None:
             parser.error(
-                f"{label} is diagnostic/staging-only; use the publication workflow"
+                f"{offending_label} is diagnostic/staging-only and cannot target "
+                f"the committed {artifact}; use the publication workflow"
             )
-    if args.error_candidates_csv.resolve().is_relative_to(
-        ERROR_BLOCKS_CSV.parent.resolve()
-    ):
-        parser.error(
-            "--error-candidates-csv is diagnostic/staging-only and cannot target "
-            "the canonical error-module directory"
-        )
+
+    # The low-level command writes every labelled path directly. Keep all such
+    # outputs away from the repository's canonical data tree and committed
+    # result publications, regardless of which of the three CSV options names
+    # the target. The dedicated, gitignored stale-ancestry results namespace is
+    # the sole in-repository diagnostic exception.
+    data_publication_root = (PROJECT_ROOT / "data").resolve()
+    results_publication_root = (PROJECT_ROOT / "results").resolve()
+    diagnostic_results_root = results_dir_default.resolve()
+    for label, path in labelled.items():
+        resolved = path.resolve()
+        protected_data = resolved.is_relative_to(data_publication_root)
+        protected_results = resolved.is_relative_to(
+            results_publication_root
+        ) and not resolved.is_relative_to(diagnostic_results_root)
+        if protected_data or protected_results:
+            parser.error(
+                f"{label} is diagnostic/staging-only and cannot target a protected "
+                f"publication surface: {resolved}"
+            )
     if not args.allow_partial:
         return
     if args.results_dir.resolve() == results_dir_default.resolve():

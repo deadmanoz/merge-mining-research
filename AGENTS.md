@@ -112,7 +112,10 @@ python -m pytest tests/
 The low-level ancestry CLI is diagnostic and staging-only. Incomplete runs
 must pass `--allow-partial` together with explicit disposable
 `--results-dir`, `--parent-verdicts-csv`, `--observations-csv`, and
-`--error-candidates-csv` paths; none may target a committed artifact.
+`--error-candidates-csv` paths. No generated output may resolve under the
+canonical `data/` tree or a committed `results/` surface; the dedicated ignored
+`results/analysis/stale-ancestry/` namespace is the only in-repository
+diagnostic destination.
 
 `just validate-error-blocks` validates the reviewed canonical error catalogue,
 MTP sidecar, and exact child-observation ledger. `just reconcile-stale-ancestry`
@@ -255,7 +258,10 @@ Preserve these distinctions:
   that value is audit evidence, not the parent verdict. Parent classification
   comes only from the ancestry and consensus gates.
 - Reconciliation considers every authenticated candidate, starts only from the
-  declared trusted-root set, and verifies the complete predecessor path. A
+  declared trusted-root set, and verifies the complete predecessor path. The
+  canonical parent loader requires the stored root height and fork depth to
+  agree, authenticates both path endpoints, and checks every path edge against
+  the serialized predecessor header of its parent verdict. A
   purported root is direct stale only when its predecessor is on Bitcoin's
   active main chain. Consensus-invalid candidates route to `error_block` before
   stale-descendant publication. A catalogued error block is an explicit invalid

@@ -1021,7 +1021,10 @@ def test_stale_descendant_parent_verdicts_get_own_artifact(tmp_path: Path) -> No
                 "btc_header_hex": header_hex,
                 "observed_chains": "namecoin",
                 "source_observation_count": "1",
-                "root_stale_hash": "bb" * 32,
+                "root_stale_hash": "11" * 32,
+                "root_stale_height": "800000",
+                "stale_fork_depth": "1",
+                "path_hashes": f"{header_hash}>{'11' * 32}",
             }
         ],
     )

@@ -126,6 +126,7 @@ def load_stale_descendant_parents(
             f"stale-descendant parent-verdict interface is missing: {path}"
         )
     parents: dict[tuple[int, str], StaleDescendantParent] = {}
+    ancestry_paths: dict[tuple[int, str], tuple[str, ...]] = {}
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fields = reader.fieldnames or []
@@ -133,10 +134,14 @@ def load_stale_descendant_parents(
             "active_mainchain_status",
             "active_mainchain_hash_at_height",
             "active_mainchain_verification_source",
+            "ancestry_relation",
             "classification",
             "root_active_mainchain_status",
             "root_active_mainchain_hash_at_height",
             "root_stale_hash",
+            "root_stale_height",
+            "stale_fork_depth",
+            "path_hashes",
             "observed_chains",
             "source_observation_count",
             "validation_status",
@@ -185,6 +190,54 @@ def load_stale_descendant_parents(
                 row_number=row_number,
                 field="root_stale_hash",
             )
+            root_height = _exact_nonnegative_int(
+                row["root_stale_height"],
+                path=path,
+                row_number=row_number,
+                field="root_stale_height",
+            )
+            fork_depth = _exact_nonnegative_int(
+                row["stale_fork_depth"],
+                path=path,
+                row_number=row_number,
+                field="stale_fork_depth",
+            )
+            if fork_depth < 1 or height - root_height != fork_depth:
+                raise ValueError(
+                    f"{path}:{row_number}: stale_fork_depth does not match "
+                    "btc_height - root_stale_height"
+                )
+            expected_relation = (
+                "direct_stale_child" if fork_depth == 1 else "stale_descendant"
+            )
+            if row["ancestry_relation"] != expected_relation:
+                raise ValueError(
+                    f"{path}:{row_number}: ancestry_relation does not match "
+                    "stale_fork_depth"
+                )
+            path_hashes = tuple(
+                _exact_hash(
+                    value,
+                    path=path,
+                    row_number=row_number,
+                    field="path_hashes",
+                )
+                for value in _required(
+                    row, "path_hashes", path=path, row_number=row_number
+                ).split(">")
+            )
+            if len(path_hashes) != fork_depth + 1:
+                raise ValueError(
+                    f"{path}:{row_number}: path_hashes length does not match "
+                    "stale_fork_depth"
+                )
+            if path_hashes[0] != block_hash or path_hashes[-1] != root_hash:
+                raise ValueError(
+                    f"{path}:{row_number}: path_hashes endpoints do not match "
+                    "the candidate and stale root"
+                )
+            if len(set(path_hashes)) != len(path_hashes):
+                raise ValueError(f"{path}:{row_number}: path_hashes contains a cycle")
             active_hash = _exact_hash(
                 row["active_mainchain_hash_at_height"],
                 path=path,
@@ -227,8 +280,36 @@ def load_stale_descendant_parents(
             if key in parents:
                 raise ValueError(f"{path}:{row_number}: duplicate parent identity")
             parents[key] = StaleDescendantParent(height, block_hash, row_number, row)
+            ancestry_paths[key] = path_hashes
     if not parents:
         raise ValueError(f"stale-descendant parent-verdict interface is empty: {path}")
+    for key, path_hashes in ancestry_paths.items():
+        descendant = parents[key]
+        root_key = (
+            int(descendant.row["root_stale_height"]),
+            descendant.row["root_stale_hash"],
+        )
+        if root_key in parents:
+            raise ValueError(
+                f"{path}:{descendant.row_number}: path_hashes terminates at "
+                "another stale-descendant parent instead of a trusted stale root"
+            )
+        for offset, (node_hash, predecessor_hash) in enumerate(
+            zip(path_hashes, path_hashes[1:])
+        ):
+            node_height = descendant.height - offset
+            node = parents.get((node_height, node_hash))
+            if node is None:
+                raise ValueError(
+                    f"{path}:{descendant.row_number}: path_hashes node "
+                    f"{node_hash} at height {node_height} has no authenticated "
+                    "parent verdict"
+                )
+            if node.row["btc_prev_hash"] != predecessor_hash:
+                raise ValueError(
+                    f"{path}:{descendant.row_number}: path_hashes predecessor "
+                    f"link disagrees at {node_hash}"
+                )
     return parents
 
 

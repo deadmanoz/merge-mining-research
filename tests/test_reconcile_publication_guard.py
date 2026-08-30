@@ -44,6 +44,12 @@ BASELINE_HASH = "11" * 32
 BITS = "1806b99f"
 EASY_BITS = "207fffff"
 IMPOSSIBLE_BITS = "03000001"
+PROTECTED_OUTPUT_TARGETS = (
+    REPO / "data" / "error-blocks" / "error_blocks.csv",
+    REPO / "data" / "error-blocks" / "error_block_observations.csv",
+    REPO / "results" / "monitor-evidence" / "monitor-evidence-counts.csv",
+    REPO / "results" / "child-header-coverage.csv",
+)
 
 
 def _load_module():
@@ -817,6 +823,57 @@ def test_allow_partial_refuses_publication_output_defaults(
     assert "--results-dir" in error
     assert not parent_verdicts.exists()
     assert not results.exists()
+
+
+@pytest.mark.parametrize(
+    "target_option",
+    (
+        "--parent-verdicts-csv",
+        "--observations-csv",
+        "--error-candidates-csv",
+    ),
+)
+@pytest.mark.parametrize("target_path", PROTECTED_OUTPUT_TARGETS)
+@pytest.mark.parametrize("joined", (False, True))
+def test_diagnostic_outputs_reject_every_protected_publication_surface_before_write(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    target_option: str,
+    target_path: Path,
+    joined: bool,
+) -> None:
+    module = _load_module()
+    data_dir = tmp_path / "uncreated-input"
+    results_dir = tmp_path / "uncreated-results"
+    output_paths = {
+        "--parent-verdicts-csv": tmp_path / "scratch" / "parents.csv",
+        "--observations-csv": tmp_path / "scratch" / "observations.csv",
+        "--error-candidates-csv": tmp_path / "scratch" / "errors.csv",
+    }
+    output_paths[target_option] = target_path
+    before = target_path.read_bytes()
+    argv = ["--allow-partial"]
+    scalar_options = {
+        "--data-dir": data_dir,
+        "--results-dir": results_dir,
+        **output_paths,
+    }
+    for option, path in scalar_options.items():
+        if joined:
+            argv.append(f"{option}={path}")
+        else:
+            argv.extend((option, str(path)))
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main(argv)
+
+    assert "protected publication surface" in capsys.readouterr().err
+    assert target_path.read_bytes() == before
+    assert not data_dir.exists()
+    assert not results_dir.exists()
+    for option, path in output_paths.items():
+        if option != target_option:
+            assert not path.exists()
 
 
 def test_allow_partial_writes_only_to_explicit_disposable_outputs(
