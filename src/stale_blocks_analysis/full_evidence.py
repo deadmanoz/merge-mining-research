@@ -134,11 +134,17 @@ def build_full_evidence_exports(
     for chain in CHAIN_SPECS:
         source = sources[chain]
         artifact_path: Path | None = None
-        rows, stats = collect_source_rows(source, error_blocks_path=error_blocks_path)
+        rows, stats = collect_source_rows(
+            source,
+            data_dir=data_dir,
+            error_blocks_path=error_blocks_path,
+        )
         companion = canonical_sources.get(chain)
         if companion is not None:
             companion_rows, companion_stats = collect_source_rows(
-                companion, error_blocks_path=error_blocks_path
+                companion,
+                data_dir=data_dir,
+                error_blocks_path=error_blocks_path,
             )
             rows.extend(companion_rows)
             stats = merge_stats(stats, companion_stats)
@@ -149,7 +155,9 @@ def build_full_evidence_exports(
         if unknown_companion is not None:
             enforce_unknown_split_contract(source, stats, unknown_companion)
             unknown_rows, unknown_stats = collect_source_rows(
-                unknown_companion, error_blocks_path=error_blocks_path
+                unknown_companion,
+                data_dir=data_dir,
+                error_blocks_path=error_blocks_path,
             )
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
@@ -183,7 +191,9 @@ def build_full_evidence_exports(
     parent_verdicts = stale_descendant_parent_verdict_source(data_dir)
     if parent_verdicts is not None:
         rows, stats = collect_source_rows(
-            parent_verdicts, error_blocks_path=error_blocks_path
+            parent_verdicts,
+            data_dir=data_dir,
+            error_blocks_path=error_blocks_path,
         )
         artifact_path = output_dir / "stale-descendants_evidence.csv"
         write_csv(artifact_path, rows, EVIDENCE_FIELDS)

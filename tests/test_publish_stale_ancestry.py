@@ -181,7 +181,7 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     monkeypatch.setattr(
         module,
         "load_stale_descendant_parents",
-        lambda _path: {index: object() for index in range(21)},
+        lambda *_args, **_kwargs: {index: object() for index in range(21)},
     )
     monkeypatch.setattr(
         module,

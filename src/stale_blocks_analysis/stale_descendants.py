@@ -16,7 +16,16 @@ from .auxpow_parse import (
     ChildHeaderValidationError,
     validate_available_child_header_fields,
 )
-from .config import CHAIN_SPECS, DATA_DIR
+from .config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
+    CHAINS_BY_AUXPOW_ACTIVATION,
+    CHAIN_SPECS,
+    DATA_DIR,
+    ERROR_BLOCKS_CSV,
+    STALE_CSV,
+    VALIDATED_STALES_DIR,
+)
+from .error_blocks import load_stale_exclusion_keys
 from .evidence_normalization import (
     is_hash,
     parse_header_fields,
@@ -78,6 +87,11 @@ class StaleDescendantObservation:
         return self.chain, self.child_height, self.child_hash, self.parent_hash
 
     @property
+    def child_event_identity(self) -> tuple[str, int, str]:
+        """Authenticated child block, which can prove only one Bitcoin parent."""
+        return self.chain, self.child_height, self.child_hash
+
+    @property
     def source_identity(self) -> tuple[str, str, int, str]:
         """Exact authenticated archive coordinate for audit and rebuilds."""
         return (
@@ -117,10 +131,109 @@ def _exact_nonnegative_int(
     return int(value)
 
 
+def _load_trusted_stale_root_keys(
+    *,
+    validated_dir: Path = VALIDATED_STALES_DIR,
+    upstream_path: Path = STALE_CSV,
+    error_blocks_path: Path = ERROR_BLOCKS_CSV,
+) -> set[tuple[int, str]]:
+    """Load the exact direct-stale identities allowed to terminate a walk.
+
+    Per-chain accepted rows and the pinned upstream stale census are the two
+    canonical direct-stale inputs used by reconciliation. Consensus-invalid
+    keys never qualify, even if an older source still contains them. Exact
+    Bitcoin Core off-active-chain evidence remains a separate required field
+    on every published parent verdict.
+    """
+    validated_paths = tuple(
+        validated_dir / f"{chain}_validated_stales.csv"
+        for chain, _activation_date in CHAINS_BY_AUXPOW_ACTIVATION
+        if (validated_dir / f"{chain}_validated_stales.csv").is_file()
+    )
+    if not upstream_path.is_file():
+        raise ValueError(f"pinned upstream stale census is missing: {upstream_path}")
+
+    excluded = load_stale_exclusion_keys(error_blocks_path)
+    roots: set[tuple[int, str]] = set()
+    for source_path in validated_paths:
+        with source_path.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            fields = set(reader.fieldnames or ())
+            missing = {
+                "btc_height",
+                "btc_header_hash",
+                "classification",
+                "validation_status",
+            } - fields
+            if missing:
+                raise ValueError(
+                    f"{source_path}: missing columns: {', '.join(sorted(missing))}"
+                )
+            for row_number, row in enumerate(reader, start=2):
+                if row["classification"] != "stale" or (
+                    row["validation_status"] not in ACCEPTED_STALE_VALIDATION_STATUSES
+                ):
+                    continue
+                height = _exact_nonnegative_int(
+                    row["btc_height"],
+                    path=source_path,
+                    row_number=row_number,
+                    field="btc_height",
+                )
+                block_hash = _exact_hash(
+                    row["btc_header_hash"],
+                    path=source_path,
+                    row_number=row_number,
+                    field="btc_header_hash",
+                )
+                key = (height, block_hash)
+                if key not in excluded:
+                    roots.add(key)
+
+    with upstream_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = set(reader.fieldnames or ())
+        missing = {"height", "hash"} - fields
+        if missing:
+            raise ValueError(
+                f"{upstream_path}: missing columns: {', '.join(sorted(missing))}"
+            )
+        for row_number, row in enumerate(reader, start=2):
+            height = _exact_nonnegative_int(
+                row["height"],
+                path=upstream_path,
+                row_number=row_number,
+                field="height",
+            )
+            block_hash = _exact_hash(
+                row["hash"],
+                path=upstream_path,
+                row_number=row_number,
+                field="hash",
+            )
+            key = (height, block_hash)
+            if key not in excluded:
+                roots.add(key)
+    if not roots:
+        raise ValueError("canonical direct-stale inputs contain no trusted roots")
+    return roots
+
+
 def load_stale_descendant_parents(
     path: Path = PARENTS_PATH,
+    *,
+    data_dir: Path = DATA_DIR,
+    upstream_path: Path | None = None,
 ) -> dict[tuple[int, str], StaleDescendantParent]:
-    """Load and validate the one-row-per-parent accepted verdict interface."""
+    """Load and validate the one-row-per-parent accepted verdict interface.
+
+    ``data_dir`` selects the matching accepted direct-stale and error-block
+    trust inputs. ``upstream_path`` can select the pinned stale census
+    explicitly; canonical calls otherwise honor ``STALE_BLOCKS_DIR``, while an
+    alternate data tree defaults to its own ``stale-blocks/stale-blocks.csv``.
+    Callers that stage or inspect another data tree must pass that tree
+    explicitly instead of mixing it with repository-global verdicts.
+    """
     if not path.is_file():
         raise ValueError(
             f"stale-descendant parent-verdict interface is missing: {path}"
@@ -283,6 +396,18 @@ def load_stale_descendant_parents(
             ancestry_paths[key] = path_hashes
     if not parents:
         raise ValueError(f"stale-descendant parent-verdict interface is empty: {path}")
+    trusted_upstream_path = upstream_path
+    if trusted_upstream_path is None:
+        trusted_upstream_path = (
+            STALE_CSV
+            if data_dir.resolve() == DATA_DIR.resolve()
+            else data_dir / "stale-blocks" / "stale-blocks.csv"
+        )
+    trusted_root_keys = _load_trusted_stale_root_keys(
+        validated_dir=data_dir / "validated-stales",
+        upstream_path=trusted_upstream_path,
+        error_blocks_path=data_dir / "error-blocks" / "error_blocks.csv",
+    )
     for key, path_hashes in ancestry_paths.items():
         descendant = parents[key]
         root_key = (
@@ -310,6 +435,11 @@ def load_stale_descendant_parents(
                     f"{path}:{descendant.row_number}: path_hashes predecessor "
                     f"link disagrees at {node_hash}"
                 )
+        if root_key not in trusted_root_keys:
+            raise ValueError(
+                f"{path}:{descendant.row_number}: path_hashes terminal is not "
+                "present in the canonical accepted direct-stale inputs"
+            )
     return parents
 
 
@@ -317,13 +447,20 @@ def load_stale_descendant_observations(
     path: Path = OBSERVATIONS_PATH,
     *,
     parents_path: Path = PARENTS_PATH,
+    data_dir: Path = DATA_DIR,
+    upstream_path: Path | None = None,
 ) -> tuple[StaleDescendantObservation, ...]:
     """Load the canonical witness ledger and validate it against parent verdicts."""
-    parents = load_stale_descendant_parents(parents_path)
+    parents = load_stale_descendant_parents(
+        parents_path,
+        data_dir=data_dir,
+        upstream_path=upstream_path,
+    )
     if not path.is_file():
         raise ValueError(f"stale-descendant observation ledger is missing: {path}")
     observations: list[StaleDescendantObservation] = []
     logical_seen: set[tuple[str, int, str, str]] = set()
+    child_event_parents: dict[tuple[str, int, str], tuple[int, str]] = {}
     source_seen: set[tuple[str, str, int, str]] = set()
     parent_counts: dict[tuple[int, str], int] = {key: 0 for key in parents}
     parent_chains: dict[tuple[int, str], set[str]] = {key: set() for key in parents}
@@ -433,10 +570,17 @@ def load_stale_descendant_observations(
             )
             if obs.logical_identity in logical_seen:
                 raise ValueError(f"{path}:{row_number}: duplicate logical observation")
+            prior_parent = child_event_parents.get(obs.child_event_identity)
+            if prior_parent is not None and prior_parent != parent_key:
+                raise ValueError(
+                    f"{path}:{row_number}: authenticated child event is assigned "
+                    "to multiple Bitcoin parents"
+                )
             source_identity = (chain, row["source_path"], source_row, source_sha)
             if source_identity in source_seen:
                 raise ValueError(f"{path}:{row_number}: duplicate source coordinate")
             logical_seen.add(obs.logical_identity)
+            child_event_parents[obs.child_event_identity] = parent_key
             source_seen.add(source_identity)
             parent_counts[parent_key] += 1
             parent_chains[parent_key].add(chain)

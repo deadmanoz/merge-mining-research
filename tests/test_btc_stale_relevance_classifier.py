@@ -141,6 +141,38 @@ def _run_classifier(
         if relative.endswith("_validated_stales.csv") and "/" not in relative:
             relative = f"validated-stales/{relative}"
         _write_csv(data_dir / relative, rows)
+    parents_path = data_dir / "stale_descendants.csv"
+    if parents_path.is_file():
+        with parents_path.open(newline="") as handle:
+            parent = next(csv.DictReader(handle))
+        root_input = data_dir / "validated-stales" / "root_validated_stales.csv"
+        root_input.parent.mkdir(parents=True, exist_ok=True)
+        root_input.write_text(
+            "btc_height,btc_header_hash,classification,validation_status\n"
+        )
+        upstream_path = data_dir / "stale-blocks" / "stale-blocks.csv"
+        if not upstream_path.exists():
+            _write_csv(
+                upstream_path,
+                [
+                    {
+                        "height": parent["root_stale_height"],
+                        "hash": parent["root_stale_hash"],
+                    }
+                ],
+            )
+        error_blocks_path = data_dir / "error-blocks" / "error_blocks.csv"
+        if not error_blocks_path.exists():
+            _write_csv(
+                error_blocks_path,
+                [
+                    {
+                        "height": "0",
+                        "hash": "00" * 32,
+                        "classification": "error_block",
+                    }
+                ],
+            )
     for relative, rows in (archive_files or {}).items():
         _write_csv(chain_archive_dir / relative, rows)
     (cache_dir / "btc_nbits_by_epoch.json").write_text(

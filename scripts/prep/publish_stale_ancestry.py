@@ -169,10 +169,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             _run(ancestry_command)
 
-            parents = load_stale_descendant_parents(staged_parent)
+            parents = load_stale_descendant_parents(
+                staged_parent,
+                data_dir=DATA_DIR,
+            )
             observations = load_stale_descendant_observations(
                 staged_descendant_ledger,
                 parents_path=staged_parent,
+                data_dir=DATA_DIR,
             )
             parent_count = len(parents)
             observation_count = len(observations)

@@ -321,6 +321,11 @@ def test_load_stale_descendants_uses_canonical_parents_and_invalid_gate(
         "load_stale_descendant_parents",
         lambda _path: rows,
     )
+    monkeypatch.setattr(
+        stale_blocks,
+        "load_stale_descendant_observations",
+        lambda _path, *, parents_path: (),
+    )
 
     assert stale_blocks.load_stale_descendants(min_height=0) == [
         {
@@ -372,6 +377,11 @@ def test_stale_descendant_p2pkh_recipient_claims_reach_pool_tagging(
         "load_stale_descendant_parents",
         lambda _path: {(parent.height, parent.block_hash): parent},
     )
+    monkeypatch.setattr(
+        stale_blocks,
+        "load_stale_descendant_observations",
+        lambda _path, *, parents_path: (),
+    )
     monkeypatch.setattr(stale_merge, "BLOCKS_DIR", tmp_path)
 
     recipient = parse_coinbase_output_claims(raw_outputs)[0].recipient_hash160
@@ -391,3 +401,27 @@ def test_stale_descendant_p2pkh_recipient_claims_reach_pool_tagging(
     tagged = stale_merge.tag_stale_blocks(rows)
     assert tagged[0]["pool"] == "RecipientPool"
     assert tagged[0]["_pool_match"] == "address"
+
+
+@pytest.mark.parametrize("failure", ["missing", "malformed", "inconsistent"])
+def test_load_stale_descendants_requires_canonical_witness_ledger(
+    tmp_path, monkeypatch, failure
+) -> None:
+    observations = tmp_path / "stale_descendant_observations.csv"
+    canonical = stale_blocks.STALE_DESCENDANT_OBSERVATIONS_CSV
+    if failure != "missing":
+        with canonical.open(newline="") as source:
+            rows = list(csv.DictReader(source))
+            fields = list(rows[0])
+        if failure == "malformed":
+            fields.remove("chain")
+        else:
+            rows[0]["btc_header_hash"] = "00" * 32
+        with observations.open("w", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+    monkeypatch.setattr(stale_blocks, "STALE_DESCENDANT_OBSERVATIONS_CSV", observations)
+
+    with pytest.raises(ValueError, match="observation ledger|missing columns|absent"):
+        stale_blocks.load_stale_descendants(min_height=0)

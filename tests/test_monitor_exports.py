@@ -70,7 +70,62 @@ def _write_stale_descendant_module(
     observation = {**observation, "parent_row_number": "2"}
     _write_csv(data_dir / "stale_descendants.csv", [parent])
     _write_csv(data_dir / "stale_descendant_observations.csv", [observation])
+    _write_csv(
+        data_dir / "validated-stales" / "root_validated_stales.csv",
+        [
+            {
+                "btc_height": parent["root_stale_height"],
+                "btc_header_hash": parent["root_stale_hash"],
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "stale-blocks" / "stale-blocks.csv",
+        [
+            {
+                "height": parent["root_stale_height"],
+                "hash": parent["root_stale_hash"],
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "error-blocks" / "error_blocks.csv",
+        [
+            {
+                "height": "0",
+                "hash": "00" * 32,
+                "classification": "error_block",
+            }
+        ],
+    )
     return parent, observation
+
+
+def _write_two_witness_stale_descendant_module(
+    data_dir: Path,
+) -> tuple[dict[str, str], tuple[dict[str, str], dict[str, str]]]:
+    """Stage two distinct Ixcoin child events for one accepted parent."""
+    parent, first = _write_stale_descendant_module(data_dir, chain="ixcoin")
+    child_header_hex, child_hash = _child_header("44" * 32)
+    second = {
+        **first,
+        "child_height": str(int(first["child_height"]) + 1),
+        "child_block_hash": child_hash,
+        "child_block_hash_order": "internal",
+        "child_header_hex": child_header_hex,
+        "child_block_time": "1700000000",
+        "child_nbits": "1d00ffff",
+        "source_row_number": str(int(first["source_row_number"]) + 1),
+    }
+    parent = {**parent, "source_observation_count": "2"}
+    _write_csv(data_dir / "stale_descendants.csv", [parent])
+    _write_csv(
+        data_dir / "stale_descendant_observations.csv",
+        [first, second],
+    )
+    return parent, (first, second)
 
 
 @pytest.fixture(autouse=True)
@@ -846,6 +901,87 @@ def test_monitor_export_projects_ledger_witness_as_final_stale_descendant(
     )
 
 
+def test_monitor_export_preserves_multiple_witnesses_from_one_chain(
+    tmp_path: Path,
+) -> None:
+    from stale_blocks_analysis import monitor_publication
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    parent, observations = _write_two_witness_stale_descendant_module(data_dir)
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+    )
+
+    artifact = output_dir / "ixcoin_monitor_evidence.csv"
+    rows = _read_csv(artifact)
+    assert len(rows) == 2
+    assert {row["btc_header_hash"] for row in rows} == {parent["btc_header_hash"]}
+    assert {(row["child_height"], row["child_block_hash"]) for row in rows} == {
+        (observation["child_height"], observation["child_block_hash"])
+        for observation in observations
+    }
+
+    counts = monitor_publication._load_monitor_artifact_counts(
+        artifact,
+        "ixcoin",
+        data_dir=data_dir,
+        expected_artifact_scope="accepted_stale_descendant_observation",
+    )
+    assert counts["stale_descendant"] == 2
+
+
+@pytest.mark.parametrize(
+    ("classification", "expected_error"),
+    [
+        ("stale_descendant", "repeats the stale_descendant category"),
+        ("canonical", "appears in both stale_descendant and canonical"),
+    ],
+)
+def test_monitor_descendant_artifact_rejects_reused_child_event(
+    tmp_path: Path,
+    classification: str,
+    expected_error: str,
+) -> None:
+    from stale_blocks_analysis import monitor_publication
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    _write_two_witness_stale_descendant_module(data_dir)
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+    )
+    artifact = output_dir / "ixcoin_monitor_evidence.csv"
+    rows = _read_csv(artifact)
+    repeated = {
+        **rows[0],
+        "classification": classification,
+        "validation_status": (
+            "VALID_STALE_DESCENDANT" if classification == "stale_descendant" else ""
+        ),
+        "expected_nbits": (
+            rows[0]["expected_nbits"] if classification == "stale_descendant" else ""
+        ),
+        "relevance_reason": (
+            "valid_stale_descendant" if classification == "stale_descendant" else ""
+        ),
+    }
+    _write_csv(artifact, [rows[0], repeated])
+
+    with pytest.raises(ValueError, match=expected_error):
+        monitor_publication._load_monitor_artifact_counts(
+            artifact,
+            "ixcoin",
+            data_dir=data_dir,
+            expected_artifact_scope="accepted_stale_descendant_observation",
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -1067,11 +1203,11 @@ def test_canonical_companion_file_is_discovered_and_merged(tmp_path: Path) -> No
         data_dir / "validated-stales" / "namecoin_validated_stales.csv",
         [
             {
-                "btc_stale_height": "150000",
-                "btc_hash": stale_hash,
+                "btc_height": "150000",
+                "btc_header_hash": stale_hash,
                 "btc_prev_hash": "aa" * 32,
                 "btc_time": "1700000000",
-                "btc_bits_hex": "1d00ffff",
+                "btc_bits": "1d00ffff",
                 "coinbase_scriptsig_hex": "abcd",
                 "coinbase_outputs": "76a91400",
                 "btc_header_hex": stale_hex,
@@ -1515,7 +1651,7 @@ def test_monitor_export_reports_consensus_exclusions(
     monkeypatch.setattr(
         evidence_normalization,
         "load_consensus_invalid_stale_keys",
-        lambda: {(331735, excluded_hash)},
+        lambda *_args, **_kwargs: {(331735, excluded_hash)},
     )
 
     monitor_exports.build_monitor_evidence_exports(

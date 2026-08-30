@@ -31,10 +31,14 @@ from .config import (
     MIN_HEIGHT,
     RSK_CSV,
     STALE_CSV,
+    STALE_DESCENDANT_OBSERVATIONS_CSV,
     STALE_DESCENDANTS_CSV,
 )
 from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
-from .stale_descendants import load_stale_descendant_parents
+from .stale_descendants import (
+    load_stale_descendant_observations,
+    load_stale_descendant_parents,
+)
 
 # The per-chain *_CSV path constants below are referenced only indirectly, via
 # globals()[spec.csv_attr] at load time (see the LoaderSpec docstring), so a test
@@ -772,8 +776,14 @@ def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
     `classification == "stale_descendant"` and
     `validation_status == "VALID_STALE_DESCENDANT"` so downstream consumers get
     valid stale-fork continuation headers without weakening the one-hop stale
-    classifier semantics.
+    classifier semantics. The canonical observation loader is also run before
+    any parent is admitted, so a missing, malformed, or parent-inconsistent
+    witness ledger fails closed.
     """
+    load_stale_descendant_observations(
+        STALE_DESCENDANT_OBSERVATIONS_CSV,
+        parents_path=STALE_DESCENDANTS_CSV,
+    )
     rows = []
     for parent in load_stale_descendant_parents(STALE_DESCENDANTS_CSV).values():
         if parent.height < min_height:

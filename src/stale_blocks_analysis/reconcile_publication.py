@@ -27,6 +27,7 @@ from stale_blocks_analysis.config import (
     BIP34_HEIGHT,
     BIP34_VERSION_2_HEIGHT,
     CHAIN_SPECS,
+    DATA_DIR,
 )
 from stale_blocks_analysis.coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
@@ -287,12 +288,15 @@ def descendant_bip34_verdict(
 
 def load_publication_baseline(
     path: Path = PARENT_VERDICTS_CSV,
+    *,
+    data_dir: Path = DATA_DIR,
 ) -> PublicationBaseline:
     """Load the committed parent verdicts and canonical witness ledger."""
-    parents = load_stale_descendant_parents(path)
+    parents = load_stale_descendant_parents(path, data_dir=data_dir)
     observations = load_stale_descendant_observations(
         path.parent / "stale_descendant_observations.csv",
         parents_path=path,
+        data_dir=data_dir,
     )
     statuses: dict[str, str] = {}
     heights: dict[str, int] = {}

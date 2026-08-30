@@ -351,12 +351,16 @@ def _repository_input_files() -> list[Path]:
 
 
 def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
-    """SHA-256 over the repository files the export consumes."""
+    """SHA-256 over every repository file the export consumes.
+
+    Fixed publication inputs must remain present between the preflight guard
+    and provenance capture. Missing files therefore fail instead of silently
+    disappearing from the digest.
+    """
     h = hashlib.sha256()
     for f in files if files is not None else _repository_input_files():
-        if f.exists():
-            h.update(f.name.encode())
-            h.update(f.read_bytes())
+        h.update(f.name.encode())
+        h.update(f.read_bytes())
     return h.hexdigest()
 
 
@@ -484,6 +488,8 @@ def require_committed_inputs() -> None:
     ]
     if not STALE_DESCENDANTS_CSV.exists():
         missing.append(STALE_DESCENDANTS_CSV)
+    if not STALE_DESCENDANT_OBSERVATIONS_CSV.exists():
+        missing.append(STALE_DESCENDANT_OBSERVATIONS_CSV)
     if not missing:
         # Presence is not enough: a zero-byte or header-truncated CSV
         # yields no rows and is indistinguishable in the export from a

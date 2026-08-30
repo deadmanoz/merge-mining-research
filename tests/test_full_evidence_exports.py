@@ -997,34 +997,41 @@ def test_archive_full_inventory_applies_consensus_exclusion_overlay(
 def test_stale_descendant_parent_verdicts_get_own_artifact(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "out"
-    header_hex, header_hash = _header()
+    with (REPO / "data/stale_descendants.csv").open(newline="") as handle:
+        parent = next(
+            row for row in csv.DictReader(handle) if row["stale_fork_depth"] == "1"
+        )
     _write_csv(
         data_dir / "stale_descendants.csv",
+        [parent],
+    )
+    _write_csv(
+        data_dir / "validated-stales" / "root_validated_stales.csv",
         [
             {
-                "classification": "stale_descendant",
-                "ancestry_relation": "direct_stale_child",
-                "validation_status": "VALID_STALE_DESCENDANT",
-                "active_mainchain_status": "verified_not_active",
-                "active_mainchain_hash_at_height": "aa" * 32,
-                "root_active_mainchain_status": "verified_not_active",
-                "root_active_mainchain_hash_at_height": "cc" * 32,
-                "active_mainchain_verification_source": "bitcoin-core-rpc:test",
-                "btc_height": "800001",
-                "btc_header_hash": header_hash,
-                "btc_prev_hash": "11" * 32,
-                "btc_time": "1700000000",
-                "btc_bits": "1d00ffff",
-                "expected_nbits": "1d00ffff",
-                "coinbase_scriptsig_hex": "abcd",
-                "coinbase_outputs": "out",
-                "btc_header_hex": header_hex,
-                "observed_chains": "namecoin",
-                "source_observation_count": "1",
-                "root_stale_hash": "11" * 32,
-                "root_stale_height": "800000",
-                "stale_fork_depth": "1",
-                "path_hashes": f"{header_hash}>{'11' * 32}",
+                "btc_height": parent["root_stale_height"],
+                "btc_header_hash": parent["root_stale_hash"],
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "stale-blocks" / "stale-blocks.csv",
+        [
+            {
+                "height": parent["root_stale_height"],
+                "hash": parent["root_stale_hash"],
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "error-blocks" / "error_blocks.csv",
+        [
+            {
+                "height": "0",
+                "hash": "00" * 32,
+                "classification": "error_block",
             }
         ],
     )

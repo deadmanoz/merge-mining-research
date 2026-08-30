@@ -143,10 +143,14 @@ provenance:
   `validation_status=VALID_STALE_DESCENDANT`, authenticate the serialized
   parent header, require the persisted Bitcoin Core off-active verdicts, and
   reconcile the root height, fork depth, path endpoints, and serialized
-  predecessor links.
+  predecessor links. The terminal identity must also occur in the selected
+  data tree's accepted per-chain or pinned upstream direct-stale inputs after
+  the error-block exclusion.
 - `data/stale_descendant_observations.csv` contains 32 authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
-  SHA-256, and child identity bind each row to the recovered evidence.
+  SHA-256, and child identity bind each row to the recovered evidence. One
+  authenticated child event can witness exactly one Bitcoin parent, while
+  distinct child events from the same chain may witness the same parent.
 
 Reconciliation evaluates every authenticated candidate, begins only from the
 declared trusted-root set, and verifies the full predecessor path. A direct
@@ -154,8 +158,10 @@ stale root is accepted only when its predecessor is on Bitcoin's active main
 chain. A consensus-invalid full-proof-of-work candidate is classified as an
 error block before stale-descendant publication. `source_classification` in the
 witness ledger records the archive bucket for audit; it does not decide the
-parent verdict. The four ancestry-derived error blocks are reviewed members of
-the canonical `error_blocks.csv` and `error_block_observations.csv` module.
+parent verdict. Attribution requires this ledger and validates it against the
+parent table before admitting any descendant. The four ancestry-derived error
+blocks are reviewed members of the canonical `error_blocks.csv` and
+`error_block_observations.csv` module.
 Reconciliation treats their hashes as terminal error verdicts and fails closed
 if it finds any additional consensus-invalid candidate. Children and deeper
 descendants of a catalogued error terminal inherit that invalid verdict and go

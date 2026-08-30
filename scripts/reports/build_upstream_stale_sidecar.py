@@ -95,6 +95,8 @@ def iter_committed_inputs(data_dir: Path):
 
 def collect_candidates(
     data_dir: Path,
+    *,
+    upstream_path: Path | None = None,
 ) -> tuple[dict[tuple[int, str], str], dict[str, set[tuple[int, str]]], Counter[str]]:
     """Scan every committed input under ``data_dir`` for VALID sidecar candidates.
 
@@ -140,7 +142,11 @@ def collect_candidates(
     parents_path = data_dir / "stale_descendants.csv"
     if parents_path.exists():
         source = _display_path(parents_path)
-        for parent in load_stale_descendant_parents(parents_path).values():
+        for parent in load_stale_descendant_parents(
+            parents_path,
+            data_dir=data_dir,
+            upstream_path=upstream_path,
+        ).values():
             add_candidate(
                 (parent.height, parent.block_hash),
                 parent.row["btc_header_hex"],
@@ -164,7 +170,10 @@ def build(
     ``{committed_valid_candidates, upstream_known, sidecar_rows, warnings}``.
     """
     upstream = load_upstream_keys(upstream_path)
-    candidates, missing_header, warnings = collect_candidates(data_dir)
+    candidates, missing_header, warnings = collect_candidates(
+        data_dir,
+        upstream_path=upstream_path,
+    )
     for source, keys in missing_header.items():
         needed = [key for key in keys if key not in upstream and key not in candidates]
         if needed:

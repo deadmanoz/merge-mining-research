@@ -648,19 +648,26 @@ def iter_source_rows(
                 excluded_hashes,
             )
     if PARENT_VERDICTS_CSV.exists() and PARENT_VERDICTS_CSV.parent == data_dir:
-        yield from iter_stale_descendant_rows(PARENT_VERDICTS_CSV)
+        yield from iter_stale_descendant_rows(PARENT_VERDICTS_CSV, data_dir=data_dir)
     elif (data_dir / PARENT_VERDICTS_CSV.name).exists():
-        yield from iter_stale_descendant_rows(data_dir / PARENT_VERDICTS_CSV.name)
+        yield from iter_stale_descendant_rows(
+            data_dir / PARENT_VERDICTS_CSV.name,
+            data_dir=data_dir,
+        )
 
 
-def iter_stale_descendant_rows(path: Path) -> Iterable[SourceRow]:
+def iter_stale_descendant_rows(
+    path: Path,
+    *,
+    data_dir: Path = DATA_DIR,
+) -> Iterable[SourceRow]:
     """Yield a `SourceRow` for every accepted descendant parent verdict.
 
     The canonical loader authenticates the serialized Bitcoin header, Core
     off-active verdicts, exact accepted state, and duplicate identities before
     any parent reaches the relevance classifier.
     """
-    for parent in load_stale_descendant_parents(path).values():
+    for parent in load_stale_descendant_parents(path, data_dir=data_dir).values():
         row = parent.row
         yield SourceRow(
             chain=row["observed_chains"],

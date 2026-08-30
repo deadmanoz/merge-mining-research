@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Preserve multiple distinct authenticated child events from one chain when they
+witness the same accepted stale-descendant parent, while continuing to reject
+repeated events and contradictory final categories.
+
+Require the canonical stale-descendant witness ledger before attribution can
+admit any parent verdict, and fail provenance fingerprinting if an expected
+publication input disappears.
+
+Require every stored ancestry terminal to exist in the selected data tree's
+accepted per-chain or pinned upstream direct-stale inputs, excluding that
+tree's canonical error blocks. Reject an authenticated child event that is
+assigned to more than one Bitcoin parent.
+
 Preserve address-derived payout recipients through canonical coinbase-output
 reconciliation so legacy bare-address and `address:value` evidence still
 supports pool attribution. Match refined P2PK outputs by their recipient

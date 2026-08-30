@@ -17,7 +17,7 @@ from .auxpow_parse import (
     validate_child_header_fields,
 )
 from .bitcoin_binary import format_outputs_addr, parse_coinbase_tx, sha256d
-from .config import CHAIN_SPECS, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
+from .config import CHAIN_SPECS, DATA_DIR, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
 from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
 from .evidence_sources import (
     CHILD_HEIGHT_AUTHENTICATED,
@@ -623,6 +623,8 @@ def write_csv(
 
 def iter_source_rows(
     source: EvidenceSource,
+    *,
+    data_dir: Path = DATA_DIR,
 ) -> Iterable[tuple[dict[str, str], set[str]]]:
     """Yield ``(normalized_row, errors)`` for every row of a source CSV.
 
@@ -636,7 +638,10 @@ def iter_source_rows(
         # serialized fields with helpers from this module.
         from .stale_descendants import load_stale_descendant_parents
 
-        for parent in load_stale_descendant_parents(source.path).values():
+        for parent in load_stale_descendant_parents(
+            source.path,
+            data_dir=data_dir,
+        ).values():
             yield normalize_evidence_row(
                 source,
                 parent.row,
@@ -654,6 +659,7 @@ def iter_source_rows(
 def collect_source_rows(
     source: EvidenceSource,
     *,
+    data_dir: Path = DATA_DIR,
     exclude_classifications: frozenset[str] = frozenset(),
     error_blocks_path: Path | None = None,
     excluded_error_rows: list[dict[str, str]] | None = None,
@@ -697,7 +703,7 @@ def collect_source_rows(
         return source_sha256
 
     excluded_count = 0
-    for normalized, errors in iter_source_rows(source):
+    for normalized, errors in iter_source_rows(source, data_dir=data_dir):
         classification = normalized["classification"]
         try:
             key = (

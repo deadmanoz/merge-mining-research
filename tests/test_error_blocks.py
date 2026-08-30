@@ -430,10 +430,30 @@ def test_upstream_sidecar_descendants_use_canonical_parent_loader(
     parents_path = data_dir / "stale_descendants.csv"
     parents_path.write_bytes((REPO / "data/stale_descendants.csv").read_bytes())
     with parents_path.open(newline="") as handle:
-        expected = next(csv.DictReader(handle))
+        parent_rows = list(csv.DictReader(handle))
+    expected = parent_rows[0]
+    validated_dir = data_dir / "validated-stales"
+    validated_dir.mkdir()
+    (validated_dir / "roots_validated_stales.csv").write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+    )
+    trust_upstream = tmp_path / "external-upstream.csv"
+    trusted_roots = sorted(
+        {(row["root_stale_height"], row["root_stale_hash"]) for row in parent_rows}
+    )
+    trust_upstream.write_text(
+        "height,hash\n"
+        + "".join(f"{height},{block_hash}\n" for height, block_hash in trusted_roots)
+    )
+    trust_errors = data_dir / "error-blocks" / "error_blocks.csv"
+    trust_errors.parent.mkdir()
+    trust_errors.write_text(f"height,hash,classification\n0,{'00' * 32},error_block\n")
     monkeypatch.setattr(module, "load_stale_exclusion_keys", lambda: set())
 
-    candidates, missing, warnings = module.collect_candidates(data_dir)
+    candidates, missing, warnings = module.collect_candidates(
+        data_dir,
+        upstream_path=trust_upstream,
+    )
 
     assert (
         int(expected["btc_height"]),
@@ -441,6 +461,8 @@ def test_upstream_sidecar_descendants_use_canonical_parent_loader(
     ) in candidates
     assert missing == {}
     assert warnings == {}
+    stats = module.build(tmp_path / "sidecar.csv", data_dir, trust_upstream)
+    assert stats["committed_valid_candidates"] == len(parent_rows)
 
     with parents_path.open(newline="") as handle:
         reader = csv.DictReader(handle)
@@ -453,7 +475,7 @@ def test_upstream_sidecar_descendants_use_canonical_parent_loader(
         writer.writerows(rows)
 
     with pytest.raises(ValueError, match="parent verdict is not accepted"):
-        module.collect_candidates(data_dir)
+        module.collect_candidates(data_dir, upstream_path=trust_upstream)
 
 
 def test_unknown_ancestry_upstream_scan_applies_error_block_gate(

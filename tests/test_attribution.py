@@ -373,6 +373,8 @@ def test_unverifiable_archive_requires_opt_in(tmp_path, monkeypatch):
 
 
 def test_repository_inputs_fingerprint_tracks_content(tmp_path):
+    import pytest
+
     a = tmp_path / "loader.csv"
     b = tmp_path / "module.py"
     a.write_text("height,hash\n1,aa\n")
@@ -383,6 +385,9 @@ def test_repository_inputs_fingerprint_tracks_content(tmp_path):
 
     a.write_text("height,hash\n1,bb\n")
     assert attribution._repository_inputs_fingerprint([a, b]) != first
+
+    with pytest.raises(FileNotFoundError):
+        attribution._repository_inputs_fingerprint([a, tmp_path / "missing.csv"])
 
 
 def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
@@ -415,10 +420,18 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
         "classification,validation_status,btc_height,btc_header_hash,"
         "coinbase_scriptsig_hex,coinbase_outputs\n"
     )
+    observations = tmp_path / "stale_descendant_observations.csv"
+    observations.write_text("witness\n")
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
+    monkeypatch.setattr(attribution, "STALE_DESCENDANT_OBSERVATIONS_CSV", observations)
 
     attribution.require_committed_inputs()
+
+    observations.unlink()
+    with pytest.raises(FileNotFoundError, match="stale_descendant_observations.csv"):
+        attribution.require_committed_inputs()
+    observations.write_text("witness\n")
 
     # A deleted loader input is indistinguishable from an empty chain in
     # the export, so its absence stops the run instead.
@@ -558,8 +571,11 @@ def test_truncated_loader_input_stops_the_run(tmp_path, monkeypatch):
         "classification,validation_status,btc_height,btc_header_hash,"
         "coinbase_scriptsig_hex,coinbase_outputs\n"
     )
+    observations = tmp_path / "stale_descendant_observations.csv"
+    observations.write_text("witness\n")
     monkeypatch.setattr(attribution, "VALIDATED_STALES_DIR", staged)
     monkeypatch.setattr(attribution, "STALE_DESCENDANTS_CSV", descendants)
+    monkeypatch.setattr(attribution, "STALE_DESCENDANT_OBSERVATIONS_CSV", observations)
     attribution.require_committed_inputs()
 
     # Present but header-truncated: yields no rows, exactly like a chain

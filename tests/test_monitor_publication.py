@@ -130,6 +130,29 @@ def _write_unknown_source(path: Path, hashes: list[str]) -> None:
             )
 
 
+def _stage_trusted_root_inputs(
+    data_dir: Path,
+    parents: list[dict[str, str]],
+) -> None:
+    roots = sorted(
+        {(parent["root_stale_height"], parent["root_stale_hash"]) for parent in parents}
+    )
+    validated = data_dir / "validated-stales" / "roots_validated_stales.csv"
+    validated.parent.mkdir(parents=True, exist_ok=True)
+    validated.write_text(
+        "btc_height,btc_header_hash,classification,validation_status\n"
+    )
+    upstream = data_dir / "stale-blocks" / "stale-blocks.csv"
+    upstream.parent.mkdir(parents=True, exist_ok=True)
+    upstream.write_text(
+        "height,hash\n"
+        + "".join(f"{height},{block_hash}\n" for height, block_hash in roots)
+    )
+    errors = data_dir / "error-blocks" / "error_blocks.csv"
+    errors.parent.mkdir(parents=True, exist_ok=True)
+    errors.write_text(f"height,hash,classification\n0,{'00' * 32},error_block\n")
+
+
 def _write_relevance_identities(
     path: Path,
     source_path: Path,
@@ -280,6 +303,7 @@ def _copy_descendant_contract(tmp_path: Path) -> tuple[Path, Path, Path, str]:
             copied_observation = dict(row)
             copied_observation["parent_row_number"] = "2"
             writer.writerow(copied_observation)
+    _stage_trusted_root_inputs(data_dir, [parent])
 
     artifact = tmp_path / "namecoin_monitor_evidence.csv"
     row = {field: "" for field in MONITOR_EVIDENCE_FIELDS}
@@ -356,6 +380,8 @@ def test_allow_partial_is_an_explicit_diagnostic_escape_hatch(
         REPO / "data" / "stale_descendant_observations.csv",
         data_dir / "stale_descendant_observations.csv",
     )
+    with (data_dir / "stale_descendants.csv").open(newline="") as handle:
+        _stage_trusted_root_inputs(data_dir, list(csv.DictReader(handle)))
 
     module.main(
         [
@@ -616,7 +642,7 @@ def test_publication_preflight_allows_coherent_descendant_module_growth(
     monkeypatch.setattr(
         monitor_publication,
         "load_stale_descendant_parents",
-        lambda _path: {index: object() for index in range(22)},
+        lambda *_args, **_kwargs: {index: object() for index in range(22)},
     )
     monkeypatch.setattr(
         monitor_publication,
@@ -797,7 +823,9 @@ def test_publication_preflight_reports_invalid_relevance_inventory(
         monitor_publication, "discover_unknown_sources", lambda *_args: {}
     )
     monkeypatch.setattr(
-        monitor_publication, "load_stale_descendant_parents", lambda _path: {}
+        monitor_publication,
+        "load_stale_descendant_parents",
+        lambda *_args, **_kwargs: {},
     )
     monkeypatch.setattr(
         monitor_publication,
@@ -867,7 +895,9 @@ def test_publication_preflight_stops_on_consensus_invalid_error_module(
         monitor_publication, "discover_unknown_sources", lambda *_args: {}
     )
     monkeypatch.setattr(
-        monitor_publication, "load_stale_descendant_parents", lambda _path: {}
+        monitor_publication,
+        "load_stale_descendant_parents",
+        lambda *_args, **_kwargs: {},
     )
     monkeypatch.setattr(
         monitor_publication,

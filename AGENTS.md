@@ -261,12 +261,17 @@ Preserve these distinctions:
   declared trusted-root set, and verifies the complete predecessor path. The
   canonical parent loader requires the stored root height and fork depth to
   agree, authenticates both path endpoints, and checks every path edge against
-  the serialized predecessor header of its parent verdict. A
-  purported root is direct stale only when its predecessor is on Bitcoin's
-  active main chain. Consensus-invalid candidates route to `error_block` before
-  stale-descendant publication. A catalogued error block is an explicit invalid
-  ancestry terminal: every child or deeper descendant inherits that invalid
-  verdict and blocks publication through the ancestry diagnostic. Correct
+  the serialized predecessor header of its parent verdict. It also requires the
+  terminal identity to occur in the selected data tree's accepted per-chain or
+  pinned upstream direct-stale inputs, after that tree's canonical error-block
+  exclusion. A purported
+  root is direct stale only when its predecessor is on Bitcoin's active main
+  chain. The witness ledger additionally assigns each authenticated child event
+  to exactly one Bitcoin parent. Consensus-invalid candidates route to
+  `error_block` before stale-descendant publication. A catalogued error block is
+  an explicit invalid ancestry terminal: every child or deeper descendant
+  inherits that invalid verdict and blocks publication through the ancestry
+  diagnostic. Correct
   incomplete or low-work source evidence; admit only an authenticated full-PoW
   violation to the canonical error module. Never promote a row from its source
   bucket label alone.

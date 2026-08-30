@@ -354,10 +354,11 @@ def _stale_descendant_evidence_rows(
     """
     parents_path = data_dir / "stale_descendants.csv"
     observations_path = data_dir / "stale_descendant_observations.csv"
-    parents = load_stale_descendant_parents(parents_path)
+    parents = load_stale_descendant_parents(parents_path, data_dir=data_dir)
     observations = load_stale_descendant_observations(
         observations_path,
         parents_path=parents_path,
+        data_dir=data_dir,
     )
     by_chain: dict[str, list[dict[str, str]]] = defaultdict(list)
     for observation in observations:
@@ -673,12 +674,14 @@ def build_monitor_evidence_exports(
             # in source accounting but are omitted from monitor output.
             rows, stats = collect_source_rows(
                 source,
+                data_dir=data_dir,
                 exclude_classifications=frozenset({"stale"}),
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )
             validated_rows, validated_stats = collect_source_rows(
                 validated,
+                data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )
@@ -687,6 +690,7 @@ def build_monitor_evidence_exports(
         else:
             rows, stats = collect_source_rows(
                 source,
+                data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )
@@ -694,6 +698,7 @@ def build_monitor_evidence_exports(
             enforce_unknown_split_contract(source, stats, unknown_companion)
             unknown_rows, unknown_stats = collect_source_rows(
                 unknown_companion,
+                data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )
@@ -702,6 +707,7 @@ def build_monitor_evidence_exports(
         if companion is not None:
             companion_rows, companion_stats = collect_source_rows(
                 companion,
+                data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )

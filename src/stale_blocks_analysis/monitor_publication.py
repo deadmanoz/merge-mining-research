@@ -458,13 +458,19 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: {classification} row lacks a "
                         "nonnegative Bitcoin height"
                     )
-                stale_identity = (btc_height, parent_hash)
-                if stale_identity in stale_identities:
-                    raise ValueError(
-                        f"{path}:{row_number}: duplicate {classification} identity "
-                        f"{stale_identity!r}"
-                    )
-                stale_identities.add(stale_identity)
+                # Ordinary descendant artifacts are one row per authenticated
+                # child event; ``event_categories`` enforces that identity above.
+                if (
+                    classification == "stale"
+                    or chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
+                ):
+                    stale_identity = (btc_height, parent_hash)
+                    if stale_identity in stale_identities:
+                        raise ValueError(
+                            f"{path}:{row_number}: duplicate {classification} "
+                            f"identity {stale_identity!r}"
+                        )
+                    stale_identities.add(stale_identity)
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
                 and (
@@ -545,10 +551,14 @@ def _load_monitor_artifact_counts(
                     )
                 if descendant_observations is None:
                     parents_path = data_dir / "stale_descendants.csv"
-                    parent_rows = load_stale_descendant_parents(parents_path)
+                    parent_rows = load_stale_descendant_parents(
+                        parents_path,
+                        data_dir=data_dir,
+                    )
                     observation_rows = load_stale_descendant_observations(
                         data_dir / "stale_descendant_observations.csv",
                         parents_path=parents_path,
+                        data_dir=data_dir,
                     )
                     descendant_parents = set(parent_rows)
                     descendant_observations = {
@@ -1644,10 +1654,14 @@ def validate_publication_inputs(
 
     try:
         parents_path = args.data_dir / "stale_descendants.csv"
-        parents = load_stale_descendant_parents(parents_path)
+        parents = load_stale_descendant_parents(
+            parents_path,
+            data_dir=args.data_dir,
+        )
         load_stale_descendant_observations(
             args.data_dir / "stale_descendant_observations.csv",
             parents_path=parents_path,
+            data_dir=args.data_dir,
         )
     except (OSError, ValueError) as exc:
         parents = {}
