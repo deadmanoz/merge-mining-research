@@ -18,6 +18,8 @@ from .auxpow_parse import (
 )
 from .config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
+    BIP34_HEIGHT,
+    BIP34_VERSION_2_HEIGHT,
     CHAINS_BY_AUXPOW_ACTIVATION,
     CHAIN_SPECS,
     DATA_DIR,
@@ -34,6 +36,45 @@ from .evidence_normalization import (
 
 PARENTS_PATH = DATA_DIR / "stale_descendants.csv"
 OBSERVATIONS_PATH = DATA_DIR / "stale_descendant_observations.csv"
+
+# Exact column order of the canonical accepted-parent verdict interface.
+PARENT_VERDICT_FIELDS = [
+    "classification",
+    "ancestry_relation",
+    "validation_status",
+    "active_mainchain_status",
+    "active_mainchain_hash_at_height",
+    "root_active_mainchain_status",
+    "root_active_mainchain_hash_at_height",
+    "active_mainchain_verification_source",
+    "btc_height",
+    "btc_header_hash",
+    "btc_prev_hash",
+    "btc_time",
+    "btc_bits",
+    "expected_nbits",
+    "pow_valid",
+    "header_hash_match",
+    "bip34_height_status",
+    "observed_btc_heights",
+    "observed_btc_times",
+    "observed_btc_bits",
+    "root_stale_hash",
+    "root_stale_height",
+    "root_stale_sources",
+    "root_stale_chains",
+    "root_stale_btc_times",
+    "root_stale_bits",
+    "stale_fork_depth",
+    "path_hashes",
+    "path_chain_sets",
+    "observed_chains",
+    "source_observation_count",
+    "coinbase_scriptsig_hex",
+    "coinbase_outputs",
+    "btc_header_hex",
+    "notes",
+]
 
 OBSERVATION_FIELDS = (
     "btc_height",
@@ -129,6 +170,52 @@ def _exact_nonnegative_int(
             f"{path}:{row_number}: {field} must be an exact non-negative integer"
         )
     return int(value)
+
+
+def _validate_persisted_parent_verdict(
+    row: dict[str, str],
+    *,
+    height: int,
+    parsed_header: dict[str, str],
+    path: Path,
+    row_number: int,
+) -> None:
+    """Require the exact persisted gates of an accepted parent verdict.
+
+    The canonical loader authenticates the serialized header separately. It
+    does not rerun the classification-time consensus profile, so every gate
+    which made the persisted row publishable must still carry its exact
+    accepting verdict here.
+    """
+    expected_nbits = row["expected_nbits"]
+    if (
+        len(expected_nbits) != 8
+        or expected_nbits != expected_nbits.lower()
+        or any(char not in "0123456789abcdef" for char in expected_nbits)
+        or expected_nbits != parsed_header["bits"]
+    ):
+        raise ValueError(
+            f"{path}:{row_number}: accepted parent verdict has invalid expected_nbits"
+        )
+    for field in ("pow_valid", "header_hash_match"):
+        if row[field] != "true":
+            raise ValueError(
+                f"{path}:{row_number}: accepted parent verdict requires {field}=true"
+            )
+    header_version = int.from_bytes(
+        bytes.fromhex(row["btc_header_hex"])[:4], "little", signed=True
+    )
+    expected_bip34_status = (
+        "match"
+        if height >= BIP34_HEIGHT
+        or (height >= BIP34_VERSION_2_HEIGHT and header_version >= 2)
+        else "not_applicable"
+    )
+    if row["bip34_height_status"] != expected_bip34_status:
+        raise ValueError(
+            f"{path}:{row_number}: accepted parent verdict requires "
+            f"bip34_height_status={expected_bip34_status}"
+        )
 
 
 def _load_trusted_stale_root_keys(
@@ -243,33 +330,22 @@ def load_stale_descendant_parents(
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fields = reader.fieldnames or []
-        required = {
-            "active_mainchain_status",
-            "active_mainchain_hash_at_height",
-            "active_mainchain_verification_source",
-            "ancestry_relation",
-            "classification",
-            "root_active_mainchain_status",
-            "root_active_mainchain_hash_at_height",
-            "root_stale_hash",
-            "root_stale_height",
-            "stale_fork_depth",
-            "path_hashes",
-            "observed_chains",
-            "source_observation_count",
-            "validation_status",
-            "btc_height",
-            "btc_header_hash",
-            "btc_header_hex",
-        }
-        missing = required - set(fields)
+        missing = set(PARENT_VERDICT_FIELDS) - set(fields)
         if missing:
             raise ValueError(f"{path}: missing columns: {', '.join(sorted(missing))}")
-        if "source_rows" in fields or "unknown_rows" in fields:
+        if fields != PARENT_VERDICT_FIELDS:
             raise ValueError(
-                f"{path}: witness coordinates/counts belong in the observation ledger"
+                f"{path}: parent verdict header must exactly match the canonical schema"
             )
         for row_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise ValueError(
+                    f"{path}:{row_number}: parent verdict row has extra CSV values"
+                )
+            if any(value is None for value in row.values()):
+                raise ValueError(
+                    f"{path}:{row_number}: parent verdict row has missing CSV values"
+                )
             if row["classification"] != "stale_descendant" or (
                 row["validation_status"] != "VALID_STALE_DESCENDANT"
             ):
@@ -388,6 +464,13 @@ def load_stale_descendant_parents(
                 row,
                 context=f"{path}:{row_number}",
                 parsed=parsed,
+            )
+            _validate_persisted_parent_verdict(
+                row,
+                height=height,
+                parsed_header=parsed,
+                path=path,
+                row_number=row_number,
             )
             key = (height, block_hash)
             if key in parents:

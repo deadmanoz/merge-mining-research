@@ -26,6 +26,7 @@ from .coinbase_output_claims import (
 )
 from .evidence_hydration import (
     RSK_SIDECAR_EXPORT_FIELDS,
+    child_identity_candidates,
     load_child_identity,
 )
 from .full_evidence import (
@@ -418,18 +419,32 @@ def _attach_rsk_error_observation_sidecars(
         if row["chain"] != "rsk":
             continue
         parent_hash = normalize_hash(row["btc_header_hash"])
-        candidate = identity.get(("rsk", parent_hash))
         row_id = f"error-observation rsk {parent_hash}"
-        if candidate is None:
+        candidates = child_identity_candidates(identity, "rsk", parent_hash)
+        if not candidates:
             raise ValueError(f"{row_id}: missing child-identity")
         ledger_hash = normalize_hash(row.get("child_block_hash"))
-        identity_hash = normalize_hash(candidate.get("child_block_hash"))
-        if ledger_hash != identity_hash:
+        row_height = int_or_none(row.get("child_height"))
+        height_matches = tuple(
+            candidate
+            for candidate in candidates
+            if int_or_none(candidate.get("child_height")) == row_height
+        )
+        if not height_matches:
+            raise ValueError(f"{row_id}: child_height disagrees with child-identity")
+        event_matches = tuple(
+            candidate
+            for candidate in height_matches
+            if normalize_hash(candidate.get("child_block_hash")) == ledger_hash
+        )
+        if not event_matches:
             raise ValueError(
                 f"{row_id}: child_block_hash disagrees with child-identity"
             )
+        if len(event_matches) != 1:
+            raise ValueError(f"{row_id}: duplicate exact child-identity event")
+        candidate = event_matches[0]
         candidate_height = int_or_none(candidate.get("child_height"))
-        row_height = int_or_none(row.get("child_height"))
         if (
             candidate_height is None
             or row_height is None
@@ -642,15 +657,37 @@ def validate_error_observation_ledger(
             )
     child_identities = load_child_identity(catalogue_path.parent.parent)
     for (chain, child_height, parent_hash), witness in ledger.items():
-        identity = child_identities.get((chain, parent_hash))
-        if identity is None:
+        candidates = child_identity_candidates(child_identities, chain, parent_hash)
+        if not candidates:
             continue
-        expected_height = int_or_none(identity.get("child_height"))
-        if expected_height != child_height:
+        height_matches = tuple(
+            identity
+            for identity in candidates
+            if int_or_none(identity.get("child_height")) == child_height
+        )
+        if not height_matches:
             raise ValueError(
                 "error-observation ledger child_height disagrees with generic "
                 f"child identity for {chain}:{parent_hash}"
             )
+        witness_child_hash = normalize_hash(witness.get("child_block_hash"))
+        event_matches = tuple(
+            identity
+            for identity in height_matches
+            if normalize_hash(identity.get("child_block_hash")) == witness_child_hash
+        )
+        if not event_matches:
+            raise ValueError(
+                "error-observation ledger child_block_hash disagrees with generic "
+                f"child identity for {chain}:{parent_hash}"
+            )
+        if len(event_matches) != 1:
+            raise ValueError(
+                "error-observation ledger has duplicate exact generic child "
+                f"identity for {chain}:{parent_hash}:{child_height}:"
+                f"{witness_child_hash}"
+            )
+        identity = event_matches[0]
         for field in (
             "child_block_hash",
             "child_block_time",

@@ -74,7 +74,9 @@ class UnknownObservation:
     `outputs` are the coinbase scriptSig/outputs evidence, if present;
     `full_coinbase_hex` is the complete transaction when a source exposes it;
     `header_hex` is the raw 80-byte BTC header hex used to recompute the header
-    hash and self-PoW during descendant validation.
+    hash and self-PoW during descendant validation. `source_child_hash` retains
+    the source schema's exact event selector: internal/wire order for normalized
+    Bitcoin-family rows and forward order for RSK.
     """
 
     chain: str
@@ -93,6 +95,7 @@ class UnknownObservation:
     source_kind: str = ""
     source_classification: str = ""
     source_sha256: str = ""
+    source_child_hash: str = ""
 
 
 def sha256_file(path: Path) -> str:
@@ -784,6 +787,9 @@ def load_observations(
                         source_kind=source_kind,
                         source_classification=source_classification,
                         source_sha256=source_sha256,
+                        source_child_hash=normalize_hash(
+                            row.get("child_block_hash", "")
+                        ),
                     )
                     unknown_rows.append(obs)
                     unknown_row_counts_by_hash[block_hash] += 1

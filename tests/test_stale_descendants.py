@@ -8,6 +8,7 @@ import pytest
 
 from stale_blocks_analysis import stale_descendants
 from stale_blocks_analysis.stale_descendants import (
+    PARENT_VERDICT_FIELDS,
     load_stale_descendant_observations,
     load_stale_descendant_parents,
 )
@@ -48,6 +49,7 @@ def test_committed_stale_descendant_module_is_exact_and_correction_free() -> Non
     assert not (REPO / "data" / removed_overlay).exists()
     with PARENTS.open(newline="") as handle:
         fields = csv.DictReader(handle).fieldnames or []
+    assert fields == PARENT_VERDICT_FIELDS
     assert "source_rows" not in fields
     assert "unknown_rows" not in fields
 
@@ -114,6 +116,178 @@ def test_parent_verdict_derives_nonce_from_serialized_header(tmp_path: Path) -> 
     parents = load_stale_descendant_parents(parents_path)
 
     assert all(parent.row["btc_nonce"] for parent in parents.values())
+
+
+def test_parent_verdict_accepts_complete_persisted_gate_fields(tmp_path: Path) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+
+    parents = load_stale_descendant_parents(parents_path)
+
+    assert all(
+        parent.row["expected_nbits"] == parent.row["btc_bits"]
+        and parent.row["pow_valid"] == "true"
+        and parent.row["header_hash_match"] == "true"
+        and parent.row["bip34_height_status"]
+        == (
+            "match"
+            if parent.height >= stale_descendants.BIP34_HEIGHT
+            or (
+                parent.height >= stale_descendants.BIP34_VERSION_2_HEIGHT
+                and int.from_bytes(
+                    bytes.fromhex(parent.row["btc_header_hex"])[:4],
+                    "little",
+                    signed=True,
+                )
+                >= 2
+            )
+            else "not_applicable"
+        )
+        for parent in parents.values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value", "message"),
+    [
+        ("expected_nbits", "", "invalid expected_nbits"),
+        ("expected_nbits", "1d00ffff", "invalid expected_nbits"),
+        ("pow_valid", "", "requires pow_valid=true"),
+        ("pow_valid", "false", "requires pow_valid=true"),
+        ("header_hash_match", "", "requires header_hash_match=true"),
+        ("header_hash_match", "false", "requires header_hash_match=true"),
+        (
+            "bip34_height_status",
+            "",
+            "requires bip34_height_status=match",
+        ),
+        (
+            "bip34_height_status",
+            "mismatch",
+            "requires bip34_height_status=match",
+        ),
+        (
+            "bip34_height_status",
+            "not_applicable",
+            "requires bip34_height_status=match",
+        ),
+    ],
+)
+def test_parent_verdict_rejects_incomplete_or_contradictory_persisted_gate(
+    tmp_path: Path,
+    field: str,
+    wrong_value: str,
+    message: str,
+) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    _rewrite(
+        parents_path,
+        lambda rows: rows[0].__setitem__(field, wrong_value),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_stale_descendant_parents(parents_path)
+
+
+def test_pre_bip34_parent_requires_not_applicable_status(tmp_path: Path) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = next(
+            row
+            for row in rows
+            if int(row["btc_height"]) < stale_descendants.BIP34_VERSION_2_HEIGHT
+        )
+        row["bip34_height_status"] = "match"
+
+    _rewrite(parents_path, mutate)
+
+    with pytest.raises(ValueError, match="requires bip34_height_status=not_applicable"):
+        load_stale_descendant_parents(parents_path)
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_status"),
+    [(1, "not_applicable"), (2, "match")],
+)
+def test_transition_parent_bip34_status_depends_on_header_version(
+    version: int,
+    expected_status: str,
+    tmp_path: Path,
+) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    with parents_path.open(newline="") as handle:
+        row = next(csv.DictReader(handle))
+    header = bytearray.fromhex(row["btc_header_hex"])
+    header[:4] = version.to_bytes(4, "little", signed=True)
+    row["btc_header_hex"] = header.hex()
+    row["bip34_height_status"] = expected_status
+    parsed = stale_descendants.parse_header_fields(row["btc_header_hex"])
+
+    stale_descendants._validate_persisted_parent_verdict(
+        row,
+        height=stale_descendants.BIP34_VERSION_2_HEIGHT + 600,
+        parsed_header=parsed,
+        path=parents_path,
+        row_number=2,
+    )
+
+
+def test_parent_verdict_requires_the_canonical_persisted_schema(
+    tmp_path: Path,
+) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    with parents_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = [field for field in reader.fieldnames or () if field != "pow_valid"]
+        rows = list(reader)
+    for row in rows:
+        row.pop("pow_valid")
+    with parents_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="missing columns: pow_valid"):
+        load_stale_descendant_parents(parents_path)
+
+
+def test_parent_verdict_rejects_extra_persisted_schema_column(
+    tmp_path: Path,
+) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    with parents_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = [*(reader.fieldnames or ()), "compatibility_note"]
+        rows = list(reader)
+    for row in rows:
+        row["compatibility_note"] = ""
+    with parents_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="exactly match the canonical schema"):
+        load_stale_descendant_parents(parents_path)
+
+
+def test_parent_verdict_rejects_extra_persisted_row_value(tmp_path: Path) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    lines = parents_path.read_text().splitlines()
+    lines[1] += ",unexpected"
+    parents_path.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(ValueError, match="row has extra CSV values"):
+        load_stale_descendant_parents(parents_path)
+
+
+def test_parent_verdict_rejects_missing_persisted_row_value(tmp_path: Path) -> None:
+    parents_path, _observations = _copy_module(tmp_path)
+    lines = parents_path.read_text().splitlines()
+    lines[1] = lines[1].rsplit(",", 1)[0]
+    parents_path.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(ValueError, match="row has missing CSV values"):
+        load_stale_descendant_parents(parents_path)
 
 
 def test_parent_verdict_rejects_height_depth_disagreement(tmp_path: Path) -> None:

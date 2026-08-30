@@ -59,6 +59,42 @@ def test_duplicate_dataset_key_fails_offline_validation(tmp_path: Path) -> None:
     assert any("duplicate error-block key" in failure for failure in failures)
 
 
+def test_duplicate_mtp_context_key_fails_offline_validation(tmp_path: Path) -> None:
+    mod = _load_validator()
+    block_hash = "11" * 32
+    path = tmp_path / "mtp_context.csv"
+    path.write_text(
+        "height,hash,parent_median_time_past\n"
+        f"500000,{block_hash},1700000000\n"
+        f"500000,{block_hash},1700000001\n"
+    )
+
+    with pytest.raises(ValueError, match="duplicate MTP context key"):
+        mod._load_mtp_context(path)
+
+
+@pytest.mark.parametrize(
+    ("height", "block_hash"),
+    [
+        ("0500000", "11" * 32),
+        ("500000", "AB" * 32),
+    ],
+)
+def test_mtp_context_key_requires_canonical_encoding(
+    tmp_path: Path,
+    height: str,
+    block_hash: str,
+) -> None:
+    mod = _load_validator()
+    path = tmp_path / "mtp_context.csv"
+    path.write_text(
+        f"height,hash,parent_median_time_past\n{height},{block_hash},1700000000\n"
+    )
+
+    with pytest.raises(ValueError, match="invalid MTP context row"):
+        mod._load_mtp_context(path)
+
+
 def test_non_error_block_classification_fails_offline_validation(
     tmp_path: Path,
 ) -> None:

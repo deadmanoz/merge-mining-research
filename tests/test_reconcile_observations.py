@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from stale_blocks_analysis.ancestry_walk import classify_walks, path_for
+from stale_blocks_analysis.evidence_hydration import ChildIdentityIndex
 from stale_blocks_analysis.reconcile_observations import (
     discover_canonical_files,
     fetch_active_hashes_by_height,
@@ -24,6 +25,14 @@ ACTIVE_CANONICAL_DESCENDANTS = {
     "00000000000000000000e4ea8f1ba1f5f7fca1010240828855e82f85b34f03fd",
     "00000000000000000001d03528155cad45ff1f46611d732b2c62d6cd094e62c4",
 }
+
+
+def _identity_index(
+    chain: str, parent_hash: str, row: dict[str, str]
+) -> ChildIdentityIndex:
+    identity = ChildIdentityIndex()
+    identity.add((chain, parent_hash), row)
+    return identity
 
 
 def _write_inventory(path: Path, rows: list[dict[str, str]]) -> None:
@@ -69,6 +78,7 @@ def test_reconciliation_blanks_declared_scan_order_child_height(
                 "btc_header_hash": block_hash,
                 "btc_prev_hash": f"{2:064x}",
                 "child_height": "817176",
+                "child_block_hash": "aa" * 32,
                 "classification": "unknown",
             }
         ],
@@ -82,6 +92,7 @@ def test_reconciliation_blanks_declared_scan_order_child_height(
 
     [observation] = state["unknown_observations_by_hash"][block_hash]
     assert observation.child_height == ""
+    assert observation.source_child_hash == "aa" * 32
 
 
 @pytest.mark.parametrize("chain", ("namecoin", "coiledcoin", "i0coin"))
@@ -100,6 +111,7 @@ def test_split_unknown_scan_order_height_uses_authenticated_identity(
                 "btc_header_hash": block_hash,
                 "btc_prev_hash": f"{2:064x}",
                 "child_height": "817176",
+                "child_block_hash": "aa" * 32,
                 "classification": "unknown",
             }
         ],
@@ -119,16 +131,18 @@ def test_split_unknown_scan_order_height_uses_authenticated_identity(
 
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            (chain, block_hash): {
+        lambda _data_dir: _identity_index(
+            chain,
+            block_hash,
+            {
                 "child_height": "817177",
                 "child_block_hash": "aa" * 32,
                 "child_block_time": "1700000000",
                 "verification": "test-authenticated-identity",
                 "child_header_hex": "",
                 "child_nbits": "",
-            }
-        },
+            },
+        ),
     )
     parent = {"btc_height": "100", "btc_header_hash": block_hash}
 
@@ -161,6 +175,7 @@ def test_split_unknown_keeps_authenticated_height_for_other_chains(
                 "btc_header_hash": block_hash,
                 "btc_prev_hash": f"{2:064x}",
                 "child_height": "817176",
+                "child_block_hash": "aa" * 32,
                 "classification": "unknown",
             }
         ],
@@ -174,6 +189,7 @@ def test_split_unknown_keeps_authenticated_height_for_other_chains(
 
     [observation] = state["unknown_observations_by_hash"][block_hash]
     assert observation.child_height == "817176"
+    assert observation.source_child_hash == "aa" * 32
     assert observation.source_kind == "full_inventory"
 
 

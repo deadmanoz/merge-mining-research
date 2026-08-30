@@ -16,11 +16,21 @@ from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.evidence_hydration import (
     CHILD_IDENTITY_CORE_FIELDS,
+    ChildIdentityIndex,
+    child_identity_candidates,
     hydrate_child_identity,
     load_child_identity,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _identity_index(
+    chain: str, parent_hash: str, row: dict[str, str]
+) -> ChildIdentityIndex:
+    identity = ChildIdentityIndex()
+    identity.add((chain, parent_hash), row)
+    return identity
 
 
 def _identity_child_header(
@@ -64,10 +74,12 @@ def test_load_child_identity_returns_verified_unique_row(tmp_path: Path) -> None
         tmp_path / "child-identity" / "namecoin_child_identity.csv", [row]
     )
 
-    assert load_child_identity(tmp_path)[("namecoin", block_hash)] == row
+    assert child_identity_candidates(
+        load_child_identity(tmp_path), "namecoin", block_hash
+    ) == (row,)
 
 
-def test_load_child_identity_rejects_duplicate_parent_key(tmp_path: Path) -> None:
+def test_load_child_identity_rejects_duplicate_child_event(tmp_path: Path) -> None:
     block_hash = "11" * 32
     child_header = _identity_child_header(timestamp=3)
     row = {
@@ -85,8 +97,144 @@ def test_load_child_identity_rejects_duplicate_parent_key(tmp_path: Path) -> Non
         tmp_path / "child-identity" / "namecoin_child_identity.csv", [row, row]
     )
 
-    with pytest.raises(ValueError, match="duplicate child identity"):
+    with pytest.raises(ValueError, match="duplicate child identity event"):
         load_child_identity(tmp_path)
+
+
+def test_load_child_identity_rejects_child_event_parent_substitution(
+    tmp_path: Path,
+) -> None:
+    child_header = _identity_child_header(timestamp=3)
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": "11" * 32,
+        "child_height": "2",
+        "child_block_hash": hash_from_header_bytes(child_header).hex(),
+        "child_block_time": "3",
+        "verification": "auxpow_parent_match",
+        "note": "",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+    _write_child_identity_rows(
+        tmp_path / "child-identity" / "namecoin_child_identity.csv",
+        [row, {**row, "btc_header_hash": "22" * 32}],
+    )
+
+    with pytest.raises(ValueError, match="assigned to multiple Bitcoin parents"):
+        load_child_identity(tmp_path)
+
+
+def test_load_child_identity_preserves_distinct_events_for_parent(
+    tmp_path: Path,
+) -> None:
+    block_hash = "11" * 32
+    first_header = _identity_child_header(timestamp=3)
+    second_header = _identity_child_header(timestamp=4)
+    rows = [
+        {
+            "chain": "namecoin",
+            "btc_header_hash": block_hash,
+            "child_height": str(child_height),
+            "child_block_hash": hash_from_header_bytes(child_header).hex(),
+            "child_block_time": str(timestamp),
+            "verification": "auxpow_parent_match",
+            "note": "",
+            "child_header_hex": child_header.hex(),
+            "child_nbits": "1d00ffff",
+        }
+        for child_height, timestamp, child_header in (
+            (2, 3, first_header),
+            (3, 4, second_header),
+        )
+    ]
+    _write_child_identity_rows(
+        tmp_path / "child-identity" / "namecoin_child_identity.csv", rows
+    )
+
+    identities = load_child_identity(tmp_path)
+
+    assert child_identity_candidates(identities, "namecoin", block_hash) == tuple(rows)
+
+    source_row = {
+        "chain": "namecoin",
+        "btc_header_hash": block_hash,
+        "child_height": "3",
+        "child_block_hash": "",
+        "child_block_time": "",
+        "child_header_hex": "",
+        "child_nbits": "",
+        "classification": "stale",
+    }
+    stats = hydrate_child_identity([source_row], identities)
+    assert stats.hydrated == 1
+    assert source_row["child_block_hash"] == rows[1]["child_block_hash"]
+
+    ambiguous_source_row = {
+        **source_row,
+        "child_height": "",
+        "child_block_hash": "",
+        "child_block_time": "",
+        "child_header_hex": "",
+        "child_nbits": "",
+    }
+    with pytest.raises(ValueError, match="source row must identify the child event"):
+        hydrate_child_identity([ambiguous_source_row], identities)
+
+
+def test_hydrate_child_identity_rejects_single_candidate_hash_mismatch() -> None:
+    parent_hash = "11" * 32
+    source_row = {
+        "chain": "namecoin",
+        "btc_header_hash": parent_hash,
+        "child_height": "2",
+        "child_block_hash": "bb" * 32,
+        "child_block_time": "1700000001",
+        "child_header_hex": "",
+        "child_nbits": "",
+        "classification": "stale",
+    }
+    original = dict(source_row)
+
+    stats = hydrate_child_identity(
+        [source_row],
+        _identity_index(
+            "namecoin",
+            parent_hash,
+            {
+                "child_height": "2",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1700000000",
+            },
+        ),
+    )
+
+    assert stats.hydrated == 0
+    assert stats.height_mismatch == 1
+    assert source_row == original
+
+
+def test_load_child_identity_accepts_xaya_external_nbits(tmp_path: Path) -> None:
+    block_hash = "11" * 32
+    child_header = _identity_child_header(timestamp=3, nbits=0)
+    row = {
+        "chain": "xaya",
+        "btc_header_hash": block_hash,
+        "child_height": "2",
+        "child_block_hash": hash_from_header_bytes(child_header).hex(),
+        "child_block_time": "3",
+        "verification": "powdata+auxpow_parent_match",
+        "note": "",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+    _write_child_identity_rows(
+        tmp_path / "child-identity" / "xaya_child_identity.csv", [row]
+    )
+
+    assert child_identity_candidates(
+        load_child_identity(tmp_path), "xaya", block_hash
+    ) == (row,)
 
 
 def test_load_child_identity_rejects_header_bundle_contradiction(
@@ -131,15 +279,17 @@ def test_hydrate_child_identity_fills_complete_five_field_identity() -> None:
 
     stats = hydrate_child_identity(
         [row],
-        {
-            ("namecoin", parent_hash): {
+        _identity_index(
+            "namecoin",
+            parent_hash,
+            {
                 "child_height": "2",
                 "child_block_hash": child_hash,
                 "child_block_time": "1700000000",
                 "child_header_hex": child_header.hex(),
                 "child_nbits": "1d00ffff",
-            }
-        },
+            },
+        ),
     )
 
     assert stats.hydrated == 1
@@ -178,13 +328,15 @@ def test_hydrate_child_identity_preserves_authenticated_source_header() -> None:
 
     stats = hydrate_child_identity(
         [row],
-        {
-            ("namecoin", parent_hash): {
+        _identity_index(
+            "namecoin",
+            parent_hash,
+            {
                 "child_height": "2",
                 "child_block_hash": child_hash,
                 "child_block_time": "1700000000",
-            }
-        },
+            },
+        ),
     )
 
     assert stats.hydrated == 1
@@ -218,6 +370,7 @@ def test_child_identity_recovery_emits_header_and_nbits(
 ) -> None:
     mod = _load_script("recover_child_identity")
     child_header = _identity_child_header()
+    child_hash_internal = hash_from_header_bytes(child_header).hex()
     child_hash_display = hash_from_header_bytes(child_header)[::-1].hex()
     parent_hash = "33" * 32
 
@@ -227,8 +380,7 @@ def test_child_identity_recovery_emits_header_and_nbits(
 
         def call(self, method, params):
             if method == "getblockhash":
-                assert params == [2]
-                return child_hash_display
+                raise AssertionError("exact source hash must bypass height lookup")
             if method == "getblock":
                 assert params == [child_hash_display]
                 return {
@@ -247,7 +399,7 @@ def test_child_identity_recovery_emits_header_and_nbits(
     rows = mod.recover_auxpow_family(
         chain,
         "http://example.invalid",
-        [(parent_hash, 2)],
+        [(parent_hash, 2, child_hash_internal)],
         1,
     )
 
@@ -256,7 +408,7 @@ def test_child_identity_recovery_emits_header_and_nbits(
             "chain": chain,
             "btc_header_hash": parent_hash,
             "child_height": 2,
-            "child_block_hash": hash_from_header_bytes(child_header).hex(),
+            "child_block_hash": child_hash_internal,
             "child_header_hex": child_header.hex(),
             "child_block_time": 1_700_000_000,
             "child_nbits": "1d00ffff",
@@ -327,7 +479,113 @@ def test_child_identity_recovery_skips_optional_canonical_rows(tmp_path: Path) -
             }
         )
 
-    assert mod.load_targets(evidence) == [("22" * 32, 2)]
+    assert mod.load_targets(evidence) == [("22" * 32, 2, "")]
+
+
+def test_child_identity_recovery_preserves_same_height_exact_targets(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    evidence = tmp_path / "namecoin_monitor_evidence.csv"
+    with evidence.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "classification",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
+        )
+        writer.writeheader()
+        for child_hash in ("b" * 64, "a" * 64):
+            writer.writerow(
+                {
+                    "classification": "stale_descendant",
+                    "btc_header_hash": "11" * 32,
+                    "child_height": "2",
+                    "child_block_hash": child_hash,
+                }
+            )
+
+    assert mod.load_targets(evidence) == [
+        ("11" * 32, 2, "a" * 64),
+        ("11" * 32, 2, "b" * 64),
+    ]
+
+
+def test_child_identity_recovery_rejects_exact_duplicate_target(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    evidence = tmp_path / "namecoin_monitor_evidence.csv"
+    with evidence.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "classification",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {
+                    "classification": "stale_descendant",
+                    "btc_header_hash": "11" * 32,
+                    "child_height": "2",
+                    "child_block_hash": "aa" * 32,
+                },
+                {
+                    "classification": "unknown",
+                    "btc_header_hash": "11" * 32,
+                    "child_height": "2",
+                    "child_block_hash": "aa" * 32,
+                },
+            ]
+        )
+
+    with pytest.raises(SystemExit, match="duplicate child-identity target"):
+        mod.load_targets(evidence)
+
+
+def test_child_identity_recovery_rejects_unresolved_same_height_overlap(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    evidence = tmp_path / "namecoin_monitor_evidence.csv"
+    with evidence.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "classification",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {
+                    "classification": "stale_descendant",
+                    "btc_header_hash": "11" * 32,
+                    "child_height": "2",
+                    "child_block_hash": "",
+                },
+                {
+                    "classification": "unknown",
+                    "btc_header_hash": "11" * 32,
+                    "child_height": "2",
+                    "child_block_hash": "aa" * 32,
+                },
+            ]
+        )
+
+    with pytest.raises(SystemExit, match="do not all identify an exact child hash"):
+        mod.load_targets(evidence)
 
 
 def test_child_identity_recovery_refuses_empty_target_set(tmp_path: Path) -> None:
@@ -359,7 +617,12 @@ def test_error_observation_rsk_targets_merge_into_identity_work_list(
     with ledger.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["chain", "btc_header_hash", "child_height"],
+            fieldnames=[
+                "chain",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
         )
         writer.writeheader()
         writer.writerow(
@@ -369,33 +632,46 @@ def test_error_observation_rsk_targets_merge_into_identity_work_list(
                 "child_height": "1",
             }
         )
-        for height, digest in (
-            (789982, "aa"),
-            (793596, "bb"),
-            (793505, "cc"),
-            (804553, "dd"),
-            (5287383, "ee"),
+        for index, (height, digest) in enumerate(
+            (
+                (789982, "aa"),
+                (793596, "bb"),
+                (793505, "cc"),
+                (804553, "dd"),
+                (5287383, "ee"),
+            ),
+            start=1,
         ):
             writer.writerow(
                 {
                     "chain": "rsk",
                     "btc_header_hash": digest * 32,
                     "child_height": str(height),
+                    "child_block_hash": f"{index:064x}",
                 }
             )
 
     extra = mod.load_error_observation_rsk_targets(ledger)
     assert extra == [
-        ("aa" * 32, 789982),
-        ("cc" * 32, 793505),
-        ("bb" * 32, 793596),
-        ("dd" * 32, 804553),
-        ("ee" * 32, 5287383),
+        ("aa" * 32, 789982, f"{1:064x}"),
+        ("cc" * 32, 793505, f"{3:064x}"),
+        ("bb" * 32, 793596, f"{2:064x}"),
+        ("dd" * 32, 804553, f"{4:064x}"),
+        ("ee" * 32, 5287383, f"{5:064x}"),
     ]
-    merged = mod.merge_identity_targets([("22" * 32, 2)], extra)
-    assert ("aa" * 32, 789982) in merged
-    assert ("22" * 32, 2) in merged
+    merged = mod.merge_identity_targets([("22" * 32, 2, "")], extra)
+    assert ("aa" * 32, 789982, f"{1:064x}") in merged
+    assert ("22" * 32, 2, "") in merged
     assert len(merged) == 6
+
+    same_parent = mod.merge_identity_targets(
+        [("22" * 32, 3, ""), ("22" * 32, 2, "")],
+        [],
+    )
+    assert same_parent == [("22" * 32, 2, ""), ("22" * 32, 3, "")]
+
+    with pytest.raises(SystemExit, match="duplicate child-identity target"):
+        mod.merge_identity_targets([("22" * 32, 2, "")], [("22" * 32, 2, "")])
 
 
 def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(
@@ -410,7 +686,12 @@ def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(
     with empty.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["chain", "btc_header_hash", "child_height"],
+            fieldnames=[
+                "chain",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
         )
         writer.writeheader()
         writer.writerow(
@@ -424,7 +705,7 @@ def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(
         mod.load_error_observation_rsk_targets(empty)
 
 
-def test_error_observation_rsk_targets_refuse_height_disagreement(
+def test_error_observation_rsk_targets_preserve_same_parent_distinct_events(
     tmp_path: Path,
 ) -> None:
     mod = _load_script("recover_child_identity")
@@ -432,7 +713,12 @@ def test_error_observation_rsk_targets_refuse_height_disagreement(
     with ledger.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["chain", "btc_header_hash", "child_height"],
+            fieldnames=[
+                "chain",
+                "btc_header_hash",
+                "child_height",
+                "child_block_hash",
+            ],
         )
         writer.writeheader()
         writer.writerow(
@@ -440,18 +726,129 @@ def test_error_observation_rsk_targets_refuse_height_disagreement(
                 "chain": "rsk",
                 "btc_header_hash": "aa" * 32,
                 "child_height": "1",
+                "child_block_hash": "11" * 32,
             }
         )
         writer.writerow(
             {
                 "chain": "rsk",
                 "btc_header_hash": "aa" * 32,
-                "child_height": "2",
+                "child_height": "1",
+                "child_block_hash": "22" * 32,
             }
         )
 
-    with pytest.raises(SystemExit, match="maps to child height"):
-        mod.load_error_observation_rsk_targets(ledger)
+    assert mod.load_error_observation_rsk_targets(ledger) == [
+        ("aa" * 32, 1, "11" * 32),
+        ("aa" * 32, 1, "22" * 32),
+    ]
+
+
+def test_rsk_metadata_preserves_same_parent_distinct_child_events(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    metadata_path = tmp_path / "rsk_stale_blocks.csv"
+    with metadata_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "btc_header_hash",
+                "rsk_height",
+                "child_block_hash",
+                "rsk_timestamp",
+                "rsk_miner",
+                "merge_mining_hash",
+                "is_uncle",
+                "uncle_index",
+                "uncle_parent_height",
+            ],
+        )
+        writer.writeheader()
+        for child_hash in ("11" * 32, "22" * 32):
+            writer.writerow(
+                {
+                    "btc_header_hash": "aa" * 32,
+                    "rsk_height": "2",
+                    "child_block_hash": child_hash,
+                    "rsk_timestamp": "1700000002",
+                    "rsk_miner": "bb" * 20,
+                    "merge_mining_hash": "cc" * 32,
+                    "is_uncle": "0",
+                    "uncle_index": "",
+                    "uncle_parent_height": "",
+                }
+            )
+
+    metadata = mod.load_rsk_metadata([metadata_path])
+
+    assert set(metadata) == {
+        ("aa" * 32, 2),
+    }
+    assert [row["child_block_hash"] for row in metadata[("aa" * 32, 2)]] == [
+        "11" * 32,
+        "22" * 32,
+    ]
+
+
+def test_child_identity_writer_preserves_and_orders_distinct_parent_events(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    data_dir = tmp_path / "data"
+    output_dir = data_dir / "child-identity"
+    rows = [
+        {
+            "chain": "namecoin",
+            "btc_header_hash": "11" * 32,
+            "child_height": height,
+            "child_block_hash": child_hash * 64,
+            "child_block_time": 1_700_000_000 + height,
+            "verification": "auxpow_parent_match",
+        }
+        for height, child_hash in ((3, "b"), (2, "a"))
+    ]
+
+    output = mod.write_rows(output_dir, "namecoin", rows, complete=True)
+
+    with output.open(newline="") as handle:
+        persisted = list(csv.DictReader(handle))
+    assert [row["child_height"] for row in persisted] == ["2", "3"]
+    identities = load_child_identity(data_dir)
+    assert [
+        row["child_block_hash"]
+        for row in child_identity_candidates(identities, "namecoin", "11" * 32)
+    ] == ["a" * 64, "b" * 64]
+
+
+@pytest.mark.parametrize(
+    ("second_parent", "message"),
+    [
+        ("11", "duplicate exact child event"),
+        ("22", "assigned to multiple Bitcoin parents"),
+    ],
+)
+def test_child_identity_writer_rejects_duplicate_or_reused_child_event(
+    tmp_path: Path,
+    second_parent: str,
+    message: str,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    rows = [
+        {
+            "chain": "namecoin",
+            "btc_header_hash": parent * 32,
+            "child_height": 2,
+            "child_block_hash": "aa" * 32,
+            "child_block_time": 1_700_000_002,
+            "verification": "auxpow_parent_match",
+        }
+        for parent in ("11", second_parent)
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        mod.write_rows(tmp_path, "namecoin", rows, complete=True)
+    assert not (tmp_path / "namecoin_child_identity.csv").exists()
 
 
 def test_recover_rsk_uses_canonical_block_when_metadata_is_absent(
@@ -482,11 +879,30 @@ def test_recover_rsk_uses_canonical_block_when_metadata_is_absent(
             return block
 
     monkeypatch.setattr(mod, "RpcClient", FakeRpc)
-    rows = mod.recover_rsk("rsk", "http://example.invalid", [(btc_hash, height)], 1, {})
+    rows = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, {}
+    )
     assert rows[0]["verification"] == "merged_mining_header_match"
     assert rows[0]["is_uncle"] == "0"
     assert rows[0]["child_block_hash"] == "10" * 32
     assert rows[0]["rsk_miner"] == "07" * 20
+
+    class ExactHashRpc(FakeRpc):
+        def call(self, method, params):
+            assert method == "eth_getBlockByHash"
+            assert params == ["0x" + "10" * 32, False]
+            return block
+
+    monkeypatch.setattr(mod, "RpcClient", ExactHashRpc)
+    exact = mod.recover_rsk(
+        "rsk",
+        "http://example.invalid",
+        [(btc_hash, height, "10" * 32)],
+        1,
+        {},
+    )
+    assert exact[0]["verification"] == "merged_mining_header_match"
+    assert exact[0]["child_block_hash"] == "10" * 32
 
     mismatch = dict(block)
     mismatch["bitcoinMergedMiningHeader"] = "0x" + "11" * 80
@@ -497,10 +913,205 @@ def test_recover_rsk_uses_canonical_block_when_metadata_is_absent(
 
     monkeypatch.setattr(mod, "RpcClient", MismatchRpc)
     failed = mod.recover_rsk(
-        "rsk", "http://example.invalid", [(btc_hash, height)], 1, {}
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, {}
     )
     assert not failed[0].get("verification")
     assert failed[0]["note"].startswith("parent_mismatch:")
+
+
+def test_recover_rsk_uses_exact_metadata_hash_for_height_only_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    header = "00" * 80
+    btc_hash = mod.display_hash(mod.sha256d(bytes.fromhex(header)))
+    height = 793505
+    exact_hash = "10" * 32
+    returned_hash = {"value": exact_hash}
+
+    class FakeRpc:
+        def __init__(self, url, jsonrpc="2.0"):
+            self.url = url
+
+        def call(self, method, params):
+            assert method == "eth_getBlockByHash"
+            assert params == ["0x" + exact_hash, False]
+            return {
+                "bitcoinMergedMiningHeader": "0x" + header,
+                "number": hex(height),
+                "timestamp": hex(1_538_453_154),
+                "miner": "0x" + "07" * 20,
+                "hashForMergedMining": "0x" + "63" * 32,
+                "hash": "0x" + returned_hash["value"],
+                "bitcoinMergedMiningMerkleProof": "0x04",
+                "bitcoinMergedMiningCoinbaseTransaction": "0x05",
+            }
+
+    metadata = {
+        (btc_hash, height): (
+            {
+                "rsk_height": str(height),
+                "child_block_hash": exact_hash,
+                "rsk_timestamp": "",
+                "rsk_miner": "",
+                "merge_mining_hash": "",
+                "is_uncle": "0",
+                "uncle_index": "",
+                "uncle_parent_height": "",
+            },
+        )
+    }
+    monkeypatch.setattr(mod, "RpcClient", FakeRpc)
+
+    recovered = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, metadata
+    )
+    assert recovered[0]["verification"] == "merged_mining_header_match"
+    assert recovered[0]["child_block_hash"] == exact_hash
+
+    returned_hash["value"] = "20" * 32
+    mismatch = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, metadata
+    )
+    assert not mismatch[0].get("verification")
+    assert mismatch[0]["note"] == f"child_hash_disagrees:{'20' * 32}"
+
+
+def test_recover_rsk_exact_metadata_uncle_uses_placement_and_validates_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    header = "00" * 80
+    btc_hash = mod.display_hash(mod.sha256d(bytes.fromhex(header)))
+    height = 793505
+    exact_hash = "10" * 32
+    including_height = height + 1
+    returned_hash = {"value": exact_hash}
+
+    class FakeRpc:
+        def __init__(self, url, jsonrpc="2.0"):
+            self.url = url
+
+        def call(self, method, params):
+            assert method == "eth_getUncleByBlockNumberAndIndex"
+            assert params == [hex(including_height), "0x0"]
+            return {
+                "bitcoinMergedMiningHeader": "0x" + header,
+                "number": hex(height),
+                "timestamp": hex(1_538_453_154),
+                "miner": "0x" + "07" * 20,
+                "hashForMergedMining": "0x" + "63" * 32,
+                "hash": "0x" + returned_hash["value"],
+                "bitcoinMergedMiningMerkleProof": "0x04",
+                "bitcoinMergedMiningCoinbaseTransaction": "0x05",
+            }
+
+    metadata = {
+        (btc_hash, height): (
+            {
+                "rsk_height": str(height),
+                "child_block_hash": exact_hash,
+                "rsk_timestamp": "",
+                "rsk_miner": "",
+                "merge_mining_hash": "",
+                "is_uncle": "1",
+                "uncle_index": "0",
+                "uncle_parent_height": str(including_height),
+            },
+        )
+    }
+    monkeypatch.setattr(mod, "RpcClient", FakeRpc)
+
+    recovered = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, metadata
+    )
+    assert recovered[0]["verification"] == "merged_mining_header_match"
+    assert recovered[0]["child_block_hash"] == exact_hash
+    assert recovered[0]["is_uncle"] == "1"
+
+    returned_hash["value"] = "20" * 32
+    mismatch = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, metadata
+    )
+    assert mismatch[0]["note"] == f"child_hash_disagrees:{'20' * 32}"
+
+
+def test_recover_rsk_uses_exact_hash_to_disambiguate_classified_placements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    header = "00" * 80
+    btc_hash = mod.display_hash(mod.sha256d(bytes.fromhex(header)))
+    height = 793505
+    exact_hash = "10" * 32
+
+    def block(child_hash: str) -> dict[str, str]:
+        return {
+            "bitcoinMergedMiningHeader": "0x" + header,
+            "number": hex(height),
+            "timestamp": hex(1_538_453_154),
+            "miner": "0x" + "07" * 20,
+            "hashForMergedMining": "0x" + "63" * 32,
+            "hash": "0x" + child_hash,
+            "bitcoinMergedMiningMerkleProof": "0x04",
+            "bitcoinMergedMiningCoinbaseTransaction": "0x05",
+        }
+
+    class FakeRpc:
+        def __init__(self, url, jsonrpc="2.0"):
+            self.url = url
+
+        def call(self, method, params):
+            if method == "eth_getUncleByBlockNumberAndIndex":
+                assert params == [hex(height + 1), "0x0"]
+                return block("20" * 32)
+            assert method == "eth_getBlockByHash"
+            assert params == ["0x" + exact_hash, False]
+            return block(exact_hash)
+
+    generic = {
+        "rsk_height": str(height),
+        "child_block_hash": "",
+        "rsk_timestamp": "",
+        "rsk_miner": "",
+        "merge_mining_hash": "",
+        "is_uncle": "0",
+        "uncle_index": "",
+        "uncle_parent_height": "",
+    }
+    metadata = {
+        (btc_hash, height): (
+            {
+                **generic,
+                "is_uncle": "1",
+                "uncle_index": "0",
+                "uncle_parent_height": str(height + 1),
+            },
+            generic,
+        )
+    }
+    monkeypatch.setattr(mod, "RpcClient", FakeRpc)
+
+    recovered = mod.recover_rsk(
+        "rsk",
+        "http://example.invalid",
+        [(btc_hash, height, exact_hash)],
+        1,
+        metadata,
+    )
+
+    assert recovered[0]["verification"] == "merged_mining_header_match"
+    assert recovered[0]["child_block_hash"] == exact_hash
+
+    class NoRpcExpected(FakeRpc):
+        def call(self, method, params):
+            raise AssertionError("ambiguous height-only target must fail before RPC")
+
+    monkeypatch.setattr(mod, "RpcClient", NoRpcExpected)
+    ambiguous = mod.recover_rsk(
+        "rsk", "http://example.invalid", [(btc_hash, height, "")], 1, metadata
+    )
+    assert ambiguous[0]["note"] == "metadata_error:ambiguous_child_event"
 
 
 @pytest.mark.parametrize(

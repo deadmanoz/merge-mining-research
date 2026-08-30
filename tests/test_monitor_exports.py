@@ -1921,7 +1921,6 @@ def test_monitor_export_hydrates_child_identity_and_rsk_sidecar_columns(
                 "btc_header_hash": nmc_hash,
                 "btc_header_hex": nmc_hex,
                 "nmc_height": "300",
-                "child_block_hash": "ee" * 32,
                 "classification": "stale",
                 "validation_status": "VALID",
                 "expected_nbits": "1d00ffff",

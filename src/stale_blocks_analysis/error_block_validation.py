@@ -180,13 +180,28 @@ def _load_mtp_context(
     with path.open(newline="") as f:
         for row_number, row in enumerate(csv.DictReader(f), start=2):
             try:
-                out[(int(row["height"]), row["hash"])] = int(
-                    row["parent_median_time_past"]
-                )
+                raw_height = row["height"]
+                height = int(raw_height)
+                block_hash = row["hash"]
+                if (
+                    height < 0
+                    or str(height) != raw_height
+                    or len(block_hash) != 64
+                    or block_hash != block_hash.lower()
+                    or any(char not in "0123456789abcdef" for char in block_hash)
+                ):
+                    raise ValueError("non-canonical MTP context key")
+                key = (height, block_hash)
+                parent_mtp = int(row["parent_median_time_past"])
             except (KeyError, ValueError) as exc:
                 raise ValueError(
                     f"invalid MTP context row {row_number} in {path}"
                 ) from exc
+            if key in out:
+                raise ValueError(
+                    f"duplicate MTP context key {key!r} at row {row_number} in {path}"
+                )
+            out[key] = parent_mtp
     return out
 
 

@@ -14,6 +14,10 @@ from types import SimpleNamespace
 import pytest
 
 from stale_blocks_analysis.ancestry_walk import WalkResult
+from stale_blocks_analysis.evidence_hydration import (
+    CHILD_IDENTITY_CORE_FIELDS,
+    ChildIdentityIndex,
+)
 from stale_blocks_analysis.reconcile_observations import (
     StaleObservation,
     UnknownObservation,
@@ -50,6 +54,15 @@ PROTECTED_OUTPUT_TARGETS = (
     REPO / "results" / "monitor-evidence" / "monitor-evidence-counts.csv",
     REPO / "results" / "child-header-coverage.csv",
 )
+
+
+def _identity_index(
+    rows: dict[tuple[str, str], dict[str, str]],
+) -> ChildIdentityIndex:
+    identity = ChildIdentityIndex()
+    for key, row in rows.items():
+        identity.add(key, row)
+    return identity
 
 
 def _load_module():
@@ -167,16 +180,18 @@ def _render_single_candidate(
     )
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", block_hash): {
-                "child_height": "817177",
-                "child_block_hash": "aa" * 32,
-                "child_block_time": "1774280993",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", block_hash): {
+                    "child_height": "817177",
+                    "child_block_hash": "aa" * 32,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
             }
-        },
+        ),
     )
     parent_verdicts = tmp_path / "staged" / "stale_descendants.csv"
     observations = tmp_path / "staged" / "stale_descendant_observations.csv"
@@ -247,16 +262,18 @@ def test_descendant_ledger_uses_identity_height_when_source_height_is_untrusted(
     child_hash = "aa" * 32
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", BASELINE_HASH): {
-                "child_height": "817177",
-                "child_block_hash": child_hash,
-                "child_block_time": "1774280993",
-                "verification": "child-node-rpc+source-row-auxpow-parent-match",
-                "child_header_hex": "",
-                "child_nbits": "",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": child_hash,
+                    "child_block_time": "1774280993",
+                    "verification": "child-node-rpc+source-row-auxpow-parent-match",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
             }
-        },
+        ),
     )
     parent = {"btc_height": "941882", "btc_header_hash": BASELINE_HASH}
     observation = UnknownObservation(
@@ -298,16 +315,18 @@ def test_descendant_ledger_rejects_trusted_source_height_disagreement(
 ) -> None:
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", BASELINE_HASH): {
-                "child_height": "817177",
-                "child_block_hash": "aa" * 32,
-                "child_block_time": "1774280993",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": "aa" * 32,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
             }
-        },
+        ),
     )
     observation = UnknownObservation(
         chain="namecoin",
@@ -343,16 +362,18 @@ def test_descendant_ledger_collapses_compatible_authenticated_event_copies(
     child_hash = "aa" * 32
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", BASELINE_HASH): {
-                "child_height": "817177",
-                "child_block_hash": child_hash,
-                "child_block_time": "1774280993",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": child_hash,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
             }
-        },
+        ),
     )
     common = {
         "chain": "namecoin",
@@ -413,16 +434,18 @@ def test_descendant_ledger_rejects_conflicting_authenticated_event_copies(
 ) -> None:
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", BASELINE_HASH): {
-                "child_height": "817177",
-                "child_block_hash": "aa" * 32,
-                "child_block_time": "1774280993",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": "aa" * 32,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
             }
-        },
+        ),
     )
     common = {
         "chain": "namecoin",
@@ -473,24 +496,26 @@ def test_descendant_ledger_keeps_distinct_authenticated_child_events(
 ) -> None:
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.load_child_identity",
-        lambda _data_dir: {
-            ("namecoin", BASELINE_HASH): {
-                "child_height": "817177",
-                "child_block_hash": "aa" * 32,
-                "child_block_time": "1774280993",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
-            },
-            ("syscoin", BASELINE_HASH): {
-                "child_height": "2272433",
-                "child_block_hash": "bb" * 32,
-                "child_block_time": "1774281093",
-                "verification": "test",
-                "child_header_hex": "",
-                "child_nbits": "",
-            },
-        },
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": "aa" * 32,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                },
+                ("syscoin", BASELINE_HASH): {
+                    "child_height": "2272433",
+                    "child_block_hash": "bb" * 32,
+                    "child_block_time": "1774281093",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                },
+            }
+        ),
     )
     common = {
         "block_hash": BASELINE_HASH,
@@ -537,6 +562,194 @@ def test_descendant_ledger_keeps_distinct_authenticated_child_events(
     ]
     assert parent["observed_chains"] == "namecoin|syscoin"
     assert parent["source_observation_count"] == 2
+
+
+def test_descendant_ledger_keeps_distinct_same_height_child_events(
+    tmp_path: Path,
+) -> None:
+    identity_path = tmp_path / "child-identity" / "namecoin_child_identity.csv"
+    identity_path.parent.mkdir(parents=True)
+    with identity_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=CHILD_IDENTITY_CORE_FIELDS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {
+                    "chain": "namecoin",
+                    "btc_header_hash": BASELINE_HASH,
+                    "child_height": str(child_height),
+                    "child_block_hash": child_hash * 64,
+                    "child_block_time": str(child_time),
+                    "verification": "test",
+                    "note": "",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
+                for child_height, child_hash, child_time in (
+                    (817177, "a", 1774280993),
+                    (817177, "b", 1774281093),
+                )
+            ]
+        )
+    common = {
+        "chain": "namecoin",
+        "block_hash": BASELINE_HASH,
+        "prev_hash": "22" * 32,
+        "btc_height": "941882",
+        "btc_time": "1774281079",
+        "bits": "17021a91",
+        "scriptsig_hex": "03aabb",
+        "outputs": "",
+        "header_hex": "00" * 80,
+        "source_kind": "full_inventory",
+        "source_classification": "unknown",
+    }
+    observations = [
+        UnknownObservation(
+            **common,
+            source_path=f"data/namecoin-{source_hash}.csv",
+            row_number=2,
+            child_height=str(child_height),
+            source_child_hash=child_hash * 64,
+            source_sha256=source_hash * 64,
+        )
+        for child_height, child_hash, source_hash in (
+            (817177, "a", "c"),
+            (817177, "b", "d"),
+        )
+    ]
+    parent = {"btc_height": "941882", "btc_header_hash": BASELINE_HASH}
+
+    rows = build_descendant_observation_rows(
+        [parent],
+        {BASELINE_HASH: observations},
+        data_dir=tmp_path,
+        parser=argparse.ArgumentParser(),
+    )
+
+    assert [
+        (row["chain"], row["child_height"], row["child_block_hash"]) for row in rows
+    ] == [
+        ("namecoin", "817177", "a" * 64),
+        ("namecoin", "817177", "b" * 64),
+    ]
+    assert parent["observed_chains"] == "namecoin"
+    assert parent["source_observation_count"] == 2
+
+
+def test_descendant_ledger_rejects_ambiguous_same_height_child_event(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    identity_path = tmp_path / "child-identity" / "namecoin_child_identity.csv"
+    identity_path.parent.mkdir(parents=True)
+    with identity_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=CHILD_IDENTITY_CORE_FIELDS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {
+                    "chain": "namecoin",
+                    "btc_header_hash": BASELINE_HASH,
+                    "child_height": str(child_height),
+                    "child_block_hash": child_hash * 64,
+                    "child_block_time": str(child_time),
+                    "verification": "test",
+                    "note": "",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
+                for child_height, child_hash, child_time in (
+                    (817177, "a", 1774280993),
+                    (817177, "b", 1774281093),
+                )
+            ]
+        )
+    observation = UnknownObservation(
+        chain="namecoin",
+        source_path="data/namecoin.csv",
+        row_number=2,
+        block_hash=BASELINE_HASH,
+        prev_hash="22" * 32,
+        btc_height="941882",
+        child_height="817177",
+        btc_time="1774281079",
+        bits="17021a91",
+        scriptsig_hex="03aabb",
+        outputs="",
+        header_hex="00" * 80,
+        source_kind="full_inventory",
+        source_classification="unknown",
+        source_sha256="cc" * 32,
+    )
+
+    with pytest.raises(SystemExit):
+        build_descendant_observation_rows(
+            [{"btc_height": "941882", "btc_header_hash": BASELINE_HASH}],
+            {BASELINE_HASH: [observation]},
+            data_dir=tmp_path,
+            parser=argparse.ArgumentParser(),
+        )
+
+    assert "ambiguous authenticated child identities" in capsys.readouterr().err
+
+
+def test_descendant_ledger_rejects_source_child_hash_disagreement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: _identity_index(
+            {
+                ("namecoin", BASELINE_HASH): {
+                    "child_height": "817177",
+                    "child_block_hash": "aa" * 32,
+                    "child_block_time": "1774280993",
+                    "verification": "test",
+                    "child_header_hex": "",
+                    "child_nbits": "",
+                }
+            }
+        ),
+    )
+    observation = UnknownObservation(
+        chain="namecoin",
+        source_path="data/namecoin.csv",
+        row_number=2,
+        block_hash=BASELINE_HASH,
+        prev_hash="22" * 32,
+        btc_height="941882",
+        child_height="817177",
+        btc_time="1774281079",
+        bits="17021a91",
+        scriptsig_hex="03aabb",
+        outputs="",
+        header_hex="00" * 80,
+        source_kind="full_inventory",
+        source_classification="unknown",
+        source_sha256="cc" * 32,
+        source_child_hash="bb" * 32,
+    )
+
+    with pytest.raises(SystemExit):
+        build_descendant_observation_rows(
+            [{"btc_height": "941882", "btc_header_hash": BASELINE_HASH}],
+            {BASELINE_HASH: [observation]},
+            data_dir=tmp_path,
+            parser=argparse.ArgumentParser(),
+        )
+
+    assert "disagrees with source observation" in capsys.readouterr().err
 
 
 def test_parent_evidence_reconciles_compatible_sources_independent_of_order() -> None:

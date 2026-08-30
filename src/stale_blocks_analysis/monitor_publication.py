@@ -27,6 +27,7 @@ from .bitcoin_epoch_reference import (
     RETARGET_INTERVAL,
     load_nbits_by_epoch,
 )
+from .bitcoin_binary import parse_coinbase_tx
 from .coinbase_markers import parse_bip34_height
 from .coinbase_output_claims import (
     CoinbaseOutputClaim,
@@ -49,6 +50,8 @@ from .error_observations import (
     ERROR_OBSERVATION_ARTIFACT,
     ERROR_OBSERVATION_FIELDS,
     ERROR_OBSERVATION_LEDGER,
+    ERROR_OBSERVATION_SCOPE,
+    ERROR_OBSERVATION_STATUS,
     build_error_observation_rows,
     validate_rsk_sidecar_cells,
 )
@@ -60,6 +63,7 @@ from .evidence_hydration import (
 from .evidence_normalization import (
     int_or_none,
     is_hash,
+    normalize_hash,
     parse_header_fields,
 )
 from .evidence_sources import (
@@ -221,10 +225,11 @@ def _load_monitor_artifact_counts(
     expected_artifact_scope: str | frozenset[str] = "",
     orphan_verdicts: dict[str, MonitorVerdict] | None = None,
 ) -> Counter[str]:
-    """Count and validate the published categories in one ordinary artifact."""
+    """Count and validate the published categories in one monitor artifact."""
+    error_aggregate = chain == ERROR_OBSERVATION_ARTIFACT
     counts: Counter[str] = Counter()
     stale_identities: set[tuple[int, str]] = set()
-    event_categories: dict[tuple[int, str], str] = {}
+    event_categories: dict[tuple[str, int, str], str] = {}
     btc_nbits_by_epoch: dict[int, int] | None = None
     descendant_observations: set[tuple[str, int, str, int, str]] | None = None
     descendant_parents: set[tuple[int, str]] | None = None
@@ -235,11 +240,14 @@ def _load_monitor_artifact_counts(
         fieldnames = reader.fieldnames or []
         if len(fieldnames) != len(set(fieldnames)):
             raise ValueError(f"{path}: monitor-evidence schema has duplicate columns")
-        required = set(MONITOR_EVIDENCE_FIELDS)
-        if chain == "rsk":
+        required = set(
+            ERROR_OBSERVATION_FIELDS if error_aggregate else MONITOR_EVIDENCE_FIELDS
+        )
+        expected_fields = list(
+            ERROR_OBSERVATION_FIELDS if error_aggregate else MONITOR_EVIDENCE_FIELDS
+        )
+        if not error_aggregate and chain == "rsk":
             required.update(RSK_SIDECAR_EXPORT_FIELDS)
-        expected_fields = list(MONITOR_EVIDENCE_FIELDS)
-        if chain == "rsk":
             expected_fields.extend(RSK_SIDECAR_EXPORT_FIELDS)
         missing = required - set(fieldnames)
         if missing:
@@ -252,11 +260,25 @@ def _load_monitor_artifact_counts(
                 f"{path}: monitor-evidence header must exactly match the {chain} schema"
             )
         for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(
+                    f"{path}:{row_number}: monitor-evidence row does not match "
+                    "the schema width"
+                )
             row_chain = row.get("chain") or ""
-            if row_chain != chain:
+            if error_aggregate:
+                if row_chain not in CHAIN_SPECS:
+                    raise ValueError(
+                        f"{path}:{row_number}: error-observation row has "
+                        f"unsupported chain {row_chain!r}"
+                    )
+                contract_chain = row_chain
+            elif row_chain != chain:
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
                 )
+            else:
+                contract_chain = chain
             row_scope = (row.get("artifact_scope") or "").strip()
             if isinstance(expected_artifact_scope, str):
                 allowed_scopes = (
@@ -374,7 +396,7 @@ def _load_monitor_artifact_counts(
                 "child_nbits": raw_child_bundle["child_nbits"],
             }
             raw_child_height = row.get("child_height") or ""
-            if chain == _DESCENDANT_PARENT_VERDICTS_CHAIN and (
+            if contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN and (
                 raw_child_height or any(child_bundle.values())
             ):
                 raise ValueError(
@@ -392,8 +414,8 @@ def _load_monitor_artifact_counts(
                     "exact non-negative integer"
                 )
             child_height = int(raw_child_height) if raw_child_height else None
-            spec = CHAIN_SPECS.get(chain)
-            if chain in HISTORICAL_CHILD_HEADER_CHAINS:
+            spec = CHAIN_SPECS.get(contract_chain)
+            if contract_chain in HISTORICAL_CHILD_HEADER_CHAINS:
                 try:
                     validate_child_header_fields(
                         child_bundle,
@@ -421,7 +443,7 @@ def _load_monitor_artifact_counts(
                     ) from exc
             child_hash = child_bundle["child_block_hash"].lower()
             if child_height is not None and is_hash(child_hash):
-                event_identity = (child_height, child_hash)
+                event_identity = (contract_chain, child_height, child_hash)
                 event_category = _published_category(row) or classification
                 previous_category = event_categories.get(event_identity)
                 if previous_category is not None:
@@ -436,7 +458,7 @@ def _load_monitor_artifact_counts(
                     )
                 event_categories[event_identity] = event_category
             if (
-                chain in CHILD_IDENTITY_REQUIRED_CHAINS
+                contract_chain in CHILD_IDENTITY_REQUIRED_CHAINS
                 and classification != "canonical"
             ):
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
@@ -462,7 +484,7 @@ def _load_monitor_artifact_counts(
                 # child event; ``event_categories`` enforces that identity above.
                 if (
                     classification == "stale"
-                    or chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
+                    or contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
                 ):
                     stale_identity = (btc_height, parent_hash)
                     if stale_identity in stale_identities:
@@ -474,7 +496,7 @@ def _load_monitor_artifact_counts(
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
                 and (
-                    chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
+                    contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
                     or (row.get("artifact_scope") or "").strip()
                     == "stale_descendant_parent_verdicts"
                 )
@@ -512,6 +534,20 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: accepted stale descendant row has a "
                         "rejection_reason"
+                    )
+            elif classification == "error_block":
+                expected_nbits = row.get("expected_nbits") or ""
+                if (
+                    len(expected_nbits) != 8
+                    or expected_nbits != expected_nbits.lower()
+                    or any(char not in "0123456789abcdef" for char in expected_nbits)
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has invalid expected_nbits"
+                    )
+                if not (row.get("rejection_reason") or "").strip():
+                    raise ValueError(
+                        f"{path}:{row_number}: error block lacks a rejection_reason"
                     )
             elif any(
                 (row.get(field) or "")
@@ -593,10 +629,10 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: stale descendant parent is not "
                         "authenticated by the accepted parent verdict"
                     )
-                if chain != _DESCENDANT_PARENT_VERDICTS_CHAIN and (
+                if contract_chain != _DESCENDANT_PARENT_VERDICTS_CHAIN and (
                     child_height is None
                     or (
-                        chain,
+                        contract_chain,
                         btc_height,
                         parent_hash,
                         child_height,
@@ -715,18 +751,66 @@ def _load_monitor_artifact_counts(
                             "do not match the Bitcoin epoch evidence"
                         )
                 counts[bucket] += 1
+            elif classification == "error_block":
+                if not error_aggregate:
+                    raise ValueError(
+                        f"{path}:{row_number}: ordinary artifact contains an error block"
+                    )
+                if btc_height is None or btc_height < 0:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block lacks a nonnegative "
+                        "Bitcoin height"
+                    )
+                if status != ERROR_OBSERVATION_STATUS:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has invalid status"
+                    )
+                if bucket or reason:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has non-empty relevance"
+                    )
+                counts["error_block"] += 1
             else:
                 raise ValueError(
                     f"{path}:{row_number}: unsupported monitor classification"
                 )
-    counts["monitor_rows"] = sum(
-        counts[category] for category in _ORDINARY_MONITOR_CATEGORIES
+    counts["monitor_rows"] = (
+        counts["error_block"]
+        if error_aggregate
+        else sum(counts[category] for category in _ORDINARY_MONITOR_CATEGORIES)
     )
     return counts
 
 
-def validate_error_observation_publication(path: Path) -> None:
-    """Require the union schema and semantic RSK sidecars on a published aggregate."""
+def validate_error_observation_publication(
+    path: Path, *, data_dir: Path = DATA_DIR
+) -> None:
+    """Require ordinary evidence semantics and the exact canonical error ledger."""
+    _load_monitor_artifact_counts(
+        path,
+        ERROR_OBSERVATION_ARTIFACT,
+        data_dir=data_dir,
+        expected_artifact_scope=ERROR_OBSERVATION_SCOPE,
+    )
+    expected_rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    # Output claims may be enriched from the selected archive source rows.
+    # Every field derived from the committed catalogue and witness ledger must
+    # remain byte-for-byte canonical in the aggregate.
+    canonical_fields = tuple(
+        field
+        for field in ERROR_OBSERVATION_FIELDS
+        if field not in {"coinbase_outputs", "full_coinbase_hex"}
+    )
+    expected_by_identity = {
+        (
+            row["chain"],
+            row["child_height"],
+            row["child_block_hash"],
+            row["btc_header_hash"],
+        ): row
+        for row in expected_rows
+    }
+    observed_identities: set[tuple[str, str, str, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or ())
@@ -736,7 +820,77 @@ def validate_error_observation_publication(path: Path) -> None:
                 "34-column union schema"
             )
         for row_number, row in enumerate(reader, start=2):
-            chain = (row.get("chain") or "").strip()
+            chain = row.get("chain") or ""
+            outputs = row.get("coinbase_outputs") or ""
+            full_coinbase_hex = row.get("full_coinbase_hex") or ""
+            try:
+                output_claims = parse_coinbase_output_claims(
+                    outputs,
+                    full_coinbase_hex,
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed coinbase output evidence: {exc}"
+                ) from exc
+            if outputs != render_coinbase_output_claims(output_claims):
+                raise ValueError(
+                    f"{path}:{row_number}: coinbase output evidence is not canonical"
+                )
+            if full_coinbase_hex:
+                if (
+                    len(full_coinbase_hex) % 2
+                    or full_coinbase_hex != full_coinbase_hex.lower()
+                    or any(char not in "0123456789abcdef" for char in full_coinbase_hex)
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction must use "
+                        "exact lowercase hex"
+                    )
+                try:
+                    parsed_coinbase = parse_coinbase_tx(
+                        bytes.fromhex(full_coinbase_hex)
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction is not valid hex"
+                    ) from exc
+                if parsed_coinbase is None:
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction could not be parsed"
+                    )
+                scriptsig_hex = row.get("coinbase_scriptsig_hex") or ""
+                if (
+                    scriptsig_hex
+                    and parsed_coinbase["scriptsig"].hex() != scriptsig_hex
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction disagrees "
+                        "with coinbase_scriptsig_hex"
+                    )
+            identity = (
+                chain,
+                row.get("child_height") or "",
+                row.get("child_block_hash") or "",
+                row.get("btc_header_hash") or "",
+            )
+            if identity in observed_identities:
+                raise ValueError(
+                    f"{path}:{row_number}: duplicate canonical error-observation "
+                    f"identity {identity!r}"
+                )
+            expected = expected_by_identity.get(identity)
+            if expected is None:
+                raise ValueError(
+                    f"{path}:{row_number}: row is not an exact canonical "
+                    f"error-observation identity {identity!r}"
+                )
+            observed_identities.add(identity)
+            for field in canonical_fields:
+                if (row.get(field) or "") != expected[field]:
+                    raise ValueError(
+                        f"{path}:{row_number}: {field} disagrees with the canonical "
+                        "error-observation ledger"
+                    )
             if chain == "rsk":
                 validate_rsk_sidecar_cells(row, row_id=f"{path}:{row_number}")
                 continue
@@ -750,6 +904,12 @@ def validate_error_observation_publication(path: Path) -> None:
                     f"{path}:{row_number}: non-RSK error-observation row has "
                     f"sidecar values: {', '.join(extra)}"
                 )
+    missing = set(expected_by_identity) - observed_identities
+    if missing:
+        raise ValueError(
+            f"{path}: error-observation aggregate is missing {len(missing)} "
+            f"canonical ledger identities (first {min(missing)!r})"
+        )
 
 
 _CATEGORY_SUCCESSORS = {
@@ -1929,6 +2089,36 @@ def _validate_logical_source_coverage_floor(
         )
 
 
+def _validate_global_child_event_uniqueness(staging_dir: Path) -> None:
+    """Assign each authenticated child event to one staged artifact location."""
+    events: dict[tuple[str, int, str], tuple[str, str]] = {}
+    for artifact in sorted(staging_dir.glob("*_monitor_evidence.csv")):
+        with artifact.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                child_height = int_or_none((row.get("child_height") or "").strip())
+                child_hash = normalize_hash(row.get("child_block_hash"))
+                if child_height is None or child_height < 0 or not is_hash(child_hash):
+                    continue
+                chain = (row.get("chain") or "").strip()
+                parent_hash = normalize_hash(row.get("btc_header_hash"))
+                identity = (chain, child_height, child_hash)
+                location = f"{artifact.name}:{row_number}"
+                previous = events.get(identity)
+                if previous is None:
+                    events[identity] = (parent_hash, location)
+                    continue
+                previous_parent, previous_location = previous
+                if previous_parent == parent_hash:
+                    detail = f"repeats in {previous_location} and {location}"
+                else:
+                    detail = (
+                        "maps to different Bitcoin parents "
+                        f"{previous_parent} and {parent_hash} in "
+                        f"{previous_location} and {location}"
+                    )
+                raise ValueError(f"authenticated child event {identity!r} {detail}")
+
+
 def _validate_staged_publication(
     staging_dir: Path,
     *,
@@ -2066,7 +2256,7 @@ def _validate_staged_publication(
         if not artifact.is_file():
             raise ValueError(f"{staging_dir}: missing staged artifact for {chain}")
         if chain == ERROR_OBSERVATION_ARTIFACT:
-            validate_error_observation_publication(artifact)
+            validate_error_observation_publication(artifact, data_dir=data_dir)
             observed_rows = _csv_row_count(artifact)
             for field in _ORDINARY_MONITOR_CATEGORIES:
                 if int(row[field]) != 0:
@@ -2115,6 +2305,7 @@ def _validate_staged_publication(
                 f"{counts_path}: {chain} canonical evidence status is invalid "
                 f"({row['canonical_evidence_status']!r} != {expected_status!r})"
             )
+    _validate_global_child_event_uniqueness(staging_dir)
     _validate_parent_category_exclusivity(staging_dir)
     if (
         MONITOR_OUTPUT_DIR.is_dir()

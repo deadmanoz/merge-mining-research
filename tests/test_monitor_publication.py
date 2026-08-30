@@ -17,7 +17,10 @@ import pytest
 
 import stale_blocks_analysis.monitor_publication as monitor_publication
 from stale_blocks_analysis.full_evidence import parse_header_fields
-from stale_blocks_analysis.error_observations import ERROR_OBSERVATION_FIELDS
+from stale_blocks_analysis.error_observations import (
+    ERROR_OBSERVATION_FIELDS,
+    write_error_observation_artifact,
+)
 from stale_blocks_analysis.monitor_exports import (
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
@@ -99,6 +102,26 @@ def _rewrite_first_row(path: Path, **changes: str) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _minimal_coinbase_tx(scriptsig_hex: str) -> str:
+    """Return one parseable coinbase transaction with a single OP_TRUE output."""
+    scriptsig = bytes.fromhex(scriptsig_hex)
+    assert len(scriptsig) < 0xFD
+    return (
+        "01000000"
+        "01"
+        + "00" * 32
+        + "ffffffff"
+        + bytes([len(scriptsig)]).hex()
+        + scriptsig.hex()
+        + "ffffffff"
+        "01"
+        "0000000000000000"
+        "01"
+        "51"
+        "00000000"
+    )
 
 
 def _rewrite_rows(path: Path, rows: list[dict[str, str]]) -> None:
@@ -1433,12 +1456,14 @@ def _write_staged_publication(directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     logical_root = "results/monitor-evidence"
     _write_ordinary_artifact(directory / "namecoin_monitor_evidence.csv")
-    error_artifact = (
-        directory
-        / f"{monitor_publication.ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    error_artifact = write_error_observation_artifact(
+        directory,
+        data_dir=REPO / "data",
     )
-    _write_error_rows(error_artifact, [])
-    rows = _publication_count_rows(logical_root)
+    rows = _publication_count_rows(
+        logical_root,
+        error_rows=int(error_artifact["rows"]),
+    )
     _write_count_rows(directory / monitor_publication.PUBLICATION_COUNTS.name, rows)
     manifest_rows = []
     for row in rows:
@@ -1501,6 +1526,204 @@ def test_staged_publication_accepts_exact_metadata(
         staging,
         data_dir=REPO / "data",
         relevance_inventory=relevance,
+    )
+
+
+def test_staged_publication_allows_distinct_child_events_at_same_height(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    error_artifact = (
+        staging
+        / f"{monitor_publication.ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    )
+    error_row = next(
+        row for row in _read_rows(error_artifact) if row["chain"] == "namecoin"
+    )
+    ordinary_artifact = staging / "namecoin_monitor_evidence.csv"
+    ordinary_row = _read_rows(ordinary_artifact)[0]
+    assert ordinary_row["child_block_hash"] != error_row["child_block_hash"]
+    _rewrite_first_row(ordinary_artifact, child_height=error_row["child_height"])
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    monitor_publication._validate_staged_publication(
+        staging,
+        data_dir=REPO / "data",
+        relevance_inventory=relevance,
+    )
+
+
+def test_staged_publication_rejects_child_event_reused_across_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    error_artifact = (
+        staging
+        / f"{monitor_publication.ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    )
+    error_row = next(
+        row for row in _read_rows(error_artifact) if row["chain"] == "namecoin"
+    )
+    ordinary_artifact = staging / "namecoin_monitor_evidence.csv"
+    ordinary_row = _read_rows(ordinary_artifact)[0]
+    assert ordinary_row["btc_header_hash"] != error_row["btc_header_hash"]
+    _rewrite_first_row(
+        ordinary_artifact,
+        **{
+            field: error_row[field]
+            for field in (
+                "child_height",
+                "child_block_hash",
+                "child_header_hex",
+                "child_block_time",
+                "child_nbits",
+            )
+        },
+    )
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(ValueError, match="maps to different Bitcoin parents"):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("child_block_hash", "00" * 32, "child"),
+        ("btc_header_hash", "00" * 32, "parent header|serialized Bitcoin"),
+        ("classification", "stale", "stale|canonical error-observation"),
+        ("validation_status", "VALID", "invalid status"),
+        ("source_row_number", "999999", "canonical error-observation ledger"),
+        ("child_height", "999999", "exact canonical error-observation identity"),
+    ],
+)
+def test_staged_publication_rejects_error_observation_evidence_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    replacement: str,
+    message: str,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    artifact = (
+        staging
+        / f"{monitor_publication.ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    )
+    _rewrite_first_row(artifact, **{field: replacement})
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(ValueError, match=message):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"coinbase_outputs": "definitely-not-an-output"}, "malformed coinbase"),
+        ({"full_coinbase_hex": "zz"}, "malformed coinbase"),
+    ],
+)
+def test_error_observation_publication_rejects_malformed_coinbase_enrichment(
+    tmp_path: Path,
+    changes: dict[str, str],
+    message: str,
+) -> None:
+    artifact = write_error_observation_artifact(
+        tmp_path,
+        data_dir=REPO / "data",
+    )["path"]
+    assert isinstance(artifact, Path)
+    _rewrite_first_row(artifact, **changes)
+
+    with pytest.raises(ValueError, match=message):
+        monitor_publication.validate_error_observation_publication(
+            artifact,
+            data_dir=REPO / "data",
+        )
+
+
+def test_error_observation_publication_authenticates_full_coinbase_scriptsig(
+    tmp_path: Path,
+) -> None:
+    artifact = write_error_observation_artifact(
+        tmp_path,
+        data_dir=REPO / "data",
+    )["path"]
+    assert isinstance(artifact, Path)
+    _rewrite_first_row(
+        artifact,
+        coinbase_outputs="51:0",
+        full_coinbase_hex=_minimal_coinbase_tx("00"),
+    )
+
+    with pytest.raises(ValueError, match="disagrees with coinbase_scriptsig_hex"):
+        monitor_publication.validate_error_observation_publication(
+            artifact,
+            data_dir=REPO / "data",
+        )
+
+
+def test_error_observation_publication_rejects_ragged_row(tmp_path: Path) -> None:
+    artifact = write_error_observation_artifact(
+        tmp_path,
+        data_dir=REPO / "data",
+    )["path"]
+    assert isinstance(artifact, Path)
+    lines = artifact.read_text().splitlines()
+    lines[1] += ",unexpected"
+    artifact.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(ValueError, match="does not match the schema width"):
+        monitor_publication.validate_error_observation_publication(
+            artifact,
+            data_dir=REPO / "data",
+        )
+
+
+def test_error_observation_publication_keys_same_height_witnesses_by_child_hash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = write_error_observation_artifact(
+        tmp_path,
+        data_dir=REPO / "data",
+    )["path"]
+    assert isinstance(artifact, Path)
+    with artifact.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = list(reader.fieldnames or ())
+        rows = list(reader)
+    original = next(
+        row for row in rows if row["chain"] == "rsk" and not row["child_header_hex"]
+    )
+    sibling = {**original, "child_block_hash": "ab" * 32}
+    rows.append(sibling)
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    monkeypatch.setattr(
+        monitor_publication,
+        "build_error_observation_rows",
+        lambda **_kwargs: (rows, {}),
+    )
+
+    monitor_publication.validate_error_observation_publication(
+        artifact,
+        data_dir=REPO / "data",
     )
 
 

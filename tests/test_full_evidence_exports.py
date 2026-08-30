@@ -9,6 +9,7 @@ import pytest
 
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
+from stale_blocks_analysis.evidence_hydration import ChildIdentityIndex
 from stale_blocks_analysis.full_evidence import (
     EVIDENCE_FIELDS,
     EvidenceSource,
@@ -30,6 +31,14 @@ REPO = Path(__file__).resolve().parents[1]
 P2PKH_SPK = bytes.fromhex("76a91462e907b15cbf27d5425399ebf6f0fb50ebb88f18")
 P2PKH_SPK += bytes.fromhex("88ac")
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
+
+
+def _identity_index(
+    chain: str, parent_hash: str, row: dict[str, str]
+) -> ChildIdentityIndex:
+    identity = ChildIdentityIndex()
+    identity.add((chain, parent_hash), row)
+    return identity
 
 
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
@@ -185,7 +194,7 @@ def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
             }
         ],
     )
-    assert load_child_identity(tmp_path) == {}
+    assert load_child_identity(tmp_path).parent_keys() == ()
 
     row = {
         "chain": "namecoin",
@@ -196,13 +205,15 @@ def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
     }
     stats = hydrate_child_identity(
         [row],
-        {
-            ("namecoin", btc_hash): {
+        _identity_index(
+            "namecoin",
+            btc_hash,
+            {
                 "child_height": "",
                 "child_block_hash": "22" * 32,
                 "child_block_time": "1322540063",
-            }
-        },
+            },
+        ),
     )
     assert stats.hydrated == 0
     assert stats.height_mismatch == 1
@@ -376,13 +387,15 @@ def test_namecoin_scan_order_is_blank_before_verified_identity_hydration(
     assert normalized["child_height"] == ""
     stats = hydrate_child_identity(
         [normalized],
-        {
-            ("namecoin", btc_hash): {
+        _identity_index(
+            "namecoin",
+            btc_hash,
+            {
                 "child_height": "207157",
                 "child_block_hash": "22" * 32,
                 "child_block_time": "1416990212",
-            }
-        },
+            },
+        ),
     )
     assert stats.hydrated == 1
     assert stats.height_mismatch == 0
@@ -412,13 +425,15 @@ def test_authenticated_child_height_is_never_overridden_by_identity(
 
     stats = hydrate_child_identity(
         [normalized],
-        {
-            ("syscoin", btc_hash): {
+        _identity_index(
+            "syscoin",
+            btc_hash,
+            {
                 "child_height": "999",
                 "child_block_hash": "22" * 32,
                 "child_block_time": "1562940120",
-            }
-        },
+            },
+        ),
     )
 
     assert stats.hydrated == 0

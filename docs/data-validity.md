@@ -120,11 +120,18 @@ staging preflight is stricter than that importer: it requires the complete
 published schema, canonical lowercase serialized parent headers, authenticated
 parent fields and available child bundles, category/status/relevance contracts,
 duplicate-free confirmed stale identities, and the applicable strict-height or
-weak-timestamp epoch predicates. A release stages all ordinary artifacts, the
-error aggregate, counts, and manifest as one transaction. These checks still do
-not replay active parent, MTP, coinbase, or other contextual gates, so
-acceptance confirms the upstream publication contract rather than independent
-full-block validation.
+weak-timestamp epoch predicates. Those ordinary-artifact checks still do not
+replay active-parent, MTP, coinbase, or other contextual gates, so acceptance
+confirms the upstream publication contract rather than independent full-block
+validation.
+
+The error module has a separate complete preflight. It re-derives the declared
+consensus failures, including MTP and coinbase rules, from the canonical 39-row
+catalogue, 86-row observation ledger, and MTP context. The staged error
+aggregate must then match every canonical ledger identity and derived field.
+Any full-coinbase enrichment is parsed and must authenticate the published
+coinbase scriptSig. A release stages all ordinary artifacts, that verified
+error aggregate, counts, and manifest as one transaction.
 
 ## Namecoin release scope
 

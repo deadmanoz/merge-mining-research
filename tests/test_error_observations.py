@@ -22,7 +22,11 @@ from stale_blocks_analysis.error_observations import (
     validate_error_observation_ledger,
     validate_rsk_sidecar_cells,
 )
-from stale_blocks_analysis.evidence_hydration import load_child_identity
+from stale_blocks_analysis.evidence_hydration import (
+    ChildIdentityIndex,
+    child_identity_candidates,
+    load_child_identity,
+)
 from stale_blocks_analysis.monitor_exports import (
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
@@ -53,6 +57,23 @@ def _rewrite_rsk_identity(data_dir, mutate) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _only_identity(
+    identities: ChildIdentityIndex, chain: str, parent_hash: str
+) -> dict[str, str]:
+    candidates = child_identity_candidates(identities, chain, parent_hash)
+    assert len(candidates) == 1
+    return candidates[0]
+
+
+def _has_child_header_identity(
+    identities: ChildIdentityIndex, chain: str, parent_hash: str
+) -> bool:
+    candidates = child_identity_candidates(identities, chain, parent_hash)
+    return len(candidates) == 1 and bool(
+        candidates[0].get("child_header_hex") and candidates[0].get("child_nbits")
+    )
 
 
 def test_catalogue_preserves_an_expected_target_that_differs_from_header_bits() -> None:
@@ -154,7 +175,7 @@ def test_ancestry_derived_error_witnesses_are_exact() -> None:
         assert row["provenance"].startswith(
             "catalogue:stale-ancestry-reconciliation|observation:"
         )
-        identity = identities[(row["chain"], row["btc_header_hash"])]
+        identity = _only_identity(identities, row["chain"], row["btc_header_hash"])
         assert identity["verification"] == (
             "node-verified-rpc+source-row-authenticated-child-header"
         )
@@ -195,9 +216,7 @@ def test_error_ledger_rejects_generic_child_identity_drift(
     witness = next(
         row
         for row in ledger
-        if (row["chain"], row["btc_header_hash"]) in identities
-        and identities[(row["chain"], row["btc_header_hash"])].get("child_header_hex")
-        and identities[(row["chain"], row["btc_header_hash"])].get("child_nbits")
+        if _has_child_header_identity(identities, row["chain"], row["btc_header_hash"])
     )
     identity_path = (
         data_dir / "child-identity" / f"{witness['chain']}_child_identity.csv"
@@ -483,6 +502,49 @@ def test_error_observation_rejects_missing_rsk_child_identity(tmp_path) -> None:
         build_error_observation_rows(data_dir=data_dir)
 
 
+def test_error_observation_selects_exact_rsk_event_from_multi_event_parent(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        ledger_witness = next(
+            row for row in csv.DictReader(handle) if row["chain"] == "rsk"
+        )
+
+    def add_second_event(rows) -> None:
+        original = next(
+            row
+            for row in rows
+            if row["btc_header_hash"] == ledger_witness["btc_header_hash"]
+        )
+        distinct_hash = "01" * 32
+        assert distinct_hash not in {row["child_block_hash"] for row in rows}
+        rows.append(
+            {
+                **original,
+                "child_height": str(int(original["child_height"]) + 1),
+                "child_block_hash": distinct_hash,
+                "child_block_time": str(int(original["child_block_time"]) + 1),
+                "verification": "test-second-authenticated-event",
+            }
+        )
+
+    _rewrite_rsk_identity(data_dir, add_second_event)
+
+    rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    exported = next(
+        row
+        for row in rows
+        if row["chain"] == "rsk"
+        and row["btc_header_hash"] == ledger_witness["btc_header_hash"]
+    )
+
+    assert exported["child_height"] == ledger_witness["child_height"]
+    assert exported["child_block_hash"] == ledger_witness["child_block_hash"]
+
+
 def test_error_observation_corroborates_rsk_child_timestamp(tmp_path) -> None:
     data_dir = tmp_path / "data"
     _copy_error_observation_inputs(data_dir)
@@ -500,7 +562,9 @@ def test_error_observation_corroborates_rsk_child_timestamp(tmp_path) -> None:
 
     rsk["child_block_time"] = ""
     _rewrite_ledger(ledger_path, rows, fieldnames)
-    identity = load_child_identity(data_dir)[("rsk", rsk["btc_header_hash"])]
+    identity = _only_identity(
+        load_child_identity(data_dir), "rsk", rsk["btc_header_hash"]
+    )
     exported = next(
         row
         for row in build_error_observation_rows(data_dir=data_dir)[0]
@@ -537,7 +601,10 @@ def test_error_observation_rejects_reversed_rsk_hash_without_overwriting(
         build_error_observation_rows(data_dir=data_dir)
 
     identity_after = load_child_identity(data_dir)
-    assert identity_after[("rsk", rsk_parent)]["child_block_hash"] != ledger_hash
+    assert (
+        _only_identity(identity_after, "rsk", rsk_parent)["child_block_hash"]
+        != ledger_hash
+    )
 
 
 def test_rsk_sidecar_rejects_0x_prefix_and_i32_overflow() -> None:

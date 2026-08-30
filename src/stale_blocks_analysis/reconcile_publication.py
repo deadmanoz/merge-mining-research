@@ -39,7 +39,10 @@ from stale_blocks_analysis.full_evidence import (
     is_hash,
     normalize_hash,
 )
-from stale_blocks_analysis.evidence_hydration import load_child_identity
+from stale_blocks_analysis.evidence_hydration import (
+    child_identity_candidates,
+    load_child_identity,
+)
 from stale_blocks_analysis.ancestry_walk import WalkResult
 from stale_blocks_analysis.reconcile_observations import (
     StaleObservation,
@@ -55,6 +58,7 @@ from stale_blocks_analysis.reconcile_observations import (
 from stale_blocks_analysis.stale_descendants import (
     OBSERVATIONS_PATH,
     OBSERVATION_FIELDS,
+    PARENT_VERDICT_FIELDS,
     load_stale_descendant_observations,
     load_stale_descendant_parents,
 )
@@ -70,44 +74,6 @@ OUTPUT_ROOTS = "unknown-stale-root-summary.csv"
 OUTPUT_ANOMALIES = "unknown-stale-anomalies.csv"
 OUTPUT_SUMMARY = "unknown-stale-reconciliation-summary.json"
 
-# Column order of the accepted stale-descendant parent-verdict interface.
-PARENT_VERDICT_FIELDS = [
-    "classification",
-    "ancestry_relation",
-    "validation_status",
-    "active_mainchain_status",
-    "active_mainchain_hash_at_height",
-    "root_active_mainchain_status",
-    "root_active_mainchain_hash_at_height",
-    "active_mainchain_verification_source",
-    "btc_height",
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "expected_nbits",
-    "pow_valid",
-    "header_hash_match",
-    "bip34_height_status",
-    "observed_btc_heights",
-    "observed_btc_times",
-    "observed_btc_bits",
-    "root_stale_hash",
-    "root_stale_height",
-    "root_stale_sources",
-    "root_stale_chains",
-    "root_stale_btc_times",
-    "root_stale_bits",
-    "stale_fork_depth",
-    "path_hashes",
-    "path_chain_sets",
-    "observed_chains",
-    "source_observation_count",
-    "coinbase_scriptsig_hex",
-    "coinbase_outputs",
-    "btc_header_hex",
-    "notes",
-]
 ERROR_CANDIDATE_FIELDS = [*PARENT_VERDICT_FIELDS, "source_rows", "rules_violated"]
 
 
@@ -671,14 +637,56 @@ def build_descendant_observation_rows(
                 item.source_classification,
             ),
         ):
-            identity = child_identities.get((observation.chain, parent_hash))
-            if identity is None:
+            identity_candidates = child_identity_candidates(
+                child_identities, observation.chain, parent_hash
+            )
+            if not identity_candidates:
                 parser.error(
                     f"accepted descendant witness {observation.chain}:{parent_hash} "
                     "lacks an authenticated child identity"
                 )
-            identity_height = int_or_none(identity.get("child_height"))
             source_child_height = int_or_none(observation.child_height)
+            source_child_hash = normalize_hash(observation.source_child_hash)
+            if observation.source_child_hash.strip() and not is_hash(source_child_hash):
+                parser.error(
+                    "source observation carries a malformed child block hash "
+                    f"for {observation.chain}:{parent_hash}:"
+                    f"{observation.source_child_hash}"
+                )
+            if observation.child_height.strip():
+                matching_identities = tuple(
+                    identity
+                    for identity in identity_candidates
+                    if source_child_height is not None
+                    and source_child_height >= 0
+                    and int_or_none(identity.get("child_height")) == source_child_height
+                )
+            else:
+                matching_identities = identity_candidates
+            if source_child_hash:
+                matching_identities = tuple(
+                    identity
+                    for identity in matching_identities
+                    if normalize_hash(identity.get("child_block_hash"))
+                    == source_child_hash
+                )
+            if not matching_identities:
+                parser.error(
+                    "authenticated child identity disagrees with source observation "
+                    f"{observation.chain}:{parent_hash}:"
+                    f"{observation.child_height or '<identity-height>'}:"
+                    f"{source_child_hash or '<identity-hash>'}"
+                )
+            if len(matching_identities) > 1:
+                parser.error(
+                    "ambiguous authenticated child identities for source observation "
+                    f"{observation.chain}:{parent_hash}:"
+                    f"{observation.child_height or '<missing-child-height>'}:"
+                    f"{source_child_hash or '<missing-child-hash>'}; "
+                    "the source row does not identify one exact child event"
+                )
+            identity = matching_identities[0]
+            identity_height = int_or_none(identity.get("child_height"))
             child_hash = normalize_hash(identity.get("child_block_hash"))
             child_time = (identity.get("child_block_time") or "").strip()
             if (
@@ -688,6 +696,7 @@ def build_descendant_observation_rows(
                     source_child_height is not None
                     and source_child_height != identity_height
                 )
+                or (source_child_hash and source_child_hash != child_hash)
                 or not is_hash(child_hash)
                 or not child_time.isdigit()
                 or int(child_time) <= 0

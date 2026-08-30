@@ -2,9 +2,16 @@
 
 ## Unreleased
 
+Require the exact stale-descendant parent-verdict schema and its persisted
+accepting gate cells. Make monitor publication authenticate every
+error-observation row against ordinary evidence rules and the canonical ledger,
+and reject duplicate `(height, hash)` keys in the MTP context sidecar.
+
 Preserve multiple distinct authenticated child events from one chain when they
-witness the same accepted stale-descendant parent, while continuing to reject
-repeated events and contradictory final categories.
+witness the same accepted stale-descendant parent. Resolve hydration, recovery,
+ancestry, and error-observation joins by exact child event, reject ambiguous or
+cross-parent reuse, and validate Xaya identities with its external `PowData`
+`nBits` contract.
 
 Require the canonical stale-descendant witness ledger before attribution can
 admit any parent verdict, and fail provenance fingerprinting if an expected

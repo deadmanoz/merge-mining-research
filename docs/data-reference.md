@@ -141,11 +141,13 @@ provenance:
 - `data/stale_descendants.csv` contains 21 accepted Bitcoin parent verdicts.
   Loaders require `classification=stale_descendant` and
   `validation_status=VALID_STALE_DESCENDANT`, authenticate the serialized
-  parent header, require the persisted Bitcoin Core off-active verdicts, and
-  reconcile the root height, fork depth, path endpoints, and serialized
-  predecessor links. The terminal identity must also occur in the selected
-  data tree's accepted per-chain or pinned upstream direct-stale inputs after
-  the error-block exclusion.
+  parent header, require the exact persisted schema and accepting gate cells
+  (`expected_nbits`, `pow_valid`, `header_hash_match`, and the
+  height-and-version-appropriate BIP34 status), require the persisted
+  Bitcoin Core off-active verdicts, and reconcile the root height, fork depth,
+  path endpoints, and serialized predecessor links. The terminal identity must
+  also occur in the selected data tree's accepted per-chain or pinned upstream
+  direct-stale inputs after the error-block exclusion.
 - `data/stale_descendant_observations.csv` contains 32 authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence. One
@@ -286,11 +288,15 @@ merge-mining-monitor keys live-captured events by
 `(source, child_height, child_block_hash)`, so imported rows need the exact
 identity to deduplicate against live capture.
 
-`scripts/extract/recover_child_identity.py` recovers the identity per parent
-header by height -> hash -> block RPC against the still-reachable child nodes.
+`scripts/extract/recover_child_identity.py` recovers each target child event
+from its exact source hash when available, falling back to height -> hash only
+for an unambiguous slot. Distinct events on one chain may commit to the same
+Bitcoin parent; exact repeated events, unresolved same-height slots, or one
+child event assigned to different parents are rejected.
 The RSK work list also includes error-observation ledger parents, which
-ordinary inventories exclude; when classified uncle metadata is absent it
-tries the recorded height as a canonical child.
+ordinary inventories exclude; when classified uncle metadata is absent, only
+an unambiguous height-only target tries the recorded height as a canonical
+child.
 Every row is verified by re-deriving the Bitcoin
 parent linkage from the fetched child block and requiring it to match the
 row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
@@ -298,7 +304,7 @@ the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, and `sha256d(bitcoinMergedMiningHeader)` for RSK
 (uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,325
 chain/header observations across the five active hydration chains verify
-against today's canonical child chains (1,932 distinct Bitcoin parent
+against today's reachable child nodes (1,932 distinct Bitcoin parent
 headers; 239 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
@@ -315,7 +321,9 @@ Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 `child_header_hex`, and `child_nbits`. A verified row is usable only when
 `child_height` is a nonnegative integer and the child hash and time are valid.
 When a serialized child header is present, its hash, timestamp, and `nBits`
-must agree with the normalized fields. `btc_header_hash` stays in
+must agree with the normalized fields. Xaya is the exception for `nBits`: its
+effective value comes from the adjacent `PowData` wrapper rather than the pure
+header. `btc_header_hash` stays in
 display (RPC) order like every other
 pipeline artifact; `child_block_hash` follows the pipeline's established
 column contract of internal (wire) byte order for the Bitcoin-family chains,
@@ -326,10 +334,11 @@ the fields merge-mining-monitor's `rsk_merge_mining_evidence` sidecar
 requires: `rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`.
 
-The monitor-evidence export joins these files by `(chain, btc_header_hash)`
-into the `child_block_hash` / `child_block_time` columns (and, for RSK, the
-sidecar columns) at build time; a row without a verified identity stays
-empty, and an identity recorded at a different child height is refused. The
+The monitor-evidence export groups these files by `(chain, btc_header_hash)` and
+selects the exact authenticated child height/hash before filling the
+`child_block_hash` / `child_block_time` columns (and, for RSK, the sidecar
+columns). A row without a verified identity stays empty, a different child
+height is refused, and an ambiguous multi-event join fails closed. The
 per-chain counts note records the join coverage as
 `child_identity_hydration=hydrated:N`.
 
@@ -393,10 +402,13 @@ a retarget violation. The compact recovered witness ledger lives at
 `data/error-blocks/error_block_observations.csv`; it is checked against the
 current parent catalogue before publication. Every ledger row must identify its
 child either with a well-formed hash or with a serialized child
-header from which that hash can be authenticated. The release path stages every
-ordinary artifact, the error aggregate, counts, and manifest as one coherent
-transaction after validating them against the current schemas and source
-contracts.
+header from which that hash can be authenticated. Staged publication applies
+the ordinary parent/child evidence checks to the aggregate and requires every
+catalogue/ledger-derived field and identity to match the canonical 86-row
+module exactly; source-derived coinbase output enrichment may add evidence but
+cannot replace it. The release path stages every ordinary artifact, the error
+aggregate, counts, and manifest as one coherent transaction after validating
+them against the current schemas and source contracts.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes

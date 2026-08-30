@@ -190,7 +190,8 @@ bytes and rejects any disagreement.
 A committed sidecar, `data/error-blocks/mtp_context.csv`, carries the
 canonical parent's median-time-past for the `time_below_mtp` and
 `median_time_past_violation` rows, keyed by `(height, hash)`, so those rules
-re-derive offline.
+re-derive offline. Each key is unique; duplicate context rows fail validation
+instead of overwriting one another.
 
 ### Composition and per-rule counts
 
