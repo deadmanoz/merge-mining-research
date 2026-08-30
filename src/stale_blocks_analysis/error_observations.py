@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import re
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,11 @@ from .auxpow_parse import (
     validate_available_child_header_fields,
 )
 from .config import CHAIN_SPECS, DATA_DIR
+from .coinbase_output_claims import (
+    merge_coinbase_output_claim_sets,
+    parse_coinbase_output_claims,
+    render_coinbase_output_claims,
+)
 from .evidence_hydration import (
     RSK_SIDECAR_EXPORT_FIELDS,
     load_child_identity,
@@ -38,7 +44,7 @@ ERROR_OBSERVATION_STATUS = "VALID_ERROR_BLOCK"
 ERROR_OBSERVATION_FIELDS = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
 ERROR_OBSERVATION_LEDGER = "error_block_observations.csv"
 
-_LEDGER_FIELDS = {
+ERROR_OBSERVATION_LEDGER_FIELDS = (
     "btc_height",
     "btc_header_hash",
     "chain",
@@ -48,13 +54,18 @@ _LEDGER_FIELDS = {
     "child_header_hex",
     "child_block_time",
     "child_nbits",
+    "source_btc_height",
     "source_kind",
     "source_path",
     "source_row_number",
     "source_sha256",
+    "source_classification",
+    "btc_height_provenance",
+    "child_height_provenance",
+    "identity_provenance",
     "catalogue_row_number",
     "provenance",
-}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,9 +228,12 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
     seen_child_identities: set[tuple[str, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
-        missing = _LEDGER_FIELDS - set(reader.fieldnames or ())
-        if missing:
-            raise ValueError(f"{path}: missing columns: {', '.join(sorted(missing))}")
+        fieldnames = tuple(reader.fieldnames or ())
+        if fieldnames != ERROR_OBSERVATION_LEDGER_FIELDS:
+            raise ValueError(
+                f"{path}: error-observation ledger header is not canonical; "
+                f"expected {','.join(ERROR_OBSERVATION_LEDGER_FIELDS)}"
+            )
         for row_number, row in enumerate(reader, start=2):
             chain = _required(row, "chain", row_number=row_number, path=path)
             child_height = int_or_none(
@@ -240,8 +254,24 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 raise ValueError(f"{path}:{row_number}: malformed witness height")
             if chain not in CHAIN_SPECS or not is_hash(block_hash):
                 raise ValueError(f"{path}:{row_number}: malformed witness identity")
-            for name in ("source_kind", "source_path", "provenance"):
+            for name in (
+                "source_kind",
+                "source_path",
+                "source_classification",
+                "btc_height_provenance",
+                "child_height_provenance",
+                "identity_provenance",
+                "provenance",
+            ):
                 _required(row, name, row_number=row_number, path=path)
+            source_btc_height = int_or_none(row.get("source_btc_height"))
+            if row.get("source_btc_height", "").strip():
+                if source_btc_height is None or source_btc_height < 0:
+                    raise ValueError(
+                        f"{path}:{row_number}: malformed source_btc_height"
+                    )
+            elif row["btc_height_provenance"] != "catalogue-active-parent-placement":
+                raise ValueError(f"{path}:{row_number}: missing source_btc_height")
             source_row = int_or_none(
                 _required(row, "source_row_number", row_number=row_number, path=path)
             )
@@ -420,13 +450,28 @@ def _attach_rsk_error_observation_sidecars(
 
 
 def build_error_observation_rows(
-    *, data_dir: Path = DATA_DIR
+    *,
+    data_dir: Path = DATA_DIR,
+    source_evidence_rows: Iterable[dict[str, str]] = (),
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
     """Expand the recovered witness ledger against the current parent catalogue."""
     blocks, ledger = validate_error_observation_ledger(
         catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
         ledger_path=data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER,
     )
+
+    source_evidence_by_coordinate: dict[
+        tuple[str, str, str, str, str], list[dict[str, str]]
+    ] = {}
+    for source_row in source_evidence_rows:
+        coordinate = (
+            (source_row.get("chain") or "").strip(),
+            normalize_hash(source_row.get("btc_header_hash")),
+            (source_row.get("source_path") or "").strip(),
+            (source_row.get("source_row_number") or "").strip(),
+            normalize_hash(source_row.get("source_sha256")),
+        )
+        source_evidence_by_coordinate.setdefault(coordinate, []).append(source_row)
 
     rows: list[dict[str, str]] = []
     targets = {
@@ -465,6 +510,79 @@ def build_error_observation_rows(
                 "rejection_reason": block.rejection_reason,
             }
         )
+        coordinate = (
+            chain,
+            block.block_hash,
+            witness["source_path"],
+            witness["source_row_number"],
+            normalize_hash(witness.get("source_sha256")),
+        )
+        source_rows = source_evidence_by_coordinate.get(coordinate, [])
+        if source_rows:
+            claim_sets = []
+            full_coinbases: set[str] = set()
+            for source_row in source_rows:
+                if (
+                    normalize_hash(source_row.get("btc_header_hash"))
+                    != block.block_hash
+                ):
+                    raise ValueError(
+                        f"error source coordinate disagrees with parent hash for {key}"
+                    )
+                source_header = (source_row.get("btc_header_hex") or "").strip().lower()
+                if source_header and source_header != block.header_hex:
+                    raise ValueError(
+                        f"error source coordinate disagrees with parent header for {key}"
+                    )
+                source_scriptsig = (
+                    (source_row.get("coinbase_scriptsig_hex") or "").strip().lower()
+                )
+                if (
+                    source_scriptsig
+                    and source_scriptsig != block.coinbase_scriptsig_hex
+                ):
+                    raise ValueError(
+                        f"error source coordinate disagrees with coinbase scriptSig for {key}"
+                    )
+                source_child_height = int_or_none(source_row.get("child_height"))
+                if (
+                    source_child_height is not None
+                    and source_child_height != child_height
+                ):
+                    raise ValueError(
+                        f"error source coordinate disagrees with child height for {key}"
+                    )
+                for field in (
+                    "child_block_hash",
+                    "child_header_hex",
+                    "child_block_time",
+                    "child_nbits",
+                ):
+                    source_value = (source_row.get(field) or "").strip().lower()
+                    witness_value = (row.get(field) or "").strip().lower()
+                    if source_value and witness_value and source_value != witness_value:
+                        raise ValueError(
+                            f"error source coordinate disagrees with {field} for {key}"
+                        )
+                full_coinbase = (
+                    (source_row.get("full_coinbase_hex") or "").strip().lower()
+                )
+                if full_coinbase:
+                    full_coinbases.add(full_coinbase)
+                claim_sets.append(
+                    parse_coinbase_output_claims(
+                        source_row.get("coinbase_outputs") or "",
+                        full_coinbase,
+                    )
+                )
+            if len(full_coinbases) > 1:
+                raise ValueError(
+                    f"error source coordinates disagree on full coinbase for {key}"
+                )
+            row["coinbase_outputs"] = render_coinbase_output_claims(
+                merge_coinbase_output_claim_sets(*claim_sets)
+            )
+            row["full_coinbase_hex"] = next(iter(full_coinbases), "")
         rows.append(row)
     _attach_rsk_error_observation_sidecars(rows, data_dir=data_dir)
     rows.sort(
@@ -522,14 +640,50 @@ def validate_error_observation_ledger(
                 f"{key}: expected {expected_catalogue_row}, got "
                 f"{witness['catalogue_row_number']}"
             )
+    child_identities = load_child_identity(catalogue_path.parent.parent)
+    for (chain, child_height, parent_hash), witness in ledger.items():
+        identity = child_identities.get((chain, parent_hash))
+        if identity is None:
+            continue
+        expected_height = int_or_none(identity.get("child_height"))
+        if expected_height != child_height:
+            raise ValueError(
+                "error-observation ledger child_height disagrees with generic "
+                f"child identity for {chain}:{parent_hash}"
+            )
+        for field in (
+            "child_block_hash",
+            "child_block_time",
+            "child_header_hex",
+            "child_nbits",
+        ):
+            expected = (identity.get(field) or "").strip().lower()
+            if not expected:
+                continue
+            actual = (witness.get(field) or "").strip().lower()
+            # The generic identity ledger may enrich a compact error witness at
+            # export time.  Only a competing populated claim is a disagreement.
+            if not actual:
+                continue
+            if actual != expected:
+                raise ValueError(
+                    f"error-observation ledger {field} disagrees with generic "
+                    f"child identity for {chain}:{parent_hash}"
+                )
     return blocks, ledger
 
 
 def write_error_observation_artifact(
-    output_dir: Path, *, data_dir: Path = DATA_DIR
+    output_dir: Path,
+    *,
+    data_dir: Path = DATA_DIR,
+    source_evidence_rows: Iterable[dict[str, str]] = (),
 ) -> dict[str, object]:
     """Write the complete aggregate from the compact, recovered witness ledger."""
-    rows, inventory = build_error_observation_rows(data_dir=data_dir)
+    rows, inventory = build_error_observation_rows(
+        data_dir=data_dir,
+        source_evidence_rows=source_evidence_rows,
+    )
     path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
     write_csv(path, rows, ERROR_OBSERVATION_FIELDS)
     return {**inventory, "path": path}
@@ -555,5 +709,4 @@ def error_observation_count_row(
         "source_rows": artifact["rows"],
         "canonical_evidence_status": "not_applicable",
         "notes": f"parents={artifact['parents']}",
-        "source_chain_counts": artifact["source_chain_counts"],
     }

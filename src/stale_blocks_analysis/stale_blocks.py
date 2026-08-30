@@ -15,27 +15,23 @@ Depends on: config (STALE_CSV, MIN_HEIGHT, ARGENTUM_CSV, AUXPOW_CSV,
 BITCOIN_VAULT_CSV, BITMARK_CSV, COILEDCOIN_CSV, DEVCOIN_CSV, ELASTOS_CSV, FRACTAL_CSV,
 GEISTGELD_CSV, GROUPCOIN_CSV, HUNTERCOIN_CSV, I0COIN_CSV, IXCOIN_CSV,
 LYNCOIN_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
-UNOBTANIUM_CSV, ELCASH_CSV), bitcoin_binary (_b58_decode_to_hash160,
-_bech32_decode_to_program).
+UNOBTANIUM_CSV, ELCASH_CSV), coinbase_output_claims.
 """
 
 import csv
-import hashlib
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
-from .bitcoin_binary import (
-    _bech32_decode_to_program,
-)
+from .coinbase_output_claims import parse_coinbase_output_claims
 from .config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
     MIN_HEIGHT,
     RSK_CSV,
     STALE_CSV,
-    STALE_DESCENDANT_CORRECTIONS_CSV,
     STALE_DESCENDANTS_CSV,
 )
 from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
+from .stale_descendants import load_stale_descendant_parents
 
 # The per-chain *_CSV path constants below are referenced only indirectly, via
 # globals()[spec.csv_attr] at load time (see the LoaderSpec docstring), so a test
@@ -86,135 +82,6 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
     return rows
 
 
-# Base58 version bytes seen in the committed loader outputs. Child-chain
-# RPCs re-encode the Bitcoin parent coinbase's outputs with their OWN
-# version bytes, so the script type must be read from the version, not from
-# the leading character: Namecoin's P2PKH version (52) renders as both "N"
-# and "M" depending on the payload, and reading "M" as P2SH mistypes 3,146
-# committed outputs.
-_P2PKH_VERSIONS = frozenset({0, 52, 63})  # Bitcoin, Namecoin, Syscoin
-_P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
-
-_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-
-def _b58_decode_versioned(addr: str) -> tuple[int, bytes] | None:
-    """Version byte and 20-byte payload of a base58check address."""
-    num = 0
-    for ch in addr:
-        index = _B58_ALPHABET.find(ch)
-        if index < 0:
-            return None
-        num = num * 58 + index
-    raw = num.to_bytes((num.bit_length() + 7) // 8, "big")
-    raw = b"\x00" * (len(addr) - len(addr.lstrip("1"))) + raw
-    if len(raw) != 25:
-        return None
-    body, checksum = raw[:-4], raw[-4:]
-    if hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4] != checksum:
-        return None
-    return raw[0], raw[1:21]
-
-
-def _bech32_encoding_ok(addr: str) -> bool:
-    """Whether a lowercased bech32/bech32m address is well formed.
-
-    Checks the checksum against the address's OWN human-readable prefix
-    (bc or nc), the constant matching its witness version, and BIP-173's
-    padding rule, none of which `_bech32_decode_to_program` verifies.
-    """
-    pos = addr.rfind("1")
-    if pos < 1:
-        return False
-    hrp, data = addr[:pos], addr[pos + 1 :]
-    if len(data) < 7 or any(c not in _BECH32_CHARSET for c in data):
-        return False
-    values = (
-        [ord(c) >> 5 for c in hrp]
-        + [0]
-        + [ord(c) & 31 for c in hrp]
-        + [_BECH32_CHARSET.index(c) for c in data]
-    )
-    generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
-    chk = 1
-    for value in values:
-        top = chk >> 25
-        chk = (chk & 0x1FFFFFF) << 5 ^ value
-        for i in range(5):
-            chk ^= generator[i] if ((top >> i) & 1) else 0
-    version = _BECH32_CHARSET.index(data[0])
-    if chk != (1 if version == 0 else 0x2BC830A3):
-        return False
-    # Padding: the 5-bit program must convert to whole bytes with fewer
-    # than 5 leftover bits, all zero. The decoder silently drops them, so
-    # several distinct data parts would otherwise yield one script.
-    leftover = (len(data[1:-6]) * 5) % 8
-    if leftover >= 5:
-        return False
-    return not (leftover and _BECH32_CHARSET.index(data[-7]) & ((1 << leftover) - 1))
-
-
-def _addr_to_spk(addr: str) -> bytes | None:
-    """Convert an address string to the Bitcoin scriptPubKey it represents.
-
-    Handles Bitcoin addresses and the child-chain re-encodings of Bitcoin
-    parent-coinbase outputs that the loader CSVs carry (Namecoin, Syscoin).
-    Returns None if the address cannot be decoded or its version byte is
-    not one this project has seen in committed data.
-    """
-    # Base58 first: a Namecoin address can be *spelled* "NC1..." (there are
-    # 17 such outputs in the committed inputs), and case-folding it into the
-    # bech32 branch would discard its payout evidence. A real bech32 address
-    # will not pass a base58check, so the order is safe.
-    decoded = _b58_decode_versioned(addr)
-    if decoded is not None:
-        version, h160 = decoded
-        if version in _P2PKH_VERSIONS:
-            return bytes([0x76, 0xA9, 0x14]) + h160 + bytes([0x88, 0xAC])
-        if version in _P2SH_VERSIONS:
-            return bytes([0xA9, 0x14]) + h160 + bytes([0x87])
-        return None
-
-    lowered = addr.lower()
-    # The separator is the LAST "1" (the data charset has no "1"), so match
-    # on the parsed prefix rather than on "starts with bc1": an address
-    # encoded for the HRP "bc1evil" checksums against that HRP and would
-    # otherwise decode into an ordinary Bitcoin script.
-    hrp = lowered[: lowered.rfind("1")] if "1" in lowered else ""
-    if hrp in ("bc", "nc"):
-        # The shared decoder skips the checksum, so a mutated address would
-        # rebuild the same canonical script and could match a real payout
-        # marker. Verify against the address's OWN prefix before converting.
-        if addr != lowered and addr != addr.upper():
-            return None
-        if not _bech32_encoding_ok(lowered):
-            return None
-        # nc1 = Namecoin bech32. The HRP only affects the (skipped) checksum,
-        # so normalize to bc1 and decode the identical data part. The case
-        # fold matters too: BIP-173 permits an all-uppercase address, which
-        # would otherwise fall through to the base58 decoder and be dropped.
-        program = _bech32_decode_to_program("bc1" + lowered[3:])
-        if program is None:
-            return None
-        # The decoder drops the witness version, but the script depends on
-        # it: reconstructing every 20-byte program as OP_0 would let a v1
-        # address impersonate a P2WPKH marker, and every 32-byte program as
-        # OP_1 would mistype a v0 P2WSH output as Taproot.
-        separator = lowered.rfind("1")
-        data = lowered[separator + 1 :]
-        if not data or data[0] not in _BECH32_CHARSET:
-            return None
-        version = _BECH32_CHARSET.index(data[0])
-        if version > 16 or not 2 <= len(program) <= 40:
-            return None
-        if version == 0 and len(program) not in (20, 32):
-            return None
-        opcode = 0x00 if version == 0 else 0x50 + version
-        return bytes([opcode, len(program)]) + program
-    return None
-
-
 OutputsMode = Literal["raw", "addr", "addr_nonstandard"]
 
 
@@ -233,9 +100,9 @@ class LoaderSpec:
         that chain's validated CSV.
       - require_stale: gate rows on classification == "stale" (the default;
         every normalized validated CSV is stale-only).
-      - every committed input row must have a validation_status beginning with
-        "VALID". This preserves legacy Namecoin/i0coin ``VALID (...)`` verdicts
-        while failing closed on blank or unvalidated rows.
+      - every committed input row must have one of the two exact accepted
+        validation statuses: ``VALID`` or
+        ``VALID (post-BCH, difficulty matches BTC)``.
       - outputs: coinbase_outputs handling — "raw" (passthrough),
         "addr" (parse "addr:value|..." to "addr;addr", dropping OP_RETURN),
         or "addr_nonstandard" (as "addr" but also dropping "nonstandard*").
@@ -291,7 +158,10 @@ def load_auxpow_validated_stales(
         for row in csv.DictReader(f):
             if spec.require_stale and row.get("classification") != "stale":
                 continue
-            if not row.get("validation_status", "").startswith("VALID"):
+            if (
+                row.get("validation_status", "")
+                not in ACCEPTED_STALE_VALIDATION_STATUSES
+            ):
                 continue
             height_str = row.get(spec.height_col, "")
             if spec.skip_empty_height and not height_str:
@@ -326,7 +196,7 @@ def load_auxpow_validated_stales(
 _LOADER_SPECS: dict[str, LoaderSpec] = {
     "namecoin": LoaderSpec(
         # Normalized to the shared schema in the data pass (legacy file used
-        # btc_stale_height / btc_hash / btc_bits_hex). The common VALID-prefix
+        # btc_stale_height / btc_hash / btc_bits_hex). The shared exact-status
         # gate preserves the documented "VALID (post-BCH ...)" contract.
         csv_attr="AUXPOW_CSV",
         source="namecoin",
@@ -347,7 +217,7 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     ),
     "i0coin": LoaderSpec(
         # Normalized to the shared schema in the data pass (legacy file used
-        # btc_stale_height / btc_hash / btc_bits_hex). The common VALID-prefix
+        # btc_stale_height / btc_hash / btc_bits_hex). The shared exact-status
         # gate preserves the documented "VALID (post-BCH ...)" contract.
         csv_attr="I0COIN_CSV",
         source="i0coin",
@@ -446,16 +316,11 @@ def load_namecoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Returns records in the same shape as load_stale_csv() but with the
     coinbase data pre-parsed from the AuxPoW extraction (no .bin file
     needed). Only loads entries with classification "stale" and
-    validation_status starting with "VALID".
+    one of the exact accepted direct-stale validation statuses.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["namecoin"], min_height=min_height
     )
-
-
-def load_auxpow_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Backward-compatible alias for Namecoin AuxPoW stales."""
-    return load_namecoin_stales(min_height=min_height)
 
 
 def load_geistgeld_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
@@ -505,8 +370,8 @@ def load_i0coin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     """Load AuxPoW-recovered stale blocks from i0coin merged mining data.
 
     Returns records in the same shape as load_namecoin_stales() with
-    source="i0coin". Only loads entries with validation_status
-    starting with "VALID". The committed CSV uses the shared normalized
+    source="i0coin". Only loads entries with an exact accepted direct-stale
+    validation status. The committed CSV uses the shared normalized
     validated-stales schema, including ``btc_height`` and
     ``btc_header_hash``. Coinbase outputs remain raw scriptPubKey hex.
     """
@@ -781,7 +646,10 @@ def load_rsk_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
         for row in csv.DictReader(f):
             if row.get("classification") != "stale":
                 continue
-            if not row.get("validation_status", "").startswith("VALID"):
+            if (
+                row.get("validation_status", "")
+                not in ACCEPTED_STALE_VALIDATION_STATUSES
+            ):
                 continue
             h = int(row["btc_height"])
             if h < min_height:
@@ -887,192 +755,40 @@ def load_lyncoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def _outputs_for_tagging(raw_outputs: str) -> str:
-    """Normalize mixed output encodings to the established semicolon form."""
-    if not raw_outputs:
-        return ""
-    out = []
-    for part in raw_outputs.replace(";", "|").split("|"):
-        entry = part.strip()
-        if not entry:
-            continue
-        if ":" in entry:
-            label, _value = entry.split(":", 1)
-            if label == "OP_RETURN":
-                continue
-            entry = label
-        out.append(entry)
-    return ";".join(out)
+    """Return every exact script recoverable from mixed output evidence."""
+    return ";".join(
+        claim.script_hex
+        for claim in parse_coinbase_output_claims(raw_outputs)
+        if claim.script_hex
+    )
 
 
 def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load derived BTC stale-fork descendants from the unknown inventories.
+    """Load accepted BTC stale-fork descendant parent verdicts.
 
     `scripts/analysis/reconcile_unknown_stale_ancestry.py` writes this file
-    after walking unknown-row `btc_prev_hash` ancestry back to known BTC
-    stale headers. Raw classifier rows remain `unknown`; this loader admits
-    only rows with `classification == "stale_descendant"` and
+    after walking candidate evidence from every source bucket back to trusted
+    BTC stale headers. Source classifications remain audit metadata in the
+    separate observation ledger. This loader admits only parent rows with
+    `classification == "stale_descendant"` and
     `validation_status == "VALID_STALE_DESCENDANT"` so downstream consumers get
     valid stale-fork continuation headers without weakening the one-hop stale
     classifier semantics.
     """
-    if not STALE_DESCENDANTS_CSV.exists():
-        return []
-
     rows = []
-    with open(STALE_DESCENDANTS_CSV, newline="") as f:
-        for row in csv.DictReader(f):
-            if row.get("classification") != "stale_descendant":
-                continue
-            if row.get("validation_status") != "VALID_STALE_DESCENDANT":
-                continue
-            h = int(row["btc_height"])
-            if h < min_height:
-                continue
-            rows.append(
-                {
-                    "height": h,
-                    "hash": row["btc_header_hash"],
-                    "source": "stale-descendant",
-                    "_scriptsig_hex": row.get("coinbase_scriptsig_hex", ""),
-                    "_outputs_str": _outputs_for_tagging(
-                        row.get("coinbase_outputs", "")
-                    ),
-                }
-            )
+    for parent in load_stale_descendant_parents(STALE_DESCENDANTS_CSV).values():
+        if parent.height < min_height:
+            continue
+        rows.append(
+            {
+                "height": parent.height,
+                "hash": parent.block_hash,
+                "source": "stale-descendant",
+                "_scriptsig_hex": parent.row.get("coinbase_scriptsig_hex", ""),
+                "_outputs_str": _outputs_for_tagging(
+                    parent.row.get("coinbase_outputs", "")
+                ),
+            }
+        )
     rows.sort(key=lambda r: r["height"])
     return exclude_consensus_invalid_rows(rows)
-
-
-def load_stale_descendant_observation_keys(
-    path: Path = STALE_DESCENDANTS_CSV,
-) -> frozenset[tuple[str, int, str]]:
-    """Return accepted source observations as ``(chain, BTC height, hash)`` keys.
-
-    These keys join exact source rows to the independently validated
-    stale-descendant sidecar. Unknown source rows retain their primary
-    classification; a direct-stale source row corrected by the exact-key
-    overlay can be projected into its final ``stale_descendant`` state.
-    """
-    if not path.exists():
-        return frozenset()
-
-    observations: set[tuple[str, int, str]] = set()
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = {
-            "classification",
-            "validation_status",
-            "btc_height",
-            "btc_header_hash",
-            "source_rows",
-        }
-        missing = required.difference(reader.fieldnames or ())
-        if missing:
-            raise ValueError(
-                f"{path}: missing stale-descendant columns: "
-                + ", ".join(sorted(missing))
-            )
-        for row_number, row in enumerate(reader, start=2):
-            if row["classification"] != "stale_descendant" or (
-                row["validation_status"] != "VALID_STALE_DESCENDANT"
-            ):
-                continue
-            try:
-                height = int(row["btc_height"])
-            except (KeyError, ValueError) as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_height must be an integer"
-                ) from exc
-            if height < 0:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_height must be non-negative"
-                )
-            block_hash = row["btc_header_hash"].strip().lower()
-            if len(block_hash) != 64:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be 32 bytes"
-                )
-            try:
-                bytes.fromhex(block_hash)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be hexadecimal"
-                ) from exc
-            for source_row in row["source_rows"].split("|"):
-                chain, separator, _source = source_row.strip().partition(":")
-                if not separator or not chain:
-                    raise ValueError(
-                        f"{path}:{row_number}: malformed source_rows entry"
-                    )
-                observations.add((chain, height, block_hash))
-    return frozenset(observations)
-
-
-def load_stale_descendant_corrections(
-    path: Path = STALE_DESCENDANT_CORRECTIONS_CSV,
-) -> dict[tuple[int, str], str]:
-    """Return exact classifier-bucket corrections keyed by Bitcoin identity.
-
-    The compact correction overlay is distinct from the accepted descendant
-    sidecar. A source row must match both this exact Bitcoin identity and its
-    chain-specific sidecar observation before the monitor export projects it as
-    a descendant.
-    """
-    if not path.exists():
-        return {}
-
-    corrections: dict[tuple[int, str], str] = {}
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = {
-            "btc_height",
-            "btc_header_hash",
-            "correction_reason",
-        }
-        missing = required.difference(reader.fieldnames or ())
-        if missing:
-            raise ValueError(
-                f"{path}: missing stale-descendant correction columns: "
-                + ", ".join(sorted(missing))
-            )
-        for row_number, row in enumerate(reader, start=2):
-            if row["correction_reason"] not in {
-                "reclassified_from_direct_stale",
-                "reclassified_from_canonical",
-            }:
-                raise ValueError(f"{path}:{row_number}: unsupported correction_reason")
-            try:
-                height = int(row["btc_height"])
-            except (KeyError, ValueError) as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_height must be an integer"
-                ) from exc
-            if height < 0:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_height must be non-negative"
-                )
-            block_hash = row["btc_header_hash"].strip().lower()
-            if len(block_hash) != 64:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be 32 bytes"
-                )
-            try:
-                bytes.fromhex(block_hash)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: btc_header_hash must be hexadecimal"
-                ) from exc
-            key = (height, block_hash)
-            if key in corrections:
-                raise ValueError(
-                    f"{path}:{row_number}: duplicate stale-descendant correction key"
-                )
-            corrections[key] = row["correction_reason"]
-    return corrections
-
-
-def load_stale_descendant_correction_keys(
-    path: Path = STALE_DESCENDANT_CORRECTIONS_CSV,
-) -> frozenset[tuple[int, str]]:
-    """Return exact identities from the typed classifier correction overlay."""
-    return frozenset(load_stale_descendant_corrections(path))

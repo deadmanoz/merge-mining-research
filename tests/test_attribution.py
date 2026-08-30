@@ -71,7 +71,7 @@ def _write_rsk_csv(path) -> None:
         "rsk_miner,pool_label\n"
         "100,aaa,stale,VALID,32dfc7a8,Braiins Pool\n"
         "200,bbb,stale,REJECTED_NBITS,32dfc7a8,Rejected Pool\n"
-        "300,ccc,stale,VALID_STALE,32dfc7a8,F2Pool\n"
+        '300,ccc,stale,"VALID (post-BCH, difficulty matches BTC)",32dfc7a8,F2Pool\n'
         "400,ddd,stale,VALID,32dfc7a8,Unknown\n"
         "500,eee,stale,VALID,32dfc7a8,Braiins Pool\n",
         encoding="utf-8",
@@ -87,11 +87,11 @@ def test_rsk_historical_join_applies_only_to_gate_passing_rsk_rows(
 
     records = [
         {"height": 100, "hash": "aaa", "source": "rsk", "pool": "Unknown"},
-        # Same (height, hash) key but a different source: must not be relabelled.
+        # Same observed header under another primary source still joins by identity.
         {"height": 100, "hash": "aaa", "source": "stale-blocks", "pool": "Unknown"},
         # RSK row whose registry entry failed the validation gate.
         {"height": 200, "hash": "bbb", "source": "rsk", "pool": "Unknown"},
-        # VALID_-prefixed verdicts pass the public gate.
+        # The documented post-BCH verdict is the second exact accepted status.
         {"height": 300, "hash": "ccc", "source": "rsk", "pool": "Unknown"},
         # The registry's literal "Unknown" sentinel is not an attribution.
         {"height": 400, "hash": "ddd", "source": "rsk", "pool": "Unknown"},

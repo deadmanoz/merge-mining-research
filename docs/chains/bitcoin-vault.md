@@ -82,7 +82,10 @@ Zero unknowns is unusual. Most pipeline chains have orders-of-magnitude more unk
 **Loader filter** (`load_bitcoin_vault_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The July 2026 refresh re-emitted this CSV on the shared 16-column layout with

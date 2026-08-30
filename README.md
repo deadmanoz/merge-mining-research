@@ -35,12 +35,13 @@ tooling, and published datasets.
 ## Stale-block recovery
 
 A stale block is a valid Bitcoin block that lost a propagation race and did not
-remain in the canonical chain. The AuxPoW evidence recovered here usually
-contains a competing Bitcoin header and its coinbase evidence, not the complete
-Bitcoin block. The repository therefore publishes **direct-stale header
-candidates** and states which necessary validity checks they passed. Unless a
-complete block has been independently validated, `classification=stale` and
-`validation_status=VALID` do not assert full Bitcoin block validity. See the
+remain in the canonical chain. The merge-mining evidence recovered here
+contains a competing Bitcoin header and, where the proof exposes it, coinbase
+evidence, not the complete Bitcoin block. The repository therefore publishes
+**direct-stale header candidates** and states which necessary validity checks
+they passed. Unless a complete block has been independently validated, the
+combination of `classification=stale` and either exact accepted direct-stale
+token in `validation_status` does not assert full Bitcoin block validity. See the
 [data validity contract](docs/data-validity.md).
 
 Bitcoin nodes that received a stale block may retain it as an alternative chain
@@ -99,9 +100,11 @@ On 20 July 2026, all 3,652 accepted direct observations in the committed chain
 inputs were replayed against Bitcoin Core tip 958,882 and passed every check
 available from their evidence. RSK's 298 rows lack the coinbase required for the
 scriptSig-length and BIP34-prefix checks.
-On 3 August 2026, source-driven Elastos and Syscoin reclassification corrected
-44 additional side-chain headers from canonical to valid direct stale; each
-passed the same available-evidence profile against Bitcoin Core.
+The current Elastos and Syscoin inputs include 44 additional direct-stale
+headers verified from their source data against the same available-evidence
+profile and Bitcoin Core.
+The 30 August same-generation Namecoin and Fractal refresh adds 33 more
+accepted direct observations that passed the same profile.
 
 ## Child-chain coverage
 
@@ -127,7 +130,7 @@ cross-chain accounting snapshot.
 
 | Child chain | Source and recovered scope | Accepted direct-stale candidates | Strict BTC orphans | Weak BTC orphans | Coverage limit or significance |
 |---|---|---:|---:|---:|---|
-| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,625 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
+| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,649 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
 | [Geistgeld](docs/chains/geistgeld.md) | Complete Nicholas Stifter `getblock` JSON dump; 7.3M records | 0 | 0 | 0 | Most parent headers use targets easier than Bitcoin's and do not link to Bitcoin mainnet, so no direct stales are accepted. |
 | [i0coin](docs/chains/i0coin.md) | Third-party `blk*.dat` snapshot from January 2018 | 166 | 2 | 0 | Coverage ends with the January 2018 snapshot, so the count is provisional and incomplete. |
 | [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 465 | 3 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |
@@ -146,13 +149,13 @@ cross-chain accounting snapshot.
 | [Doichain](docs/chains/doichain.md) | Local node; block-file survey through the active-chain tip observed at child height 430,684 | 0 | 0 | 0 | Observed-window negative result with no accepted stale or strict/weak evidence. |
 | [Bitmark](docs/chains/bitmark.md) | Synced multi-algo node; SHA-256d branch scanned to the recovered tip | 1 | 0 | 0 | The single accepted candidate cross-confirms an event already seen by other chains. |
 | [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 40 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
-| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through January 2026 | 177 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
+| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through April 2026 | 177 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
 | [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 98 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
 | [Hathor](docs/chains/hathor.md) | Public REST API; retained corpus through child height 6,593,796 | 6 | 0 | 0 | The unified result covers 6,532,372 version-3 observations and publishes 3,658 canonical parents plus the 6 accepted direct stales. |
 | [Bitcoin Vault](docs/chains/bitcoin-vault.md) | Trezor Blockbook raw-block API; nearly complete AuxPoW lifetime | 9 | 0 | 0 | No node was available, and no later accepted direct stale was found after 2021. |
 | [Electric Cash](docs/chains/elcash.md) | Self-synced local node; standard Namecoin-style AuxPoW | 3 | 0 | 0 | The three accepted stales from June to September 2021 all cross-confirm Bitcoin Vault observations. |
 | [Lyncoin](docs/chains/lyncoin.md) | Live-peer P2P header stream; complete pre-Flex merge-mined era | 0 | 0 | 0 | Complete recovered era with no accepted stale or strict/weak evidence. |
-| [Fractal Bitcoin](docs/chains/fractal.md) | Archival node; point-in-time scan through child height 1,807,154 | 31 | 0 | 0 | Only the Cadence merge-mined block class carries Bitcoin-parent evidence. |
+| [Fractal Bitcoin](docs/chains/fractal.md) | Archival node; point-in-time scan through child height 1,807,154 | 40 | 0 | 0 | Only the Cadence merge-mined block class carries Bitcoin-parent evidence. |
 
 ### Partial canonical evidence
 
@@ -251,8 +254,9 @@ is not an input to stale-block recovery or the committed loader datasets.
 │   └── fetch-data.sh           # clones pinned bitcoin-data/stale-blocks into data/
 ├── data/                       # committed stale and error-block loader inputs
 │   ├── bitcoin-epoch-reference/# public nBits/time reference for relevance gates
-│   ├── error-blocks/           # catalogue, observation ledger, context, identities
-│   └── stale_descendants.csv   # accepted stale-fork continuations
+│   ├── error-blocks/           # error catalogue, witness ledger, and context
+│   ├── stale_descendants.csv   # accepted stale-fork parent verdicts
+│   └── stale_descendant_observations.csv # authenticated witnesses
 ├── results/                    # committed reference CSVs and final exports
 │   ├── monitor-evidence/       #   Git LFS-backed per-chain payloads + metadata
 │   ├── analysis/               #   regenerable diagnostics grouped by question
@@ -316,7 +320,8 @@ just refresh-bitcoin-epoch-reference
 just full-evidence
 just strict-weak-orphans
 just monitor-evidence
-just reconcile-error-blocks
+just validate-error-blocks
+just reconcile-stale-ancestry --rpc-source-label bitcoin-01
 just attribute
 just child-header-coverage --input-dir <staged-evidence-dir> \
   --output <staged-results-dir>/child-header-coverage.csv
@@ -332,15 +337,24 @@ It includes every available canonical row for every chain and fails closed
 when required inputs are incomplete. `--skip-canonical` is a diagnostic option
 and is accepted only with `--allow-partial` and an explicit, disposable
 `--output-dir`; partial builds must not replace the committed release
-artifacts. The command stages the complete generated set before replacing
-prior monitor files, and preserves unrelated files in the output directory if
-the build succeeds or fails.
+artifacts. The command stages the complete generated set before replacing the
+publication transactionally, and preserves unrelated files in the output
+directory if the build succeeds or fails.
 
-`just reconcile-error-blocks` requires the complete staged ancestry inventories.
-It rebuilds the 21 accepted stale descendants and four-row generated error
-peer, authenticates the peer's eight child observations against the committed
-identity manifest, and updates the 39-parent catalogue plus 86-row observation
-ledger through a deterministic, fail-closed workflow.
+`just validate-error-blocks` re-derives the canonical, reviewed 39-parent
+error-block catalogue and validates exact coverage by its 86-row observation
+ledger. `just reconcile-stale-ancestry` requires the complete staged ancestry
+inventories. It validates that canonical error module first, excludes its
+known parent hashes, evaluates the complete candidate population against
+trusted stale roots, and publishes 21 accepted parent verdicts in
+`data/stale_descendants.csv` plus 32 authenticated witnesses in
+`data/stale_descendant_observations.csv`. Any consensus-invalid candidate not
+already admitted to the canonical error catalogue fails the workflow before
+either stale-ancestry artifact is installed.
+The command also requires a stable, non-secret `--rpc-source-label` for the
+Bitcoin Core node that performs the exact active-hash-at-height comparisons.
+That label is committed as `bitcoin-core-rpc:<label>`; `configured-node` is
+reserved for disposable partial diagnostics.
 
 Per-chain extraction and classification entry points are documented in the
 corresponding notes under [`docs/chains/`](docs/chains/). Run an individual

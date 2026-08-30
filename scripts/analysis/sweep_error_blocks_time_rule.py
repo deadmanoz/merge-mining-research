@@ -128,6 +128,10 @@ UNKNOWN_INVENTORY_GLOB: dict[str, str] = {
 
 DEFAULT_REPORT = Path("results/analysis/error-blocks/time-rule-report.md")
 DEFAULT_MTP_CACHE = Path("cache/time_sweep_mtp.json")
+FOLLOW_UP_DOC_LINK = (
+    "[docs/error-blocks.md#future-limit-follow-up-investigation]"
+    "(../../../docs/error-blocks.md#future-limit-follow-up-investigation)"
+)
 
 INVENTORY_BASELINE_ROWS = {
     **{f"{chain}:stale": rows for chain, rows in STALE_INVENTORY_BASELINE_ROWS.items()},
@@ -136,13 +140,6 @@ INVENTORY_BASELINE_ROWS = {
         for chain, rows in UNKNOWN_INVENTORY_BASELINE_ROWS.items()
     },
 }
-
-# Heading prefix of the manually-written follow-up investigation section that
-# resolves the future-limit flags (the child-chain commit-time evidence). The
-# sweep cannot regenerate that investigation, so when the committed report is
-# regenerated the section is carried forward verbatim from the prior report
-# text (see render_report's prior_text parameter) rather than dropped.
-RESOLUTION_SECTION_MARKER = "## Follow-up investigation"
 
 # Callable that returns {height: {"time": int, "mediantime": int}} for the
 # canonical blocks at the given heights, or raises.
@@ -622,31 +619,8 @@ def evaluate_candidate(
             report.future_limit_flags.append(cand)
 
 
-def extract_resolution_section(report_text: str) -> str:
-    """Return the follow-up investigation section of a report, or "".
-
-    The section runs from the ``## Follow-up investigation`` heading to the
-    end of the report. It is the manually-written child-chain commit-time
-    resolution of the future-limit flags, which the sweep cannot regenerate;
-    it is carried forward verbatim across regeneration. Returns "" when the
-    report has no such section.
-    """
-    idx = report_text.find(RESOLUTION_SECTION_MARKER)
-    if idx == -1:
-        return ""
-    return report_text[idx:].rstrip("\n")
-
-
-def render_report(
-    reports: list[ChainReport], generated_at: str, prior_text: str = ""
-) -> str:
-    """Render the dated Markdown sweep report, including negative results.
-
-    When ``prior_text`` carries a follow-up investigation section (the
-    manually-written future-limit resolution the sweep cannot regenerate), it
-    is appended verbatim so regenerating the report does not drop that
-    evidence.
-    """
+def render_report(reports: list[ChainReport], generated_at: str) -> str:
+    """Render the dated Markdown sweep report, including negative results."""
     reachable = [r for r in reports if r.reachable]
     unreachable = [r for r in reports if not r.reachable]
     total_stale = sum(r.stale_rows for r in reachable)
@@ -874,10 +848,10 @@ def render_report(
         "Row-level candidate detail remains in the authoritative inventories on",
         "the chain archive host; this report is the compact committed summary.",
         "",
+        "The authored resolution of the future-limit flags is maintained at",
+        f"{FOLLOW_UP_DOC_LINK}.",
+        "",
     ]
-    resolution = extract_resolution_section(prior_text)
-    if resolution:
-        lines += [resolution, ""]
     return "\n".join(lines)
 
 
@@ -994,12 +968,8 @@ def main(argv: list[str] | None = None) -> int:
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    def render(output: Path) -> str:
-        # Preserve the manually-written follow-up investigation section (the
-        # future-limit resolution the sweep cannot regenerate) across the
-        # overwrite: carry it forward from the report being replaced.
-        prior_text = output.read_text() if output.exists() else ""
-        return render_report(reports, generated_at, prior_text)
+    def render(_output: Path) -> str:
+        return render_report(reports, generated_at)
 
     write_rc = write_sweep_report(args, default_report=DEFAULT_REPORT, render=render)
     if write_rc:

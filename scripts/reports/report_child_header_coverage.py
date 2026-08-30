@@ -24,10 +24,11 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
 from stale_blocks_analysis.config import (  # noqa: E402
     CHAIN_SPECS,
     HISTORICAL_CHILD_HEADER_CHAINS,
+    STALE_DESCENDANT_OBSERVATIONS_CSV,
     STALE_DESCENDANTS_CSV,
 )
-from stale_blocks_analysis.stale_blocks import (  # noqa: E402
-    load_stale_descendant_observation_keys,
+from stale_blocks_analysis.stale_descendants import (  # noqa: E402
+    load_stale_descendant_observations as load_descendant_ledger,
 )
 
 REPORT_FIELDS = (
@@ -63,9 +64,12 @@ def load_stale_descendant_observations(path: Path) -> dict[str, frozenset[str]]:
     targets: dict[str, set[str]] = {
         chain: set() for chain in HISTORICAL_CHILD_HEADER_CHAINS
     }
-    for chain, _height, block_hash in load_stale_descendant_observation_keys(path):
-        if chain in targets:
-            targets[chain].add(block_hash)
+    for observation in load_descendant_ledger(
+        path,
+        parents_path=STALE_DESCENDANTS_CSV,
+    ):
+        if observation.chain in targets:
+            targets[observation.chain].add(observation.parent_hash)
     return {chain: frozenset(hashes) for chain, hashes in targets.items()}
 
 
@@ -248,7 +252,7 @@ def summarize_artifact(
 def build_report(
     input_dir: Path,
     output: Path,
-    stale_descendants_path: Path = STALE_DESCENDANTS_CSV,
+    stale_descendants_path: Path = STALE_DESCENDANT_OBSERVATIONS_CSV,
 ) -> list[dict[str, str]]:
     """Validate target artifacts, then atomically replace the coverage CSV."""
     descendant_observations = load_stale_descendant_observations(stale_descendants_path)
@@ -303,16 +307,20 @@ def main() -> int:
         help="Explicit staged coverage CSV path",
     )
     parser.add_argument(
-        "--stale-descendants",
+        "--stale-descendant-observations",
         type=Path,
-        default=STALE_DESCENDANTS_CSV,
+        default=STALE_DESCENDANT_OBSERVATIONS_CSV,
         help=(
-            "Accepted stale-descendant sidecar used to account for each "
+            "Accepted stale-descendant observation ledger used to account for each "
             "source-chain observation"
         ),
     )
     args = parser.parse_args()
-    rows = build_report(args.input_dir, args.output, args.stale_descendants)
+    rows = build_report(
+        args.input_dir,
+        args.output,
+        args.stale_descendant_observations,
+    )
     hydrated = sum(int(row["hydrated_rows"]) for row in rows)
     total = sum(int(row["total_rows"]) for row in rows)
     descendant_hydrated = sum(

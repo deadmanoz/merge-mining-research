@@ -166,10 +166,9 @@ _CHILD_OUTPUT_COLUMNS = [
 # The pipe-joined set of consensus rules a row's own bytes prove it violated.
 # It exists only on the error-block artifact: it is the evidence for that
 # classification, and no other bucket has a claim to record. The name and the
-# ``|`` separator are the import contract ``scripts/prep/build_error_blocks.py``
-# honors verbatim, and the ones the other two producers
-# (the unified Hathor classifier and ``reconcile_unknown_stale_ancestry.py``)
-# already emit, so all three agree.
+# ``|`` separator are the canonical authored error-catalogue contract and are
+# also emitted by diagnostic classifiers so reviewed candidates use the same
+# vocabulary before admission.
 RULES_VIOLATED_COLUMN = "rules_violated"
 
 

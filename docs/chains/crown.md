@@ -74,7 +74,10 @@ The ~1.88M extracted commitments across the PoW era confirm the ~99% merge-mined
 **Loader filter** (`load_crown_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader parses `coinbase_outputs` as raw pkscript hex, semicolon-joined (matches the myriadcoin / argentum / ixcoin format). The extractor preserves the parent-coinbase outputs verbatim without address decoding so they remain available for later attribution research. All 23 entries pass the filter.

@@ -8,7 +8,8 @@ and `tag_stale_blocks` attributes each record to a mining pool via
 the acquisition/recovery pipeline never imports the pool dataset.
 
 Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
-pool_identification (identify_pool_detailed), stale_blocks (_addr_to_spk).
+pool_identification (identify_pool_detailed), coinbase_output_claims
+(address_to_script_pubkey).
 """
 
 import hashlib
@@ -16,7 +17,7 @@ import hashlib
 from .bitcoin_binary import parse_coinbase, sha256d
 from .config import BLOCKS_DIR
 from .pool_identification import identify_pool_detailed
-from .stale_blocks import _addr_to_spk
+from .coinbase_output_claims import address_to_script_pubkey
 
 
 def merge_stale_sources(
@@ -257,7 +258,7 @@ def tag_stale_blocks(
                     entry = entry.strip()
                     if not entry:
                         continue
-                    spk = _addr_to_spk(entry)
+                    spk = address_to_script_pubkey(entry)
                     if spk is None:
                         try:
                             spk = bytes.fromhex(entry)

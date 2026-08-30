@@ -100,7 +100,10 @@ records the resulting zero accepted direct-stale candidates.
 The header-only input still follows the shared fail-closed loader contract:
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 No rows pass because the surveyed window produced no stale-labelled candidate
@@ -153,7 +156,7 @@ canonical and 134,093 were known to the Bitcoin node used for the run. The
 other 128,755 commitments have a different exponent. They include the 50,621
 unique headers that passed their own encoded target and entered the private
 full classifier inventory. The archived classifier found 0 canonical and 0
-direct-stale observations among them; its legacy `orphan` label corresponds to
+direct-stale observations among them; its historical `orphan` label corresponds to
 the current primary classification `unknown`.
 
 The 21 remaining exponent-`0x17` rows do not extend the active Bitcoin chain:
@@ -161,12 +164,12 @@ The 21 remaining exponent-`0x17` rows do not extend the active Bitcoin chain:
 
 `scripts/reports/characterize_doichain_auxpow.py` reproduces the population and
 canonical-tip partitions when the private raw extract and the required node RPC
-are supplied. Its historical JSON keys retain the older `real_difficulty`
-shorthand for compatibility, but the implementation groups on the exponent.
+are supplied. Its historical JSON uses the `real_difficulty` shorthand, but the
+implementation groups on the exponent.
 
 ## Strict and weak review
 
-The 2026-06-24 bespoke classifier wrote these 50,621 rows with the legacy
+The 2026-06-24 bespoke classifier wrote these 50,621 rows with the historical
 `orphan` token. Current readers accept that token as `unknown`, and the later
 strict/weak relevance pass assessed all 50,621 against the committed Bitcoin
 epoch reference. It found 0 strict and 0 weak BTC orphans. A new run uses the

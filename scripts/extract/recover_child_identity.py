@@ -31,6 +31,11 @@ slot). Such rows are written with an empty child identity and a reason so the
 exports leave them blank and the monitor importer skips them instead of
 synthesizing an identity.
 
+Successful Bitcoin-shaped recoveries also retain the exact 80-byte child
+header and its compact target. RSK uses an Ethereum-native child block, so its
+rows keep those two core columns explicitly blank while retaining the RSK
+sidecar fields below.
+
 RSK rows additionally carry the fields merge-mining-monitor's
 `rsk_merge_mining_evidence` sidecar requires (miner, hashForMergedMining,
 uncle placement, merkle proof, coinbase tail). Miner, merge-mining hash and
@@ -69,10 +74,16 @@ from pathlib import Path
 import requests
 
 # Repo `src/` is on sys.path when installed via `pip install -e .`.
-from stale_blocks_analysis.auxpow_parse import read_auxpow
+from stale_blocks_analysis.auxpow_parse import (
+    ChildHeaderValidationError,
+    parse_child_header,
+    read_auxpow,
+    serialize_block_header,
+)
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.config import DATA_DIR
 from stale_blocks_analysis.error_observations import ERROR_OBSERVATION_LEDGER
+from stale_blocks_analysis.evidence_hydration import CHILD_IDENTITY_CORE_FIELDS
 from stale_blocks_analysis.full_evidence import CHILD_IDENTITY_HYDRATION_CHAINS
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
@@ -89,15 +100,7 @@ DEFAULT_URLS = {
     "rsk": os.environ.get("RSK_RPC_URL", "http://127.0.0.1:4444"),
 }
 
-CORE_FIELDS = [
-    "chain",
-    "btc_header_hash",
-    "child_height",
-    "child_block_hash",
-    "child_block_time",
-    "verification",
-    "note",
-]
+CORE_FIELDS = CHILD_IDENTITY_CORE_FIELDS
 
 RSK_EXTRA_FIELDS = [
     "rsk_miner",
@@ -122,17 +125,6 @@ def sha256d(data: bytes) -> bytes:
 def display_hash(raw: bytes) -> str:
     """Internal-order digest -> display (RPC order) hex."""
     return raw[::-1].hex()
-
-
-def display_to_internal(display_hex: str) -> str:
-    """Display (RPC order) hex -> internal (wire order) hex.
-
-    The pipeline's `child_block_hash` column contract is internal order (see
-    `auxpow_child_heights`, whose outputs pair `child_block_hash` with a
-    separate `child_block_hash_display`); merge-mining-monitor stores child
-    hashes in the same order and reverses only at presentation boundaries.
-    """
-    return bytes.fromhex(display_hex)[::-1].hex()
 
 
 def strip_0x(value: str) -> str:
@@ -265,6 +257,47 @@ def parent_hash_from_auxpow_family(block: dict) -> str:
     return ""
 
 
+def child_fields_from_raw_header(
+    raw_header: bytes,
+    *,
+    expected_display_hash: str,
+    expected_time: int | None = None,
+    expected_nbits: str | int | None = None,
+) -> dict[str, str | int]:
+    """Authenticate and normalize an exact Bitcoin-shaped child header.
+
+    Some AuxPoW RPCs serialize proof bytes after the pure child header. Only
+    the first 80 bytes identify the child block. The independently returned
+    display hash, timestamp, and compact target are corroborated when present
+    so recovery cannot publish internally consistent bytes for the wrong RPC
+    object.
+    """
+    if len(raw_header) < 80:
+        raise ChildHeaderValidationError(
+            f"child header response is shorter than 80 bytes: {len(raw_header)}"
+        )
+    fields = parse_child_header(
+        raw_header[:80],
+        expected_hash_display=expected_display_hash.strip().lower(),
+    )
+    if expected_time is not None and fields["child_block_time"] != expected_time:
+        raise ChildHeaderValidationError(
+            "child header timestamp disagrees with decoded RPC block"
+        )
+    if expected_nbits is not None:
+        if isinstance(expected_nbits, int):
+            normalized_nbits = f"{expected_nbits:08x}"
+        else:
+            normalized_nbits = expected_nbits.strip().lower()
+            if normalized_nbits.startswith("0x"):
+                normalized_nbits = normalized_nbits[2:]
+        if fields["child_nbits"] != normalized_nbits:
+            raise ChildHeaderValidationError(
+                "child header nBits disagrees with decoded RPC block"
+            )
+    return fields
+
+
 def recover_auxpow_family(chain: str, url: str, targets, limit) -> list[dict]:
     user, password = rpc_auth_from_env(chain.upper())
     rpc = RpcClient(url, user=user, password=password)
@@ -280,8 +313,19 @@ def recover_auxpow_family(chain: str, url: str, targets, limit) -> list[dict]:
             elif derived != btc_hash:
                 row["note"] = f"parent_mismatch:{derived}"
             else:
-                row["child_block_hash"] = display_to_internal(child_hash)
-                row["child_block_time"] = block["time"]
+                child_header_hex = rpc.call("getblockheader", [child_hash, False])
+                if not isinstance(child_header_hex, str):
+                    raise ChildHeaderValidationError(
+                        "getblockheader returned a non-string payload"
+                    )
+                row.update(
+                    child_fields_from_raw_header(
+                        bytes.fromhex(child_header_hex),
+                        expected_display_hash=child_hash,
+                        expected_time=block["time"],
+                        expected_nbits=block.get("bits"),
+                    )
+                )
                 row["verification"] = "auxpow_parent_match"
         except (RuntimeError, ValueError, KeyError, requests.RequestException) as exc:
             row["note"] = f"rpc_error:{exc}"
@@ -302,8 +346,22 @@ def recover_elastos(chain: str, url: str, targets, limit) -> list[dict]:
             if derived != btc_hash:
                 row["note"] = f"parent_mismatch:{derived}"
             else:
-                row["child_block_hash"] = display_to_internal(child_hash)
-                row["child_block_time"] = block["time"]
+                child_header = serialize_block_header(
+                    version=block["version"],
+                    previous_block_hash=block["previousblockhash"],
+                    merkle_root=block["merkleroot"],
+                    timestamp=block["time"],
+                    bits=block["bits"],
+                    nonce=block["nonce"],
+                )
+                row.update(
+                    child_fields_from_raw_header(
+                        child_header,
+                        expected_display_hash=child_hash,
+                        expected_time=block["time"],
+                        expected_nbits=block["bits"],
+                    )
+                )
                 row["verification"] = "auxpow_parent_match"
         except (RuntimeError, ValueError, KeyError, requests.RequestException) as exc:
             row["note"] = f"rpc_error:{exc}"
@@ -325,10 +383,10 @@ def recover_fractal(chain: str, url: str, targets, limit) -> list[dict]:
                 rows.append(row)
                 continue
             fb_header = blob[:80]
-            if display_hash(sha256d(fb_header)) != child_hash.lower():
-                row["note"] = "fb_header_hash_mismatch"
-                rows.append(row)
-                continue
+            child_fields = child_fields_from_raw_header(
+                fb_header,
+                expected_display_hash=child_hash,
+            )
             version = struct.unpack_from("<i", fb_header, 0)[0]
             if not (version & FRACTAL_AUXPOW_FLAG) or (
                 version >> 16 != FRACTAL_AUXPOW_CHAIN_ID
@@ -341,8 +399,7 @@ def recover_fractal(chain: str, url: str, targets, limit) -> list[dict]:
             if derived != btc_hash:
                 row["note"] = f"parent_mismatch:{derived}"
             else:
-                row["child_block_hash"] = display_to_internal(child_hash)
-                row["child_block_time"] = struct.unpack_from("<I", fb_header, 68)[0]
+                row.update(child_fields)
                 row["verification"] = "auxpow_parent_match"
         except (
             RuntimeError,

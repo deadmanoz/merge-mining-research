@@ -128,7 +128,10 @@ here.
 **Loader filter** (`load_elcash_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The exact-key error-blocks gate (`data/error-blocks/error_blocks.csv`) is applied after this persisted gate (no
@@ -244,7 +247,7 @@ external evidence.
 - **2026-07-17** - Public-repo port: the extractor was rewritten on the
   shared `CAuxPow` parser (the original pipeline was scratch scripts beside
   the node), the `node-infra/elcash/` recipe was ported, and the committed
-  CSV was normalized from the legacy 10-column layout to the shared
+  CSV was normalized from the historical 10-column layout to the shared
   12-column validated-stales layout (adding the empty `coinbase_outputs`
   column and the persisted `expected_nbits` verdict). The 2026-07-30 source
   regeneration then expanded it to the shared 16-column layout with the four

@@ -27,7 +27,7 @@ RSK is methodologically distinct from the Namecoin-family `CAuxPow` chains. Its 
 
 - **Early acquisition gap**: the extractor starts at RSK 139,999, but public historical RPC responses contain both full 80-byte merge-mining headers and 69/70-byte fallback signatures before that height. At least RSK 112,829 carries a full parent header. The interval below 139,999 was not recovered and needs a format-aware backfill; 139,999 is not an activation boundary.
 - **Full coinbase unavailable**: RSK replaces a variable-length prefix of complete SHA-256 chunks with a 40-byte trimmed state and retains the unhashed tail. Limited output and `RSKBLOCK:` evidence can survive in that tail, but the full transaction and scriptSig cannot be reconstructed. RSK therefore cannot independently apply the scriptSig-length or BIP34-prefix checks, and the standard validated-schema coinbase fields remain empty.
-- **`classification` column** (`stale`/`unknown`): emitted by `scripts/classify/classify_rsk_stales.py`. Coverage is entirely post-BCH/BSV-fork era, so altchain contamination is possible in principle. The `nBits` pass rejected zero stale-labelled candidates. Five candidates shared with Namecoin are consensus-invalid: one fails BIP34 height and four signed-negative versions fail BIP65's minimum version 4 rule. A sixth shared candidate at Bitcoin height 656,478 extends a known stale predecessor rather than an active-chain block and is moved to the stale-descendant sidecar. The exact-key error-blocks gate therefore leaves 298 accepted direct rows. RSK checks header hash and self-target PoW, active-parent linkage, expected `nBits`, median-time-past, and historical minimum block version. Its midstate-compressed proof does not expose the real coinbase scriptSig, so it cannot independently apply the scriptSig-length or BIP34-prefix checks. Unknown rows pass their encoded self-target and miss canonical-parent linkage; they remain in the private historical classifier inventory rather than the committed loader input. See the [data validity contract](../data-validity.md).
+- **`classification` column** (`stale`/`unknown`): emitted by `scripts/classify/classify_rsk_stales.py`. Coverage is entirely post-BCH/BSV-fork era, so altchain contamination is possible in principle. The `nBits` pass rejected zero stale-labelled candidates. Five candidates shared with Namecoin are consensus-invalid: one fails BIP34 height and four signed-negative versions fail BIP65's minimum version 4 rule. A sixth shared candidate at Bitcoin height 656,478 extends a trusted stale root and is represented by the stale-descendant parent and witness tables. The exact-key error-block gate therefore leaves 298 accepted direct rows. RSK checks header hash and self-target PoW, active-parent linkage, expected `nBits`, median-time-past, and historical minimum block version. Its midstate-compressed proof does not expose the real coinbase scriptSig, so it cannot independently apply the scriptSig-length or BIP34-prefix checks. Unknown rows pass their encoded self-target and miss canonical-parent linkage; they remain in the private historical classifier inventory rather than the committed loader input. See the [data validity contract](../data-validity.md).
 - **Current audit**: on 20 July 2026, all 298 accepted direct rows were replayed against Bitcoin Core tip 958,882 and passed every check available from RSK's evidence. The scriptSig-length and BIP34-prefix checks remain untested for all 298 rows, and this was not a full-block consensus replay.
 
 **Reference scripts.**
@@ -53,19 +53,19 @@ RSK is methodologically distinct from the Namecoin-family `CAuxPow` chains. Its 
 5. **Miner evidence preservation**: retain `rsk_miner`. The classifier reads the historical registry snapshot to populate the optional `pool_label` column in validated rows; it does not refresh or independently validate the mapping.
 
 **Historical classifier counts** (37,335 rows; the committed
-`data/validated-stales/rsk_validated_stales.csv` carries 298 publication-gate-accepted direct-stale header candidates after five
-stale-labelled candidates are excluded as invalid and one is reclassified as a
-stale descendant):
+`data/validated-stales/rsk_validated_stales.csv` carries 298
+publication-gate-accepted direct-stale header candidates; five additional
+parents are consensus-invalid and one belongs to the stale-descendant module):
 
 | `classification` | From canonical | From uncle | Total |
 |---|---:|---:|---:|
 | `stale`-labelled candidate | 82 | 222 | 304 |
-| legacy `orphan` (read as `unknown`) | 20,847 | 16,184 | 37,031 |
+| historical `orphan` (read as `unknown`) | 20,847 | 16,184 | 37,031 |
 | **Total** | 20,929 | 16,406 | 37,335 |
 
-RSK uses a **parallel schema**: `rsk_miner`, `merge_mining_hash`, `coinbase_op_return`, and `coinbase_ascii_strings` carry the available RSK-side evidence, while the standard full-coinbase placeholders remain empty. The retained private inventory literally uses the legacy value `classification=orphan`; current readers normalize it to `unknown`. Its 37,031 such rows are self-target-PoW-valid parent headers whose `btc_prev_hash` is unknown to the Bitcoin Core node. **Uncle-derived candidates contribute 73% of the accepted public direct inventory** (218 of 298) and **44% of the private unknown inventory** (16,184 of 37,031).
+RSK uses a **parallel schema**: `rsk_miner`, `merge_mining_hash`, `coinbase_op_return`, and `coinbase_ascii_strings` carry the available RSK-side evidence, while the standard full-coinbase placeholders remain empty. The retained private inventory uses the historical value `classification=orphan`; current readers normalize it to `unknown`. Its 37,031 such rows are self-target-PoW-valid parent headers whose `btc_prev_hash` is unknown to the Bitcoin Core node. **Uncle-derived candidates contribute 73% of the accepted public direct inventory** (218 of 298) and **44% of the private unknown inventory** (16,184 of 37,031).
 
-**Schema consistency.** The committed loader input is `data/validated-stales/rsk_validated_stales.csv`, accepted-candidates-only like the other chain loader inputs: the shared gate columns (`btc_height`, header/coinbase placeholders, `classification`, `validation_status`, `expected_nbits`) followed by RSK miner-evidence and historical-label columns. All 298 public rows pass RSK's available-evidence gate; `VALID` does not mean full Bitcoin block validity. The exact-key error-blocks gate removes five cross-chain consensus-invalid candidates and moves one direct-only correction to the stale-descendant sidecar. The full historical stale/unknown inventory stays in the private chain archive under `chains/rsk/classified/`.
+**Schema consistency.** The committed loader input is `data/validated-stales/rsk_validated_stales.csv`, accepted-candidates-only like the other chain loader inputs: the shared gate columns (`btc_height`, header/coinbase placeholders, `classification`, `validation_status`, `expected_nbits`) followed by RSK miner-evidence and historical-label columns. All 298 public rows pass RSK's available-evidence gate; `VALID` does not mean full Bitcoin block validity. The exact-key error-block gate excludes five cross-chain consensus-invalid parents, while the parent/witness module represents one stale descendant. The full historical stale/unknown inventory stays in the private chain archive under `chains/rsk/classified/`.
 
 **Chain-specific quirks.**
 
@@ -83,7 +83,10 @@ RSK uses a **parallel schema**: `rsk_miner`, `merge_mining_hash`, `coinbase_op_r
 **Loader filter** (`load_rsk_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The committed CSV contains only the 298 accepted direct-stale rows; the 37,031
@@ -164,6 +167,15 @@ depends on `bitcoin-data/mining-pools` nor recomputes this table.
 **Remaining work.**
 
 - **Historical pool-label cleanup** - **resolved for the retained snapshot**. Earlier work normalised `Foundry USA Pool` to `Foundry USA`, `BTC.COM` to `BTC.com`, `SlushPool` to `Braiins Pool`, and `unknown` to `Unknown`. A future unified attribution phase must revalidate the mapping and the nine unattributed miner addresses represented in the accepted set rather than treating this snapshot as current registry data.
-- **Unknown-inventory parallel-schema** - **resolved**. The classifier produced 37,031 unknown rows (20,847 canonical + 16,184 uncle) alongside 304 historical stale-labelled candidates. The loader and overlay expose 298 accepted direct-stale candidates without affecting the unknown inventory; one former direct row is retained separately as a stale descendant.
-- **Uncle/ommer block traversal** - **resolved**. The historical private re-extraction traversed canonical blocks and uncles and processed about 17.95 million observations. The retained classifier inventory contains 222 uncle-derived stale-labelled candidates, of which 218 remain accepted as direct stales, plus one reclassified stale descendant and 16,184 uncle-derived unknowns. Unsupported rounded canonical/uncle component counts have been removed.
+- **Unknown-inventory parallel schema** - **resolved**. The classifier produced
+  37,031 unknown rows (20,847 canonical + 16,184 uncle) alongside 304 historical
+  stale-labelled candidates. The direct-stale loader contains 298 accepted
+  candidates, while one additional parent is represented in the stale-descendant
+  module.
+- **Uncle/ommer block traversal** - **resolved**. The historical private
+  extraction traversed canonical blocks and uncles and processed about 17.95
+  million observations. The retained classifier inventory contains 222
+  uncle-derived stale-labelled candidates, of which 218 are accepted direct
+  stales, plus one stale descendant and 16,184 uncle-derived unknowns.
+  Unsupported rounded canonical/uncle component counts are omitted.
 - **Known minor bug - RPC-retry duplicate writes**: when an `extract_range` call's phase-2 (uncle batch) errors after phase-1 (canonical batch) has already written rows, the retry re-writes the phase-1 rows. 15 such duplicate-unknown rows surfaced in this run (out of 37K unknowns, 0.04%); they were deduplicated post-classification by (classification, btc_header_hash, is_uncle, uncle_parent_height). Fix is to make `extract_range` write through a buffer that is committed only on full success. The 298 accepted direct-stale rows are unaffected.

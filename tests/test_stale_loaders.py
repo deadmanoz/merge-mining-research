@@ -3,7 +3,7 @@
 Each test monkeypatches a module-level <chain>_CSV constant (the
 globals()[spec.csv_attr] contract), writes a pinned fixture, and asserts the
 gate behaviour and emitted record shape. Covers the default LoaderSpec path
-(xaya), the VALID-prefix contract that retains "VALID (post-BCH ...)"
+(xaya), the exact-status contract that retains "VALID (post-BCH ...)"
 rows (namecoin/i0coin), the addr-output OP_RETURN drop (syscoin/terracoin/
 bitcoin-vault), and RSK's bespoke parallel schema.
 """
@@ -15,6 +15,7 @@ import csv
 import pytest
 
 from stale_blocks_analysis import stale_blocks
+from stale_blocks_analysis.stale_descendants import StaleDescendantParent
 
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
 
@@ -92,7 +93,7 @@ def test_load_xaya_stales_gate_and_shape(tmp_path, monkeypatch):
                 classification="unknown",
                 validation_status="VALID",
             ),
-            # (3) stale but REJECTED -> dropped by the required VALID-prefix gate
+            # (3) stale but REJECTED -> dropped by the exact-status gate
             _row(
                 btc_height="600002",
                 btc_header_hash="cc",
@@ -165,13 +166,13 @@ def test_header_only_chain_loaders_follow_shared_contract(
     assert getattr(stale_blocks, loader_name)(min_height=0) == []
 
 
-def test_load_namecoin_stales_prefix_validation_keeps_post_bch_rows(
+def test_load_namecoin_stales_exact_validation_keeps_post_bch_rows(
     tmp_path, monkeypatch
 ):
-    # The common VALID-prefix gate retains the committed
-    # "VALID (post-BCH, difficulty matches BTC)" rows (290 across namecoin +
-    # i0coin). A dispatch refactor that flipped namecoin to "strict" would
-    # silently drop them; this pins the contract.
+    # The shared exact-status gate retains the committed
+    # "VALID (post-BCH, difficulty matches BTC)" rows. A dispatch refactor
+    # that flipped Namecoin to "strict" would silently drop them; this pins
+    # the contract without freezing a dataset count in a loader test.
     csv_path = tmp_path / "namecoin_validated_stales.csv"
     _write_csv(
         csv_path,
@@ -195,6 +196,12 @@ def test_load_namecoin_stales_prefix_validation_keeps_post_bch_rows(
                 validation_status="REJECTED: nBits mismatch",
             ),
             _row(
+                btc_height="500003",
+                btc_header_hash="dd",
+                classification="stale",
+                validation_status="VALID_BOGUS",
+            ),
+            _row(
                 btc_height="331735",
                 btc_header_hash=EXCLUDED_HASH,
                 classification="stale",
@@ -209,7 +216,7 @@ def test_load_namecoin_stales_prefix_validation_keeps_post_bch_rows(
     assert [r["hash"] for r in recs] == [
         "aa",
         "bb",
-    ]  # REJECTED dropped, both VALID* kept
+    ]  # Rejected and invented-prefix rows are dropped; both exact statuses remain.
     assert all(r["source"] == "namecoin" for r in recs)
 
 
@@ -302,38 +309,18 @@ def test_load_rsk_stales_parallel_schema_ignores_historical_pool_labels(
     assert all("_scriptsig_hex" not in r for r in recs)  # coinbase fields omitted
 
 
-def test_load_stale_descendants_applies_consensus_invalid_overlay(
-    tmp_path, monkeypatch
+def test_load_stale_descendants_uses_canonical_parents_and_invalid_gate(
+    monkeypatch,
 ):
-    fields = [
-        "btc_height",
-        "btc_header_hash",
-        "classification",
-        "validation_status",
-        "coinbase_scriptsig_hex",
-        "coinbase_outputs",
-    ]
-    csv_path = tmp_path / "stale_descendants.csv"
-    with csv_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerow(
-            {
-                "btc_height": "331735",
-                "btc_header_hash": EXCLUDED_HASH,
-                "classification": "stale_descendant",
-                "validation_status": "VALID_STALE_DESCENDANT",
-            }
-        )
-        writer.writerow(
-            {
-                "btc_height": "331736",
-                "btc_header_hash": "aa" * 32,
-                "classification": "stale_descendant",
-                "validation_status": "VALID_STALE_DESCENDANT",
-            }
-        )
-    monkeypatch.setattr(stale_blocks, "STALE_DESCENDANTS_CSV", csv_path)
+    rows = {
+        (331735, EXCLUDED_HASH): StaleDescendantParent(331735, EXCLUDED_HASH, 2, {}),
+        (331736, "aa" * 32): StaleDescendantParent(331736, "aa" * 32, 3, {}),
+    }
+    monkeypatch.setattr(
+        stale_blocks,
+        "load_stale_descendant_parents",
+        lambda _path: rows,
+    )
 
     assert stale_blocks.load_stale_descendants(min_height=0) == [
         {
@@ -344,3 +331,15 @@ def test_load_stale_descendants_applies_consensus_invalid_overlay(
             "_outputs_str": "",
         }
     ]
+
+
+def test_stale_descendant_tagging_reads_canonical_script_value_outputs() -> None:
+    payout = "76a914fb37342f6275b13936799def06f2eb4c0f20151588ac"
+    op_return = "6a01ff"
+
+    assert (
+        stale_blocks._outputs_for_tagging(
+            f"{payout}:313110129|{op_return}:0|6a*:0|:100"
+        )
+        == f"{payout};{op_return}"
+    )

@@ -163,7 +163,10 @@ resolved by the public pipeline.
 **Loader filter** (`load_bitmark_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader delegates to `load_auxpow_validated_stales(_LOADER_SPECS["bitmark"])`

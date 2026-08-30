@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+
+from stale_blocks_analysis.reconcile_observations import UnknownObservation
+from stale_blocks_analysis.reconcile_publication import (
+    DESCENDANT_UNJUDGEABLE_FAILURES,
+    OUTPUT_SUMMARY,
+    PublicationBaseline,
+    build_descendant_observation_rows,
+    descendant_consensus_rules,
+    descendant_notes,
+    partition_ancestry_rows,
+    select_parent_evidence,
+    validate_publication_discovery,
+    validate_publication_rows,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "analysis" / "reconcile_unknown_stale_ancestry.py"
@@ -28,65 +44,185 @@ def _load_module():
     return module
 
 
-def _write_baseline(
-    path: Path,
-    *,
-    observed_chains: str = "namecoin",
-    unknown_rows: int = 1,
-    source_rows: str = "namecoin:data/namecoin_unknown_blocks.csv:2",
-    validation_status: str = "VALID_STALE_DESCENDANT",
-) -> str:
-    content = (
-        "classification,validation_status,btc_header_hash,observed_chains,"
-        "unknown_rows,source_rows\n"
-        f"stale_descendant,{validation_status},{BASELINE_HASH},{observed_chains},"
-        f"{unknown_rows},{source_rows}\n"
-    )
+def _copy_committed_baseline(path: Path) -> str:
+    """Copy the canonical parent and witness interfaces beside each other."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-    return content
+    shutil.copy2(REPO / "data/stale_descendants.csv", path)
+    shutil.copy2(
+        REPO / "data/stale_descendant_observations.csv",
+        path.parent / "stale_descendant_observations.csv",
+    )
+    return path.read_text()
+
+
+def _publication_baseline(
+    *,
+    observation_identities: frozenset[tuple[str, int, str, str]] = frozenset(),
+    required_inventory_chains: frozenset[str] = frozenset(),
+):
+    return PublicationBaseline(
+        statuses_by_hash={BASELINE_HASH: "VALID_STALE_DESCENDANT"},
+        heights_by_hash={BASELINE_HASH: 100},
+        root_hashes_by_hash={BASELINE_HASH: "22" * 32},
+        mainchain_statuses_by_hash={BASELINE_HASH: "verified_not_active"},
+        active_hashes_by_hash={BASELINE_HASH: "33" * 32},
+        root_mainchain_statuses_by_hash={BASELINE_HASH: "verified_not_active"},
+        root_active_hashes_by_hash={BASELINE_HASH: "44" * 32},
+        mainchain_sources_by_hash={BASELINE_HASH: "bitcoin-core-rpc:test"},
+        observed_chains_by_hash={BASELINE_HASH: frozenset({"namecoin"})},
+        source_observation_counts_by_hash={BASELINE_HASH: {"namecoin": 1}},
+        required_inventory_chains=required_inventory_chains,
+        observation_identities=observation_identities,
+    )
 
 
 def _set_publication_paths(module, monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
-    promoted = tmp_path / "publication" / "stale_descendants.csv"
+    parent_verdicts = tmp_path / "publication" / "stale_descendants.csv"
     results = tmp_path / "publication-results"
-    monkeypatch.setattr(module, "PROMOTED_CSV", promoted)
+    monkeypatch.setattr(module, "PARENT_VERDICTS_CSV", parent_verdicts)
     monkeypatch.setattr(module, "RESULTS_DIR", results)
-    return promoted, results
+    return parent_verdicts, results
 
 
-def test_promoted_evidence_never_stitches_coinbase_observations() -> None:
-    module = _load_module()
+def _diagnostic_output_args(tmp_path: Path) -> list[str]:
+    return [
+        "--parent-verdicts-csv",
+        str(tmp_path / "staged" / "stale_descendants.csv"),
+        "--observations-csv",
+        str(tmp_path / "staged" / "stale_descendant_observations.csv"),
+        "--error-candidates-csv",
+        str(tmp_path / "staged" / "error_candidates.csv"),
+    ]
+
+
+def test_descendant_ledger_uses_identity_height_when_source_height_is_untrusted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    child_hash = "aa" * 32
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", BASELINE_HASH): {
+                "child_height": "817177",
+                "child_block_hash": child_hash,
+                "child_block_time": "1774280993",
+                "verification": "child-node-rpc+source-row-auxpow-parent-match",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    parent = {"btc_height": "941882", "btc_header_hash": BASELINE_HASH}
+    observation = UnknownObservation(
+        chain="namecoin",
+        source_path="data/namecoin_stale_blocks.csv",
+        row_number=464228,
+        block_hash=BASELINE_HASH,
+        prev_hash="22" * 32,
+        btc_height="",
+        child_height="",
+        btc_time="1774281079",
+        bits="17021a91",
+        scriptsig_hex="03aabb",
+        outputs="",
+        header_hex="00" * 80,
+        source_kind="full_inventory",
+        source_classification="unknown",
+        source_sha256="bb" * 32,
+    )
+
+    rows = build_descendant_observation_rows(
+        [parent],
+        {BASELINE_HASH: [observation]},
+        data_dir=tmp_path,
+        parser=argparse.ArgumentParser(),
+    )
+
+    assert rows[0]["child_height"] == "817177"
+    assert rows[0]["child_height_provenance"] == (
+        "child-identity:child-node-rpc+source-row-auxpow-parent-match"
+    )
+    assert parent["observed_chains"] == "namecoin"
+    assert parent["source_observation_count"] == 1
+
+
+def test_descendant_ledger_rejects_trusted_source_height_disagreement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stale_blocks_analysis.reconcile_publication.load_child_identity",
+        lambda _data_dir: {
+            ("namecoin", BASELINE_HASH): {
+                "child_height": "817177",
+                "child_block_hash": "aa" * 32,
+                "child_block_time": "1774280993",
+                "verification": "test",
+                "child_header_hex": "",
+                "child_nbits": "",
+            }
+        },
+    )
+    observation = UnknownObservation(
+        chain="namecoin",
+        source_path="data/namecoin_validated_stales.csv",
+        row_number=2,
+        block_hash=BASELINE_HASH,
+        prev_hash="22" * 32,
+        btc_height="941882",
+        child_height="817176",
+        btc_time="1774281079",
+        bits="17021a91",
+        scriptsig_hex="03aabb",
+        outputs="",
+        header_hex="00" * 80,
+        source_kind="validated_stales",
+        source_classification="stale",
+        source_sha256="bb" * 32,
+    )
+
+    with pytest.raises(SystemExit):
+        build_descendant_observation_rows(
+            [{"btc_height": "941882", "btc_header_hash": BASELINE_HASH}],
+            {BASELINE_HASH: [observation]},
+            data_dir=tmp_path,
+            parser=argparse.ArgumentParser(),
+        )
+
+
+def test_parent_evidence_reconciles_compatible_sources_independent_of_order() -> None:
+    payout = "76a914fb37342f6275b13936799def06f2eb4c0f20151588ac"
+    op_return = "6a124558534154011508000113021b1a1f120013"
     common = {
-        "chain": "namecoin",
-        "source_path": "<archive>/namecoin.csv",
         "block_hash": BASELINE_HASH,
         "btc_height": "100",
         "child_height": "200",
-        "header_hex": "",
+        "header_hex": "00" * 80,
+        "prev_hash": "22" * 32,
+        "btc_time": "1",
+        "bits": "1d00ffff",
     }
     observations = [
-        module.UnknownObservation(
+        UnknownObservation(
             **common,
+            chain="syscoin",
+            source_path="<archive>/syscoin.csv",
             row_number=2,
-            prev_hash="22" * 32,
-            btc_time="1",
-            bits="1d00ffff",
-            scriptsig_hex="03aabb",
-            outputs="",
-        ),
-        module.UnknownObservation(
-            **common,
-            row_number=3,
-            prev_hash="33" * 32,
-            btc_time="2",
-            bits="1b0404cb",
             scriptsig_hex="",
-            outputs="76a91400",
+            outputs=("SkCJmd2CqThFWqSx6CHjpgxUe2SbHwkdKj:3.13110129|OP_RETURN:0.0"),
+        ),
+        UnknownObservation(
+            **common,
+            chain="fractal",
+            source_path="<archive>/fractal.csv",
+            row_number=3,
+            scriptsig_hex="03aabb",
+            outputs=f"{payout};{op_return}",
         ),
     ]
 
-    selected = module.select_promoted_evidence(observations, "00" * 80)
+    selected = select_parent_evidence(observations)
 
     assert selected == (
         "00" * 80,
@@ -94,30 +230,91 @@ def test_promoted_evidence_never_stitches_coinbase_observations() -> None:
         "1",
         "1d00ffff",
         "03aabb",
-        "",
+        f"{payout}:313110129|{op_return}:0",
+    )
+    assert select_parent_evidence(list(reversed(observations))) == selected
+
+
+def test_parent_evidence_rejects_conflicting_scripts() -> None:
+    common = {
+        "chain": "namecoin",
+        "source_path": "<archive>/namecoin.csv",
+        "block_hash": BASELINE_HASH,
+        "btc_height": "100",
+        "child_height": "200",
+        "header_hex": "00" * 80,
+        "prev_hash": "22" * 32,
+        "btc_time": "1",
+        "bits": "1d00ffff",
+        "scriptsig_hex": "",
+    }
+    observations = [
+        UnknownObservation(**common, row_number=2, outputs="51"),
+        UnknownObservation(**common, row_number=3, outputs="52"),
+    ]
+
+    with pytest.raises(ValueError, match="conflicting scripts"):
+        select_parent_evidence(observations)
+
+
+def test_parent_evidence_uses_full_coinbase_transaction() -> None:
+    full_coinbase = (
+        "0100000001"
+        + "00" * 32
+        + "ffffffff02aabbffffffff01"
+        + "0000000000000000"
+        + "036a01ff00000000"
+    )
+    observation = UnknownObservation(
+        chain="hathor",
+        source_path="<archive>/hathor.csv",
+        row_number=2,
+        block_hash=BASELINE_HASH,
+        btc_height="100",
+        child_height="200",
+        header_hex="00" * 80,
+        prev_hash="22" * 32,
+        btc_time="1",
+        bits="1d00ffff",
+        scriptsig_hex="",
+        outputs="OP_RETURN:0.0",
+        full_coinbase_hex=full_coinbase,
+    )
+
+    assert select_parent_evidence([observation]) == (
+        "00" * 80,
+        "22" * 32,
+        "1",
+        "1d00ffff",
+        "aabb",
+        "6a01ff:0",
     )
 
 
-def test_descendant_notes_preserve_valid_baseline_audit_evidence(
-    tmp_path: Path,
-) -> None:
-    module = _load_module()
-    baseline_path = tmp_path / "stale_descendants.csv"
-    baseline_path.write_text(
-        "classification,validation_status,btc_header_hash,observed_chains,"
-        "unknown_rows,source_rows,notes\n"
-        f"stale_descendant,VALID_STALE_DESCENDANT,{BASELINE_HASH},namecoin,1,"
-        "namecoin:data/namecoin_unknown_blocks.csv:2,"
-        "reclassified_from_direct_stale;branch_mtp=1;old_validation_failure\n"
-    )
-    baseline = module.load_publication_baseline(baseline_path)
+def test_descendant_notes_only_report_current_failures() -> None:
+    assert descendant_notes([]) == ""
+    assert descendant_notes(["pow_target_mismatch"]) == "pow_target_mismatch"
 
-    assert module.descendant_notes(BASELINE_HASH, [], baseline) == (
-        "reclassified_from_direct_stale;branch_mtp=1"
+
+def test_publication_partition_never_emits_rejected_parent() -> None:
+    accepted = {
+        "classification": "stale_descendant",
+        "validation_status": "VALID_STALE_DESCENDANT",
+    }
+    rejected = {
+        "classification": "stale_descendant",
+        "validation_status": "REJECTED_missing_header_hex",
+    }
+    error_candidate = {
+        "classification": "error_block",
+        "validation_status": "REJECTED_bip34_height_mismatch",
+    }
+
+    assert partition_ancestry_rows([accepted, rejected, error_candidate]) == (
+        [accepted],
+        [rejected],
+        [error_candidate],
     )
-    assert module.descendant_notes(
-        BASELINE_HASH, ["pow_target_mismatch"], baseline
-    ) == ("pow_target_mismatch")
 
 
 def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writing(
@@ -126,8 +323,8 @@ def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writ
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     module = _load_module()
-    promoted, results = _set_publication_paths(module, monkeypatch, tmp_path)
-    baseline = _write_baseline(promoted)
+    parent_verdicts, results = _set_publication_paths(module, monkeypatch, tmp_path)
+    baseline = _copy_committed_baseline(parent_verdicts)
     data_dir = tmp_path / "empty-data"
     data_dir.mkdir()
 
@@ -136,224 +333,117 @@ def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writ
             [
                 "--data-dir",
                 str(data_dir),
+                "--check-mainchain",
+                "--rpc-source-label",
+                "test-node",
                 "--cache-dir",
                 str(tmp_path / "cache"),
                 "--epoch-reference-dir",
                 str(tmp_path / "epochs"),
+                *_diagnostic_output_args(tmp_path),
             ]
         )
 
     assert "missing full, unknown, or canonical inventories" in capsys.readouterr().err
-    assert promoted.read_text() == baseline
+    assert parent_verdicts.read_text() == baseline
     assert not results.exists()
+
+
+@pytest.mark.parametrize("label", [None, "configured-node", "node:one", "x" * 65])
+def test_publication_requires_specific_safe_rpc_source_label(
+    label: str | None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module()
+    argv = ["--check-mainchain", *_diagnostic_output_args(Path("/tmp/test"))]
+    if label is not None:
+        argv.extend(["--rpc-source-label", label])
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main(argv)
+
+    error = capsys.readouterr().err
+    assert "rpc-source-label" in error
 
 
 def test_publication_discovery_accepts_canonical_only_baseline_chain(
     tmp_path: Path,
 ) -> None:
-    module = _load_module()
-    baseline = module.PublicationBaseline(
-        statuses_by_hash={},
-        observed_chains_by_hash={},
-        unknown_rows_by_hash={},
-        source_observation_counts_by_hash={},
-        notes_by_hash={},
-        required_inventory_chains=frozenset({"namecoin"}),
-    )
+    baseline = _publication_baseline(required_inventory_chains=frozenset({"namecoin"}))
     canonical = tmp_path / "namecoin_canonical_blocks.csv"
     canonical.write_text("classification\n")
-    parser = module.build_parser()
 
-    module.validate_publication_discovery(
+    validate_publication_discovery(
         baseline,
         full_files={},
         unknown_files={},
         canonical_files={"namecoin": canonical},
-        parser=parser,
+        parser=argparse.ArgumentParser(),
     )
 
 
-def test_publication_mode_rejects_computed_descendant_regression_before_writing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_publication_rows_reject_missing_committed_parent_and_witness(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    module = _load_module()
-    promoted, results = _set_publication_paths(module, monkeypatch, tmp_path)
-    baseline = _write_baseline(promoted)
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "namecoin_unknown_blocks.csv").write_text(
-        "btc_header_hash,btc_prev_hash,classification\n"
-    )
+    witness = ("namecoin", 200, "55" * 32, BASELINE_HASH)
+    baseline = _publication_baseline(observation_identities=frozenset({witness}))
 
     with pytest.raises(SystemExit, match="2"):
-        module.main(
-            [
-                "--data-dir",
-                str(data_dir),
-                "--cache-dir",
-                str(tmp_path / "cache"),
-                "--epoch-reference-dir",
-                str(tmp_path / "epochs"),
-            ]
-        )
-
-    assert "missing 1 committed descendant hashes" in capsys.readouterr().err
-    assert promoted.read_text() == baseline
-    assert not results.exists()
-
-
-def test_publication_mode_rejects_overlapping_hash_with_reduced_provenance(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    module = _load_module()
-    promoted, results = _set_publication_paths(module, monkeypatch, tmp_path)
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    alpha_inventory = data_dir / "alpha_unknown_blocks.csv"
-    beta_inventory = data_dir / "beta_unknown_blocks.csv"
-    alpha_inventory.write_text("btc_header_hash,btc_prev_hash,classification\n")
-    beta_inventory.write_text(
-        "btc_header_hash,btc_prev_hash,classification\n"
-        f"{BASELINE_HASH},{'22' * 32},unknown\n"
-    )
-    validated_dir = data_dir / "validated-stales"
-    validated_dir.mkdir()
-    (validated_dir / "gamma_validated_stales.csv").write_text(
-        "btc_height,btc_header_hash,btc_prev_hash,classification,validation_status\n"
-        f"100,{'22' * 32},{'11' * 32},stale,VALID\n"
-    )
-    baseline = _write_baseline(
-        promoted,
-        observed_chains="alpha|beta",
-        unknown_rows=2,
-        source_rows=(f"alpha:{alpha_inventory}:2|beta:{beta_inventory}:2"),
-        validation_status="REJECTED_missing_header_hex|pow_target_mismatch",
-    )
-
-    with pytest.raises(SystemExit, match="2"):
-        module.main(
-            [
-                "--data-dir",
-                str(data_dir),
-                "--cache-dir",
-                str(tmp_path / "cache"),
-                "--epoch-reference-dir",
-                str(tmp_path / "epochs"),
-            ]
-        )
+        validate_publication_rows([], [], baseline, argparse.ArgumentParser())
 
     error = capsys.readouterr().err
-    assert "lost observed chains" in error
-    assert "missing alpha" in error
-    assert "lost unknown-row observations" in error
-    assert "requires at least 2" in error
-    assert "per-chain source-observation counts were lost" in error
-    assert "missing 'alpha' x1" in error
-    assert promoted.read_text() == baseline
-    assert not results.exists()
+    assert "missing 1 committed descendant identities" in error
+    assert "missing 1 committed logical witness identities" in error
 
 
-def test_publication_source_row_guard_preserves_same_chain_observation_counts(
-    tmp_path: Path,
+def test_publication_rows_reject_missing_logical_witness_identity(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    module = _load_module()
-    baseline_path = tmp_path / "stale_descendants.csv"
-    source_token = "namecoin:data/namecoin_unknown_blocks.csv:2"
-    _write_baseline(
-        baseline_path,
-        unknown_rows=2,
-        source_rows=f"{source_token}|{source_token}",
-        validation_status="REJECTED_missing_header_hex",
-    )
-    baseline = module.load_publication_baseline(baseline_path)
-    parser = module.build_parser()
+    witness = ("namecoin", 200, "55" * 32, BASELINE_HASH)
+    baseline = _publication_baseline(observation_identities=frozenset({witness}))
+    parent_rows = [
+        {
+            "classification": "stale_descendant",
+            "validation_status": "VALID_STALE_DESCENDANT",
+            "btc_height": 100,
+            "btc_header_hash": BASELINE_HASH,
+        }
+    ]
 
     with pytest.raises(SystemExit, match="2"):
-        module.validate_publication_rows(
-            [
-                {
-                    "btc_header_hash": BASELINE_HASH,
-                    "validation_status": "REJECTED_missing_header_hex",
-                    "observed_chains": "namecoin",
-                    "unknown_rows": 2,
-                    "source_rows": source_token,
-                }
-            ],
-            baseline,
-            parser,
-        )
+        validate_publication_rows(parent_rows, [], baseline, argparse.ArgumentParser())
 
-    error = capsys.readouterr().err
-    assert "per-chain source-observation counts were lost" in error
-    assert "missing 'namecoin' x1" in error
+    assert "missing 1 committed logical witness identities" in capsys.readouterr().err
 
 
-def test_publication_source_row_guard_allows_path_and_row_renumbering(
-    tmp_path: Path,
-) -> None:
-    module = _load_module()
-    baseline_path = tmp_path / "stale_descendants.csv"
-    _write_baseline(
-        baseline_path,
-        unknown_rows=2,
-        source_rows=(
-            "namecoin:historical-direct-stale-publication:656478|"
-            "namecoin:data/namecoin_stale_blocks.csv:273300"
-        ),
-        validation_status="REJECTED_missing_header_hex",
-    )
-    baseline = module.load_publication_baseline(baseline_path)
+def test_publication_rows_allow_source_coordinate_changes_for_same_logical_witness() -> (
+    None
+):
+    witness = ("namecoin", 200, "55" * 32, BASELINE_HASH)
+    baseline = _publication_baseline(observation_identities=frozenset({witness}))
 
-    module.validate_publication_rows(
+    validate_publication_rows(
         [
             {
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "btc_height": 100,
                 "btc_header_hash": BASELINE_HASH,
-                "validation_status": "REJECTED_missing_header_hex",
-                "observed_chains": "namecoin",
-                "unknown_rows": 2,
-                "source_rows": (
-                    "namecoin:data/relocated_namecoin_stale_blocks.csv:17|"
-                    "namecoin:data/relocated_namecoin_stale_blocks.csv:23"
-                ),
+            }
+        ],
+        [
+            {
+                "chain": "namecoin",
+                "child_height": 200,
+                "child_block_hash": "55" * 32,
+                "btc_header_hash": BASELINE_HASH,
+                "source_path": "data/relocated.csv",
+                "source_row_number": 999,
             }
         ],
         baseline,
-        module.build_parser(),
+        argparse.ArgumentParser(),
     )
-
-
-@pytest.mark.parametrize(
-    ("observed_chains", "source_rows", "message"),
-    [
-        ("namecoin", ":data/namecoin_stale_blocks.csv:2", "empty chain prefix"),
-        (
-            "namecoin",
-            "ixcoin:data/ixcoin_stale_blocks.csv:2",
-            "not present in observed_chains",
-        ),
-    ],
-)
-def test_publication_baseline_rejects_invalid_source_chain_prefixes(
-    tmp_path: Path,
-    observed_chains: str,
-    source_rows: str,
-    message: str,
-) -> None:
-    module = _load_module()
-    baseline_path = tmp_path / "stale_descendants.csv"
-    _write_baseline(
-        baseline_path,
-        observed_chains=observed_chains,
-        source_rows=source_rows,
-    )
-
-    with pytest.raises(ValueError, match=message):
-        module.load_publication_baseline(baseline_path)
 
 
 def test_allow_partial_refuses_publication_output_defaults(
@@ -362,15 +452,21 @@ def test_allow_partial_refuses_publication_output_defaults(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     module = _load_module()
-    promoted, results = _set_publication_paths(module, monkeypatch, tmp_path)
+    parent_verdicts, results = _set_publication_paths(module, monkeypatch, tmp_path)
 
     with pytest.raises(SystemExit, match="2"):
-        module.main(["--allow-partial", "--data-dir", str(tmp_path / "data")])
+        module.main(
+            [
+                "--allow-partial",
+                "--data-dir",
+                str(tmp_path / "data"),
+                *_diagnostic_output_args(tmp_path),
+            ]
+        )
 
     error = capsys.readouterr().err
     assert "--results-dir" in error
-    assert "--promoted-csv" in error
-    assert not promoted.exists()
+    assert not parent_verdicts.exists()
     assert not results.exists()
 
 
@@ -381,7 +477,9 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     results = tmp_path / "scratch-results"
-    promoted = tmp_path / "scratch" / "stale_descendants.csv"
+    parent_verdicts = tmp_path / "scratch" / "stale_descendants.csv"
+    observations = tmp_path / "scratch" / "stale_descendant_observations.csv"
+    error_candidates = tmp_path / "scratch" / "error_candidates.csv"
 
     module.main(
         [
@@ -390,8 +488,12 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
             str(data_dir),
             "--results-dir",
             str(results),
-            "--promoted-csv",
-            str(promoted),
+            "--parent-verdicts-csv",
+            str(parent_verdicts),
+            "--observations-csv",
+            str(observations),
+            "--error-candidates-csv",
+            str(error_candidates),
             "--cache-dir",
             str(tmp_path / "cache"),
             "--epoch-reference-dir",
@@ -401,9 +503,9 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
 
     captured = capsys.readouterr()
     assert "do not replace publication artifacts" in captured.err
-    assert promoted.is_file()
-    assert promoted.read_text().count("\n") == 1
-    assert (results / module.OUTPUT_SUMMARY).is_file()
+    assert parent_verdicts.is_file()
+    assert parent_verdicts.read_text().count("\n") == 1
+    assert (results / OUTPUT_SUMMARY).is_file()
 
 
 def test_descendant_consensus_rules_needs_judgeable_evidence():
@@ -413,24 +515,23 @@ def test_descendant_consensus_rules_needs_judgeable_evidence():
     trustworthy only when the path was verified, the work meets its target,
     and the bits are Bitcoin's canonical value there. Any of those missing and
     a coinbase-height mismatch is equally consistent with a wrong height, so
-    no rule is derived and the row stays a rejected descendant.
+    no rule is derived and the candidate stays unpublishable.
     """
-    module = _load_module()
     header_hex = "04000000" + "00" * 76
     scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
 
-    assert module.descendant_consensus_rules(
+    assert descendant_consensus_rules(
         header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
     ) == ["bip34_coinbase_height_mismatch"]
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             header_hex, scriptsig, None, [], header_bits=BITS, expected_nbits=BITS
         )
         == []
     )
-    for failure in sorted(module.DESCENDANT_UNJUDGEABLE_FAILURES):
+    for failure in sorted(DESCENDANT_UNJUDGEABLE_FAILURES):
         assert (
-            module.descendant_consensus_rules(
+            descendant_consensus_rules(
                 header_hex,
                 scriptsig,
                 400001,
@@ -452,32 +553,31 @@ def test_descendant_consensus_rules_needs_a_canonical_difficulty_match():
     error block with its canonical difficulty never checked, so the match is
     required outright.
     """
-    module = _load_module()
     header_hex = "04000000" + "00" * 76
     scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
 
     # Control: bits present on both sides and equal.
-    assert module.descendant_consensus_rules(
+    assert descendant_consensus_rules(
         header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
     ) == ["bip34_coinbase_height_mismatch"]
 
     # The epoch reference does not reach this height, so nothing was compared.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=""
         )
         == []
     )
     # No bits recovered for the candidate at all.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             header_hex, scriptsig, 400001, [], header_bits="", expected_nbits=BITS
         )
         == []
     )
     # Compared, and the header's difficulty is not Bitcoin's at this height.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             header_hex,
             scriptsig,
             400001,
@@ -499,22 +599,21 @@ def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
     the published hash against the serialized header is the precondition for
     the verdict here, the same as at classification time.
     """
-    module = _load_module()
     header_hex = "04000000" + "00" * 76
     scriptsig = (b"\x03" + (400000).to_bytes(3, "little") + b"pool").hex()
     long_scriptsig = "aa" * 101
 
     # Controls: authenticated, the same evidence does derive each rule.
-    assert module.descendant_consensus_rules(
+    assert descendant_consensus_rules(
         header_hex, scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
     ) == ["bip34_coinbase_height_mismatch"]
-    assert "coinbase_scriptsig_length_above_100" in module.descendant_consensus_rules(
+    assert "coinbase_scriptsig_length_above_100" in descendant_consensus_rules(
         header_hex, long_scriptsig, 400001, [], header_bits=BITS, expected_nbits=BITS
     )
 
     # A header present but not proven to hash to the claimed block hash.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             header_hex,
             scriptsig,
             400001,
@@ -526,7 +625,7 @@ def test_descendant_consensus_rules_ignores_unauthenticated_header_bytes():
     )
     # No header at all: the coinbase alone must not carry a verdict either.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             "",
             long_scriptsig,
             400001,
@@ -546,7 +645,6 @@ def test_a_version_rule_alone_cannot_promote_a_descendant():
     spanning an activation boundary can carry a different verdict, and a
     version rule is not proof there. Rules settled by the bytes alone still are.
     """
-    module = _load_module()
     height = 400000
     bits = "1806f0a8"
     common = {
@@ -566,7 +664,7 @@ def test_a_version_rule_alone_cannot_promote_a_descendant():
     assert consensus_violations(version_only, height) == ["bip65_block_version_below_4"]
     # ...but it cannot make a descendant an error block.
     assert (
-        module.descendant_consensus_rules(
+        descendant_consensus_rules(
             version_only["btc_header_hex"],
             version_only["coinbase_scriptsig_hex"],
             height,
@@ -583,7 +681,7 @@ def test_a_version_rule_alone_cannot_promote_a_descendant():
             b"\x03" + (height + 1).to_bytes(3, "little") + b"pool"
         ).hex(),
     }
-    assert module.descendant_consensus_rules(
+    assert descendant_consensus_rules(
         wrong_height["btc_header_hex"],
         wrong_height["coinbase_scriptsig_hex"],
         height,

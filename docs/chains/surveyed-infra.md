@@ -12,8 +12,7 @@ validated-stale input, including a header-only file for a supported zero-stale
 result, a loader in `stale_blocks.py`, and documentation that records
 provenance, filtering, and novelty results.
 
-The detailed 2026-07-10 pass over all nine sources formerly labelled
-"Catalogued (not recovered)" is recorded in
+The detailed 2026-07-10 pass over all nine catalogued sources is recorded in
 [`catalogued-recovery.md`](catalogued-recovery.md). Compact canonical rows live
 with the other final Monitor outputs under `results/monitor-evidence/`, while
 acquisition provenance stays beside the relevant node workspace.

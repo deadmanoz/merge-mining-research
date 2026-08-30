@@ -1,7 +1,7 @@
 # Catalogued-source recovery survey
 
-This note records the 2026-07-10 recovery pass over every source previously
-labelled "Catalogued (not recovered)" for Merge Mining Monitor. It separates
+This note records the 2026-07-10 recovery pass over every source catalogued for
+Merge Mining Monitor. It separates
 recovered child blockchains from partial mappings, source-code preservation,
 terminal public-data blockers, and a negative consensus audit. Those states are
 not interchangeable.
@@ -10,9 +10,8 @@ The survey is final for this pass: all nine sources have either a validated
 recovery result or a reproducible terminal status. The outcome table is current
 through the 2026-07-22 Doichain exact-target audit; 2026-07-10 remains the date
 of the original catalogued-source recovery pass. This document and the
-individual chain or infrastructure notes are the coverage record; the former
-campaign-specific JSON manifest was removed rather than maintaining the same
-facts in parallel. A chain remains outside the integrated stale census until
+individual chain or infrastructure notes are the singular coverage record. A
+chain remains outside the integrated stale census until
 its final extract, Bitcoin classification, validation gates, compact data
 artifact, and loader documentation all agree.
 
@@ -55,7 +54,7 @@ The strongest remaining recovery routes are:
 
 1. Contact the original maintainer or explorer operator at
    `jdwldnqi837@protonmail.com` for a datadir, block export, or explorer backup.
-2. Ask the former BTC.com or Bitmain AuxPoW service operators about the
+2. Ask the operators of the historical BTC.com or Bitmain AuxPoW service about the
    historical endpoint `39.100.112.3:3517/v1/pool/getauxblock`. The address no
    longer serves the original system and appears reassigned. Public contacts
    retained with the service research are `jasper.li@bitmain.com`,

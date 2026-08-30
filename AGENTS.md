@@ -84,7 +84,8 @@ just full-evidence
 just child-header-coverage
 just strict-weak-orphans
 just monitor-evidence
-just reconcile-error-blocks
+just validate-error-blocks
+just reconcile-stale-ancestry --rpc-source-label bitcoin-01
 just attribute
 just upstream-check
 just upstream-update
@@ -99,27 +100,32 @@ builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
 `--skip-canonical` is diagnostic-only, and normal publication includes every
 available canonical row for every chain. Never point a partial build at the
 committed monitor-evidence directory. Both modes stage the complete generated
-artifact set before replacing prior files; unrelated files already in the
+artifact set before replacing the publication; unrelated files already in the
 output directory are preserved.
 
 Useful direct commands:
 
 ```bash
 python -m pytest tests/
-python scripts/analysis/reconcile_unknown_stale_ancestry.py
 ```
 
-The ancestry command is a publication rebuild. It fails before writing unless
-the private full/unknown inventories needed to reproduce every committed
-descendant are staged under `data/`. Incomplete diagnostics must pass
-`--allow-partial` together with explicit disposable `--results-dir` and
-`--promoted-csv` paths; neither path may be a committed default.
+The low-level ancestry CLI is diagnostic and staging-only. Incomplete runs
+must pass `--allow-partial` together with explicit disposable
+`--results-dir`, `--parent-verdicts-csv`, `--observations-csv`, and
+`--error-candidates-csv` paths; none may target a committed artifact.
 
-`just reconcile-error-blocks` is the complete publication workflow. It
-rebuilds the accepted descendant sidecar and generated descendant-error peer,
-then authenticates the peer through the committed child-identity manifest and
-updates the error-block catalogue plus observation ledger. Do not substitute a
-partial ancestry run or hand-edit either catalogue artifact.
+`just validate-error-blocks` validates the reviewed canonical error catalogue,
+MTP sidecar, and exact child-observation ledger. `just reconcile-stale-ancestry`
+is the complete stale-ancestry publication workflow. It validates that error
+module first, then rebuilds the 21 accepted parent verdicts in
+`data/stale_descendants.csv` and their 32 authenticated witnesses in
+`data/stale_descendant_observations.csv`. Any uncatalogued consensus-invalid
+candidate aborts before installation. Do not substitute a partial ancestry
+run or hand-edit either published stale-ancestry CSV.
+Publication requires a stable, non-secret `--rpc-source-label`; use the
+configured Bitcoin Core node's durable inventory name (for example,
+`bitcoin-01`), not a hostname containing credentials or a transient tunnel
+address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
 
 ## Repository Map
 
@@ -159,13 +165,10 @@ partial ancestry run or hand-edit either catalogue artifact.
   `scripts/analysis/reconcile_unknown_stale_ancestry.py`; observation loading,
   ancestry traversal, and report publication live in
   `reconcile_observations.py`, `ancestry_walk.py`, and
-  `reconcile_publication.py` in the installed package. The error-blocks
-  workflow adds `scripts/prep/build_error_blocks.py` (the dataset builder),
-  `reconciled_error_blocks.py` (the source-coordinate/SHA-authenticated adapter
-  from the generated descendant-error peer to the catalogue and observation
-  ledger, including exact source coinbase and available parent-header checks),
-  `scripts/analysis/validate_error_blocks.py` (the offline re-derivation
-  validator, wired into tests), four population sweeps under `scripts/analysis/`
+  `reconcile_publication.py` in the installed package. The supported publisher
+  is `scripts/prep/publish_stale_ancestry.py`. Error blocks are a reviewed,
+  canonical data module validated by
+  `scripts/analysis/validate_error_blocks.py` and CI. Four population sweeps under `scripts/analysis/`
   sharing `scripts/analysis/_sweep_common.py`, and
   `scripts/reports/report_error_blocks_by_chain.py` (per-chain diagnostic
   views). Thin AuxPoW classification is `scripts/classify/classify_stales.py
@@ -191,17 +194,18 @@ Be strict about what belongs in git:
 
 - Commit canonical compact loader inputs such as
   `data/validated-stales/*_validated_stales.csv` (RSK included: `rsk_validated_stales.csv`)
-  and `data/stale_descendants.csv`. Commit
+  and the stale-descendant module:
+  `data/stale_descendants.csv` for accepted parent verdicts and
+  `data/stale_descendant_observations.csv` for authenticated child-chain
+  witnesses. Commit
   `data/error-blocks/error_blocks.csv`, the consensus-invalid error-blocks
-  dataset that is also the exact-key exclusion gate preventing
-  corrected upstream or archived candidates from re-entering public outputs
-  (it supersedes the removed `data/stale_block_exclusions.csv` overlay), along
+  dataset that is also the exact-key exclusion gate preventing invalid
+  upstream or archived candidates from entering public outputs, along
   with its `data/error-blocks/mtp_context.csv` sidecar. Commit the recovered
-  witness ledger `data/error-blocks/error_block_observations.csv` and the
-  source-coordinate, source-SHA, and child-header authentication manifest
-  `data/error-blocks/reconciled_child_identities.csv`. Do not commit the
-  generated `data/stale_descendants_error_blocks.csv` peer or its private
-  source inventories.
+  witness ledger `data/error-blocks/error_block_observations.csv`. Ancestry
+  reconciliation may emit disposable error-candidate diagnostics, but those
+  reports are never publication inputs or committed datasets. Do not commit
+  private source inventories.
 - Do not commit fetched upstream data under `data/stale-blocks/` or
   `data/mining-pools/`.
 - Do not commit attribution run outputs. `just attribute` labels the
@@ -243,26 +247,29 @@ Preserve these distinctions:
 - A direct stale is a recovered BTC parent header whose `btc_prev_hash` is a
   canonical Bitcoin block. Per-chain loader CSVs represent these.
 - A stale descendant is a BTC stale-fork continuation whose ancestry walks back
-  to a known stale root. These live only in `data/stale_descendants.csv`
-  and are loaded only with `classification=stale_descendant` and
-  `validation_status=VALID_STALE_DESCENDANT`.
-- Raw classifier rows labelled `unknown` remain unknown rows. Do not relabel
-  them as direct stales just because a separate sidecar promotes a descendant.
-  The monitor projection admits an exact accepted descendant source observation
-  with `relevance_reason=valid_stale_descendant` while preserving that unknown
-  classification. Source rows corrected from direct stales are projected as
-  `stale_descendant` only when the accepted sidecar and exact-key correction
-  overlay agree.
-- A source-bucket correction is typed and exact. A
-  `reclassified_from_direct_stale` key can admit only the matching stale source
-  row; a `reclassified_from_canonical` key can admit only the matching
-  canonical source row. A complete reconciliation must consume every typed
-  correction. Never promote arbitrary canonical rows merely because their
-  ancestry links to a purported stale root.
+  to a trusted stale root. `data/stale_descendants.csv` is the parent-verdict
+  table and contains only `classification=stale_descendant`,
+  `validation_status=VALID_STALE_DESCENDANT` rows.
+- `data/stale_descendant_observations.csv` is the authenticated witness ledger.
+  Its source classification records which archive bucket held the observation;
+  that value is audit evidence, not the parent verdict. Parent classification
+  comes only from the ancestry and consensus gates.
+- Reconciliation considers every authenticated candidate, starts only from the
+  declared trusted-root set, and verifies the complete predecessor path. A
+  purported root is direct stale only when its predecessor is on Bitcoin's
+  active main chain. Consensus-invalid candidates route to `error_block` before
+  stale-descendant publication. Never promote a row from its source bucket
+  label alone.
+- Raw classifier rows retain their source classification in source artifacts.
+  Monitor publication joins exact authenticated witnesses to the accepted
+  parent verdict and emits `classification=stale_descendant`,
+  `validation_status=VALID_STALE_DESCENDANT`, and
+  `relevance_reason=valid_stale_descendant`. It does not turn unrelated unknown
+  or canonical rows into descendants.
 - The word "orphan" is reserved for the strict/weak relevance buckets
   (`strict_btc_orphan`/`weak_btc_orphan`), matching the merge-mining-monitor's
-  vocabulary. The broad evidence state is `unknown`. Legacy artifacts (the
-  private archive, pre-rename inventories) wrote `orphan` in the
+  vocabulary. The broad evidence state is `unknown`. Historical private
+  inventories may use `orphan` in the
   `classification` column; writers emit `unknown` and readers accept both.
 - The taxonomy has two axes and they must not be conflated: the primary
   `classification` (`canonical`/`stale`/`unknown`/`stale_descendant`/`near`/`error_block`)
@@ -312,14 +319,16 @@ Preserve these distinctions:
   scriptSig's 2-to-100-byte limit where the real parent coinbase is available.
   The necessary available-evidence profile runs once at classification time
   and its verdict is persisted per row in the committed
-  `*_validated_stales.csv` as `validation_status` / `expected_nbits`. `VALID`
-  means that this declared publication profile passed; it is not proof that a
-  complete Bitcoin block was consensus-valid. The committed file is
-  VALID-only; loaders read/filter the verdict but never recompute the gate.
+  `*_validated_stales.csv` as `validation_status` / `expected_nbits`. The only
+  accepted direct-stale statuses are exactly `VALID` and
+  `VALID (post-BCH, difficulty matches BTC)`. Either means that this declared
+  publication profile passed; neither proves that a complete Bitcoin block was
+  consensus-valid. Loaders read and filter the verdict but never recompute the
+  gate.
   RSK does not expose the real parent coinbase and therefore cannot apply the
   two coinbase-dependent checks independently. The exact-key error-blocks
   exclusion gate (`data/error-blocks/error_blocks.csv`)
-  protects sources that have not yet incorporated a correction.
+  protects every publication surface from consensus-invalid candidates.
 - Hash byte order must be explicit. Use the helpers in
   `stale_blocks_analysis.auxpow_chainid` instead of guessing display vs
   internal order.

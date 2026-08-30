@@ -74,7 +74,10 @@ Groupcoin (GPC) was a ~2011-launched Namecoin-family merge-mined chain (a Devcoi
 **Loader filter** (`load_groupcoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The exact-key error-blocks gate (`data/error-blocks/error_blocks.csv`) is applied after this persisted gate. Thirty
@@ -147,4 +150,6 @@ The unknown population is not yet characterised. It **may** encode a non-BTC SHA
 
 - **2026-05-15** - Archival `getblock`-JSON dump shared by Nicholas Stifter alongside the Geistgeld dump.
 - **2026-06** - Streaming classifier (`classify_groupcoin_stales.py`) shipped; `load_groupcoin_stales()` wired into the recovery and novelty pipeline; the `docs/auxpow-recovery.md` cross-chain table gained the Groupcoin row at chronological position 7. Classification produced 32 stale candidates; the canonical-at-height `nBits` gate rejected the row at BTC 376,388, leaving 31.
-- **2026-07** - Repo-wide exact-key exclusion gate applied (now the `data/error-blocks/error_blocks.csv` dataset). The shared version 2 header at BTC 367,047 (also observed by Namecoin, Devcoin, i0coin, and Unobtanium) was excluded under BIP66, dropping the accepted set from 31 to 30. The doc's accepted window was corrected from an earlier upper bound of BTC 376,388 / September 2015 (which counted the excluded `nBits` row) to the true BTC 181,492 → 312,238 (May 2012 → July 2014).
+- **2026-07** - The repo-wide error-block gate excludes the shared post-BIP66
+  version 2 header at BTC 367,047. The accepted set contains 30 rows spanning
+  BTC 181,492 → 312,238 (May 2012 → July 2014).

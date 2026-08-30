@@ -75,7 +75,10 @@ candidates.
 **Loader filter** (`load_ixcoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The `validation_status` gate is persisted on this CSV. All 465 entries are

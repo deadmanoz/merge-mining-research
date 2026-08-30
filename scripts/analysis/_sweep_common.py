@@ -143,9 +143,9 @@ STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "terracoin": 35,
     "unobtanium": 44,
     "xaya": 40,
-    "syscoin": 18_360,
-    "elastos": 9_156,
-    "fractal": 524,
+    "syscoin": 18_381,
+    "elastos": 9_182,
+    "fractal": 534,
 }
 
 UNKNOWN_INVENTORY_BASELINE_ROWS: dict[str, int] = {
@@ -175,10 +175,10 @@ VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "crown": 23,
     "devcoin": 468,
     "doichain": 0,
-    "elastos": 153,
+    "elastos": 177,
     "elcash": 3,
     "emercoin": 96,
-    "fractal": 31,
+    "fractal": 40,
     "geistgeld": 0,
     "groupcoin": 30,
     "hathor": 6,
@@ -187,10 +187,10 @@ VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "ixcoin": 465,
     "lyncoin": 0,
     "myriadcoin": 40,
-    "namecoin": 1_625,
+    "namecoin": 1_649,
     "rsk": 298,
     "sixeleven": 0,
-    "syscoin": 78,
+    "syscoin": 98,
     "terracoin": 35,
     "unobtanium": 43,
     "xaya": 40,
@@ -582,9 +582,8 @@ def write_sweep_report(
 ) -> int:
     """Resolve the output path, render, and write. No coverage check, no MTP.
 
-    ``render`` receives the resolved output Path so time-rule can read
-    ``prior_text`` from the file it is about to replace. Returns 0, or 2
-    when ``resolve_output_path`` refuses the write.
+    ``render`` receives the resolved output Path. Returns 0, or 2 when
+    ``resolve_output_path`` refuses the write.
     """
     output = resolve_output_path(args, default_report)
     if output is None:

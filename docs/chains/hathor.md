@@ -58,8 +58,8 @@ The initial recovery saved `aux_pow` separately from the funds-and-graph bytes
 needed for reconstruction. That omission forced a second fetch and created two
 files that then had to be joined. The current acquisition row keeps the complete
 evidence together, so the raw/supplement path and its gap-fill tooling are no
-longer supported. Private artifacts in an earlier shape must be transformed by
-a disposable operator script, not by compatibility code in the pipeline.
+longer supported. Private artifacts in another shape must be transformed by
+a disposable operator script outside the publication path.
 
 The full acquisition dataset and category inventories are private archival
 artifacts because of their size. The committed publication keeps the compact

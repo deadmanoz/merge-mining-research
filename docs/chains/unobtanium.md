@@ -72,7 +72,10 @@ The 430,931 unknown rows are headers from non-BTC SHA-256 parents (UNO miners me
 **Loader filter** (`load_unobtanium_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The `validation_status` gate is now persisted on this CSV: all 43 entries are `validation_status=VALID`; the loader also applies the exact-key error-blocks exclusion gate (`data/error-blocks/error_blocks.csv`).

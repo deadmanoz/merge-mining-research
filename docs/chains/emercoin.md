@@ -86,7 +86,10 @@ The 2026-06-24 canonical-refresh re-run reclassified the same archived 88,201-ro
 **Loader filter** (`load_emercoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader delegates to the shared `load_auxpow_validated_stales()`, which also applies the exact-key error-blocks gate (`data/error-blocks/error_blocks.csv`) and the `min_height` floor (inert here - Emercoin's minimum BTC height 467,186 sits above the default floor, so the loader returns 96 rows either way). It parses `coinbase_outputs` as raw pkscript hex semicolon-joined (matches myriadcoin/i0coin/ixcoin/elastos format). The extractor preserves the parent-coinbase outputs verbatim without address decoding so they remain available for later attribution research. 96 entries pass the committed validation filter (2026-06-24 refresh; 92 in the original run). One stale-classified row at BTC height 717,696 is rejected because its encoded `btc_bits` (`170b98ab`) does not match Bitcoin's canonical bits (`170b8c8b`) - the same header Syscoin's candidate set independently surfaces and rejects at the same height.
@@ -116,10 +119,10 @@ Emercoin is 15th chronologically. Earlier-born integrated chains: namecoin, geis
 | Split | Count |
 |---|---:|
 | also in upstream | 56 |
-| also in earlier-born chain (`namecoin`: 34, `devcoin`: 5, `crown`: 4, `i0coin`: 3, `myriadcoin`: 2 - first-claim distribution) | 48 |
+| also in earlier-born chain (`namecoin`: 35, `devcoin`: 5, `crown`: 4, `i0coin`: 3, `myriadcoin`: 2 - first-claim distribution) | 49 |
 | **novel at this position** | **29** |
 
-The 48 earlier-chain-claimed stales reflect the same SHA-256d miner substrate that Namecoin (mostly) and the older chains had already been recording - Namecoin alone claims 34 of Emercoin's 96 committed candidates chronologically. The **29 chronologically novel hashes** are genuinely new-to-the-multi-chain-set contributions at Emercoin's position, **14.5× Myriadcoin's chronologically-novel count** of 2. This is the substantive payoff despite the low PoW share - the long coverage window and the BCH/BSV-era miner population diversity matter more than per-block AuxPoW density.
+The 49 earlier-chain-claimed stales reflect the same SHA-256d miner substrate that Namecoin (mostly) and the older chains had already been recording - Namecoin alone claims 35 of Emercoin's 96 committed candidates chronologically. The **29 chronologically novel hashes** are genuinely new-to-the-multi-chain-set contributions at Emercoin's position, **14.5× Myriadcoin's chronologically-novel count** of 2. This is the substantive payoff despite the low PoW share - the long coverage window and the BCH/BSV-era miner population diversity matter more than per-block AuxPoW density.
 
 > Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
 

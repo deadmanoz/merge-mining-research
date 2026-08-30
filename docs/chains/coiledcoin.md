@@ -84,7 +84,10 @@ Of the 27 stales, **1 is in the Eligius attack window** (`eligius_attack_window=
 **Loader filter** (`load_coiledcoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The `eligius_attack_window` flag is preserved in the validated CSV but does not affect the loader filter. All 27 entries in the validated CSV pass.
@@ -161,7 +164,7 @@ possible"):
 - `data/validated-stales/coiledcoin_validated_stales.csv` (27 rows) extracted from the prototype output.
 - `COILEDCOIN_CSV` constant in `config.py`.
 - `load_coiledcoin_stales()` in `stale_blocks.py` (shared stale-classification
-  and `VALID`-prefix gate).
+  and exact two-status acceptance gate).
 - Registration in `CHAIN_SPECS` and `CHAINS_BY_AUXPOW_ACTIVATION` at its
   chronological position (5, after ixcoin), with `load_coiledcoin_stales()`
   supplying the public input.

@@ -143,7 +143,9 @@ def test_exact_duplicate_fills_missing_coinbase_fields_independently():
 
 def test_addr_to_spk_decodes_syscoin_p2pkh_addresses():
     from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     addr = "SfYHFxiGv4mRtUfQVHxfMWknEt53Bjj286"
     h160 = _b58_decode_to_hash160(addr)
@@ -155,7 +157,9 @@ def test_addr_to_spk_decodes_syscoin_p2pkh_addresses():
 
 def test_addr_to_spk_decodes_namecoin_p2sh_and_bech32_addresses():
     from stale_blocks_analysis.bitcoin_binary import _b58_decode_to_hash160
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     p2sh = "6arxak7yK8CmKEc8M8TqekkAXErtjN5RVt"  # committed Namecoin output
     h160 = _b58_decode_to_hash160(p2sh)
@@ -288,7 +292,9 @@ def test_primary_exact_duplicates_are_dropped_first_wins():
 
 
 def test_addr_to_spk_accepts_uppercase_bech32():
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     upper = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
     lower = upper.lower()
@@ -301,7 +307,9 @@ def test_addr_to_spk_reads_the_version_byte_not_the_leading_character():
     on the payload, so typing by leading character mistyped every 'M'
     address as P2SH: 3,146 outputs in the committed loader inputs. The
     script type comes from the version byte instead."""
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     p2pkh = b"\x76\xa9\x14"
     p2sh = b"\xa9\x14"
@@ -324,7 +332,9 @@ def test_namecoin_m_address_pays_its_registry_pool():
 
     from stale_blocks_analysis.config import LOCAL_MINING_POOLS_DIR
     from stale_blocks_analysis.pool_identification import identify_pool
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     if not (LOCAL_MINING_POOLS_DIR / "pools").is_dir():
         pytest.skip("mining-pools clone not fetched")
@@ -337,7 +347,9 @@ def test_namecoin_addresses_spelled_nc1_are_base58_not_bech32():
     """A Namecoin version-52 address can be spelled 'NC1...'. Case-folding
     it into the bech32 branch discarded its payout evidence: 17 outputs in
     the committed inputs are spelled that way."""
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     spk = _addr_to_spk("NC1hnGBkMuyh7Tk4TqszXXT3a6pxXPCANL")
     assert spk is not None and spk[:3] == b"\x76\xa9\x14"
@@ -349,7 +361,9 @@ def test_namecoin_addresses_spelled_nc1_are_base58_not_bech32():
 
 def test_base58_checksum_is_verified():
     """A mistyped address must not decode to a wrong-but-plausible script."""
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     good = "12dRugNcdxK39288NjcDV4GX7rMsKCGn6B"
     assert _addr_to_spk(good) is not None
@@ -395,7 +409,10 @@ def test_addr_to_spk_keeps_the_witness_version():
     """A 20-byte program is only P2WPKH at witness v0; reconstructing every
     20-byte program as OP_0 would let a v1 address impersonate a P2WPKH
     marker."""
-    from stale_blocks_analysis.stale_blocks import _BECH32_CHARSET, _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        _BECH32_CHARSET,
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     v0 = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
     assert _addr_to_spk(v0)[:2] == b"\x00\x14"
@@ -572,7 +589,9 @@ def test_child_chain_bech32_checksums_are_verified():
     """The shared decoder skips the checksum and the padding rule, so a
     mutated address would rebuild the same canonical script and could match
     a real payout marker."""
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     valid = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
     assert _addr_to_spk(valid) is not None
@@ -632,7 +651,9 @@ def test_binaries_are_unusable_without_a_blob_manifest(tmp_path, monkeypatch):
 def test_child_chain_bech32_requires_an_exact_hrp():
     """An address encoded for the HRP 'bc1evil' checksums against that HRP,
     so a prefix test would decode it into an ordinary Bitcoin script."""
-    from stale_blocks_analysis.stale_blocks import _addr_to_spk
+    from stale_blocks_analysis.coinbase_output_claims import (
+        address_to_script_pubkey as _addr_to_spk,
+    )
 
     charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 

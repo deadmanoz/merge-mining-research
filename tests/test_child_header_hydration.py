@@ -14,8 +14,182 @@ import pytest
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
+from stale_blocks_analysis.evidence_hydration import (
+    CHILD_IDENTITY_CORE_FIELDS,
+    hydrate_child_identity,
+    load_child_identity,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _identity_child_header(
+    *, timestamp: int = 1_700_000_000, nbits: int = 0x1D00FFFF
+) -> bytes:
+    return (
+        struct.pack("<i", 1)
+        + b"\x11" * 32
+        + b"\x22" * 32
+        + struct.pack("<III", timestamp, nbits, 7)
+    )
+
+
+def _write_child_identity_rows(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=CHILD_IDENTITY_CORE_FIELDS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_load_child_identity_returns_verified_unique_row(tmp_path: Path) -> None:
+    block_hash = "11" * 32
+    child_header = _identity_child_header(timestamp=3)
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": block_hash,
+        "child_height": "2",
+        "child_block_hash": hash_from_header_bytes(child_header).hex(),
+        "child_block_time": "3",
+        "verification": "auxpow_parent_match",
+        "note": "",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+    _write_child_identity_rows(
+        tmp_path / "child-identity" / "namecoin_child_identity.csv", [row]
+    )
+
+    assert load_child_identity(tmp_path)[("namecoin", block_hash)] == row
+
+
+def test_load_child_identity_rejects_duplicate_parent_key(tmp_path: Path) -> None:
+    block_hash = "11" * 32
+    child_header = _identity_child_header(timestamp=3)
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": block_hash,
+        "child_height": "2",
+        "child_block_hash": hash_from_header_bytes(child_header).hex(),
+        "child_block_time": "3",
+        "verification": "auxpow_parent_match",
+        "note": "",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+    _write_child_identity_rows(
+        tmp_path / "child-identity" / "namecoin_child_identity.csv", [row, row]
+    )
+
+    with pytest.raises(ValueError, match="duplicate child identity"):
+        load_child_identity(tmp_path)
+
+
+def test_load_child_identity_rejects_header_bundle_contradiction(
+    tmp_path: Path,
+) -> None:
+    child_header = _identity_child_header()
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": "11" * 32,
+        "child_height": "2",
+        "child_block_hash": "22" * 32,
+        "child_block_time": "1700000000",
+        "verification": "auxpow_parent_match",
+        "note": "",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+    path = tmp_path / "child-identity" / "namecoin_child_identity.csv"
+    _write_child_identity_rows(path, [row])
+
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match=r"namecoin_child_identity\.csv:2: .*child_block_hash disagrees",
+    ):
+        load_child_identity(tmp_path)
+
+
+def test_hydrate_child_identity_fills_complete_five_field_identity() -> None:
+    parent_hash = "11" * 32
+    child_header = _identity_child_header()
+    child_hash = hash_from_header_bytes(child_header).hex()
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": parent_hash,
+        "child_height": "",
+        "child_block_hash": "",
+        "child_block_time": "",
+        "child_header_hex": "",
+        "child_nbits": "",
+        "classification": "stale",
+    }
+
+    stats = hydrate_child_identity(
+        [row],
+        {
+            ("namecoin", parent_hash): {
+                "child_height": "2",
+                "child_block_hash": child_hash,
+                "child_block_time": "1700000000",
+                "child_header_hex": child_header.hex(),
+                "child_nbits": "1d00ffff",
+            }
+        },
+    )
+
+    assert stats.hydrated == 1
+    assert {
+        field: row[field]
+        for field in (
+            "child_height",
+            "child_block_hash",
+            "child_block_time",
+            "child_header_hex",
+            "child_nbits",
+        )
+    } == {
+        "child_height": "2",
+        "child_block_hash": child_hash,
+        "child_block_time": "1700000000",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+    }
+
+
+def test_hydrate_child_identity_preserves_authenticated_source_header() -> None:
+    parent_hash = "11" * 32
+    child_header = _identity_child_header()
+    child_hash = hash_from_header_bytes(child_header).hex()
+    row = {
+        "chain": "namecoin",
+        "btc_header_hash": parent_hash,
+        "child_height": "2",
+        "child_block_hash": child_hash,
+        "child_block_time": "1700000000",
+        "child_header_hex": child_header.hex(),
+        "child_nbits": "1d00ffff",
+        "classification": "stale",
+    }
+
+    stats = hydrate_child_identity(
+        [row],
+        {
+            ("namecoin", parent_hash): {
+                "child_height": "2",
+                "child_block_hash": child_hash,
+                "child_block_time": "1700000000",
+            }
+        },
+    )
+
+    assert stats.hydrated == 1
+    assert row["child_header_hex"] == child_header.hex()
+    assert row["child_nbits"] == "1d00ffff"
 
 
 def _load_script(name: str):
@@ -34,6 +208,99 @@ def _load_repo_script(relative_path: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize("chain", ["namecoin", "syscoin"])
+def test_child_identity_recovery_emits_header_and_nbits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    chain: str,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    child_header = _identity_child_header()
+    child_hash_display = hash_from_header_bytes(child_header)[::-1].hex()
+    parent_hash = "33" * 32
+
+    class FakeRpc:
+        def __init__(self, url, *, user=None, password=None):
+            self.url = url
+
+        def call(self, method, params):
+            if method == "getblockhash":
+                assert params == [2]
+                return child_hash_display
+            if method == "getblock":
+                assert params == [child_hash_display]
+                return {
+                    "auxpow": {"parentblock": {"hash": parent_hash}},
+                    "time": 1_700_000_000,
+                    "bits": "1d00ffff",
+                }
+            if method == "getblockheader":
+                assert params == [child_hash_display, False]
+                return child_header.hex()
+            raise AssertionError(method)
+
+    monkeypatch.setattr(mod, "RpcClient", FakeRpc)
+    monkeypatch.setattr(mod, "rpc_auth_from_env", lambda _prefix: (None, None))
+
+    rows = mod.recover_auxpow_family(
+        chain,
+        "http://example.invalid",
+        [(parent_hash, 2)],
+        1,
+    )
+
+    assert rows == [
+        {
+            "chain": chain,
+            "btc_header_hash": parent_hash,
+            "child_height": 2,
+            "child_block_hash": hash_from_header_bytes(child_header).hex(),
+            "child_header_hex": child_header.hex(),
+            "child_block_time": 1_700_000_000,
+            "child_nbits": "1d00ffff",
+            "verification": "auxpow_parent_match",
+        }
+    ]
+    output = mod.write_rows(tmp_path, chain, rows, complete=True)
+    with output.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames == CHILD_IDENTITY_CORE_FIELDS
+        persisted = list(reader)
+    assert persisted[0]["child_header_hex"] == child_header.hex()
+    assert persisted[0]["child_nbits"] == "1d00ffff"
+
+
+def test_rsk_recovery_schema_retains_blank_bitcoin_header_fields(
+    tmp_path: Path,
+) -> None:
+    mod = _load_script("recover_child_identity")
+    output = mod.write_rows(
+        tmp_path,
+        "rsk",
+        [
+            {
+                "chain": "rsk",
+                "btc_header_hash": "11" * 32,
+                "child_height": 2,
+                "child_block_hash": "22" * 32,
+                "child_block_time": 3,
+                "verification": "merged_mining_header_match",
+            }
+        ],
+        complete=True,
+    )
+
+    with output.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames == [
+            *CHILD_IDENTITY_CORE_FIELDS,
+            *mod.RSK_EXTRA_FIELDS,
+        ]
+        row = next(reader)
+    assert row["child_header_hex"] == ""
+    assert row["child_nbits"] == ""
 
 
 def test_child_identity_recovery_skips_optional_canonical_rows(tmp_path: Path) -> None:
@@ -844,41 +1111,16 @@ def test_coverage_report_loads_each_accepted_descendant_source_observation(
     tmp_path: Path,
 ):
     mod = _load_repo_script("scripts/reports/report_child_header_coverage.py")
-    path = tmp_path / "stale_descendants.csv"
-    fields = [
-        "classification",
-        "validation_status",
-        "btc_height",
-        "btc_header_hash",
-        "source_rows",
-    ]
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerow(
-            {
-                "classification": "stale_descendant",
-                "validation_status": "VALID_STALE_DESCENDANT",
-                "btc_height": "1",
-                "btc_header_hash": "33" * 32,
-                "source_rows": "devcoin:first:1|devcoin:second:2|ixcoin:third:3",
-            }
-        )
-        writer.writerow(
-            {
-                "classification": "stale_descendant",
-                "validation_status": "REJECTED_bip34_height_mismatch",
-                "btc_height": "2",
-                "btc_header_hash": "44" * 32,
-                "source_rows": "devcoin:rejected:4",
-            }
-        )
+    path = tmp_path / "stale_descendant_observations.csv"
+    path.write_bytes(
+        (REPO_ROOT / "data/stale_descendant_observations.csv").read_bytes()
+    )
 
     observations = mod.load_stale_descendant_observations(path)
 
-    assert observations["devcoin"] == {"33" * 32}
-    assert observations["ixcoin"] == {"33" * 32}
-    assert sum(map(len, observations.values())) == 2
+    assert len(observations["devcoin"]) == 3
+    assert len(observations["ixcoin"]) == 3
+    assert sum(map(len, observations.values())) == 6
 
 
 def test_coverage_report_requires_stale_descendant_input(tmp_path: Path):

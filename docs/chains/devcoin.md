@@ -90,7 +90,10 @@ consensus-invalid candidates.
 **Loader filter** (`load_devcoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The `validation_status` gate is persisted on this CSV. All 468 entries are
@@ -178,7 +181,8 @@ The six BTC-epoch-matching unknown rows are:
 **Conclusion.** Devcoin answers the same way as Namecoin, but more strongly: the broad unknown class is not lost BTC deep-reorg material. The overwhelming majority of Devcoin unknowns fail BTC's contemporaneous nBits schedule, including essentially the entire multiblock unknown graph. The few BTC-like exceptions are already known historical fork/shadow-chain fragments.
 
 **Loader decision.** `load_devcoin_stales()` should continue loading only rows
-with `classification == "stale"` and a `VALID`-prefixed `validation_status`.
+with `classification == "stale"` and one of the two exact accepted
+`validation_status` values shown above.
 No Devcoin unknown subset is sufficiently BTC-rooted to admit into fork-rate
 accounting.
 

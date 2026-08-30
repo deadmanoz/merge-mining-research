@@ -4,9 +4,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 from .config import CHAIN_SPECS, DATA_DIR
+
+CHILD_HEIGHT_AUTHENTICATED = "authenticated_consensus"
+CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER = "unauthenticated_scan_order"
+CHILD_HEIGHT_NOT_APPLICABLE = "not_applicable"
+ChildHeightSemantics = Literal[
+    "authenticated_consensus",
+    "unauthenticated_scan_order",
+    "not_applicable",
+]
+
+# These historical block-file classifier inventories carry scan order in their
+# height slot. Only separately verified ``validated_stales`` sources and
+# node-authenticated identity ledgers carry consensus height. Keep this as an
+# explicit source-family contract rather than inferring trust from a path.
+_UNAUTHENTICATED_CHILD_HEIGHT_SOURCE_KINDS = {
+    ("coiledcoin", "full_inventory"),
+    ("coiledcoin", "canonical_blocks"),
+    ("i0coin", "full_inventory"),
+    ("i0coin", "canonical_blocks"),
+    ("namecoin", "full_inventory"),
+    ("namecoin", "canonical_blocks"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +39,17 @@ class EvidenceSource:
     source_kind: str
     artifact_scope: str
     provenance: str
+    child_height_semantics: ChildHeightSemantics = CHILD_HEIGHT_AUTHENTICATED
+
+
+def child_height_semantics_for_source(
+    chain: str,
+    source_kind: str,
+) -> ChildHeightSemantics:
+    """Return the declared child-height semantics for one source schema."""
+    if (chain, source_kind) in _UNAUTHENTICATED_CHILD_HEIGHT_SOURCE_KINDS:
+        return CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER
+    return CHILD_HEIGHT_AUTHENTICATED
 
 
 def normalize_chain_archive_dirs(chain_archive_dirs: Iterable[Path] = ()) -> list[Path]:
@@ -98,6 +131,9 @@ def discover_evidence_sources(
                 source_kind="full_inventory",
                 artifact_scope="full_classifier_inventory",
                 provenance="archive" if full_path in archive_full else "repo-data",
+                child_height_semantics=child_height_semantics_for_source(
+                    chain, "full_inventory"
+                ),
             )
             continue
 
@@ -143,8 +179,9 @@ def discover_canonical_sources(
     independently of the stale/unknown inventory and merged into the exports.
     Only chains with an existing companion appear in the result. A
     never-split chain's inventory can already carry the same canonical rows
-    as its companion (see i0coin), so callers merging this companion dedupe
-    with ``dedupe_canonical_companion_rows``.
+    as its companion (see i0coin). Full-evidence exports retain both physical
+    observations. Final monitor publication may collapse them only after exact
+    child-identity hydration proves they are the same event.
     """
     archive_dirs = normalize_chain_archive_dirs(chain_archive_dirs)
     sources: dict[str, EvidenceSource] = {}
@@ -186,6 +223,9 @@ def discover_canonical_sources(
             provenance=(
                 provenance or ("repo-data" if path.parent == data_dir else "archive")
             ),
+            child_height_semantics=child_height_semantics_for_source(
+                chain, source_kind
+            ),
         )
     return sources
 
@@ -223,15 +263,20 @@ def discover_unknown_sources(
             source_kind="full_inventory",
             artifact_scope="full_classifier_inventory",
             provenance="repo-data" if path.parent == data_dir else "archive",
+            child_height_semantics=child_height_semantics_for_source(
+                chain, "full_inventory"
+            ),
         )
     return sources
 
 
-def stale_descendant_source(data_dir: Path) -> EvidenceSource | None:
-    """Build the pseudo-chain source for ``data/stale_descendants.csv``.
+def stale_descendant_parent_verdict_source(
+    data_dir: Path,
+) -> EvidenceSource | None:
+    """Build the parent-verdict source for ``data/stale_descendants.csv``.
 
-    Returns None when the sidecar is absent. The descendants export uses
-    the reserved chain key ``stale-descendants``.
+    Returns None when the canonical parent interface is absent. Exports retain
+    the reserved artifact chain key ``stale-descendants``.
     """
     path = data_dir / "stale_descendants.csv"
     if not path.exists():
@@ -240,9 +285,10 @@ def stale_descendant_source(data_dir: Path) -> EvidenceSource | None:
         chain="stale-descendants",
         display_name="Stale descendants",
         path=path,
-        source_kind="stale_descendant_sidecar",
-        artifact_scope="stale_descendant_sidecar",
+        source_kind="stale_descendant_parent_verdicts",
+        artifact_scope="stale_descendant_parent_verdicts",
         provenance="repo-data",
+        child_height_semantics=CHILD_HEIGHT_NOT_APPLICABLE,
     )
 
 

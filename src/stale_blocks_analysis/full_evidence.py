@@ -31,7 +31,6 @@ from .evidence_normalization import (
     child_height_for,
     collect_source_rows,
     count_row,
-    dedupe_canonical_companion_rows,
     enforce_unknown_split_contract,
     first_present,
     get_value,
@@ -54,7 +53,7 @@ from .evidence_sources import (
     discover_evidence_sources,
     discover_unknown_sources,
     normalize_chain_archive_dirs,
-    stale_descendant_source,
+    stale_descendant_parent_verdict_source,
 )
 
 DEFAULT_OUTPUT_DIR = RESULTS_DIR / "full-evidence"
@@ -80,7 +79,6 @@ __all__ = (
     "child_height_for",
     "collect_source_rows",
     "count_row",
-    "dedupe_canonical_companion_rows",
     "discover_canonical_sources",
     "discover_evidence_sources",
     "discover_unknown_sources",
@@ -102,7 +100,7 @@ __all__ = (
     "note_child_height_availability",
     "parse_header_fields",
     "safe_path",
-    "stale_descendant_source",
+    "stale_descendant_parent_verdict_source",
     "verified_header_hex",
     "write_csv",
 )
@@ -142,13 +140,6 @@ def build_full_evidence_exports(
             companion_rows, companion_stats = collect_source_rows(
                 companion, error_blocks_path=error_blocks_path
             )
-            companion_rows, skipped = dedupe_canonical_companion_rows(
-                rows, companion_rows
-            )
-            if skipped:
-                companion_stats.source_rows -= skipped
-                companion_stats.classifications["canonical"] -= skipped
-                stats.notes.add(f"skipped_duplicate_canonical_companion_rows={skipped}")
             rows.extend(companion_rows)
             stats = merge_stats(stats, companion_stats)
             stats.notes.add(
@@ -189,17 +180,21 @@ def build_full_evidence_exports(
         count_rows.append(count_row(source, stats, reported_artifact_path))
         manifest_rows.append(manifest_row(source, stats, reported_artifact_path))
 
-    sidecar = stale_descendant_source(data_dir)
-    if sidecar is not None:
-        rows, stats = collect_source_rows(sidecar, error_blocks_path=error_blocks_path)
+    parent_verdicts = stale_descendant_parent_verdict_source(data_dir)
+    if parent_verdicts is not None:
+        rows, stats = collect_source_rows(
+            parent_verdicts, error_blocks_path=error_blocks_path
+        )
         artifact_path = output_dir / "stale-descendants_evidence.csv"
         write_csv(artifact_path, rows, EVIDENCE_FIELDS)
         reported_artifact_path = logical_output_dir / artifact_path.name
-        artifacts[sidecar.chain] = safe_path(
-            reported_artifact_path, chain=sidecar.chain
+        artifacts[parent_verdicts.chain] = safe_path(
+            reported_artifact_path, chain=parent_verdicts.chain
         )
-        count_rows.append(count_row(sidecar, stats, reported_artifact_path))
-        manifest_rows.append(manifest_row(sidecar, stats, reported_artifact_path))
+        count_rows.append(count_row(parent_verdicts, stats, reported_artifact_path))
+        manifest_rows.append(
+            manifest_row(parent_verdicts, stats, reported_artifact_path)
+        )
 
     counts_path = output_dir / "auxpow-full-evidence-counts.csv"
     manifest_csv_path = output_dir / "auxpow-full-evidence-manifest.csv"

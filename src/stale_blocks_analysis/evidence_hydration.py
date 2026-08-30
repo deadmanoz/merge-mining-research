@@ -8,8 +8,13 @@ from pathlib import Path
 from typing import Iterable
 
 from .auxpow_chainid import hash_from_header_bytes
-from .auxpow_parse import ChildHeaderValidationError
-from .evidence_normalization import int_or_none, is_hash, normalize_hash
+from .auxpow_parse import ChildHeaderValidationError, validate_child_header_fields
+from .evidence_normalization import (
+    int_or_none,
+    is_hash,
+    normalize_hash,
+    reconcile_parent_header_fields,
+)
 from .evidence_sources import normalize_chain_archive_dirs
 
 NAMECOIN_CHAIN = "namecoin"
@@ -160,6 +165,13 @@ def hydrate_namecoin_headers(
         candidate = header_map.get(display_hash)
         if candidate and verified_header_hex(candidate, display_hash):
             row["btc_header_hex"] = candidate
+            reconcile_parent_header_fields(
+                row,
+                context=(
+                    f"{row.get('chain') or NAMECOIN_CHAIN} evidence row "
+                    f"{row.get('source_row_number') or '?'}"
+                ),
+            )
             stats.hydrated += 1
         else:
             if candidate:
@@ -168,23 +180,34 @@ def hydrate_namecoin_headers(
     return stats
 
 
-# ── Live-chain child identity hydration ─────────────────────────────────
+# ── Child identity hydration ──────────────────────────────────────
 #
-# Five active child chains (namecoin, rsk, syscoin, elastos, fractal) were
-# recovered without child block identity: their artifacts carry the child
-# HEIGHT but no child block hash or timestamp. Hathor is active too, but its
-# API acquisition retains the source-authenticated child identity directly, so
-# it does not need this separate sidecar. merge-mining-monitor
-# keys live-captured events by (source, child_height, child_block_hash), so
-# imported rows need the exact identity to deduplicate against live capture.
-# scripts/extract/recover_child_identity.py recovers and node-verifies the
-# identity per parent header from the still-reachable child nodes; the
-# committed per-chain CSVs under data/child-identity/ are joined here by
-# (chain, btc_header_hash). RSK rows additionally carry the fields the
-# monitor's rsk_merge_mining_evidence sidecar requires; they are attached to
-# the row and published only in the RSK export's extra columns.
+# Generic per-chain ledgers under data/child-identity/ authenticate exact child
+# events and are joined here by (chain, btc_header_hash). Five active hydration
+# chains (namecoin, rsk, syscoin, elastos, fractal) use identities recovered
+# from their reachable nodes. Historical Devcoin and Ixcoin rows pin complete
+# child headers authenticated from archive source rows; selected error witnesses
+# also record independent RPC verification. Hathor retains source-authenticated
+# identity directly in its acquisition artifact and needs no separate ledger.
+# merge-mining-monitor keys events by
+# (source, child_height, child_block_hash), so imported rows need the exact
+# identity to deduplicate against live capture. RSK rows additionally carry the
+# fields the monitor's rsk_merge_mining_evidence sidecar requires; they are
+# attached to the row and published only in the RSK export's extra columns.
 
 CHILD_IDENTITY_DIR_NAME = "child-identity"
+
+CHILD_IDENTITY_CORE_FIELDS = [
+    "chain",
+    "btc_header_hash",
+    "child_height",
+    "child_block_hash",
+    "child_block_time",
+    "verification",
+    "note",
+    "child_header_hex",
+    "child_nbits",
+]
 
 # The five active child chains whose evidence rows REQUIRE a separate recovered
 # child identity: merge-mining-monitor keys their live-captured events by
@@ -213,13 +236,13 @@ RSK_SIDECAR_EXPORT_FIELDS = [
 
 
 def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]:
-    """Map ``(chain, btc_header_hash)`` -> verified child-identity row.
+    """Map ``(chain, btc_header_hash)`` to an authenticated child identity.
 
     Reads every ``data/child-identity/*_child_identity.csv``; a row is usable
-    only when its ``verification`` is non-empty (node-verified), its
+    only when its ``verification`` names a non-empty authentication method, its
     ``child_height`` is a nonnegative integer, its ``child_block_hash`` is a
     well-formed 32-byte hex value, and its ``child_block_time`` is a positive
-    integer. A verified-but-incomplete row (malformed or manually truncated
+    integer. An authenticated-but-incomplete row (malformed or manually truncated
     sidecar) is dropped here, so the affected evidence rows surface as
     ``missing_identity`` downstream instead of hydrating blanks that defeat
     the publication gate.
@@ -230,7 +253,30 @@ def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]
     identity: dict[tuple[str, str], dict[str, str]] = {}
     for path in sorted(identity_dir.glob("*_child_identity.csv")):
         with path.open(newline="") as f:
-            for row in csv.DictReader(f):
+            for row_number, row in enumerate(csv.DictReader(f), start=2):
+                child_header = (row.get("child_header_hex") or "").strip()
+                child_nbits = (row.get("child_nbits") or "").strip()
+                if child_header or child_nbits:
+                    try:
+                        validate_child_header_fields(row)
+                    except ChildHeaderValidationError as exc:
+                        relationship = {
+                            "child_header_hex does not match child_block_hash": (
+                                "child_header_hex disagrees with child_block_hash; "
+                                "child_block_hash disagrees with child_header_hex"
+                            ),
+                            "child_header_hex does not match child_block_time": (
+                                "child_header_hex disagrees with child_block_time; "
+                                "child_block_time disagrees with child_header_hex"
+                            ),
+                            "child header does not match child_nbits": (
+                                "child_header_hex disagrees with child_nbits; "
+                                "child_nbits disagrees with child_header_hex"
+                            ),
+                        }.get(str(exc), str(exc))
+                        raise ChildHeaderValidationError(
+                            f"{path}:{row_number}: {relationship}"
+                        ) from exc
                 if not (row.get("verification") or "").strip():
                     continue
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
@@ -246,7 +292,13 @@ def load_child_identity(data_dir: Path) -> dict[tuple[str, str], dict[str, str]]
                 chain = (row.get("chain") or "").strip()
                 block_hash = normalize_hash(row.get("btc_header_hash"))
                 if chain and is_hash(block_hash):
-                    identity[(chain, block_hash)] = row
+                    key = (chain, block_hash)
+                    if key in identity:
+                        raise ValueError(
+                            f"{path}:{row_number}: duplicate child identity for "
+                            f"{chain}:{block_hash}"
+                        )
+                    identity[key] = row
     return identity
 
 
@@ -300,11 +352,11 @@ def hydrate_child_identity(
     was loaded for it. The hydration set is targeted unconditionally so a
     missing, empty, or verification-less identity file surfaces as
     ``missing_identity`` instead of silently narrowing the target set. The
-    identity row must agree on ``child_height``; a disagreement leaves the
-    row untouched and is counted, so a stale identity file can never
-    mislabel evidence. RSK sidecar fields ride along on the row dict and
-    only reach output when the caller includes them in the export's field
-    list.
+    identity row fills an explicitly unavailable source ``child_height`` but
+    must agree with every populated source height. A disagreement leaves the
+    row untouched and is counted, so a stale identity file can never mislabel
+    authenticated evidence. RSK sidecar fields ride along on the row dict and
+    only reach output when the caller includes them in the export's field list.
     """
     stats = ChildIdentityStats()
     chains_with_identity = {chain for chain, _ in identity}
@@ -351,13 +403,16 @@ def hydrate_child_identity(
                 stats.missing_identity += 1
             continue
         candidate_height = int_or_none(candidate.get("child_height"))
-        row_height = int_or_none(row.get("child_height"))
-        heights_agree = (
-            candidate_height is not None
-            and candidate_height >= 0
-            and row_height is not None
-            and row_height >= 0
-            and candidate_height == row_height
+        row_height_text = (row.get("child_height") or "").strip()
+        row_height = int_or_none(row_height_text)
+        candidate_height_valid = candidate_height is not None and candidate_height >= 0
+        heights_agree = candidate_height_valid and (
+            not row_height_text
+            or (
+                row_height is not None
+                and row_height >= 0
+                and candidate_height == row_height
+            )
         )
         if not heights_agree:
             if is_canonical_row:
@@ -365,6 +420,8 @@ def hydrate_child_identity(
             else:
                 stats.height_mismatch += 1
             continue
+        if not row_height_text:
+            row["child_height"] = str(candidate_height)
         row_child_header = (row.get("child_header_hex") or "").strip()
         if row_child_header:
             row_child_hash = normalize_hash(row.get("child_block_hash"))
@@ -378,11 +435,24 @@ def hydrate_child_identity(
                     f"{chain} child identity disagrees with the "
                     f"source-authenticated bundle for BTC header {block_hash}"
                 )
+            for field in ("child_header_hex", "child_nbits"):
+                row_value = (row.get(field) or "").strip()
+                candidate_value = (candidate.get(field) or "").strip()
+                if row_value and candidate_value and row_value != candidate_value:
+                    raise ChildHeaderValidationError(
+                        f"{chain} child identity {field} disagrees with the "
+                        f"source-authenticated bundle for BTC header {block_hash}"
+                    )
         # The node-verified identity is authoritative for live chains, so a
-        # source-prepopulated hash is replaced with the verified value.
+        # source-prepopulated hash and timestamp are replaced with the verified
+        # values. An authenticated source header is retained when the identity
+        # source genuinely has no Bitcoin-shaped header (for example RSK).
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
-        if not row.get("child_block_time"):
-            row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
+        row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
+        for field in ("child_header_hex", "child_nbits"):
+            candidate_value = (candidate.get(field) or "").strip()
+            if candidate_value:
+                row[field] = candidate_value
         if chain == "rsk":
             # Sidecar fields are an RSK-only extension; the explicit gate keeps
             # a stray sidecar-named column in another chain's identity file

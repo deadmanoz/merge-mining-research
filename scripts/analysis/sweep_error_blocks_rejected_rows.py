@@ -148,13 +148,12 @@ CHAIN_INVENTORIES: dict[str, str] = {
     "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
 }
 
-# Namecoin is not one of the regen-staging chains STALE_INVENTORY_BASELINE_ROWS
-# covers, so its baseline is stated here from the committed monitor-evidence
-# counts: results/monitor-evidence/monitor-evidence-counts.csv records
-# source_rows 344675 for the namecoin classified inventory. Every other chain
-# keeps the shared baseline, and an unlisted chain still raises KeyError rather
-# than silently sweeping without coverage enforcement.
-NAMECOIN_BASELINE_ROWS = 344_675
+# Namecoin is not one of the regen-staging chains covered by
+# STALE_INVENTORY_BASELINE_ROWS, so pin its complete current classified
+# inventory here. Every other chain keeps the shared baseline, and an unlisted
+# chain still raises KeyError rather than silently sweeping without coverage
+# enforcement.
+NAMECOIN_BASELINE_ROWS = 466_184
 
 REJECTED_INVENTORY_BASELINE_ROWS = {
     chain: (

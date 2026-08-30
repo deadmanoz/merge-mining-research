@@ -120,14 +120,13 @@ just child-header-coverage --input-dir <staged-evidence-dir> \
 The report covers all 17 chains, records total, hydrated, and unrecoverable
 rows, reason counts, time range, and child-minus-parent timestamp range, and
 fails before replacing its output on an authentication contradiction. It also
-cross-references publication-gate-accepted rows in `data/stale_descendants.csv`
-by source chain and Bitcoin header hash, the same identity on which the
-per-chain classifier inventories deduplicate. Repeated provenance references
-for the same chain and parent hash therefore count as one observation. Those
-observations remain `unknown` in the per-chain classifier inventory, but their
-source-chain rows are part of the hydration scope and receive separate total,
-hydrated, and unrecoverable counts in the report. This prevents accepted
-descendants from disappearing behind aggregate per-chain coverage.
+cross-references the exact witnesses in
+`data/stale_descendant_observations.csv` by source chain and Bitcoin header
+hash. The ledger provides one authenticated logical identity per witness and
+retains the archive bucket only as audit provenance. Accepted witnesses are
+part of the hydration scope and receive separate total, hydrated, and
+unrecoverable counts in the report. This prevents accepted descendants from
+disappearing behind aggregate per-chain coverage.
 
 A row is "unrecoverable" in this report when the sampled refreshed artifact did
 not populate its complete authenticated child bundle; the term does not claim
@@ -162,17 +161,13 @@ The normal publication build now emits every available canonical row together
 with accepted direct stales, accepted descendants, and strict/weak unknown-row
 observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
-inputs. The committed ordinary monitor payloads retain the preceding 30 exact
-per-chain observations behind the accepted descendant sidecar: 28 preserve
-their source `unknown` classification while carrying
-`validation_status=VALID_STALE_DESCENDANT`, while the Namecoin and RSK rows
-corrected from direct stales are published in their final `stale_descendant`
-state with the same verdict. The current sidecar has 31 source observations:
-26 legacy `unknown`/`orphan` rows, the same two direct-stale corrections, and
-three exact canonical-bucket observations for height 941,882. The
-aggregate-only error-observation refresh leaves all 28 ordinary artifacts
-byte-identical; the three canonical corrections appear in the next complete
-ordinary publication rebuild. Complete normalized full-evidence and
-canonical-classifier inventories were retained as dated external refreshes
-because those broad artifacts are too large for the repository's normal
-source-data boundary.
+inputs. The stale-descendant publication joins 21 accepted parent verdicts from
+`data/stale_descendants.csv` to 32 authenticated source-chain witnesses from
+`data/stale_descendant_observations.csv`. Each witness retains its source bucket
+as audit provenance, while the parent verdict and
+`validation_status=VALID_STALE_DESCENDANT` come from the ancestry and consensus
+gates. All 28 ordinary artifacts, the error-observation aggregate, counts, and
+manifest are staged and replaced as one coherent transaction. Complete
+normalized full-evidence and canonical-classifier inventories are retained as
+dated external refreshes because those broad artifacts are too large for the
+repository's normal source-data boundary.

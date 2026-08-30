@@ -5,13 +5,19 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 from stale_blocks_analysis.btc_rpc import BtcRpc
+from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
 from stale_blocks_analysis.error_blocks import load_consensus_invalid_stale_keys
+from stale_blocks_analysis.evidence_sources import (
+    CHILD_HEIGHT_AUTHENTICATED,
+    child_height_semantics_for_source,
+)
 from stale_blocks_analysis.full_evidence import (
     first_present,
     get_value,
@@ -61,12 +67,14 @@ class StaleObservation:
 
 @dataclass(slots=True)
 class UnknownObservation:
-    """One source row reporting an unknown-classified (legacy "orphan") BTC parent.
+    """One source row that is candidate evidence for stale ancestry.
 
-    Always comes from a per-chain full-inventory CSV. `scriptsig_hex` and
-    `outputs` are the coinbase scriptSig/outputs hex, if present; `header_hex`
-    is the raw 80-byte BTC header hex used to recompute the header hash and
-    self-PoW during descendant validation.
+    It may come from any classifier bucket. Historical bucket names are not
+    final verdicts. `scriptsig_hex` and
+    `outputs` are the coinbase scriptSig/outputs evidence, if present;
+    `full_coinbase_hex` is the complete transaction when a source exposes it;
+    `header_hex` is the raw 80-byte BTC header hex used to recompute the header
+    hash and self-PoW during descendant validation.
     """
 
     chain: str
@@ -81,6 +89,19 @@ class UnknownObservation:
     scriptsig_hex: str
     outputs: str
     header_hex: str
+    full_coinbase_hex: str = ""
+    source_kind: str = ""
+    source_classification: str = ""
+    source_sha256: str = ""
+
+
+def sha256_file(path: Path) -> str:
+    """Return the SHA-256 of one authenticated source without buffering it."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def rel(path: Path) -> str:
@@ -256,9 +277,9 @@ def discover_canonical_files(data_dir: Path) -> dict[str, Path]:
     These files are a third classifier bucket, separate from the stale and
     unknown inventories. Reconciliation treats their rows as ancestry
     candidates rather than trusted Bitcoin main-chain facts because an
-    archive bucket can become stale after a node or classifier refresh. Only
-    exact keys in the committed correction overlay enter the ancestry graph;
-    discovery alone never changes a published classification.
+    archive bucket can become stale after a node or classifier refresh. Every
+    row is candidate evidence and must earn its final verdict through ancestry,
+    consensus, and active-mainchain gates.
     """
     return {
         path.name.removesuffix("_canonical_blocks.csv"): path
@@ -378,12 +399,66 @@ def fetch_mainchain_status(
     return out
 
 
+def fetch_active_hashes_by_height(
+    candidate_heights: dict[str, int],
+    rpc: BtcRpc,
+    batch_size: int,
+    *,
+    verification_label: str,
+) -> dict[str, dict]:
+    """Authenticate candidates as off-active by exact height comparison.
+
+    ``getblockhash(height)`` remains decisive even when a node no longer knows
+    the stale candidate itself. Each result records the active hash at the
+    candidate's independently inferred height and the authenticated RPC source.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", verification_label):
+        raise ValueError(
+            "RPC verification label must contain only letters, digits, '.', "
+            "'_' or '-' and be at most 64 characters"
+        )
+    by_height: dict[int, list[str]] = defaultdict(list)
+    for block_hash, height in candidate_heights.items():
+        if is_hash(block_hash) and height >= 0:
+            by_height[height].append(block_hash)
+    heights = sorted(by_height)
+    out: dict[str, dict] = {}
+    for start in range(0, len(heights), batch_size):
+        chunk = heights[start : start + batch_size]
+        payload = [
+            {
+                "jsonrpc": "1.0",
+                "id": index,
+                "method": "getblockhash",
+                "params": [height],
+            }
+            for index, height in enumerate(chunk)
+        ]
+        responses = rpc.batch(payload)
+        for index, height in enumerate(chunk):
+            active_hash = normalize_hash(responses[index].get("result"))
+            if not is_hash(active_hash):
+                raise ValueError(
+                    f"Bitcoin Core returned no active hash at height {height}"
+                )
+            for block_hash in by_height[height]:
+                out[block_hash] = {
+                    "exists": block_hash == active_hash,
+                    "on_mainchain": block_hash == active_hash,
+                    "height": height,
+                    "active_hash_at_height": active_hash,
+                    "verification_source": f"bitcoin-core-rpc:{verification_label}",
+                }
+    return out
+
+
 def scan_upstream_stales(
     path: Path,
     stale_by_hash: dict[str, list[StaleObservation]],
     all_hash_chains: dict[str, set[str]],
     prevs_by_hash: dict[str, set[str]],
     excluded_keys: set[tuple[int, str]] | None = None,
+    excluded_hashes: set[str] | None = None,
 ) -> int:
     """Scan an upstream `stale-blocks.csv`-shaped file into the shared stale-index dicts.
 
@@ -405,6 +480,8 @@ def scan_upstream_stales(
         for row_number, row in enumerate(reader, start=2):
             block_hash = normalize_hash(row.get("hash", ""))
             if not is_hash(block_hash):
+                continue
+            if block_hash in (excluded_hashes or set()):
                 continue
             try:
                 height = int(row.get("height", ""))
@@ -456,9 +533,9 @@ def stale_identity_key(
             height_text = str(parent_height + 1)
     if not height_text and "btc_bip34_height" in fields:
         # Legacy inventories sometimes expose no height other than a decoded
-        # BIP34 claim. This fallback can match an exclusion only when that claim
-        # agrees with the overlay's independently established height; a mismatch
-        # deliberately leaves the row unmatched rather than guessing ancestry.
+        # BIP34 claim. This fallback can match an independently established
+        # exclusion key only when that claim agrees exactly; a mismatch leaves
+        # the row unmatched rather than guessing ancestry.
         height_text = row.get("btc_bip34_height", "").strip()
     try:
         height = int(height_text)
@@ -469,10 +546,10 @@ def stale_identity_key(
 
 def accepted_stale_root(row: dict[str, str]) -> bool:
     """Return whether a stale-labelled row can anchor descendant recovery."""
-    if row.get("classification", "stale").strip().lower() != "stale":
+    if row.get("classification", "").strip().lower() != "stale":
         return False
     status = row.get("validation_status", "").strip()
-    return not status or status.startswith("VALID")
+    return status in ACCEPTED_STALE_VALIDATION_STATUSES
 
 
 def stale_sources(
@@ -518,13 +595,11 @@ def load_observations(
     epoch_bits: dict[int, str],
     excluded_keys: set[tuple[int, str]],
     consensus_invalid_keys: set[tuple[int, str]],
-    stale_descendant_corrections: dict[tuple[int, str], str],
 ) -> dict[str, object]:
     """Load inventories and return the reconciliation indexes and anomalies."""
-    descendant_candidate_keys = (excluded_keys - consensus_invalid_keys) | set(
-        stale_descendant_corrections
-    )
-    seen_correction_keys: set[tuple[int, str]] = set()
+    consensus_invalid_hashes = {
+        block_hash for _height, block_hash in consensus_invalid_keys
+    }
     stale_by_hash: dict[str, list[StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
     full_classifications_by_hash: dict[str, set[str]] = defaultdict(set)
@@ -550,6 +625,7 @@ def load_observations(
         all_hash_chains,
         prevs_by_hash,
         excluded_keys,
+        consensus_invalid_hashes,
     )
 
     inventory_rows: list[dict[str, object]] = []
@@ -582,19 +658,18 @@ def load_observations(
             nbits_mismatch_counts[key] += 1
             nbits_mismatch_first_row.setdefault(key, row_number)
 
-    def scan_inventory_file(inv_path, chain, notes, *, candidate_only=False):
+    def scan_inventory_file(inv_path, chain, source_kind, notes):
         """Scan one classifier inventory file (stale-only or unknown) into the
         shared observation indices, dispatching each row by its ``classification``.
 
-        Reading the stale, unknown, and canonical bucket files keeps split chains
-        and never-split chains correct. Canonical-bucket files use
-        ``candidate_only=True`` so only exact corrected canonical keys participate
-        in ancestry traversal. The same typed correction applies to canonical
-        rows in a commingled full inventory; uncorrected canonical rows remain
-        inventory accounting only and never become ancestry candidates.
+        Reading stale, unknown, and canonical bucket files keeps split and
+        never-split chains correct. Every supported source bucket contributes
+        candidate evidence; no archive classification can anchor a trusted root
+        or select a final verdict.
         Returns per-file ``(total, stale, unknown, missing_hash, missing_prev,
         recovered_prev, hash_col, prev_col, header_col)``.
         """
+        source_sha256 = sha256_file(inv_path)
         with inv_path.open(newline="") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
@@ -622,50 +697,15 @@ def load_observations(
                 btc_height = row.get(height_col, "").strip() if height_col else ""
                 btc_time = get_value(row, fieldnames, ("btc_time",))
                 child_height = get_child_height(row, fieldnames)
+                if (
+                    child_height_semantics_for_source(chain, source_kind)
+                    != CHILD_HEIGHT_AUTHENTICATED
+                ):
+                    child_height = ""
 
-                exclusion_key = stale_identity_key(row, fieldnames, hash_col)
                 source_classification = classification
-                correction_reason = stale_descendant_corrections.get(exclusion_key)
-                if candidate_only and source_classification != "canonical":
-                    if correction_reason is not None:
-                        raise ValueError(
-                            f"{rel(inv_path)}:{row_number}: corrected canonical "
-                            "bucket row must declare classification=canonical"
-                        )
+                if block_hash in consensus_invalid_hashes:
                     continue
-                if classification == "stale":
-                    if exclusion_key in consensus_invalid_keys:
-                        continue
-                    if exclusion_key in descendant_candidate_keys:
-                        # The exact-key correction overlay records source rows
-                        # whose archive label is no longer authoritative. Feed
-                        # them through the ancestry walk so only the validated
-                        # descendant path can publish them.
-                        classification = "unknown"
-                        if exclusion_key in stale_descendant_corrections:
-                            if (
-                                stale_descendant_corrections[exclusion_key]
-                                != "reclassified_from_direct_stale"
-                            ):
-                                raise ValueError(
-                                    f"{rel(inv_path)}:{row_number}: correction "
-                                    "reason disagrees with stale source bucket"
-                                )
-                            seen_correction_keys.add(exclusion_key)
-                elif classification == "canonical":
-                    if correction_reason is None:
-                        if candidate_only:
-                            continue
-                    elif exclusion_key in consensus_invalid_keys:
-                        continue
-                    elif correction_reason != "reclassified_from_canonical":
-                        raise ValueError(
-                            f"{rel(inv_path)}:{row_number}: correction reason "
-                            "disagrees with canonical source bucket"
-                        )
-                    else:
-                        seen_correction_keys.add(exclusion_key)
-                        classification = "unknown"
 
                 if recovered_prev:
                     recovered_prev_rows += 1
@@ -678,7 +718,7 @@ def load_observations(
                 ):  # legacy artifacts wrote "orphan"
                     unknown_count += 1
 
-                if classification in {"stale", "orphan", "unknown"}:
+                if classification in {"stale", "orphan", "unknown", "canonical"}:
                     if not is_hash(block_hash):
                         missing_hash += 1
                         malformed_counts[
@@ -709,29 +749,10 @@ def load_observations(
                         prevs_by_hash[block_hash].add(prev_hash)
 
                 if (
-                    classification == "stale"
-                    and accepted_stale_root(row)
-                    and is_hash(block_hash)
-                ):
-                    stale_by_hash[block_hash].append(
-                        StaleObservation(
-                            chain=chain,
-                            source_kind="full_inventory",
-                            source_path=rel(inv_path),
-                            row_number=row_number,
-                            block_hash=block_hash,
-                            prev_hash=prev_hash,
-                            btc_height=btc_height,
-                            child_height=child_height,
-                            btc_time=btc_time,
-                            bits=bits,
-                        )
-                    )
-                elif (
-                    classification in ("orphan", "unknown")
+                    classification in ("stale", "orphan", "unknown", "canonical")
                     and is_hash(block_hash)
                     and is_hash(prev_hash)
-                ):  # legacy artifacts wrote "orphan"
+                ):
                     obs = UnknownObservation(
                         chain=chain,
                         source_path=rel(inv_path),
@@ -747,6 +768,10 @@ def load_observations(
                         header_hex=row.get(header_col, "").strip()
                         if header_col
                         else "",
+                        full_coinbase_hex=row.get("full_coinbase_hex", "").strip(),
+                        source_kind=source_kind,
+                        source_classification=source_classification,
+                        source_sha256=source_sha256,
                     )
                     unknown_rows.append(obs)
                     unknown_row_counts_by_hash[block_hash] += 1
@@ -775,10 +800,15 @@ def load_observations(
         validated_path = validated_files.get(chain)
         notes: list[str] = []
         inventory_paths = [
-            (path, False) for path in (full_path, unknown_path) if path is not None
+            (path, kind)
+            for path, kind in (
+                (full_path, "full_inventory"),
+                (unknown_path, "unknown_blocks"),
+            )
+            if path is not None
         ]
         if canonical_path is not None:
-            inventory_paths.append((canonical_path, True))
+            inventory_paths.append((canonical_path, "canonical_blocks"))
 
         if not inventory_paths:
             if validated_path is not None:
@@ -810,9 +840,9 @@ def load_observations(
         total_rows = stale_rows = unknown_count = missing_hash = missing_prev = 0
         recovered_prev_rows = 0
         hash_col = prev_col = header_col = None
-        for inv_path, candidate_only in inventory_paths:
+        for inv_path, source_kind in inventory_paths:
             (t_, s_, u_, mh_, mp_, rp_, hc_, pc_, hdc_) = scan_inventory_file(
-                inv_path, chain, notes, candidate_only=candidate_only
+                inv_path, chain, source_kind, notes
             )
             total_rows += t_
             stale_rows += s_
@@ -862,6 +892,8 @@ def load_observations(
                 block_hash = get_hash(row, hash_col)
                 if not is_hash(block_hash):
                     continue
+                if block_hash in consensus_invalid_hashes:
+                    continue
                 prev_hash, _recovered_prev = get_prev(row, prev_col, header_col)
                 bits = row.get(bits_col, "").strip().lower() if bits_col else ""
                 btc_height = row.get(height_col, "").strip() if height_col else ""
@@ -903,10 +935,7 @@ def load_observations(
     auxpow_stale_hashes = {
         h
         for h, observations in stale_by_hash.items()
-        if any(
-            obs.source_kind in {"full_inventory", "validated_stales"}
-            for obs in observations
-        )
+        if any(obs.source_kind == "validated_stales" for obs in observations)
     }
 
     conflicting_prev_hashes = {
@@ -1042,7 +1071,6 @@ def load_observations(
         "unknown_example_by_hash": unknown_example_by_hash,
         "unknown_observations_by_hash": unknown_observations_by_hash,
         "inventory_rows": inventory_rows,
-        "seen_correction_keys": frozenset(seen_correction_keys),
         "upstream_count": upstream_count,
         "known_stale_hashes": known_stale_hashes,
         "auxpow_stale_hashes": auxpow_stale_hashes,
