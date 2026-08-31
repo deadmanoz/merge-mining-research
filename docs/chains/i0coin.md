@@ -108,10 +108,17 @@ removes one shared post-BIP66 version 2 candidate (BTC 367,047), leaving
 **Loader filter** (`load_i0coin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
-The `VALID`-prefix gate passes both `VALID` (pre-BCH) and `VALID (post-BCH, ...)` rows. All 166 committed entries are `classification == "stale"` with a `VALID` prefix; the loader also applies the exact-key error-blocks exclusion gate, which removes the one shared post-BIP66 version 2 candidate (BTC 367,047).
+The exact status gate accepts `VALID` and
+`VALID (post-BCH, difficulty matches BTC)`. All 166 committed entries are
+`classification == "stale"` with one of those two statuses; the loader also
+applies the exact-key error-blocks exclusion gate, which removes the one shared
+post-BIP66 version 2 candidate (BTC 367,047).
 
 **Post-filter count: 166 accepted direct-stale header candidates.**
 

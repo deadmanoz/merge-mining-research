@@ -141,6 +141,38 @@ def _run_classifier(
         if relative.endswith("_validated_stales.csv") and "/" not in relative:
             relative = f"validated-stales/{relative}"
         _write_csv(data_dir / relative, rows)
+    parents_path = data_dir / "stale_descendants.csv"
+    if parents_path.is_file():
+        with parents_path.open(newline="") as handle:
+            parent = next(csv.DictReader(handle))
+        root_input = data_dir / "validated-stales" / "root_validated_stales.csv"
+        root_input.parent.mkdir(parents=True, exist_ok=True)
+        root_input.write_text(
+            "btc_height,btc_header_hash,classification,validation_status\n"
+        )
+        upstream_path = data_dir / "stale-blocks" / "stale-blocks.csv"
+        if not upstream_path.exists():
+            _write_csv(
+                upstream_path,
+                [
+                    {
+                        "height": parent["root_stale_height"],
+                        "hash": parent["root_stale_hash"],
+                    }
+                ],
+            )
+        error_blocks_path = data_dir / "error-blocks" / "error_blocks.csv"
+        if not error_blocks_path.exists():
+            _write_csv(
+                error_blocks_path,
+                [
+                    {
+                        "height": "0",
+                        "hash": "00" * 32,
+                        "classification": "error_block",
+                    }
+                ],
+            )
     for relative, rows in (archive_files or {}).items():
         _write_csv(chain_archive_dir / relative, rows)
     (cache_dir / "btc_nbits_by_epoch.json").write_text(
@@ -202,6 +234,44 @@ def test_valid_direct_stale_is_confirmed(tmp_path: Path):
     assert rows[0]["relevance_reason"] == "valid_direct_stale"
 
 
+@pytest.mark.parametrize(
+    "status",
+    ("", "VALIDATION_FAILED", "VALID_BOGUS", "VALID invented"),
+)
+def test_direct_stale_requires_an_exact_accepted_status(
+    tmp_path: Path, status: str
+) -> None:
+    assert not classifier.validation_allows_direct_stale(status)
+    assert classifier.validation_rejects(status)
+
+    rows, summary = _run_classifier(
+        tmp_path,
+        {
+            "xaya_validated_stales.csv": [
+                {
+                    "btc_header_hash": _hash(1),
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1000000",
+                    "btc_bits": EASY_BITS,
+                    "classification": "stale",
+                    "validation_status": status,
+                }
+            ]
+        },
+    )
+
+    assert rows[0]["btc_stale_relevance"] == "excluded"
+    assert rows[0]["relevance_reason"] == "validation_rejected"
+    assert summary["unique_confirmed_btc_stale"]["global_unique_hashes"] == 0
+
+
+def test_post_bch_direct_stale_status_is_exactly_accepted() -> None:
+    status = "VALID (post-BCH, difficulty matches BTC)"
+
+    assert classifier.validation_allows_direct_stale(status)
+    assert not classifier.validation_rejects(status)
+
+
 @pytest.mark.skipif(
     not (
         PROJECT_ROOT / "data" / "validated-stales" / "argentum_validated_stales.csv"
@@ -240,50 +310,24 @@ def test_real_validated_stale_fixture_survives_pow_gate(tmp_path: Path):
 
 
 def test_valid_stale_descendant_is_confirmed(tmp_path: Path):
+    with (PROJECT_ROOT / "data/stale_descendants.csv").open(newline="") as handle:
+        parent = next(csv.DictReader(handle))
     rows, _summary = _run_classifier(
         tmp_path,
-        {
-            "stale_descendants.csv": [
-                {
-                    "classification": "stale_descendant",
-                    "validation_status": "VALID_STALE_DESCENDANT",
-                    "btc_header_hash": _hash(2),
-                    "btc_prev_hash": PREV_HASH,
-                    "btc_time": "1000000",
-                    "btc_bits": EASY_BITS,
-                    "root_stale_hash": _hash(1),
-                    "root_stale_height": "300000",
-                    "stale_fork_depth": "1",
-                    "promotion_subclass": "direct_stale_child",
-                    "observed_chains": "namecoin",
-                }
-            ]
-        },
+        {"stale_descendants.csv": [parent]},
     )
 
     assert rows[0]["btc_stale_relevance"] == ""
     assert rows[0]["relevance_reason"] == "valid_stale_descendant"
 
 
-def test_rejected_stale_descendant_is_excluded(tmp_path: Path):
-    rows, _summary = _run_classifier(
-        tmp_path,
-        {
-            "stale_descendants.csv": [
-                {
-                    "classification": "stale_descendant",
-                    "validation_status": "REJECTED_bip34_height_mismatch",
-                    "btc_header_hash": _hash(3),
-                    "btc_prev_hash": PREV_HASH,
-                    "btc_time": "1000000",
-                    "btc_bits": EASY_BITS,
-                }
-            ]
-        },
-    )
+def test_rejected_stale_descendant_fails_at_canonical_loader(tmp_path: Path):
+    with (PROJECT_ROOT / "data/stale_descendants.csv").open(newline="") as handle:
+        parent = next(csv.DictReader(handle))
+    parent["validation_status"] = "REJECTED_bip34_height_mismatch"
 
-    assert rows[0]["btc_stale_relevance"] == "excluded"
-    assert rows[0]["relevance_reason"] == "known_rejected_stale_descendant"
+    with pytest.raises(ValueError, match="parent verdict is not accepted"):
+        _run_classifier(tmp_path, {"stale_descendants.csv": [parent]})
 
 
 def test_rsk_unknown_row_timestamp_epoch_match_is_weak(tmp_path: Path):
@@ -1411,6 +1455,49 @@ def test_classifier_uses_data_dir_error_block_catalogue(tmp_path: Path):
 
     assert rows == []
     assert summary["row_counts"]["processed_by_source_file"] == []
+
+
+@pytest.mark.parametrize("source_height", ["331736", ""])
+def test_classifier_excludes_error_parent_when_legacy_height_is_wrong_or_blank(
+    tmp_path: Path,
+    source_height: str,
+) -> None:
+    excluded_hash = _hash(31)
+    included_hash = _hash(32)
+    rows, _summary = _run_classifier(
+        tmp_path,
+        {
+            "error-blocks/error_blocks.csv": [
+                {
+                    "height": "331735",
+                    "hash": excluded_hash,
+                    "classification": "error_block",
+                }
+            ]
+        },
+        archive_files={
+            "namecoin/classified/namecoin_stale_blocks.csv": [
+                {
+                    "btc_stale_height": source_height,
+                    "btc_hash": excluded_hash,
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1417032925",
+                    "btc_bits_hex": EASY_BITS,
+                    "classification": "unknown",
+                },
+                {
+                    "btc_stale_height": source_height,
+                    "btc_hash": included_hash,
+                    "btc_prev_hash": PREV_HASH,
+                    "btc_time": "1417032925",
+                    "btc_bits_hex": EASY_BITS,
+                    "classification": "unknown",
+                },
+            ]
+        },
+    )
+
+    assert {row["btc_header_hash"] for row in rows} == {included_hash}
 
 
 def test_check_mainchain_uses_rpc_results_and_truncation(tmp_path: Path, monkeypatch):

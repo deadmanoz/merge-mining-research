@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "classify" / "classify_auxpow_candidates.py"
 
@@ -287,7 +289,7 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         "unknown",
     ]
     assert classified[0]["extraction_note"] == "preserved"
-    assert classified[1]["validation_status"].startswith("VALID")
+    assert classified[1]["validation_status"] in ACCEPTED_STALE_VALIDATION_STATUSES
     assert classified[2]["validation_status"] == (
         "UNKNOWN: parent is not on the active Bitcoin chain"
     )
@@ -323,7 +325,9 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
     )
     assert publication_stales[0]["child_header_hex"] == rows[1]["child_header_hex"]
     assert publication_stales[0]["expected_nbits"] == "207fffff"
-    assert publication_stales[0]["validation_status"].startswith("VALID")
+    assert (
+        publication_stales[0]["validation_status"] in ACCEPTED_STALE_VALIDATION_STATUSES
+    )
     assert publication_canonical[0]["expected_nbits"] == ""
     assert publication_canonical[0]["validation_status"] == ""
     assert publication_unknown[0]["expected_nbits"] == ""

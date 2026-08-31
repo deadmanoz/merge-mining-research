@@ -2,32 +2,40 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import importlib.util
+import shutil
 from pathlib import Path
 
 import pytest
 
 from stale_blocks_analysis.config import ERROR_BLOCKS_CSV
-
-REPO = Path(__file__).resolve().parents[1]
+from stale_blocks_analysis import error_block_validation
 
 from _sweep_test_helpers import _bip34_scriptsig  # noqa: E402
 
 
 def _load_validator():
-    spec = importlib.util.spec_from_file_location(
-        "validate_error_blocks",
-        REPO / "scripts" / "analysis" / "validate_error_blocks.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return error_block_validation
 
 
 def test_every_committed_row_revalidates() -> None:
     mod = _load_validator()
     failures = mod.validate_dataset(ERROR_BLOCKS_CSV)
     assert failures == [], f"rows failed re-derivation: {failures}"
+
+
+def test_validator_main_fails_when_observation_ledger_is_invalid(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mod = _load_validator()
+    monkeypatch.setattr(mod, "validate_dataset", lambda *_args, **_kwargs: [])
+
+    def reject_ledger(**_kwargs):
+        raise ValueError("ledger drift")
+
+    monkeypatch.setattr(mod, "validate_error_observation_ledger", reject_ledger)
+
+    assert mod.main() == 1
+    assert "error-observation ledger: ledger drift" in capsys.readouterr().out
 
 
 def test_duplicate_dataset_key_fails_offline_validation(tmp_path: Path) -> None:
@@ -51,6 +59,42 @@ def test_duplicate_dataset_key_fails_offline_validation(tmp_path: Path) -> None:
     assert any("duplicate error-block key" in failure for failure in failures)
 
 
+def test_duplicate_mtp_context_key_fails_offline_validation(tmp_path: Path) -> None:
+    mod = _load_validator()
+    block_hash = "11" * 32
+    path = tmp_path / "mtp_context.csv"
+    path.write_text(
+        "height,hash,parent_median_time_past\n"
+        f"500000,{block_hash},1700000000\n"
+        f"500000,{block_hash},1700000001\n"
+    )
+
+    with pytest.raises(ValueError, match="duplicate MTP context key"):
+        mod._load_mtp_context(path)
+
+
+@pytest.mark.parametrize(
+    ("height", "block_hash"),
+    [
+        ("0500000", "11" * 32),
+        ("500000", "AB" * 32),
+    ],
+)
+def test_mtp_context_key_requires_canonical_encoding(
+    tmp_path: Path,
+    height: str,
+    block_hash: str,
+) -> None:
+    mod = _load_validator()
+    path = tmp_path / "mtp_context.csv"
+    path.write_text(
+        f"height,hash,parent_median_time_past\n{height},{block_hash},1700000000\n"
+    )
+
+    with pytest.raises(ValueError, match="invalid MTP context row"):
+        mod._load_mtp_context(path)
+
+
 def test_non_error_block_classification_fails_offline_validation(
     tmp_path: Path,
 ) -> None:
@@ -70,6 +114,32 @@ def test_non_error_block_classification_fails_offline_validation(
     failures = mod.validate_dataset(path)
 
     assert any("classification must be error_block" in failure for failure in failures)
+
+
+def test_complete_error_module_rejects_unknown_consensus_rule(tmp_path: Path) -> None:
+    mod = _load_validator()
+    error_dir = tmp_path / "data" / "error-blocks"
+    shutil.copytree(ERROR_BLOCKS_CSV.parent, error_dir)
+    catalogue = error_dir / "error_blocks.csv"
+    with catalogue.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    rows[0]["rejection_reason"] = "not_a_consensus_rule"
+    rows[0]["rules_violated"] = "not_a_consensus_rule"
+    with catalogue.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(mod.ErrorModuleValidationError) as caught:
+        mod.validate_error_module(
+            catalogue_path=catalogue,
+            ledger_path=error_dir / "error_block_observations.csv",
+            mtp_context_path=error_dir / "mtp_context.csv",
+        )
+
+    assert any("no gate registered" in failure for failure in caught.value.failures)
 
 
 def test_946213_time_below_mtp_revalidates() -> None:

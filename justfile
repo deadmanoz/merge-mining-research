@@ -40,6 +40,17 @@ upstream-sidecar:
 error-blocks-report *ARGS:
     {{python}} scripts/reports/report_error_blocks_by_chain.py {{ARGS}}
 
+# Re-derive every canonical error-block claim from its committed bytes and
+# validate exact catalogue-to-observation-ledger coverage.
+validate-error-blocks:
+    {{python}} scripts/analysis/validate_error_blocks.py
+
+# Reconcile and publish the complete stale-descendant parent/observation
+# module. Bitcoin Core RPC credentials may be passed through as arguments or
+# the normal environment. Any uncatalogued error candidate fails closed.
+reconcile-stale-ancestry *ARGS:
+    @{{python}} scripts/prep/publish_stale_ancestry.py {{ARGS}}
+
 # Build normalized full-evidence artifacts and manifest (all evidence states;
 # bulky, gitignored).
 full-evidence:
@@ -58,10 +69,6 @@ strict-weak-orphans *ARGS:
 # `--allow-partial` (and may add `--skip-canonical`).
 #   just monitor-evidence --chain-archive-dir <private-chain-archive>/chains \
 #     --relevance-inventory <private-relevance-inventory.csv>
-# Add the recovered error-block witness ledger to an already complete
-# publication without rebuilding the ordinary per-chain LFS artifacts:
-#   cp -a results/monitor-evidence <disposable-baseline-dir>
-#   just monitor-evidence --add-error-observations --output-dir <disposable-baseline-dir>
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
 

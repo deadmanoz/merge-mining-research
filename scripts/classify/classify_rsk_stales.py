@@ -28,7 +28,7 @@ the unknown inventory (Phase 3 unknowns and rows the routing moved there).
 Consensus-invalid full-proof-of-work headers go to the sibling
 `rsk_error_blocks.csv` instead, so they are neither published as stales nor
 counted as stales in the summary. The normalized VALID-only
-`rsk_validated_stales.csv` applies the exact-key exclusion overlay.
+`rsk_validated_stales.csv` applies the exact-key error-block exclusion gate.
 RSK loses the coinbase scriptSig and outputs to its midstate-compressed proof,
 so the standard Namecoin-family evidence schema is necessarily sparse. The
 classifier retains `rsk_miner` and joins labels only from the committed
@@ -61,7 +61,7 @@ from stale_blocks_analysis.btc_stale_validation import (
     median_time_past_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
-from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 
 BATCH = 100
 
@@ -323,7 +323,7 @@ def build_validated_rows(
     pool_labels: dict[str, str],
     excluded: set[tuple[int, str]],
 ) -> list[dict[str, str]]:
-    """Build deterministic public rows after the exact-key exclusion overlay."""
+    """Build deterministic public rows after the exact-key error-block gate."""
     rows = [
         validated_row(row, height, pool_labels)
         for height, row in verified
@@ -648,9 +648,9 @@ def main():
     )
 
     # Resolve every committed dependency before opening either output, so a
-    # missing exclusion overlay or historical registry cannot leave a newly
-    # written full inventory beside a stale validated artifact.
-    excluded = load_stale_exclusion_keys()
+    # missing error-block exclusion input or historical registry cannot leave
+    # a newly written full inventory beside a stale validated artifact.
+    excluded = load_error_block_keys()
     pool_labels = load_pool_labels(args.pool_registry)
     public_rows = build_validated_rows(verified, pool_labels, excluded)
 
@@ -658,7 +658,7 @@ def main():
     # gate rejections whose evidence proved nothing, plus the unknown inventory
     # (Phase 3 unknowns and rows the routing moved there). Error blocks go to
     # their own sibling file. The normalized public loader input contains only
-    # VALID direct stales after the exact-key exclusion overlay.
+    # VALID direct stales after the exact-key error-block exclusion gate.
     print("\n=== Writing outputs ===", file=sys.stderr)
     ensure_parent(args.stales_out)
     with open(args.stales_out, "w", newline="") as f:
@@ -735,7 +735,7 @@ def main():
         )
         f.write(f"Error-block rows in rsk_error_blocks.csv: {len(error_blocks):,}\n")
         f.write(
-            f"VALID direct-stale rows after exclusion overlay: {len(public_rows):,}\n"
+            f"VALID direct-stale rows after error-block exclusion: {len(public_rows):,}\n"
         )
     print("\n✓ Outputs:", file=sys.stderr)
     print(

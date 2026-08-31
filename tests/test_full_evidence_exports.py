@@ -9,23 +9,36 @@ import pytest
 
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
+from stale_blocks_analysis.evidence_hydration import ChildIdentityIndex
 from stale_blocks_analysis.full_evidence import (
     EVIDENCE_FIELDS,
     EvidenceSource,
     SourceStats,
     build_full_evidence_exports,
+    discover_canonical_sources,
     discover_evidence_sources,
+    discover_unknown_sources,
     hydrate_child_identity,
     load_child_identity,
     note_child_height_availability,
     normalize_evidence_row,
     safe_path,
+    stale_descendant_parent_verdict_source,
     write_csv,
 )
 
+REPO = Path(__file__).resolve().parents[1]
 P2PKH_SPK = bytes.fromhex("76a91462e907b15cbf27d5425399ebf6f0fb50ebb88f18")
 P2PKH_SPK += bytes.fromhex("88ac")
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
+
+
+def _identity_index(
+    chain: str, parent_hash: str, row: dict[str, str]
+) -> ChildIdentityIndex:
+    identity = ChildIdentityIndex()
+    identity.add((chain, parent_hash), row)
+    return identity
 
 
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
@@ -181,7 +194,7 @@ def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
             }
         ],
     )
-    assert load_child_identity(tmp_path) == {}
+    assert load_child_identity(tmp_path).parent_keys() == ()
 
     row = {
         "chain": "namecoin",
@@ -192,13 +205,15 @@ def test_child_identity_requires_nonnegative_height(tmp_path: Path) -> None:
     }
     stats = hydrate_child_identity(
         [row],
-        {
-            ("namecoin", btc_hash): {
+        _identity_index(
+            "namecoin",
+            btc_hash,
+            {
                 "child_height": "",
                 "child_block_hash": "22" * 32,
                 "child_block_time": "1322540063",
-            }
-        },
+            },
+        ),
     )
     assert stats.hydrated == 0
     assert stats.height_mismatch == 1
@@ -284,17 +299,229 @@ def test_discovery_prefers_authoritative_doichain_full_inventory(
     assert sources["doichain"].source_kind == "full_inventory"
 
 
+def test_namecoin_classifier_sources_declare_scan_order_height_untrusted(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "archive"
+    classified = archive / "namecoin" / "classified"
+    for suffix in ("stale_blocks", "unknown_blocks", "canonical_blocks"):
+        _write_csv(
+            classified / f"namecoin_{suffix}.csv",
+            [
+                {
+                    "child_height": "19255",
+                    "btc_hash": "11" * 32,
+                    "classification": "canonical",
+                }
+            ],
+        )
+
+    primary = discover_evidence_sources(tmp_path / "data", [archive])["namecoin"]
+    unknown = discover_unknown_sources(tmp_path / "data", [archive])["namecoin"]
+    canonical = discover_canonical_sources(tmp_path / "data", [archive])["namecoin"]
+
+    assert primary.child_height_semantics == "unauthenticated_scan_order"
+    assert unknown.child_height_semantics == "unauthenticated_scan_order"
+    assert canonical.child_height_semantics == "unauthenticated_scan_order"
+
+    validated_data = tmp_path / "validated-data"
+    _write_csv(
+        validated_data / "validated-stales/namecoin_validated_stales.csv",
+        [
+            {
+                "nmc_height": "207157",
+                "btc_hash": "22" * 32,
+                "classification": "stale",
+            }
+        ],
+    )
+    validated = discover_evidence_sources(validated_data)["namecoin"]
+    assert validated.source_kind == "validated_stales"
+    assert validated.child_height_semantics == "authenticated_consensus"
+
+
+@pytest.mark.parametrize("chain", ("coiledcoin", "i0coin"))
+def test_offline_classifier_sources_declare_scan_order_height_untrusted(
+    tmp_path: Path,
+    chain: str,
+) -> None:
+    archive = tmp_path / "archive"
+    classified = archive / chain / "classified"
+    for suffix in ("stale_blocks", "unknown_blocks", "canonical_blocks"):
+        _write_csv(
+            classified / f"{chain}_{suffix}.csv",
+            [
+                {
+                    "child_height": "19255",
+                    "btc_hash": "11" * 32,
+                    "classification": "canonical",
+                }
+            ],
+        )
+
+    primary = discover_evidence_sources(tmp_path / "data", [archive])[chain]
+    unknown = discover_unknown_sources(tmp_path / "data", [archive])[chain]
+    canonical = discover_canonical_sources(tmp_path / "data", [archive])[chain]
+
+    assert primary.child_height_semantics == "unauthenticated_scan_order"
+    assert unknown.child_height_semantics == "unauthenticated_scan_order"
+    assert canonical.child_height_semantics == "unauthenticated_scan_order"
+
+
+def test_namecoin_scan_order_is_blank_before_verified_identity_hydration(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "archive"
+    source_path = archive / "namecoin/classified/namecoin_stale_blocks.csv"
+    btc_hash = "11" * 32
+    row = {
+        "child_height": "19255",
+        "btc_hash": btc_hash,
+        "classification": "orphan",
+    }
+    _write_csv(source_path, [row])
+    source = discover_evidence_sources(tmp_path / "data", [archive])["namecoin"]
+
+    normalized, _errors = normalize_evidence_row(source, row, list(row), 2)
+
+    assert normalized["child_height"] == ""
+    stats = hydrate_child_identity(
+        [normalized],
+        _identity_index(
+            "namecoin",
+            btc_hash,
+            {
+                "child_height": "207157",
+                "child_block_hash": "22" * 32,
+                "child_block_time": "1416990212",
+            },
+        ),
+    )
+    assert stats.hydrated == 1
+    assert stats.height_mismatch == 0
+    assert normalized["child_height"] == "207157"
+    assert normalized["child_block_hash"] == "22" * 32
+    assert normalized["child_block_time"] == "1416990212"
+
+
+def test_authenticated_child_height_is_never_overridden_by_identity(
+    tmp_path: Path,
+) -> None:
+    btc_hash = "11" * 32
+    source = EvidenceSource(
+        chain="syscoin",
+        display_name="Syscoin",
+        path=tmp_path / "syscoin_stale_blocks.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+    row = {
+        "sys_height": "400",
+        "btc_hash": btc_hash,
+        "classification": "orphan",
+    }
+    normalized, _errors = normalize_evidence_row(source, row, list(row), 2)
+
+    stats = hydrate_child_identity(
+        [normalized],
+        _identity_index(
+            "syscoin",
+            btc_hash,
+            {
+                "child_height": "999",
+                "child_block_hash": "22" * 32,
+                "child_block_time": "1562940120",
+            },
+        ),
+    )
+
+    assert stats.hydrated == 0
+    assert stats.height_mismatch == 1
+    assert normalized["child_height"] == "400"
+    assert normalized["child_block_hash"] == ""
+
+
 def _header(prev_hash: str = "11" * 32) -> tuple[str, str]:
     raw = (
         (0x20000000).to_bytes(4, "little")
         + bytes.fromhex(prev_hash)[::-1]
         + b"\x22" * 32
         + (1_700_000_000).to_bytes(4, "little")
-        + bytes.fromhex("ffff001d")[::-1]
+        + bytes.fromhex("ffff001d")
         + (42).to_bytes(4, "little")
     )
     display_hash = hashlib.sha256(hashlib.sha256(raw).digest()).digest()[::-1].hex()
     return raw.hex(), display_hash
+
+
+def test_serialized_parent_header_fills_every_missing_audit_field(
+    tmp_path: Path,
+) -> None:
+    header_hex, header_hash = _header(prev_hash="11" * 32)
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=tmp_path / "source.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+
+    normalized, _errors = normalize_evidence_row(
+        source,
+        {"btc_header_hex": header_hex, "classification": "unknown"},
+        ("btc_header_hex", "classification"),
+        2,
+    )
+
+    assert normalized["btc_header_hash"] == header_hash
+    assert normalized["btc_prev_hash"] == "11" * 32
+    assert normalized["btc_time"] == "1700000000"
+    assert normalized["btc_bits"] == "1d00ffff"
+    assert normalized["btc_nonce"] == "42"
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_value"),
+    [
+        ("btc_header_hash", "ff" * 32),
+        ("btc_prev_hash", "22" * 32),
+        ("btc_time", "1700000001"),
+        ("btc_bits", "1d00fffe"),
+        ("btc_nonce", "43"),
+    ],
+)
+def test_serialized_parent_header_rejects_populated_audit_disagreement(
+    tmp_path: Path,
+    field: str,
+    wrong_value: str,
+) -> None:
+    header_hex, header_hash = _header(prev_hash="11" * 32)
+    source = EvidenceSource(
+        chain="namecoin",
+        display_name="Namecoin",
+        path=tmp_path / "source.csv",
+        source_kind="full_inventory",
+        artifact_scope="full_classifier_inventory",
+        provenance="test",
+    )
+    row = {
+        "btc_header_hash": header_hash,
+        "btc_prev_hash": "11" * 32,
+        "btc_time": "1700000000",
+        "btc_bits": "1d00ffff",
+        "btc_nonce": "42",
+        "btc_header_hex": header_hex,
+        "classification": "unknown",
+    }
+    row[field] = wrong_value
+
+    with pytest.raises(
+        ValueError,
+        match=rf"namecoin evidence row 2: {field} disagrees with serialized",
+    ):
+        normalize_evidence_row(source, row, row.keys(), 2)
 
 
 def _child_header(prev_hash: str = "33" * 32) -> tuple[str, str]:
@@ -782,40 +1009,81 @@ def test_archive_full_inventory_applies_consensus_exclusion_overlay(
     assert "publication_exclusions=1" in devcoin["notes"]
 
 
-def test_stale_descendant_sidecar_gets_own_artifact(tmp_path: Path) -> None:
+def test_stale_descendant_parent_verdicts_get_own_artifact(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "out"
-    header_hex, header_hash = _header()
+    with (REPO / "data/stale_descendants.csv").open(newline="") as handle:
+        parent = next(
+            row for row in csv.DictReader(handle) if row["stale_fork_depth"] == "1"
+        )
     _write_csv(
         data_dir / "stale_descendants.csv",
+        [parent],
+    )
+    _write_csv(
+        data_dir / "validated-stales" / "root_validated_stales.csv",
         [
             {
-                "classification": "stale_descendant",
-                "promotion_subclass": "direct_stale_child",
-                "validation_status": "VALID_STALE_DESCENDANT",
-                "btc_height": "800001",
-                "btc_header_hash": header_hash,
-                "btc_prev_hash": "11" * 32,
-                "btc_time": "1700000000",
-                "btc_bits": "1d00ffff",
-                "expected_nbits": "1d00ffff",
-                "coinbase_scriptsig_hex": "abcd",
-                "coinbase_outputs": "out",
-                "btc_header_hex": header_hex,
-                "observed_chains": "namecoin",
+                "btc_height": parent["root_stale_height"],
+                "btc_header_hash": parent["root_stale_hash"],
+                "classification": "stale",
+                "validation_status": "VALID",
             }
         ],
     )
+    _write_csv(
+        data_dir / "stale-blocks" / "stale-blocks.csv",
+        [
+            {
+                "height": parent["root_stale_height"],
+                "hash": parent["root_stale_hash"],
+            }
+        ],
+    )
+    _write_csv(
+        data_dir / "error-blocks" / "error_blocks.csv",
+        [
+            {
+                "height": "0",
+                "hash": "00" * 32,
+                "classification": "error_block",
+            }
+        ],
+    )
+    source = stale_descendant_parent_verdict_source(data_dir)
+    assert source is not None
+    assert source.child_height_semantics == "not_applicable"
 
     build_full_evidence_exports(data_dir=data_dir, output_dir=output_dir)
 
     rows = _read_csv(output_dir / "stale-descendants_evidence.csv")
     assert rows[0]["classification"] == "stale_descendant"
+    assert rows[0]["child_height"] == ""
+    assert rows[0]["child_block_hash"] == ""
+    assert rows[0]["child_header_hex"] == ""
+    assert rows[0]["child_block_time"] == ""
+    assert rows[0]["child_nbits"] == ""
 
     manifest_json = json.loads(
         (output_dir / "auxpow-full-evidence-manifest.json").read_text()
     )
-    sidecar = next(
+    parent_verdicts = next(
         row for row in manifest_json["counts"] if row["chain"] == "stale-descendants"
     )
-    assert sidecar["stale_descendant"] == 1
+    assert parent_verdicts["source_kind"] == "stale_descendant_parent_verdicts"
+    assert parent_verdicts["artifact_scope"] == "stale_descendant_parent_verdicts"
+    assert parent_verdicts["stale_descendant"] == 1
+
+
+def test_stale_descendant_parent_projection_rejects_weak_parent_row(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "out"
+    with (REPO / "data/stale_descendants.csv").open(newline="") as handle:
+        parent = next(csv.DictReader(handle))
+    parent["active_mainchain_status"] = "unverified"
+    _write_csv(data_dir / "stale_descendants.csv", [parent])
+
+    with pytest.raises(ValueError, match="parent lacks the active-mainchain gate"):
+        build_full_evidence_exports(data_dir=data_dir, output_dir=output_dir)

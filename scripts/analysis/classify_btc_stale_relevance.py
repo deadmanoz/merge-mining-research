@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Classify derived BTC stale relevance across AuxPoW recovery inputs.
 
-This is a proving-ground layer for review before any monitor-side change. It
-does not replace source classifications: ``stale``, ``unknown`` (legacy
-``orphan``),
-``near``, and ``canonical`` remain evidence states. The derived bucket is:
+This classifier preserves source classifications as evidence provenance while
+deriving the final strict/weak relevance bucket for unknown observations.
+``stale``, ``unknown`` (legacy ``orphan``), ``near``, and ``canonical`` remain
+source states. The derived bucket is:
 
 1. An EMPTY ``btc_stale_relevance`` with ``relevance_reason``
    ``valid_direct_stale`` or ``valid_stale_descendant`` for structurally
@@ -18,8 +18,8 @@ does not replace source classifications: ``stale``, ``unknown`` (legacy
    height evidence, no known stale/mainchain membership, and timestamp-selected
    BTC nBits consistency within plus/minus one retarget epoch.
 4. ``excluded`` for source canonical/near rows, malformed rows, nBits/PoW
-   failures, known rejected descendants, known stale/mainchain rows, and
-   rows whose evidence is insufficient under the available caches.
+   failures, known stale/mainchain rows, and rows whose evidence is
+   insufficient under the available caches.
 5. ``pending`` for unknown-classified rows whose strict height or timestamp lies
    beyond the nBits table's coverage horizon: no final verdict is possible
    yet, and the row is re-classifiable once the table is extended. This
@@ -59,7 +59,7 @@ if str(SCRIPT_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import reconcile_unknown_stale_ancestry as rec
+from stale_blocks_analysis import reconcile_observations as rec
 from stale_blocks_analysis.auxpow_parse import parse_coinbase_height
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth
 from stale_blocks_analysis.full_evidence import (
@@ -67,6 +67,7 @@ from stale_blocks_analysis.full_evidence import (
     archive_full_inventory_candidates,
 )
 from stale_blocks_analysis.config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
     BIP34_HEIGHT,
     BITCOIN_EPOCH_REFERENCE_DIR,
     CHAIN_SPECS,
@@ -75,7 +76,8 @@ from stale_blocks_analysis.config import (
     RELEVANCE_STRICT_BTC_ORPHAN as STRICT_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN as WEAK_ORPHAN,
 )
-from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
+from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
 # Reasons stamped on confirmed direct-stale / stale-descendant rows. These
 # rows write an EMPTY `btc_stale_relevance` (the primary `classification`
@@ -88,7 +90,7 @@ CONFIRMED_REASONS = ("valid_direct_stale", "valid_stale_descendant")
 DATA_DIR = PROJECT_ROOT / "data"
 RESULTS_DIR = PROJECT_ROOT / "results" / "analysis" / "btc-stale-relevance"
 CACHE_DIR = PROJECT_ROOT / "cache"
-PROMOTED_CSV = DATA_DIR / "stale_descendants.csv"
+PARENT_VERDICTS_CSV = DATA_DIR / "stale_descendants.csv"
 OUTPUT_INVENTORY = "btc-stale-relevance-inventory.csv"
 OUTPUT_SUMMARY = "btc-stale-relevance-summary.json"
 NON_CHAIN_DOC_STEMS = {"surveyed-infra"}
@@ -158,7 +160,7 @@ OUTPUT_FIELDS = [
     "root_stale_hash",
     "root_stale_height",
     "stale_fork_depth",
-    "promotion_subclass",
+    "ancestry_relation",
     "observed_chains",
 ]
 
@@ -270,7 +272,7 @@ class EpochTimeLookup:
 def rel(path: Path) -> str:
     """Return `path` relative to the project root.
 
-    Delegates to `reconcile_unknown_stale_ancestry.rel`.
+    Delegates to `stale_blocks_analysis.reconcile_observations.rel`.
     """
     return rec.rel(path)
 
@@ -305,13 +307,13 @@ def validation_status(src: SourceRow) -> str:
 
 
 def validation_allows_direct_stale(status: str) -> bool:
-    """True when `status` is empty or starts with `VALID` (a confirmed direct stale)."""
-    return not status or status.startswith("VALID")
+    """Return whether `status` is an exact accepted direct-stale verdict."""
+    return status in ACCEPTED_STALE_VALIDATION_STATUSES
 
 
 def validation_rejects(status: str) -> bool:
-    """True when a direct-stale status is non-empty and not `VALID`-prefixed."""
-    return bool(status and not status.startswith("VALID"))
+    """Return whether a direct-stale status lacks an accepted verdict."""
+    return status not in ACCEPTED_STALE_VALIDATION_STATUSES
 
 
 def get_header_hash(src: SourceRow) -> str:
@@ -442,7 +444,7 @@ def discover_sources(
     """Discover per-chain full-inventory and validated-stales CSVs.
 
     Combines chains found under `data_dir` (via
-    `reconcile_unknown_stale_ancestry.discover_chain_names`, minus
+    `stale_blocks_analysis.reconcile_observations.discover_chain_names`, minus
     `NON_CHAIN_DOC_STEMS`) with any private chain archives passed via
     `chain_archive_dirs`, whose `*/classified/*_stale_blocks.csv` and
     `*/validated/*_validated_stales.csv` files are globbed in. Explicit archive
@@ -519,6 +521,7 @@ def iter_csv_source(
     chain: str,
     source_kind: str,
     excluded_keys: set[tuple[int, str]] | None = None,
+    excluded_hashes: set[str] | None = None,
 ) -> Iterable[SourceRow]:
     """Yield a `SourceRow` for every data row in a per-chain CSV.
 
@@ -548,17 +551,31 @@ def iter_csv_source(
                 header_col=header_col,
                 source_schema=schema,
             )
+            if source_exclusion_hash(source_row) in (excluded_hashes or set()):
+                continue
             if source_exclusion_key(source_row) in (excluded_keys or set()):
                 continue
             yield source_row
 
 
-def source_exclusion_key(src: SourceRow) -> tuple[int, str] | None:
-    """Return an authoritative stale identity key for exclusion matching."""
+def source_exclusion_hash(src: SourceRow) -> str | None:
+    """Return the authenticated parent hash used for error-block exclusion.
+
+    Some legacy unknown inventories store the BIP34 coinbase's encoded height
+    rather than the Bitcoin parent's height. The committed error catalogue
+    authenticates the parent hash independently, so consensus-invalid parents
+    must also be excluded by hash instead of relying only on the legacy height.
+    """
     block_hash = rec.normalize_hash(src.row.get(src.hash_col, ""))
     if not rec.is_hash(block_hash) and src.header_col:
         block_hash = rec.header_hash(src.row.get(src.header_col, ""))
-    if not rec.is_hash(block_hash):
+    return block_hash if rec.is_hash(block_hash) else None
+
+
+def source_exclusion_key(src: SourceRow) -> tuple[int, str] | None:
+    """Return an authoritative stale identity key for exclusion matching."""
+    block_hash = source_exclusion_hash(src)
+    if block_hash is None:
         return None
     height_text = ""
     for column in ("btc_height", "btc_stale_height", "height"):
@@ -580,7 +597,7 @@ def iter_source_rows(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> Iterable[SourceRow]:
-    """Yield `SourceRow`s for every discovered chain plus the promoted stale-descendants file.
+    """Yield source rows plus the accepted stale-descendant parent verdicts.
 
     For each chain (sorted), yields its full-inventory rows first (if
     present) then its validated-stales rows (if present). Afterward, if
@@ -595,64 +612,76 @@ def iter_source_rows(
     )
     exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
     excluded_keys = (
-        load_stale_exclusion_keys(exclusions_path)
+        load_error_block_keys(exclusions_path)
         if exclusions_path.is_file()
-        else load_stale_exclusion_keys()
+        else load_error_block_keys()
     )
+    excluded_hashes = {block_hash for _height, block_hash in excluded_keys}
     for chain in sorted(chain_names):
         full_path = full_files.get(chain)
         if full_path is not None:
             yield from iter_csv_source(
-                full_path, chain, "full_inventory", excluded_keys
+                full_path,
+                chain,
+                "full_inventory",
+                excluded_keys,
+                excluded_hashes,
             )
         unknown_path = unknown_files.get(chain)
         if unknown_path is not None:
             # The unknown half of the split; same source_kind — the per-row
             # classification filter routes it to the strict/weak orphan logic.
             yield from iter_csv_source(
-                unknown_path, chain, "full_inventory", excluded_keys
+                unknown_path,
+                chain,
+                "full_inventory",
+                excluded_keys,
+                excluded_hashes,
             )
         validated_path = validated_files.get(chain)
         if validated_path is not None:
             yield from iter_csv_source(
-                validated_path, chain, "validated_stales", excluded_keys
+                validated_path,
+                chain,
+                "validated_stales",
+                excluded_keys,
+                excluded_hashes,
             )
-    if PROMOTED_CSV.exists() and PROMOTED_CSV.parent == data_dir:
-        yield from iter_stale_descendant_rows(PROMOTED_CSV)
-    elif (data_dir / PROMOTED_CSV.name).exists():
-        yield from iter_stale_descendant_rows(data_dir / PROMOTED_CSV.name)
+    if PARENT_VERDICTS_CSV.exists() and PARENT_VERDICTS_CSV.parent == data_dir:
+        yield from iter_stale_descendant_rows(PARENT_VERDICTS_CSV, data_dir=data_dir)
+    elif (data_dir / PARENT_VERDICTS_CSV.name).exists():
+        yield from iter_stale_descendant_rows(
+            data_dir / PARENT_VERDICTS_CSV.name,
+            data_dir=data_dir,
+        )
 
 
-def iter_stale_descendant_rows(path: Path) -> Iterable[SourceRow]:
-    """Yield a `SourceRow` for every row in the stale-descendants promotion CSV.
+def iter_stale_descendant_rows(
+    path: Path,
+    *,
+    data_dir: Path = DATA_DIR,
+) -> Iterable[SourceRow]:
+    """Yield a `SourceRow` for every accepted descendant parent verdict.
 
-    `chain` is taken from the row's `observed_chains` column when non-empty,
-    otherwise the placeholder `"stale_descendants"` is used; `source_schema`
-    is always `"stale_descendant"`.
+    The canonical loader authenticates the serialized Bitcoin header, Core
+    off-active verdicts, exact accepted state, and duplicate identities before
+    any parent reaches the relevance classifier.
     """
-    with path.open(newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
-        hash_col = rec.first_present(fieldnames, rec.HASH_COLUMNS)
-        prev_col = rec.first_present(fieldnames, rec.PREV_COLUMNS)
-        bits_col = rec.first_present(fieldnames, rec.BITS_COLUMNS)
-        header_col = rec.first_present(fieldnames, rec.HEADER_HEX_COLUMNS)
-        for row_number, row in enumerate(reader, start=2):
-            observed_chains = row.get("observed_chains", "").strip()
-            chain = observed_chains or "stale_descendants"
-            yield SourceRow(
-                chain=chain,
-                source_kind="stale_descendant",
-                source_path=path,
-                row_number=row_number,
-                row=row,
-                fieldnames=fieldnames,
-                hash_col=hash_col,
-                prev_col=prev_col,
-                bits_col=bits_col,
-                header_col=header_col,
-                source_schema="stale_descendant",
-            )
+    for parent in load_stale_descendant_parents(path, data_dir=data_dir).values():
+        row = parent.row
+        yield SourceRow(
+            chain=row["observed_chains"],
+            source_kind="stale_descendant",
+            source_path=path,
+            row_number=parent.row_number,
+            row=row,
+            fieldnames=list(row),
+            hash_col="btc_header_hash",
+            prev_col="btc_prev_hash",
+            bits_col="btc_bits",
+            header_col="btc_header_hex",
+            source_schema="stale_descendant",
+        )
 
 
 def load_epoch_headers(path: Path) -> tuple[list[dict[str, Any]], dict[str, object]]:
@@ -705,7 +734,7 @@ def load_epoch_headers(path: Path) -> tuple[list[dict[str, Any]], dict[str, obje
 def load_epoch_bits(path: Path) -> tuple[dict[int, str], dict[str, object]]:
     """Load the per-epoch-start-height nBits table used for strict-orphan matching.
 
-    Delegates parsing to `reconcile_unknown_stale_ancestry.load_epoch_bits`
+    Delegates parsing to `stale_blocks_analysis.reconcile_observations.load_epoch_bits`
     and wraps the result with the same `metadata` shape as
     `load_epoch_headers` (found/rows/status), for the summary JSON.
     """
@@ -960,7 +989,7 @@ def base_output(src: SourceRow) -> dict[str, object]:
     Extracts hash/prev/height/time/bits via the `get_*` helpers and copies
     through the optional per-schema columns (`rsk_*`, `pool_label`,
     `is_uncle`/`uncle_index`, `root_stale_*`, `stale_fork_depth`,
-    `promotion_subclass`, `observed_chains`); relevance/reason/notes and the
+    `ancestry_relation`, `observed_chains`); relevance/reason/notes and the
     evidence-computation fields start empty and are filled in by
     `classify_source_row`/`finish`.
     """
@@ -995,7 +1024,7 @@ def base_output(src: SourceRow) -> dict[str, object]:
         "root_stale_hash": src.row.get("root_stale_hash", "").strip(),
         "root_stale_height": src.row.get("root_stale_height", "").strip(),
         "stale_fork_depth": src.row.get("stale_fork_depth", "").strip(),
-        "promotion_subclass": src.row.get("promotion_subclass", "").strip(),
+        "ancestry_relation": src.row.get("ancestry_relation", "").strip(),
         "observed_chains": src.row.get("observed_chains", "").strip(),
     }
 
@@ -1020,7 +1049,6 @@ def finish(
 def classify_source_row(
     src: SourceRow,
     known_stale_hashes: set[str],
-    rejected_descendant_hashes: set[str],
     epoch_bits: dict[int, str],
     time_lookup: EpochTimeLookup,
     mainchain_cache: dict[str, dict[str, object]],
@@ -1068,9 +1096,7 @@ def classify_source_row(
         return finish(out, EXCLUDED, "pow_target_mismatch", notes)
 
     if src.source_kind == "stale_descendant":
-        if classification == "stale_descendant" and status == "VALID_STALE_DESCENDANT":
-            return finish(out, "", "valid_stale_descendant", notes)
-        return finish(out, EXCLUDED, "known_rejected_stale_descendant", notes)
+        return finish(out, "", "valid_stale_descendant", notes)
 
     # The validation status is a direct-stale publication verdict. Unknown
     # inventory rows may carry the literal classifier state ``UNKNOWN``; that
@@ -1089,8 +1115,6 @@ def classify_source_row(
     if classification not in UNKNOWN_SOURCE_CLASSIFICATIONS:
         return finish(out, EXCLUDED, "insufficient_evidence", notes)
 
-    if block_hash in rejected_descendant_hashes:
-        return finish(out, EXCLUDED, "known_rejected_stale_descendant", notes)
     if block_hash in known_stale_hashes:
         return finish(out, EXCLUDED, "known_stale_hash", notes)
     if known_mainchain:
@@ -1141,26 +1165,22 @@ def classify_source_row(
 def build_known_stale_membership(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
-) -> tuple[set[str], set[str], dict[str, object]]:
-    """Build the set of BTC hashes already known to be stale, plus rejected descendants.
+) -> tuple[set[str], dict[str, object]]:
+    """Build the set of BTC hashes already known to be stale.
 
     Scans the upstream stale-blocks CSV (via
-    `reconcile_unknown_stale_ancestry.scan_upstream_stales`), then every
+    `stale_blocks_analysis.reconcile_observations.scan_upstream_stales`), then every
     discovered chain's rows: `stale`-classified rows with a validation status
     that allows a direct stale are added to `known_stale_hashes`;
-    stale-descendant rows are split into `valid_stale_descendant` hashes
-    (also added to `known_stale_hashes`) and `rejected_descendant_hashes`.
-    Returns `(known_stale_hashes, rejected_descendant_hashes, summary)` where
-    `summary` reports per-source row/hash counts and rejected-descendant
-    counts by status, for the summary JSON.
+    canonical accepted stale-descendant parents are also added to
+    `known_stale_hashes`. Returns `(known_stale_hashes, summary)` where
+    `summary` reports per-source row/hash counts for the summary JSON.
     """
     stale_by_hash: dict[str, list[rec.StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
     prevs_by_hash: dict[str, set[str]] = defaultdict(set)
     source_rows: Counter[str] = Counter()
     source_hashes: dict[str, set[str]] = defaultdict(set)
-    rejected_descendant_hashes: set[str] = set()
-    rejected_descendant_rows: Counter[str] = Counter()
 
     upstream_path = data_dir / "stale-blocks" / "stale-blocks.csv"
     upstream_count = rec.scan_upstream_stales(
@@ -1179,15 +1199,8 @@ def build_known_stale_membership(
         classification = source_classification(src)
         status = validation_status(src)
         if src.source_kind == "stale_descendant":
-            if (
-                classification == "stale_descendant"
-                and status == "VALID_STALE_DESCENDANT"
-            ):
-                source_rows["valid_stale_descendant"] += 1
-                source_hashes["valid_stale_descendant"].add(block_hash)
-            elif classification == "stale_descendant":
-                rejected_descendant_hashes.add(block_hash)
-                rejected_descendant_rows[status or "rejected_or_unknown"] += 1
+            source_rows["valid_stale_descendant"] += 1
+            source_hashes["valid_stale_descendant"].add(block_hash)
             continue
         if classification == "stale" and validation_allows_direct_stale(status):
             key = src.source_kind
@@ -1208,12 +1221,8 @@ def build_known_stale_membership(
             }
             for source in sorted(source_rows)
         ],
-        "rejected_stale_descendants": {
-            "unique_hashes": len(rejected_descendant_hashes),
-            "rows_by_status": dict(sorted(rejected_descendant_rows.items())),
-        },
     }
-    return known_stale_hashes, rejected_descendant_hashes, summary
+    return known_stale_hashes, summary
 
 
 def collect_mainchain_rpc_candidates(
@@ -1221,13 +1230,12 @@ def collect_mainchain_rpc_candidates(
     chain_archive_dirs: Iterable[Path],
     mainchain_cache: dict[str, dict[str, object]],
     known_stale_hashes: set[str],
-    rejected_descendant_hashes: set[str],
 ) -> list[str]:
     """Collect unknown-classified BTC hashes worth an RPC mainchain check.
 
     Iterates every source row, keeping the header hash of rows whose
     `classification` is `unknown`/`orphan` and that are absent from
-    `mainchain_cache`, `known_stale_hashes`, and `rejected_descendant_hashes`.
+    `mainchain_cache` and `known_stale_hashes`.
     Returns the candidates sorted and deduplicated.
     """
     candidates: set[str] = set()
@@ -1240,7 +1248,7 @@ def collect_mainchain_rpc_candidates(
             continue
         if block_hash in mainchain_cache:
             continue
-        if block_hash in known_stale_hashes or block_hash in rejected_descendant_hashes:
+        if block_hash in known_stale_hashes:
             continue
         candidates.add(block_hash)
     return sorted(candidates)
@@ -1251,7 +1259,6 @@ def apply_mainchain_rpc(
     chain_archive_dirs: Iterable[Path],
     mainchain_cache: dict[str, dict[str, object]],
     known_stale_hashes: set[str],
-    rejected_descendant_hashes: set[str],
     rpc: BtcRpc,
     batch_size: int,
     max_hashes: int,
@@ -1261,7 +1268,7 @@ def apply_mainchain_rpc(
     Updates `mainchain_cache` in place. Collects candidates via
     `collect_mainchain_rpc_candidates`, caps them at
     `max_hashes` (0 or negative means no cap), fetches their status via
-    `reconcile_unknown_stale_ancestry.fetch_mainchain_status`, and merges
+    `stale_blocks_analysis.reconcile_observations.fetch_mainchain_status`, and merges
     normalized results into `mainchain_cache` tagged `status_source: "rpc"`.
     Returns a summary dict with candidate/queried counts and whether the
     candidate list was truncated.
@@ -1271,7 +1278,6 @@ def apply_mainchain_rpc(
         chain_archive_dirs,
         mainchain_cache,
         known_stale_hashes,
-        rejected_descendant_hashes,
     )
     limit = max_hashes if max_hashes > 0 else len(candidates)
     to_query = candidates[:limit]
@@ -1343,7 +1349,7 @@ def build_input_file_summary(
     chains_unavailable_full = sorted(
         chain for chain in chain_names if chain not in full_files
     )
-    descendants_path = data_dir / PROMOTED_CSV.name
+    descendants_path = data_dir / PARENT_VERDICTS_CSV.name
     return {
         "processed": processed,
         "chains_discovered": sorted(chain_names),
@@ -1363,7 +1369,6 @@ def build_input_file_summary(
         "stale_descendants_path": rel(descendants_path)
         if descendants_path.exists()
         else "",
-        "prior_resolved_chains": "out_of_scope_first_implementation",
     }
 
 
@@ -1371,7 +1376,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     """Run the full relevance-classification pass and write the inventory CSV and summary JSON.
 
     Loads the epoch-bits/epoch-headers/mainchain caches, builds known-stale
-    and rejected-descendant membership, optionally refreshes the mainchain
+    membership, optionally refreshes the mainchain
     cache via RPC (`--check-mainchain`), then classifies every source row
     with `classify_source_row` and streams the result to
     `results/analysis/btc-stale-relevance/btc-stale-relevance-inventory.csv`.
@@ -1410,8 +1415,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
     time_lookup = EpochTimeLookup.from_headers(epoch_headers)
     mainchain_cache, mainchain_cache_metadata = load_mainchain_caches(args.cache_dir)
-    known_stale_hashes, rejected_descendant_hashes, membership_summary = (
-        build_known_stale_membership(args.data_dir, chain_archive_dirs)
+    known_stale_hashes, membership_summary = build_known_stale_membership(
+        args.data_dir, chain_archive_dirs
     )
 
     rpc_summary: dict[str, object] = {"enabled": False}
@@ -1422,7 +1427,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             chain_archive_dirs,
             mainchain_cache,
             known_stale_hashes,
-            rejected_descendant_hashes,
             rpc,
             args.rpc_batch_size,
             args.max_mainchain_rpc,
@@ -1459,7 +1463,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             out = classify_source_row(
                 src,
                 known_stale_hashes,
-                rejected_descendant_hashes,
                 epoch_bits,
                 time_lookup,
                 mainchain_cache,

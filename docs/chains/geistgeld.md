@@ -81,7 +81,10 @@ The first AuxPoW-bearing block is **GG height 14,092**, parent-block timestamp *
 **Loader filter** (`load_geistgeld_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 Zero entries pass; the validated CSV is header-only.

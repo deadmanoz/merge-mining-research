@@ -11,15 +11,11 @@ import os
 import shutil
 import tempfile
 from collections import Counter
-from collections.abc import Iterator
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .auxpow_chainid import (
-    hash_from_display_hex,
-    hash_from_header_bytes,
-    hash_to_internal_hex,
-)
+from .auxpow_chainid import hash_from_header_bytes
 from .auxpow_parse import (
     ChildHeaderValidationError,
     hash_meets_btc_difficulty,
@@ -31,22 +27,33 @@ from .bitcoin_epoch_reference import (
     RETARGET_INTERVAL,
     load_nbits_by_epoch,
 )
+from .bitcoin_binary import parse_coinbase_tx
 from .coinbase_markers import parse_bip34_height
+from .coinbase_output_claims import (
+    CoinbaseOutputClaim,
+    coinbase_output_claims_refine,
+    merge_coinbase_output_claim_sets,
+    parse_coinbase_output_claims,
+    render_coinbase_output_claims,
+)
 from .config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
     BIP34_HEIGHT,
     CHAIN_SPECS,
     DATA_DIR,
     HISTORICAL_CHILD_HEADER_CHAINS,
     MONITOR_VALIDATION_CONTRACTS,
 )
-from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
+from .error_blocks import load_error_block_keys
+from .error_block_validation import validate_error_module
 from .error_observations import (
     ERROR_OBSERVATION_ARTIFACT,
     ERROR_OBSERVATION_FIELDS,
+    ERROR_OBSERVATION_LEDGER,
+    ERROR_OBSERVATION_SCOPE,
+    ERROR_OBSERVATION_STATUS,
     build_error_observation_rows,
-    error_observation_count_row,
     validate_rsk_sidecar_cells,
-    write_error_observation_artifact,
 )
 from .evidence_hydration import (
     CHILD_IDENTITY_REQUIRED_CHAINS,
@@ -56,12 +63,13 @@ from .evidence_hydration import (
 from .evidence_normalization import (
     int_or_none,
     is_hash,
-    normalize_evidence_row,
+    normalize_hash,
     parse_header_fields,
-    write_csv,
 )
 from .evidence_sources import (
+    CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER,
     EvidenceSource,
+    child_height_semantics_for_source,
     discover_canonical_sources,
     discover_evidence_sources,
     discover_unknown_sources,
@@ -70,28 +78,20 @@ from .monitor_exports import (
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
     MONITOR_OUTPUT_DIR,
+    MonitorVerdict,
     REPORTED_RELEVANCE_INVENTORY,
     build_monitor_evidence_exports,
     load_orphan_relevance_verdicts,
 )
-from .stale_blocks import (
-    load_stale_descendant_correction_keys,
-    load_stale_descendant_observation_keys,
+from .stale_descendants import (
+    load_stale_descendant_observations,
+    load_stale_descendant_parents,
 )
 
 PUBLICATION_COUNTS = MONITOR_OUTPUT_DIR / "monitor-evidence-counts.csv"
 PUBLICATION_MANIFEST = MONITOR_OUTPUT_DIR / "monitor-evidence-manifest.json"
 GENERATED_MONITOR_FILENAMES = frozenset(
     {PUBLICATION_COUNTS.name, PUBLICATION_MANIFEST.name}
-)
-PUBLICATION_FLOOR_FIELDS = (
-    "canonical",
-    "stale",
-    "stale_descendant",
-    "strict_btc_orphan",
-    "weak_btc_orphan",
-    "monitor_rows",
-    "source_rows",
 )
 
 
@@ -112,12 +112,33 @@ _ORPHAN_RELEVANCE_REASONS = {
     "strict_btc_orphan": "strict_height_nbits_match",
     "weak_btc_orphan": "timestamp_epoch_nbits_match",
 }
-_DESCENDANT_SIDECAR_CHAIN = "stale-descendants"
+_DESCENDANT_PARENT_VERDICTS_CHAIN = "stale-descendants"
 _MANIFEST_COUNT_FIELDS = (
     *_ORDINARY_MONITOR_CATEGORIES,
     "error_block",
     "monitor_rows",
     "source_rows",
+)
+_MANIFEST_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "output_dir",
+        "counts_csv",
+        "manifest_json",
+        "validation_contracts",
+        "artifacts",
+        "relevance_inventory",
+        "strict_weak_verdicts_loaded",
+        "counts",
+    }
+)
+_UNKNOWN_IDENTITY_FIELDS = frozenset(
+    {
+        "chain",
+        "source_path",
+        "source_row_number",
+        "source_classification",
+        "btc_header_hash",
+    }
 )
 
 
@@ -193,7 +214,7 @@ def _btc_epoch_height_for_time(data_dir: Path, timestamp: int) -> int | None:
 
 def _is_ordinary_stale_status(status: str) -> bool:
     """Return whether a status belongs to the ordinary stale contract."""
-    return status == "VALID" or status.startswith("VALID ")
+    return status in ACCEPTED_STALE_VALIDATION_STATUSES
 
 
 def _load_monitor_artifact_counts(
@@ -202,25 +223,30 @@ def _load_monitor_artifact_counts(
     *,
     data_dir: Path = DATA_DIR,
     expected_artifact_scope: str | frozenset[str] = "",
+    orphan_verdicts: dict[str, MonitorVerdict] | None = None,
 ) -> Counter[str]:
-    """Count and validate the published categories in one ordinary artifact."""
+    """Count and validate the published categories in one monitor artifact."""
+    error_aggregate = chain == ERROR_OBSERVATION_ARTIFACT
     counts: Counter[str] = Counter()
     stale_identities: set[tuple[int, str]] = set()
+    event_categories: dict[tuple[str, int, str], str] = {}
     btc_nbits_by_epoch: dict[int, int] | None = None
-    descendant_observations: frozenset[tuple[str, int, str]] | None = None
-    descendant_corrections: frozenset[tuple[int, str]] | None = None
-    descendant_exclusions: set[tuple[int, str]] | None = None
-    descendant_consensus_invalid: set[tuple[int, str]] | None = None
+    descendant_observations: set[tuple[str, int, str, int, str]] | None = None
+    descendant_parents: set[tuple[int, str]] | None = None
+    descendant_error_blocks: set[tuple[int, str]] | None = None
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = reader.fieldnames or []
         if len(fieldnames) != len(set(fieldnames)):
             raise ValueError(f"{path}: monitor-evidence schema has duplicate columns")
-        required = set(MONITOR_EVIDENCE_FIELDS)
-        if chain == "rsk":
+        required = set(
+            ERROR_OBSERVATION_FIELDS if error_aggregate else MONITOR_EVIDENCE_FIELDS
+        )
+        expected_fields = list(
+            ERROR_OBSERVATION_FIELDS if error_aggregate else MONITOR_EVIDENCE_FIELDS
+        )
+        if not error_aggregate and chain == "rsk":
             required.update(RSK_SIDECAR_EXPORT_FIELDS)
-        expected_fields = list(MONITOR_EVIDENCE_FIELDS)
-        if chain == "rsk":
             expected_fields.extend(RSK_SIDECAR_EXPORT_FIELDS)
         missing = required - set(fieldnames)
         if missing:
@@ -233,11 +259,25 @@ def _load_monitor_artifact_counts(
                 f"{path}: monitor-evidence header must exactly match the {chain} schema"
             )
         for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(
+                    f"{path}:{row_number}: monitor-evidence row does not match "
+                    "the schema width"
+                )
             row_chain = row.get("chain") or ""
-            if row_chain != chain:
+            if error_aggregate:
+                if row_chain not in CHAIN_SPECS:
+                    raise ValueError(
+                        f"{path}:{row_number}: error-observation row has "
+                        f"unsupported chain {row_chain!r}"
+                    )
+                contract_chain = row_chain
+            elif row_chain != chain:
                 raise ValueError(
                     f"{path}:{row_number}: row chain {row_chain!r} does not match {chain!r}"
                 )
+            else:
+                contract_chain = chain
             row_scope = (row.get("artifact_scope") or "").strip()
             if isinstance(expected_artifact_scope, str):
                 allowed_scopes = (
@@ -355,6 +395,13 @@ def _load_monitor_artifact_counts(
                 "child_nbits": raw_child_bundle["child_nbits"],
             }
             raw_child_height = row.get("child_height") or ""
+            if contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN and (
+                raw_child_height or any(child_bundle.values())
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: stale-descendant parent verdict must "
+                    "not carry child witness fields"
+                )
             if raw_child_height and (
                 raw_child_height != raw_child_height.strip()
                 or not raw_child_height.isascii()
@@ -366,8 +413,8 @@ def _load_monitor_artifact_counts(
                     "exact non-negative integer"
                 )
             child_height = int(raw_child_height) if raw_child_height else None
-            spec = CHAIN_SPECS.get(chain)
-            if chain in HISTORICAL_CHILD_HEADER_CHAINS:
+            spec = CHAIN_SPECS.get(contract_chain)
+            if contract_chain in HISTORICAL_CHILD_HEADER_CHAINS:
                 try:
                     validate_child_header_fields(
                         child_bundle,
@@ -393,8 +440,24 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: child fields disagree with "
                         f"serialized child header ({exc})"
                     ) from exc
+            child_hash = child_bundle["child_block_hash"].lower()
+            if child_height is not None and is_hash(child_hash):
+                event_identity = (contract_chain, child_height, child_hash)
+                event_category = _published_category(row) or classification
+                previous_category = event_categories.get(event_identity)
+                if previous_category is not None:
+                    if previous_category == event_category:
+                        detail = f"repeats the {event_category} category"
+                    else:
+                        detail = (
+                            f"appears in both {previous_category} and {event_category}"
+                        )
+                    raise ValueError(
+                        f"{path}:{row_number}: one authenticated child event {detail}"
+                    )
+                event_categories[event_identity] = event_category
             if (
-                chain in CHILD_IDENTITY_REQUIRED_CHAINS
+                contract_chain in CHILD_IDENTITY_REQUIRED_CHAINS
                 and classification != "canonical"
             ):
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
@@ -416,19 +479,25 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: {classification} row lacks a "
                         "nonnegative Bitcoin height"
                     )
-                stale_identity = (btc_height, parent_hash)
-                if stale_identity in stale_identities:
-                    raise ValueError(
-                        f"{path}:{row_number}: duplicate {classification} identity "
-                        f"{stale_identity!r}"
-                    )
-                stale_identities.add(stale_identity)
+                # Ordinary descendant artifacts are one row per authenticated
+                # child event; ``event_categories`` enforces that identity above.
+                if (
+                    classification == "stale"
+                    or contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
+                ):
+                    stale_identity = (btc_height, parent_hash)
+                    if stale_identity in stale_identities:
+                        raise ValueError(
+                            f"{path}:{row_number}: duplicate {classification} "
+                            f"identity {stale_identity!r}"
+                        )
+                    stale_identities.add(stale_identity)
             requires_expected_nbits = classification == "stale" or (
                 classification == "stale_descendant"
                 and (
-                    chain == _DESCENDANT_SIDECAR_CHAIN
+                    contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
                     or (row.get("artifact_scope") or "").strip()
-                    == "stale_descendant_sidecar"
+                    == "stale_descendant_parent_verdicts"
                 )
             )
             if requires_expected_nbits:
@@ -464,6 +533,20 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: accepted stale descendant row has a "
                         "rejection_reason"
+                    )
+            elif classification == "error_block":
+                expected_nbits = row.get("expected_nbits") or ""
+                if (
+                    len(expected_nbits) != 8
+                    or expected_nbits != expected_nbits.lower()
+                    or any(char not in "0123456789abcdef" for char in expected_nbits)
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has invalid expected_nbits"
+                    )
+                if not (row.get("rejection_reason") or "").strip():
+                    raise ValueError(
+                        f"{path}:{row_number}: error block lacks a rejection_reason"
                     )
             elif any(
                 (row.get(field) or "")
@@ -501,81 +584,58 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: stale descendant has invalid relevance"
                     )
-                if chain != _DESCENDANT_SIDECAR_CHAIN:
-                    if descendant_observations is None:
-                        sidecar = data_dir / "stale_descendants.csv"
-                        descendant_observations = (
-                            load_stale_descendant_observation_keys(sidecar)
-                        )
-                        descendant_corrections = load_stale_descendant_correction_keys(
-                            data_dir / "stale_descendant_corrections.csv"
-                        )
-                        exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
-                        descendant_exclusions = (
-                            load_stale_exclusion_keys(exclusions_path)
-                            if exclusions_path.is_file()
-                            else set()
-                        )
-                        descendant_consensus_invalid = (
-                            load_consensus_invalid_stale_keys(exclusions_path)
-                            if exclusions_path.is_file()
-                            else set()
-                        )
-                    descendant_key = (btc_height, parent_hash)
-                    if (
-                        (chain, btc_height, parent_hash) not in descendant_observations
-                        or descendant_key not in (descendant_corrections or set())
-                        or descendant_key in (descendant_exclusions or set())
-                        or descendant_key in (descendant_consensus_invalid or set())
-                    ):
-                        raise ValueError(
-                            f"{path}:{row_number}: stale descendant is not "
-                            "authenticated by the accepted sidecar and correction "
-                            "overlay"
-                        )
-                counts["stale_descendant"] += 1
-            elif classification == "unknown" and reason == "valid_stale_descendant":
-                if status != "VALID_STALE_DESCENDANT":
-                    raise ValueError(
-                        f"{path}:{row_number}: descendant observation has invalid status"
-                    )
-                if bucket:
-                    raise ValueError(
-                        f"{path}:{row_number}: descendant observation has invalid relevance"
-                    )
-                if btc_height is None or btc_height < 0:
-                    raise ValueError(
-                        f"{path}:{row_number}: descendant observation lacks a "
-                        "nonnegative Bitcoin height"
-                    )
                 if descendant_observations is None:
-                    sidecar = data_dir / "stale_descendants.csv"
-                    descendant_observations = load_stale_descendant_observation_keys(
-                        sidecar
+                    parents_path = data_dir / "stale_descendants.csv"
+                    parent_rows = load_stale_descendant_parents(
+                        parents_path,
+                        data_dir=data_dir,
                     )
-                    descendant_corrections = load_stale_descendant_correction_keys(
-                        data_dir / "stale_descendant_corrections.csv"
+                    observation_rows = load_stale_descendant_observations(
+                        data_dir / "stale_descendant_observations.csv",
+                        parents_path=parents_path,
+                        data_dir=data_dir,
                     )
+                    descendant_parents = set(parent_rows)
+                    descendant_observations = {
+                        (
+                            observation.chain,
+                            observation.parent_height,
+                            observation.parent_hash,
+                            observation.child_height,
+                            observation.child_hash,
+                        )
+                        for observation in observation_rows
+                    }
                     exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
-                    descendant_exclusions = (
-                        load_stale_exclusion_keys(exclusions_path)
+                    descendant_error_blocks = (
+                        load_error_block_keys(exclusions_path)
                         if exclusions_path.is_file()
                         else set()
                     )
-                    descendant_consensus_invalid = (
-                        load_consensus_invalid_stale_keys(exclusions_path)
-                        if exclusions_path.is_file()
-                        else set()
-                    )
-                descendant_key = (btc_height, parent_hash)
+                parent_identity = (btc_height, parent_hash)
                 if (
-                    (chain, btc_height, parent_hash) not in descendant_observations
-                    or descendant_key in (descendant_exclusions or set())
-                    or descendant_key in (descendant_consensus_invalid or set())
+                    btc_height is None
+                    or parent_identity not in (descendant_parents or set())
+                    or parent_identity in (descendant_error_blocks or set())
                 ):
                     raise ValueError(
-                        f"{path}:{row_number}: descendant observation is not "
-                        "authenticated by the accepted sidecar"
+                        f"{path}:{row_number}: stale descendant parent is not "
+                        "authenticated by the accepted parent verdict"
+                    )
+                if contract_chain != _DESCENDANT_PARENT_VERDICTS_CHAIN and (
+                    child_height is None
+                    or (
+                        contract_chain,
+                        btc_height,
+                        parent_hash,
+                        child_height,
+                        child_bundle["child_block_hash"],
+                    )
+                    not in descendant_observations
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: stale descendant witness is not "
+                        "authenticated by the canonical observation ledger"
                     )
                 counts["stale_descendant"] += 1
             elif (
@@ -587,12 +647,32 @@ def _load_monitor_artifact_counts(
                     raise ValueError(
                         f"{path}:{row_number}: orphan row has invalid status"
                     )
+                if orphan_verdicts is not None:
+                    expected_verdict = orphan_verdicts.get(parent_hash)
+                    if (
+                        expected_verdict is None
+                        or expected_verdict.bucket != bucket
+                        or expected_verdict.reason != reason
+                    ):
+                        raise ValueError(
+                            f"{path}:{row_number}: orphan row disagrees with its "
+                            "authenticated relevance verdict"
+                        )
+                    if (
+                        bucket == "strict_btc_orphan"
+                        and expected_verdict.btc_height != btc_height
+                    ):
+                        raise ValueError(
+                            f"{path}:{row_number}: strict orphan Bitcoin height "
+                            "disagrees with its authenticated relevance verdict"
+                        )
                 if bucket == "strict_btc_orphan":
                     if btc_height is None or btc_height < 0:
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row lacks a "
                             "nonnegative Bitcoin height"
                         )
+                    assert btc_height is not None
                     if btc_height < BIP34_HEIGHT:
                         raise ValueError(
                             f"{path}:{row_number}: strict orphan row height is "
@@ -664,94 +744,66 @@ def _load_monitor_artifact_counts(
                             "do not match the Bitcoin epoch evidence"
                         )
                 counts[bucket] += 1
+            elif classification == "error_block":
+                if not error_aggregate:
+                    raise ValueError(
+                        f"{path}:{row_number}: ordinary artifact contains an error block"
+                    )
+                if btc_height is None or btc_height < 0:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block lacks a nonnegative "
+                        "Bitcoin height"
+                    )
+                if status != ERROR_OBSERVATION_STATUS:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has invalid status"
+                    )
+                if bucket or reason:
+                    raise ValueError(
+                        f"{path}:{row_number}: error block has non-empty relevance"
+                    )
+                counts["error_block"] += 1
             else:
                 raise ValueError(
                     f"{path}:{row_number}: unsupported monitor classification"
                 )
-    counts["monitor_rows"] = sum(
-        counts[category] for category in _ORDINARY_MONITOR_CATEGORIES
+    counts["monitor_rows"] = (
+        counts["error_block"]
+        if error_aggregate
+        else sum(counts[category] for category in _ORDINARY_MONITOR_CATEGORIES)
     )
     return counts
 
 
-def _load_error_observation_identity_sets(
-    path: Path,
-) -> tuple[
-    set[tuple[int, str]],
-    set[tuple[str, int, str, int, str]],
-    dict[tuple[str, int, str, int, str], tuple[str, ...]],
-]:
-    """Load exact parent and witness identities from an error aggregate.
-
-    Accepts the legacy 27-column header or the 34-column union so an add-only
-    upgrade can read today's committed baseline before writing the replacement.
-    34-column baselines also keep the published sidecar payload so an add-only
-    replacement cannot silently rewrite RSK evidence. Sidecar completeness is
-    enforced separately on staged and final artifacts.
-    """
-    parent_identities: set[tuple[int, str]] = set()
-    witness_identities: set[tuple[str, int, str, int, str]] = set()
-    sidecar_payloads: dict[tuple[str, int, str, int, str], tuple[str, ...]] = {}
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = list(reader.fieldnames or ())
-        if fieldnames not in (
-            list(MONITOR_EVIDENCE_FIELDS),
-            list(ERROR_OBSERVATION_FIELDS),
-        ):
-            raise ValueError(
-                f"{path}: error-observation header must be the 27-column "
-                "legacy schema or the 34-column union"
-            )
-        required = {
-            "chain",
-            "child_height",
-            "child_block_hash",
-            "btc_height",
-            "btc_header_hash",
-        }
-        missing = required - set(fieldnames)
-        if missing:
-            raise ValueError(
-                f"{path}: missing error-observation identity fields: "
-                + ", ".join(sorted(missing))
-            )
-        union_schema = fieldnames == list(ERROR_OBSERVATION_FIELDS)
-        for row_number, row in enumerate(reader, start=2):
-            chain = (row.get("chain") or "").strip()
-            child_height = int_or_none((row.get("child_height") or "").strip())
-            btc_height = int_or_none((row.get("btc_height") or "").strip())
-            child_hash = (row.get("child_block_hash") or "").strip().lower()
-            parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-            if (
-                not chain
-                or child_height is None
-                or child_height < 0
-                or btc_height is None
-                or btc_height < 0
-                or not is_hash(child_hash)
-                or not is_hash(parent_hash)
-            ):
-                raise ValueError(
-                    f"{path}:{row_number}: malformed error-observation identity"
-                )
-            parent_identities.add((btc_height, parent_hash))
-            witness = (chain, child_height, child_hash, btc_height, parent_hash)
-            if witness in witness_identities:
-                raise ValueError(
-                    f"{path}:{row_number}: duplicate error-observation witness"
-                )
-            witness_identities.add(witness)
-            if union_schema:
-                sidecar_payloads[witness] = tuple(
-                    (row.get(field) or "").strip()
-                    for field in RSK_SIDECAR_EXPORT_FIELDS
-                )
-    return parent_identities, witness_identities, sidecar_payloads
-
-
-def validate_error_observation_publication(path: Path) -> None:
-    """Require the union schema and semantic RSK sidecars on a published aggregate."""
+def validate_error_observation_publication(
+    path: Path, *, data_dir: Path = DATA_DIR
+) -> None:
+    """Require ordinary evidence semantics and the exact canonical error ledger."""
+    _load_monitor_artifact_counts(
+        path,
+        ERROR_OBSERVATION_ARTIFACT,
+        data_dir=data_dir,
+        expected_artifact_scope=ERROR_OBSERVATION_SCOPE,
+    )
+    expected_rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    # Output claims may be enriched from the selected archive source rows.
+    # Every field derived from the committed catalogue and witness ledger must
+    # remain byte-for-byte canonical in the aggregate.
+    canonical_fields = tuple(
+        field
+        for field in ERROR_OBSERVATION_FIELDS
+        if field not in {"coinbase_outputs", "full_coinbase_hex"}
+    )
+    expected_by_identity = {
+        (
+            row["chain"],
+            row["child_height"],
+            row["child_block_hash"],
+            row["btc_header_hash"],
+        ): row
+        for row in expected_rows
+    }
+    observed_identities: set[tuple[str, str, str, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or ())
@@ -761,7 +813,77 @@ def validate_error_observation_publication(path: Path) -> None:
                 "34-column union schema"
             )
         for row_number, row in enumerate(reader, start=2):
-            chain = (row.get("chain") or "").strip()
+            chain = row.get("chain") or ""
+            outputs = row.get("coinbase_outputs") or ""
+            full_coinbase_hex = row.get("full_coinbase_hex") or ""
+            try:
+                output_claims = parse_coinbase_output_claims(
+                    outputs,
+                    full_coinbase_hex,
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{row_number}: malformed coinbase output evidence: {exc}"
+                ) from exc
+            if outputs != render_coinbase_output_claims(output_claims):
+                raise ValueError(
+                    f"{path}:{row_number}: coinbase output evidence is not canonical"
+                )
+            if full_coinbase_hex:
+                if (
+                    len(full_coinbase_hex) % 2
+                    or full_coinbase_hex != full_coinbase_hex.lower()
+                    or any(char not in "0123456789abcdef" for char in full_coinbase_hex)
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction must use "
+                        "exact lowercase hex"
+                    )
+                try:
+                    parsed_coinbase = parse_coinbase_tx(
+                        bytes.fromhex(full_coinbase_hex)
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction is not valid hex"
+                    ) from exc
+                if parsed_coinbase is None:
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction could not be parsed"
+                    )
+                scriptsig_hex = row.get("coinbase_scriptsig_hex") or ""
+                if (
+                    scriptsig_hex
+                    and parsed_coinbase["scriptsig"].hex() != scriptsig_hex
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: full coinbase transaction disagrees "
+                        "with coinbase_scriptsig_hex"
+                    )
+            identity = (
+                chain,
+                row.get("child_height") or "",
+                row.get("child_block_hash") or "",
+                row.get("btc_header_hash") or "",
+            )
+            if identity in observed_identities:
+                raise ValueError(
+                    f"{path}:{row_number}: duplicate canonical error-observation "
+                    f"identity {identity!r}"
+                )
+            expected = expected_by_identity.get(identity)
+            if expected is None:
+                raise ValueError(
+                    f"{path}:{row_number}: row is not an exact canonical "
+                    f"error-observation identity {identity!r}"
+                )
+            observed_identities.add(identity)
+            for field in canonical_fields:
+                if (row.get(field) or "") != expected[field]:
+                    raise ValueError(
+                        f"{path}:{row_number}: {field} disagrees with the canonical "
+                        "error-observation ledger"
+                    )
             if chain == "rsk":
                 validate_rsk_sidecar_cells(row, row_id=f"{path}:{row_number}")
                 continue
@@ -775,55 +897,278 @@ def validate_error_observation_publication(path: Path) -> None:
                     f"{path}:{row_number}: non-RSK error-observation row has "
                     f"sidecar values: {', '.join(extra)}"
                 )
+    missing = set(expected_by_identity) - observed_identities
+    if missing:
+        raise ValueError(
+            f"{path}: error-observation aggregate is missing {len(missing)} "
+            f"canonical ledger identities (first {min(missing)!r})"
+        )
 
 
-def _load_ordinary_monitor_parent_identities(
-    output_dir: Path, count_rows: list[dict[str, str]]
-) -> set[tuple[int | None, str]]:
-    """Return published ordinary parent identities, retaining hash fallback."""
-    identities: set[tuple[int | None, str]] = set()
-    for count_row in count_rows:
-        chain = (count_row.get("chain") or "").strip()
-        if not chain or chain == ERROR_OBSERVATION_ARTIFACT:
-            continue
-        artifact_path = output_dir / f"{chain}_monitor_evidence.csv"
-        with artifact_path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                height = int_or_none((row.get("btc_height") or "").strip())
-                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-                if is_hash(parent_hash):
-                    identities.add(
-                        (
-                            height if height is not None and height >= 0 else None,
-                            parent_hash,
-                        )
+_CATEGORY_SUCCESSORS = {
+    "canonical": frozenset({"canonical", "stale", "stale_descendant"}),
+    "weak_btc_orphan": frozenset(
+        {"weak_btc_orphan", "strict_btc_orphan", "stale", "stale_descendant"}
+    ),
+    "strict_btc_orphan": frozenset({"strict_btc_orphan", "stale", "stale_descendant"}),
+    "stale": frozenset({"stale", "stale_descendant"}),
+    "stale_descendant": frozenset({"stale_descendant"}),
+    "error_block": frozenset({"error_block"}),
+}
+_STICKY_OBSERVATION_FIELDS = (
+    "btc_height",
+    "btc_prev_hash",
+    "btc_time",
+    "btc_bits",
+    "btc_nonce",
+    "btc_header_hex",
+    "child_block_hash",
+    "child_header_hex",
+    "child_block_time",
+    "child_nbits",
+    "coinbase_scriptsig_hex",
+    "full_coinbase_hex",
+    "expected_nbits",
+    "rejection_reason",
+    *RSK_SIDECAR_EXPORT_FIELDS,
+)
+_STICKY_OBSERVATION_FIELD_INDEX = {
+    field: index for index, field in enumerate(_STICKY_OBSERVATION_FIELDS)
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedObservation:
+    """One final monitor observation independent of source location and row order."""
+
+    chain: str
+    parent_hash: str
+    category: str
+    source_kind: str
+    source_path: str
+    row_number: int
+    fields: tuple[str, ...]
+    child_height: str
+    coinbase_outputs: str
+
+    @property
+    def anchor(self) -> tuple[str, str]:
+        """Return the stable grouping key; multiplicity is preserved within it."""
+        return self.chain, self.parent_hash
+
+    @property
+    def label(self) -> str:
+        """Return a concise diagnostic identity for publication errors."""
+        child = self.value("child_block_hash") or self.child_height
+        suffix = f":{child}" if child else ""
+        return f"{self.chain}:{self.parent_hash}:{self.category}{suffix}"
+
+    def value(self, field: str) -> str:
+        """Return one named sticky field without a per-row dictionary."""
+        return self.fields[_STICKY_OBSERVATION_FIELD_INDEX[field]]
+
+    def output_claims(self) -> tuple[CoinbaseOutputClaim, ...]:
+        """Decode the canonical compact output representation on demand."""
+        return _cached_output_claims(
+            self.coinbase_outputs,
+            self.value("full_coinbase_hex"),
+        )
+
+
+@lru_cache(maxsize=4096)
+def _cached_output_claims(
+    outputs: str,
+    full_coinbase_hex: str,
+) -> tuple[CoinbaseOutputClaim, ...]:
+    """Bound repeated semantic parsing without retaining the whole corpus."""
+    return parse_coinbase_output_claims(outputs, full_coinbase_hex)
+
+
+def _published_category(row: dict[str, str]) -> str | None:
+    """Return the explicit final-state category encoded by one monitor row."""
+    classification = (row.get("classification") or "").strip().lower()
+    bucket = (row.get("btc_stale_relevance") or "").strip()
+    if classification == "error_block":
+        return "error_block"
+    if classification in {"canonical", "stale", "stale_descendant"}:
+        return classification
+    if classification == "unknown" and bucket in {
+        "strict_btc_orphan",
+        "weak_btc_orphan",
+    }:
+        return bucket
+    return None
+
+
+def _published_observation(
+    row: dict[str, str],
+    *,
+    chain: str,
+    path: Path,
+    row_number: int,
+) -> PublishedObservation | None:
+    """Decode and validate the semantic identity/evidence cells of one row."""
+    category = _published_category(row)
+    if category is None:
+        return None
+    parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+    if not is_hash(parent_hash):
+        raise ValueError(f"{path}:{row_number}: final row lacks a valid parent hash")
+    raw_height = (row.get("btc_height") or "").strip()
+    height = int_or_none(raw_height)
+    if raw_height and (height is None or height < 0):
+        raise ValueError(
+            f"{path}:{row_number}: final row has an invalid Bitcoin height"
+        )
+    raw_child_height = (row.get("child_height") or "").strip()
+    child_height = int_or_none(raw_child_height)
+    if raw_child_height and (child_height is None or child_height < 0):
+        raise ValueError(f"{path}:{row_number}: final row has an invalid child height")
+    try:
+        output_claims = parse_coinbase_output_claims(
+            row.get("coinbase_outputs") or "",
+            row.get("full_coinbase_hex") or "",
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{path}:{row_number}: malformed coinbase output evidence: {exc}"
+        ) from exc
+    fields = tuple(
+        (row.get(field) or "").strip() for field in _STICKY_OBSERVATION_FIELDS
+    )
+    return PublishedObservation(
+        chain=chain,
+        parent_hash=parent_hash,
+        category=category,
+        source_kind=(row.get("source_kind") or "").strip(),
+        source_path=(row.get("source_path") or "").strip(),
+        row_number=row_number,
+        fields=fields,
+        child_height=raw_child_height,
+        coinbase_outputs=render_coinbase_output_claims(output_claims),
+    )
+
+
+def _load_published_observation_groups(
+    output_dir: Path,
+    *,
+    ordinary_chains: frozenset[str] | None = None,
+) -> dict[tuple[str, str], tuple[PublishedObservation, ...]]:
+    """Load selected chains into one strict final observation model."""
+    error_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    errors: list[PublishedObservation] = []
+    error_hashes: set[str] = set()
+    if error_path.is_file():
+        with error_path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                chain = (row.get("chain") or "").strip()
+                observation = _published_observation(
+                    row,
+                    chain=chain,
+                    path=error_path,
+                    row_number=row_number,
+                )
+                if observation is None or observation.category != "error_block":
+                    raise ValueError(
+                        f"{error_path}:{row_number}: error aggregate row is not final"
                     )
-    return identities
+                error_hashes.add(observation.parent_hash)
+                if ordinary_chains is None or chain in ordinary_chains:
+                    errors.append(observation)
 
+    ordinary: list[PublishedObservation] = []
+    error_overlaps: list[str] = []
+    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
+        chain = path.name.removesuffix("_monitor_evidence.csv")
+        if chain == ERROR_OBSERVATION_ARTIFACT:
+            continue
+        if ordinary_chains is not None and chain not in ordinary_chains:
+            continue
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                observation = _published_observation(
+                    row,
+                    chain=chain,
+                    path=path,
+                    row_number=row_number,
+                )
+                if observation is None:
+                    continue
+                if observation.parent_hash in error_hashes:
+                    error_overlaps.append(observation.label)
+                    continue
+                ordinary.append(observation)
+    if error_overlaps:
+        raise ValueError(
+            "error parents remain in ordinary evidence artifacts "
+            f"({len(error_overlaps)}; first {error_overlaps[0]})"
+        )
 
-def _coinbase_evidence_digest(row: dict[str, str], chain: str) -> str:
-    """Digest preserved provenance and evidence fields in an ordinary row."""
-    fields = [
-        row.get("validation_status") or "",
-        row.get("source_kind") or "",
-        row.get("source_path") or "",
-        row.get("source_row_number") or "",
-        row.get("artifact_scope") or "",
-        row.get("provenance") or "",
-        row.get("rejection_reason") or "",
-        row.get("expected_nbits") or "",
-        row.get("child_header_hex") or "",
-        row.get("child_nbits") or "",
-        row.get("coinbase_scriptsig_hex") or "",
-        row.get("coinbase_outputs") or "",
-        row.get("full_coinbase_hex") or "",
-    ]
-    if chain == "rsk":
-        fields.extend(row.get(field) or "" for field in RSK_SIDECAR_EXPORT_FIELDS)
-    if not any(fields):
-        return ""
-    return hashlib.sha256("\x00".join(fields).encode()).hexdigest()
+    # Error parents have two interfaces: one row per authenticated child
+    # witness, and one catalogue-level parent verdict. The synthetic reserved
+    # chain keeps the parent claim comparable if a stale-descendant parent is
+    # later proven consensus-invalid and leaves the parent-verdict artifact.
+    synthetic_errors: list[PublishedObservation] = []
+    by_error_parent: dict[str, list[PublishedObservation]] = {}
+    for observation in errors:
+        siblings = by_error_parent.setdefault(observation.parent_hash, [])
+        previous = siblings[0] if siblings else None
+        siblings.append(observation)
+        if previous is None:
+            continue
+        for field in (
+            "btc_height",
+            "btc_prev_hash",
+            "btc_time",
+            "btc_bits",
+            "btc_nonce",
+            "btc_header_hex",
+            "coinbase_scriptsig_hex",
+            "expected_nbits",
+            "rejection_reason",
+        ):
+            if previous.value(field) != observation.value(field):
+                raise ValueError(
+                    "error observations disagree on parent evidence for "
+                    f"{observation.parent_hash}: {field}"
+                )
+    include_synthetic_errors = (
+        ordinary_chains is None or _DESCENDANT_PARENT_VERDICTS_CHAIN in ordinary_chains
+    )
+    for parent_hash, observations in by_error_parent.items():
+        if not include_synthetic_errors:
+            continue
+        observation = observations[0]
+        parent_fields = list(observation.fields)
+        for field in (
+            "child_block_hash",
+            "child_header_hex",
+            "child_block_time",
+            "child_nbits",
+            *RSK_SIDECAR_EXPORT_FIELDS,
+        ):
+            parent_fields[_STICKY_OBSERVATION_FIELD_INDEX[field]] = ""
+        merged_output_claims = merge_coinbase_output_claim_sets(
+            *(item.output_claims() for item in observations)
+        )
+        synthetic_errors.append(
+            PublishedObservation(
+                chain=_DESCENDANT_PARENT_VERDICTS_CHAIN,
+                parent_hash=parent_hash,
+                category="error_block",
+                source_kind="error_block_catalogue",
+                source_path=observation.source_path,
+                row_number=observation.row_number,
+                fields=tuple(parent_fields),
+                child_height="",
+                coinbase_outputs=render_coinbase_output_claims(merged_output_claims),
+            )
+        )
+
+    grouped: dict[tuple[str, str], list[PublishedObservation]] = {}
+    for observation in (*ordinary, *errors, *synthetic_errors):
+        grouped.setdefault(observation.anchor, []).append(observation)
+    return {anchor: tuple(rows) for anchor, rows in grouped.items()}
 
 
 def _expected_canonical_evidence_status(
@@ -833,7 +1178,10 @@ def _expected_canonical_evidence_status(
     source_kind = (row.get("source_kind") or "").strip()
     if source_kind == "missing":
         return "not_checked_missing_source"
-    if source_kind == "stale_descendant_sidecar":
+    if source_kind in {
+        "stale_descendant_parent_verdicts",
+        "error_block_catalogue",
+    }:
         return "not_applicable"
     if canonical_count > 0:
         return "canonical_retained"
@@ -842,262 +1190,224 @@ def _expected_canonical_evidence_status(
     return "no_canonical_rows_in_discovered_artifact"
 
 
-def _iter_monitor_final_identity_keys(
-    output_dir: Path,
-) -> Iterator[tuple[str, str, tuple[str, str, str, str, str, str, str]]]:
-    """Yield ordered final-category identities from ordinary artifacts."""
-    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
-        chain = path.name.removesuffix("_monitor_evidence.csv")
-        if chain == ERROR_OBSERVATION_ARTIFACT:
-            continue
-        with path.open(newline="") as handle:
-            for row_number, row in enumerate(csv.DictReader(handle), start=2):
-                classification = (row.get("classification") or "").strip().lower()
-                bucket = (row.get("btc_stale_relevance") or "").strip()
-                if classification == "canonical":
-                    category = "canonical"
-                elif classification == "stale":
-                    category = "stale"
-                elif classification == "stale_descendant":
-                    category = "stale_descendant"
-                elif classification == "unknown" and bucket in {
-                    "strict_btc_orphan",
-                    "weak_btc_orphan",
-                }:
-                    category = bucket
-                elif (
-                    classification == "unknown"
-                    and (row.get("relevance_reason") or "").strip()
-                    == "valid_stale_descendant"
-                ):
-                    category = "stale_descendant"
-                else:
-                    continue
-                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-                if not is_hash(parent_hash):
-                    raise ValueError(
-                        f"{path}:{row_number}: final row lacks a valid parent hash"
-                    )
-                raw_height = (row.get("btc_height") or "").strip()
-                height = int_or_none(raw_height)
-                if raw_height and (height is None or height < 0):
-                    raise ValueError(
-                        f"{path}:{row_number}: final row has an invalid Bitcoin height"
-                    )
-                child_height = int_or_none((row.get("child_height") or "").strip())
-                child_hash = (row.get("child_block_hash") or "").strip().lower()
-                key = (
-                    classification,
-                    str(height) if height is not None else "",
-                    parent_hash,
-                    str(child_height) if child_height is not None else "",
-                    child_hash if is_hash(child_hash) else "",
-                    row.get("child_block_time") or "",
-                    _coinbase_evidence_digest(row, chain),
-                )
-                yield chain, category, key
-
-
-def _load_monitor_final_identity_sets(
-    output_dir: Path,
-) -> dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]:
-    """Load per-chain final-category identities from ordinary artifacts."""
-    identities: dict[
-        tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]
-    ] = {}
-    for chain, category, key in _iter_monitor_final_identity_keys(output_dir):
-        identities.setdefault((chain, category), Counter())[key] += 1
-    return identities
-
-
-def _load_monitor_final_identity_sequences(
-    output_dir: Path,
-) -> dict[
-    str,
-    tuple[tuple[str, tuple[str, str, str, str, str, str, str]], ...],
-]:
-    """Load ordered final-category identities from each ordinary artifact."""
-    identities: dict[
-        str, list[tuple[str, tuple[str, str, str, str, str, str, str]]]
-    ] = {}
-    for chain, category, key in _iter_monitor_final_identity_keys(output_dir):
-        identities.setdefault(chain, []).append((category, key))
-    return {chain: tuple(rows) for chain, rows in identities.items()}
-
-
-def _validate_new_ordinary_row_provenance(
-    output_dir: Path,
-    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]],
-) -> None:
-    """Require source coordinates on ordinary rows newly added to a baseline."""
-    committed_core_counts: Counter[tuple[str, str, tuple[str, ...]]] = Counter(
-        (chain, category, key[:6])
-        for (chain, category), rows in committed.items()
-        for key, count in rows.items()
-        for _ in range(count)
+def _child_height_is_sticky(observation: PublishedObservation) -> bool:
+    """Return whether a published child-height cell is consensus-authenticated."""
+    return (
+        child_height_semantics_for_source(
+            observation.chain,
+            observation.source_kind,
+        )
+        != CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER
     )
-    current_core_counts: Counter[tuple[str, str, tuple[str, ...]]] = Counter()
-    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
-        chain = path.name.removesuffix("_monitor_evidence.csv")
-        if chain == ERROR_OBSERVATION_ARTIFACT:
-            continue
-        with path.open(newline="") as handle:
-            for row_number, row in enumerate(csv.DictReader(handle), start=2):
-                classification = (row.get("classification") or "").strip().lower()
-                bucket = (row.get("btc_stale_relevance") or "").strip()
-                if classification == "canonical":
-                    category = "canonical"
-                elif classification == "stale":
-                    category = "stale"
-                elif classification == "stale_descendant":
-                    category = "stale_descendant"
-                elif classification == "unknown" and bucket in {
-                    "strict_btc_orphan",
-                    "weak_btc_orphan",
-                }:
-                    category = bucket
-                elif (
-                    classification == "unknown"
-                    and (row.get("relevance_reason") or "").strip()
-                    == "valid_stale_descendant"
-                ):
-                    category = "stale_descendant"
-                else:
-                    continue
-                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-                height = int_or_none((row.get("btc_height") or "").strip())
-                child_height = int_or_none((row.get("child_height") or "").strip())
-                child_hash = (row.get("child_block_hash") or "").strip().lower()
-                core = (
-                    classification,
-                    str(height) if height is not None else "",
-                    parent_hash,
-                    str(child_height) if child_height is not None else "",
-                    child_hash if is_hash(child_hash) else "",
-                    row.get("child_block_time") or "",
-                )
-                core_key = (chain, category, core)
-                current_core_counts[core_key] += 1
-                is_new = current_core_counts[core_key] > committed_core_counts[core_key]
-                if is_new and category in {
-                    "canonical",
-                    "stale",
-                    "stale_descendant",
-                    "strict_btc_orphan",
-                    "weak_btc_orphan",
-                }:
-                    raise ValueError(
-                        f"{path}:{row_number}: newly admitted {category} identity "
-                        "must be corroborated by a full publication rebuild"
-                    )
-                if not is_new:
-                    continue
-                source_kind = (row.get("source_kind") or "").strip()
-                source_path = (row.get("source_path") or "").strip()
-                provenance = (row.get("provenance") or "").strip()
-                source_row_number = int_or_none(
-                    (row.get("source_row_number") or "").strip()
-                )
-                if (
-                    not source_kind
-                    or not source_path
-                    or not provenance
-                    or source_row_number is None
-                    or source_row_number <= 0
-                ):
-                    raise ValueError(
-                        f"{path}:{row_number}: newly admitted ordinary row lacks "
-                        "complete source provenance"
-                    )
 
 
-def _validate_orphan_parent_overlaps(output_dir: Path) -> None:
-    """Reject orphan verdicts whose parent is already a known final state."""
-    known_final_parent_hashes: set[str] = set()
-    orphan_rows: list[tuple[Path, int, str]] = []
-    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
-        if path.name == f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv":
+def _observation_refinement(
+    committed: PublishedObservation,
+    staged: PublishedObservation,
+) -> tuple[bool, str]:
+    """Return whether `staged` monotonically refines one committed observation."""
+    successors = _CATEGORY_SUCCESSORS[committed.category] | {"error_block"}
+    if staged.category not in successors:
+        return False, f"category {committed.category}->{staged.category}"
+    for field in _STICKY_OBSERVATION_FIELDS:
+        expected = committed.value(field)
+        if expected and staged.value(field) != expected:
+            return False, field
+    committed_child_height = committed.child_height
+    if (
+        committed_child_height
+        and _child_height_is_sticky(committed)
+        and staged.child_height != committed_child_height
+    ):
+        return False, "child_height"
+    if not coinbase_output_claims_refine(
+        committed.output_claims(),
+        staged.output_claims(),
+    ):
+        return False, "coinbase_outputs"
+    return True, ""
+
+
+def _authenticated_event_bundles(
+    observations: tuple[PublishedObservation, ...],
+) -> tuple[tuple[PublishedObservation, ...], ...]:
+    """Bundle claims for one authenticated child event into one observation.
+
+    Physical source rows are not publication multiplicity. Within one
+    ``(chain, parent_hash)`` anchor, a valid child block hash identifies one
+    logical event. Every claim for that event must refine into the same staged
+    row. Rows without an authenticated child hash remain singleton claims.
+    """
+    by_child_hash: dict[str, list[PublishedObservation]] = {}
+    bundles: list[tuple[PublishedObservation, ...]] = []
+    for observation in observations:
+        child_hash = observation.value("child_block_hash").lower()
+        if not is_hash(child_hash):
+            bundles.append((observation,))
             continue
-        with path.open(newline="") as handle:
-            for row_number, row in enumerate(csv.DictReader(handle), start=2):
-                classification = (row.get("classification") or "").strip().lower()
-                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
-                if classification in {"canonical", "stale", "stale_descendant"}:
-                    if is_hash(parent_hash):
-                        known_final_parent_hashes.add(parent_hash)
-                elif (
-                    classification == "unknown"
-                    and (row.get("relevance_reason") or "").strip()
-                    == "valid_stale_descendant"
-                ):
-                    if is_hash(parent_hash):
-                        known_final_parent_hashes.add(parent_hash)
-                elif classification == "unknown" and (
-                    row.get("btc_stale_relevance") or ""
-                ).strip() in {"strict_btc_orphan", "weak_btc_orphan"}:
-                    if is_hash(parent_hash):
-                        orphan_rows.append((path, row_number, parent_hash))
-    for path, row_number, parent_hash in orphan_rows:
-        if parent_hash in known_final_parent_hashes:
-            raise ValueError(
-                f"{path}:{row_number}: orphan verdict overlaps a known final-state "
-                f"parent {parent_hash}"
+        by_child_hash.setdefault(child_hash, []).append(observation)
+    bundles.extend(tuple(rows) for rows in by_child_hash.values())
+    return tuple(bundles)
+
+
+def _maximum_refinement_matching(
+    committed: tuple[PublishedObservation, ...],
+    staged: tuple[PublishedObservation, ...],
+) -> tuple[bool, str]:
+    """Injectively match every committed logical event to one staged row."""
+    committed_bundles = _authenticated_event_bundles(committed)
+    edges: list[list[int]] = []
+    reasons: list[list[str]] = []
+    for expected_bundle in committed_bundles:
+        compatible: list[int] = []
+        rejected: list[str] = []
+        for index, candidate in enumerate(staged):
+            refinements = [
+                _observation_refinement(expected, candidate)
+                for expected in expected_bundle
+            ]
+            if all(accepted for accepted, _reason in refinements):
+                compatible.append(index)
+            else:
+                rejected.append(
+                    next(reason for accepted, reason in refinements if not accepted)
+                )
+        edges.append(compatible)
+        reasons.append(rejected)
+    # Sparse observations must claim candidates before broad observations.
+    # The augmenting-path matcher then revisits earlier assignments, so a
+    # greedy choice cannot consume the only candidate for a more specific row.
+    order = sorted(range(len(committed_bundles)), key=lambda index: len(edges[index]))
+    staged_to_committed: dict[int, int] = {}
+
+    def assign(committed_index: int, seen: set[int]) -> bool:
+        for staged_index in edges[committed_index]:
+            if staged_index in seen:
+                continue
+            seen.add(staged_index)
+            previous = staged_to_committed.get(staged_index)
+            if previous is None or assign(previous, seen):
+                staged_to_committed[staged_index] = committed_index
+                return True
+        return False
+
+    for committed_index in order:
+        if not assign(committed_index, set()):
+            expected_bundle = committed_bundles[committed_index]
+            expected = expected_bundle[0]
+            if not staged:
+                return False, f"missing {expected.label}"
+            rejected = reasons[committed_index]
+            detail = (
+                Counter(rejected).most_common(1)[0][0] if rejected else "multiplicity"
             )
+            return False, f"cannot refine {expected.label} ({detail})"
+    return True, ""
 
 
-def _validate_ordinary_monitor_identity_floor(
+def _validate_parent_category_exclusivity(output_dir: Path) -> None:
+    """Require one explicit final category for each Bitcoin parent hash."""
+    categories: dict[str, tuple[str, Path, int]] = {}
+    for path in sorted(output_dir.glob("*_monitor_evidence.csv")):
+        with path.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                category = _published_category(row)
+                parent_hash = (row.get("btc_header_hash") or "").strip().lower()
+                if category is None or not is_hash(parent_hash):
+                    continue
+                previous = categories.get(parent_hash)
+                if previous is not None and previous[0] != category:
+                    previous_category, previous_path, previous_row = previous
+                    raise ValueError(
+                        f"{path}:{row_number}: parent {parent_hash} appears in "
+                        f"both {previous_category} ({previous_path}:{previous_row}) "
+                        f"and {category}"
+                    )
+                categories[parent_hash] = (category, path, row_number)
+
+
+def _validate_published_observation_floor(
     output_dir: Path,
     *,
-    committed: dict[tuple[str, str], Counter[tuple[str, str, str, str, str, str, str]]]
-    | None = None,
-    committed_sequences: dict[
-        str, tuple[tuple[str, tuple[str, str, str, str, str, str, str]], ...]
-    ]
-    | None = None,
+    committed: dict[tuple[str, str], tuple[PublishedObservation, ...]] | None = None,
 ) -> None:
-    """Reject add-only updates that drop any committed final-category identity."""
-    loaded_committed = committed is None
+    """Reject any final observation deletion, substitution, or category downgrade."""
     if committed is None:
-        committed = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
-    current = _load_monitor_final_identity_sets(output_dir)
-    missing: list[str] = []
-    for key, expected in committed.items():
-        dropped = expected - current.get(key, Counter())
-        if dropped:
-            chain, category = key
-            missing.append(f"{chain} {category}: {sum(dropped.values())}")
-    if missing:
-        raise ValueError(
-            "add-only update drops committed ordinary evidence identities: "
-            + ", ".join(missing)
+        chains = _published_observation_chains(MONITOR_OUTPUT_DIR) | (
+            _published_observation_chains(output_dir)
         )
-    if loaded_committed and committed_sequences is None:
-        committed_sequences = _load_monitor_final_identity_sequences(MONITOR_OUTPUT_DIR)
-    if committed_sequences is not None:
-        current_sequences = _load_monitor_final_identity_sequences(output_dir)
-        reordered = [
-            chain
-            for chain, expected in committed_sequences.items()
-            if current_sequences.get(chain, ()) != expected
-        ]
-        if reordered:
-            raise ValueError(
-                "add-only update changes committed ordinary evidence row ordering: "
-                + ", ".join(sorted(reordered))
+        problems: list[str] = []
+        for chain in sorted(chains):
+            selected = frozenset({chain})
+            committed_chain = _load_published_observation_groups(
+                MONITOR_OUTPUT_DIR,
+                ordinary_chains=selected,
             )
-
-
-def _classification_counts(path: Path) -> Counter[str]:
-    """Count normalized primary classifications in a source CSV."""
-    with path.open(newline="") as handle:
-        return Counter(
-            (row.get("classification") or "").strip().lower() or "unknown"
-            for row in csv.DictReader(handle)
+            staged_chain = _load_published_observation_groups(
+                output_dir,
+                ordinary_chains=selected,
+            )
+            problems.extend(
+                _published_observation_floor_problems(
+                    committed_chain,
+                    staged_chain,
+                )
+            )
+            if len(problems) >= 10:
+                break
+    else:
+        staged = _load_published_observation_groups(
+            output_dir,
         )
+        problems = _published_observation_floor_problems(committed, staged)
+    if problems:
+        raise ValueError(
+            "full rebuild degrades published observation evidence: "
+            + "; ".join(problems[:10])
+        )
+
+
+def _published_observation_chains(output_dir: Path) -> set[str]:
+    """Return ordinary and error-witness chains without loading row evidence."""
+    chains = {
+        path.name.removesuffix("_monitor_evidence.csv")
+        for path in output_dir.glob("*_monitor_evidence.csv")
+        if path.name != f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    }
+    error_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    if error_path.is_file():
+        with error_path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                chain = (row.get("chain") or "").strip()
+                if chain:
+                    chains.add(chain)
+        chains.add(_DESCENDANT_PARENT_VERDICTS_CHAIN)
+    return chains
+
+
+def _published_observation_floor_problems(
+    committed: dict[tuple[str, str], tuple[PublishedObservation, ...]],
+    staged: dict[tuple[str, str], tuple[PublishedObservation, ...]],
+) -> list[str]:
+    """Return semantic non-degradation failures for one bounded chain slice."""
+    problems: list[str] = []
+    for anchor, expected in committed.items():
+        candidates = staged.get(anchor, ())
+        expected_bundles = _authenticated_event_bundles(expected)
+        if len(candidates) < len(expected_bundles):
+            problems.append(
+                f"{anchor[0]}:{anchor[1]} multiplicity "
+                f"{len(expected_bundles)}->{len(candidates)}"
+            )
+            continue
+        matched, detail = _maximum_refinement_matching(expected, candidates)
+        if not matched:
+            problems.append(detail)
+    return problems
 
 
 def _canonical_source_path(value: str | Path, chain: str) -> str:
-    """Normalize a source path to the portion below its chain directory."""
+    """Normalize one source coordinate to the path below its chain directory."""
     path = Path(value)
     chain_indexes = [index for index, part in enumerate(path.parts) if part == chain]
     if chain_indexes:
@@ -1106,7 +1416,7 @@ def _canonical_source_path(value: str | Path, chain: str) -> str:
 
 
 class _UnknownIdentityDigest:
-    """Compact, order-independent digest for a source-identity multiset."""
+    """Order-independent streaming digest of an exact identity multiset."""
 
     __slots__ = ("count", "additive", "xor")
 
@@ -1122,7 +1432,7 @@ class _UnknownIdentityDigest:
         self.additive = (self.additive + value) % (1 << 256)
         self.xor ^= value
 
-    def update(self, other: "_UnknownIdentityDigest") -> None:
+    def update(self, other: _UnknownIdentityDigest) -> None:
         self.count += other.count
         self.additive = (self.additive + other.additive) % (1 << 256)
         self.xor ^= other.xor
@@ -1130,151 +1440,195 @@ class _UnknownIdentityDigest:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _UnknownIdentityDigest):
             return NotImplemented
-        return (
-            self.count,
-            self.additive,
-            self.xor,
-        ) == (other.count, other.additive, other.xor)
+        return (self.count, self.additive, self.xor) == (
+            other.count,
+            other.additive,
+            other.xor,
+        )
 
 
-def _unknown_observation_identities(
-    path: Path,
-    chain: str,
-    excluded_keys: set[tuple[int, str]] = frozenset(),
+def _source_unknown_identity_digest(
+    source: EvidenceSource,
+    *,
+    excluded_hashes: frozenset[str] | set[str] = frozenset(),
 ) -> _UnknownIdentityDigest:
-    """Return a compact digest of unknown source identities."""
-    identities = _UnknownIdentityDigest()
-    with path.open(newline="") as handle:
+    """Stream unknown/orphan identities from one selected classifier source."""
+    digest = _UnknownIdentityDigest()
+    if source.path is None:
+        return digest
+    with source.path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = reader.fieldnames or []
         for row_number, row in enumerate(reader, start=2):
-            classification = (row.get("classification") or "").strip().lower()
-            if classification not in {"", "unknown", "orphan"}:
+            classification = (
+                row.get("classification") or ""
+            ).strip().lower() or "unknown"
+            if classification not in {"unknown", "orphan"}:
                 continue
-            block_hash = ""
+            raw_block_hash = ""
             for column in ("btc_header_hash", "btc_hash", "hash"):
                 if column in fieldnames:
-                    block_hash = (row.get(column) or "").strip().lower()
+                    raw_block_hash = row.get(column) or ""
                     break
-            if not is_hash(block_hash):
+            block_hash = raw_block_hash.strip()
+            if block_hash:
+                if (
+                    raw_block_hash != block_hash
+                    or block_hash != block_hash.lower()
+                    or not is_hash(block_hash)
+                ):
+                    raise ValueError(
+                        f"{source.path}:{row_number}: unknown source row has a "
+                        "malformed or non-lowercase Bitcoin parent hash"
+                    )
+            else:
                 for column in ("btc_header_hex", "header"):
                     if column in fieldnames:
                         block_hash = parse_header_fields(row.get(column) or "").get(
                             "hash", ""
                         )
                         break
-            height_text = ""
-            for column in ("btc_height", "btc_stale_height", "height"):
-                value = (row.get(column) or "").strip()
-                if value:
-                    height_text = value
-                    break
-            if not height_text:
-                parent_height = (row.get("btc_parent_height") or "").strip()
-                try:
-                    height_text = str(int(parent_height) + 1)
-                except ValueError:
-                    pass
-            try:
-                if (int(height_text), block_hash) in excluded_keys:
-                    continue
-            except ValueError:
-                pass
-            identities.add(
+                if not is_hash(block_hash):
+                    raise ValueError(
+                        f"{source.path}:{row_number}: unknown source row has a "
+                        "malformed or missing Bitcoin parent hash"
+                    )
+            if block_hash in excluded_hashes:
+                continue
+            digest.add(
                 (
-                    chain,
-                    _canonical_source_path(path, chain),
+                    source.chain,
+                    _canonical_source_path(source.path, source.chain),
                     str(row_number),
                     block_hash,
                 )
             )
+    return digest
+
+
+def _selected_unknown_identity_digests(
+    sources: dict[str, EvidenceSource],
+    unknown_sources: dict[str, EvidenceSource],
+    *,
+    excluded_hashes: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, _UnknownIdentityDigest]:
+    """Digest every unknown observation selected for the current full build."""
+    identities: dict[str, _UnknownIdentityDigest] = {}
+    for chain in sorted(set(sources) | set(unknown_sources)):
+        combined = _UnknownIdentityDigest()
+        for source in (sources.get(chain), unknown_sources.get(chain)):
+            if (
+                source is None
+                or source.path is None
+                or source.source_kind != "full_inventory"
+            ):
+                continue
+            combined.update(
+                _source_unknown_identity_digest(
+                    source,
+                    excluded_hashes=excluded_hashes,
+                )
+            )
+        if combined.count:
+            identities[chain] = combined
     return identities
 
 
-def _assessed_unknown_identities(
+def _assessed_unknown_identity_digests(
     path: Path,
-) -> dict[str, _UnknownIdentityDigest] | None:
-    """Return compact per-chain digests assessed by the relevance classifier.
-
-    The classifier's inventory carries ``source_classification`` and ``chain``
-    for every row.  Older hand-built fixtures do not, so callers can distinguish
-    an inventory that predates this publication invariant from one that assessed
-    zero unknown rows.  The chain-relative source path, row number, and header hash prevent
-    duplicate or replaced rows from satisfying a count-only coverage check.
-    """
+) -> dict[str, _UnknownIdentityDigest]:
+    """Digest exact unknown/orphan source coordinates assessed by a classifier run."""
+    identities: dict[str, _UnknownIdentityDigest] = {}
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
-        fields = set(reader.fieldnames or ())
-        if (
-            not {
-                "chain",
-                "source_path",
-                "source_row_number",
-                "source_classification",
-                "btc_header_hash",
-            }
-            <= fields
-        ):
-            return None
-        identities: dict[str, _UnknownIdentityDigest] = {}
-        for row in reader:
+        missing = _UNKNOWN_IDENTITY_FIELDS - set(reader.fieldnames or ())
+        if missing:
+            raise ValueError(
+                f"{path}: relevance inventory lacks exact source-identity fields: "
+                + ", ".join(sorted(missing))
+            )
+        for row_number, row in enumerate(reader, start=2):
             classification = (
                 row.get("source_classification") or ""
             ).strip().lower() or "unknown"
             if classification not in {"unknown", "orphan"}:
                 continue
             chain = (row.get("chain") or "").strip()
-            source_path = _canonical_source_path(
-                (row.get("source_path") or "").strip(), chain
-            )
-            source_row_number = (row.get("source_row_number") or "").strip()
-            block_hash = (row.get("btc_header_hash") or "").strip().lower()
-            digest = identities.setdefault(chain, _UnknownIdentityDigest())
-            digest.add((chain, source_path, source_row_number, block_hash))
-        return identities
-
-
-def _classification_hashes(path: Path, classification: str) -> set[str] | None:
-    """Return exact header identities, or None for a count-only fixture."""
-    hashes: set[str] = set()
-    with path.open(newline="") as handle:
-        for row_number, row in enumerate(csv.DictReader(handle), start=2):
-            row_classification = (
-                row.get("classification") or ""
-            ).strip().lower() or "unknown"
-            if row_classification != classification:
-                continue
-            block_hash = (
-                (row.get("btc_header_hash") or row.get("btc_hash") or "")
-                .strip()
-                .lower()
-            )
-            if not block_hash:
-                return None
-            if len(block_hash) != 64:
-                raise ValueError(
-                    f"{path}:{row_number}: malformed {classification} header hash"
-                )
+            source_path = (row.get("source_path") or "").strip()
+            raw_source_row = (row.get("source_row_number") or "").strip()
             try:
-                int(block_hash, 16)
+                source_row = int(raw_source_row)
             except ValueError as exc:
                 raise ValueError(
-                    f"{path}:{row_number}: malformed {classification} header hash"
+                    f"{path}:{row_number}: unknown assessment has an invalid "
+                    "physical source row"
                 ) from exc
-            hashes.add(block_hash)
-    return hashes
+            if (
+                not chain
+                or not source_path
+                or source_row < 2
+                or str(source_row) != raw_source_row
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: unknown assessment lacks an exact "
+                    "chain-relative physical source coordinate"
+                )
+            raw_block_hash = row.get("btc_header_hash") or ""
+            block_hash = raw_block_hash.strip()
+            if (
+                raw_block_hash != block_hash
+                or block_hash != block_hash.lower()
+                or not is_hash(block_hash)
+            ):
+                raise ValueError(
+                    f"{path}:{row_number}: unknown assessment has a malformed or "
+                    "non-lowercase Bitcoin parent hash"
+                )
+            identities.setdefault(chain, _UnknownIdentityDigest()).add(
+                (
+                    chain,
+                    _canonical_source_path(source_path, chain),
+                    raw_source_row,
+                    block_hash,
+                )
+            )
+    return identities
+
+
+def _validate_unknown_inventory_assessment(
+    sources: dict[str, EvidenceSource],
+    unknown_sources: dict[str, EvidenceSource],
+    relevance_inventory: Path,
+    *,
+    excluded_hashes: frozenset[str] | set[str] = frozenset(),
+) -> None:
+    """Require the relevance inventory to assess the selected unknown multiset."""
+    expected = _selected_unknown_identity_digests(
+        sources,
+        unknown_sources,
+        excluded_hashes=excluded_hashes,
+    )
+    assessed = _assessed_unknown_identity_digests(relevance_inventory)
+    empty = _UnknownIdentityDigest()
+    mismatches: list[str] = []
+    for chain in sorted(set(expected) | set(assessed)):
+        source_digest = expected.get(chain, empty)
+        assessed_digest = assessed.get(chain, empty)
+        if source_digest != assessed_digest:
+            mismatches.append(
+                f"{chain} selected={source_digest.count} assessed={assessed_digest.count}"
+            )
+    if mismatches:
+        raise ValueError(
+            "relevance inventory unknown identities do not match the selected "
+            "full/unknown sources (" + "; ".join(mismatches) + ")"
+        )
 
 
 def _load_publication_baseline(
     baseline_dir: Path,
-) -> tuple[
-    dict[str, dict[str, str]],
-    int,
-    dict[str, str],
-    dict[str, Counter[str]],
-    dict[str, set[str]],
-]:
-    """Load the committed category/count floor used by publication preflight."""
+) -> dict[str, dict[str, str]]:
+    """Validate and load the committed publication metadata baseline."""
     counts_path = baseline_dir / PUBLICATION_COUNTS.name
     manifest_path = baseline_dir / PUBLICATION_MANIFEST.name
     if not counts_path.is_file() or not manifest_path.is_file():
@@ -1328,7 +1682,6 @@ def _load_publication_baseline(
     expected_verdicts = manifest.get("strict_weak_verdicts_loaded")
     if not isinstance(expected_verdicts, int) or expected_verdicts < 0:
         raise ValueError(f"{manifest_path}: invalid strict/weak verdict count")
-    relevance_by_hash: dict[str, str] = {}
     relevance_rows_by_chain: dict[str, Counter[str]] = {}
     canonical_hashes_by_chain: dict[str, set[str]] = {}
     for artifact in sorted(baseline_dir.glob("*_monitor_evidence.csv")):
@@ -1360,9 +1713,6 @@ def _load_publication_baseline(
                 if bucket not in ("strict_btc_orphan", "weak_btc_orphan"):
                     continue
                 relevance_rows_by_chain.setdefault(chain, Counter())[block_hash] += 1
-                existing = relevance_by_hash.get(block_hash)
-                if existing != "strict_btc_orphan":
-                    relevance_by_hash[block_hash] = bucket
     for chain, row in rows.items():
         canonical_hashes = canonical_hashes_by_chain.get(chain)
         if canonical_hashes is None:
@@ -1381,170 +1731,7 @@ def _load_publication_baseline(
                 f"{baseline_dir}: {chain} relevance rows do not match counts "
                 f"({actual_rows} != {expected_rows})"
             )
-    return (
-        rows,
-        expected_verdicts,
-        relevance_by_hash,
-        relevance_rows_by_chain,
-        canonical_hashes_by_chain,
-    )
-
-
-def _missing_unknown_observations(
-    required: Counter[str], sources: list[EvidenceSource]
-) -> Counter[str]:
-    """Return baseline unknown-hash observations absent from source inventories."""
-    remaining = required.copy()
-    if not remaining:
-        return remaining
-    for source in sources:
-        if source.path is None or not source.path.is_file():
-            continue
-        with source.path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row_number, row in enumerate(reader, start=2):
-                normalized, _errors = normalize_evidence_row(
-                    source, row, reader.fieldnames, row_number
-                )
-                if normalized["classification"] != "unknown":
-                    continue
-                block_hash = normalized["btc_header_hash"]
-                if remaining[block_hash] > 0:
-                    remaining[block_hash] -= 1
-                    if remaining[block_hash] == 0:
-                        del remaining[block_hash]
-                    if not remaining:
-                        return remaining
-    return remaining
-
-
-def _accepted_stale_count(path: Path) -> int:
-    """Count publication-gate-accepted direct stale rows in a loader input."""
-    with path.open(newline="") as handle:
-        return sum(
-            1
-            for row in csv.DictReader(handle)
-            if (row.get("classification") or "").strip() == "stale"
-            and (row.get("validation_status") or "").strip().startswith("VALID")
-        )
-
-
-def _accepted_stale_hashes(path: Path) -> set[str] | None:
-    """Return exact accepted stale identities, or None for a count-only fixture."""
-    hashes: set[str] = set()
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        if "btc_header_hash" not in (reader.fieldnames or []):
-            return None
-        for row_number, row in enumerate(reader, start=2):
-            if (row.get("classification") or "").strip() != "stale" or not (
-                row.get("validation_status") or ""
-            ).strip().startswith("VALID"):
-                continue
-            block_hash = (row.get("btc_header_hash") or "").strip().lower()
-            if len(block_hash) != 64:
-                raise ValueError(f"{path}:{row_number}: malformed stale header hash")
-            try:
-                int(block_hash, 16)
-            except ValueError as exc:
-                raise ValueError(
-                    f"{path}:{row_number}: malformed stale header hash"
-                ) from exc
-            hashes.add(block_hash)
-    return hashes
-
-
-def _accepted_descendant_count(path: Path) -> int:
-    """Count accepted stale-descendant rows in the committed sidecar."""
-    with path.open(newline="") as handle:
-        return sum(
-            1
-            for row in csv.DictReader(handle)
-            if (row.get("classification") or "").strip() == "stale_descendant"
-            and (row.get("validation_status") or "").strip() == "VALID_STALE_DESCENDANT"
-        )
-
-
-def _projected_stale_descendant_count(
-    source: EvidenceSource,
-    descendant_observations: frozenset[tuple[str, int, str]],
-    descendant_correction_keys: frozenset[tuple[int, str]],
-    excluded_keys: set[tuple[int, str]],
-    consensus_invalid_keys: set[tuple[int, str]],
-) -> int:
-    """Count stale source rows retained through descendant reclassification."""
-    if source.path is None:
-        return 0
-    count = 0
-    with source.path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row_number, row in enumerate(reader, start=2):
-            normalized, _errors = normalize_evidence_row(
-                source, row, reader.fieldnames, row_number
-            )
-            if normalized["classification"] != "stale":
-                continue
-            block_hash = normalized["btc_header_hash"]
-            try:
-                key = (int(normalized["btc_height"]), block_hash)
-            except ValueError:
-                continue
-            # A direct-stale correction must match the sidecar's source
-            # observation and the compact exact-key correction overlay.
-            if (
-                source.chain,
-                key[0],
-                block_hash,
-            ) in descendant_observations and (
-                key in descendant_correction_keys and key not in consensus_invalid_keys
-            ):
-                count += 1
-    return count
-
-
-def _accepted_descendant_observations(
-    sources: list[EvidenceSource],
-    descendant_observations: frozenset[tuple[str, int, str]],
-    descendant_correction_keys: frozenset[tuple[int, str]],
-    excluded_keys: set[tuple[int, str]],
-    consensus_invalid_keys: set[tuple[int, str]],
-) -> set[tuple[str, int, str]]:
-    """Return distinct source identities admitted as stale descendants."""
-    accepted: set[tuple[str, int, str]] = set()
-    for source in sources:
-        if source.path is None:
-            continue
-        with source.path.open(newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row_number, row in enumerate(reader, start=2):
-                normalized, _errors = normalize_evidence_row(
-                    source, row, reader.fieldnames, row_number
-                )
-                classification = normalized["classification"]
-                block_hash = normalized["btc_header_hash"]
-                try:
-                    key = (int(normalized["btc_height"]), block_hash)
-                except ValueError:
-                    continue
-                observation_key = (source.chain, key[0], block_hash)
-                if observation_key not in descendant_observations:
-                    continue
-                if key in consensus_invalid_keys:
-                    continue
-                if classification == "unknown":
-                    if key in excluded_keys:
-                        continue
-                    accepted.add(observation_key)
-                    continue
-                if classification == "stale_descendant":
-                    if normalized["validation_status"] == "VALID_STALE_DESCENDANT":
-                        accepted.add(observation_key)
-                    continue
-                if classification != "stale":
-                    continue
-                if key in descendant_correction_keys:
-                    accepted.add(observation_key)
-    return accepted
+    return rows
 
 
 def validate_publication_inputs(
@@ -1553,7 +1740,7 @@ def validate_publication_inputs(
     *,
     baseline_dir: Path = MONITOR_OUTPUT_DIR,
 ) -> None:
-    """Reject inputs that would silently produce a degraded publication export."""
+    """Reject incomplete inputs before starting the full publication build."""
     if args.allow_partial:
         if args.output_dir.resolve() == MONITOR_OUTPUT_DIR.resolve():
             parser.error(
@@ -1563,380 +1750,105 @@ def validate_publication_inputs(
         return
 
     problems: list[str] = []
-    assessed_unknown_identities: dict[str, _UnknownIdentityDigest] | None = None
     try:
-        (
-            baseline,
-            expected_verdicts,
-            expected_relevance,
-            expected_relevance_rows,
-            baseline_canonical_hashes,
-        ) = _load_publication_baseline(baseline_dir)
+        baseline = _load_publication_baseline(baseline_dir)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         baseline = {}
-        expected_verdicts = 0
-        expected_relevance = {}
-        expected_relevance_rows = {}
-        baseline_canonical_hashes = {}
         problems.append(str(exc))
 
     archive_dirs = [path.expanduser() for path in args.chain_archive_dirs]
-    sources = {}
-    canonical = {}
-    unknown = {}
     if not archive_dirs:
         problems.append("at least one --chain-archive-dir is required")
+        sources: dict[str, EvidenceSource] = {}
+        canonical: dict[str, EvidenceSource] = {}
+        unknown: dict[str, EvidenceSource] = {}
     else:
         missing_dirs = [str(path) for path in archive_dirs if not path.is_dir()]
         if missing_dirs:
             problems.append(
                 "chain archive directories do not exist: " + ", ".join(missing_dirs)
             )
+            sources = {}
+            canonical = {}
+            unknown = {}
         else:
             sources = discover_evidence_sources(args.data_dir, archive_dirs)
             canonical = discover_canonical_sources(args.data_dir, archive_dirs)
             unknown = discover_unknown_sources(args.data_dir, archive_dirs)
 
+    error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
+    invalid_hashes: set[str] = set()
+    if error_blocks_path.is_file():
+        try:
+            invalid_hashes = {
+                block_hash
+                for _height, block_hash in load_error_block_keys(error_blocks_path)
+            }
+        except (OSError, ValueError) as exc:
+            problems.append(str(exc))
+
     if args.relevance_inventory is None or not args.relevance_inventory.is_file():
         problems.append("--relevance-inventory must name an existing CSV")
     else:
-        actual_relevance = load_orphan_relevance_verdicts(args.relevance_inventory)
-        assessed_unknown_identities = _assessed_unknown_identities(
-            args.relevance_inventory
-        )
-        if len(actual_relevance) < expected_verdicts:
-            problems.append(
-                "relevance inventory has fewer final verdicts than the publication "
-                f"baseline ({len(actual_relevance)} < {expected_verdicts})"
+        try:
+            load_orphan_relevance_verdicts(args.relevance_inventory)
+            _validate_unknown_inventory_assessment(
+                sources,
+                unknown,
+                args.relevance_inventory,
+                excluded_hashes=invalid_hashes,
             )
-        for block_hash, expected_bucket in expected_relevance.items():
-            actual = actual_relevance.get(block_hash)
-            if actual is None or (
-                expected_bucket == "strict_btc_orphan"
-                and actual[0] != "strict_btc_orphan"
-            ):
-                problems.append(
-                    f"relevance inventory is missing baseline verdict for {block_hash}"
-                )
+        except (OSError, ValueError) as exc:
+            problems.append(str(exc))
     if args.skip_canonical:
         problems.append("--skip-canonical is a partial-build option")
 
-    if sources:
-        descendants_path = args.data_dir / "stale_descendants.csv"
-        descendant_observations = load_stale_descendant_observation_keys(
-            descendants_path
+    try:
+        parents_path = args.data_dir / "stale_descendants.csv"
+        parents = load_stale_descendant_parents(
+            parents_path,
+            data_dir=args.data_dir,
         )
-        descendant_correction_keys = load_stale_descendant_correction_keys(
-            args.data_dir / "stale_descendant_corrections.csv"
+        load_stale_descendant_observations(
+            args.data_dir / "stale_descendant_observations.csv",
+            parents_path=parents_path,
+            data_dir=args.data_dir,
         )
-        descendant_counts = Counter(
-            chain for chain, _height, _block_hash in descendant_observations
-        )
-        exclusions_path = args.data_dir / "error-blocks" / "error_blocks.csv"
-        excluded_keys = (
-            load_stale_exclusion_keys(exclusions_path)
-            if exclusions_path.is_file()
-            else set()
-        )
-        consensus_invalid_keys = (
-            load_consensus_invalid_stale_keys(exclusions_path)
-            if exclusions_path.is_file()
-            else set()
-        )
-        for chain, baseline_row in baseline.items():
-            if chain == ERROR_OBSERVATION_ARTIFACT:
-                try:
-                    error_rows, _error_inventory = build_error_observation_rows(
-                        data_dir=args.data_dir
-                    )
-                except (OSError, ValueError) as exc:
-                    problems.append(str(exc))
-                    continue
-                for field in ("error_block", "monitor_rows", "source_rows"):
-                    expected = int_or_none(baseline_row.get(field) or "0")
-                    if expected is None or expected < 0:
-                        problems.append(f"{chain} has invalid {field} baseline")
-                    elif len(error_rows) < expected:
-                        problems.append(
-                            f"{chain} {field} is below the publication baseline "
-                            f"({len(error_rows)} < {expected})"
-                        )
-                continue
-            expected_source_rows = int(baseline_row.get("source_rows") or 0)
-            expected_categories = {
-                category: int(baseline_row.get(category) or 0)
-                for category in (
-                    "canonical",
-                    "stale",
-                    "stale_descendant",
-                    "strict_btc_orphan",
-                    "weak_btc_orphan",
-                )
-            }
-
-            if chain not in CHAIN_SPECS:
-                if chain == "stale-descendants":
-                    sidecar = args.data_dir / "stale_descendants.csv"
-                    if not sidecar.is_file():
-                        problems.append("stale-descendant sidecar is missing")
-                    elif _csv_row_count(sidecar) < expected_source_rows:
-                        problems.append(
-                            "stale-descendant sidecar is below the publication baseline"
-                        )
-                    elif (
-                        _accepted_descendant_count(sidecar)
-                        < expected_categories["stale_descendant"]
-                    ):
-                        problems.append(
-                            "accepted stale-descendant coverage is below the "
-                            "publication baseline"
-                        )
-                    continue
-                canonical_source = canonical.get(chain)
-                if canonical_source is None or canonical_source.path is None:
-                    problems.append(f"{chain} canonical source is missing")
-                    continue
-                source_counts = _classification_counts(canonical_source.path)
-                if source_counts["canonical"] < expected_categories["canonical"]:
-                    problems.append(
-                        f"{chain} canonical-classified evidence is below the "
-                        "publication baseline"
-                    )
-                if _csv_row_count(canonical_source.path) < expected_source_rows:
-                    problems.append(
-                        f"{chain} canonical source is below the publication baseline"
-                    )
-                continue
-
-            source = sources[chain]
-            validated_path = (
-                args.data_dir
-                / "validated-stales"
-                / CHAIN_SPECS[chain].validated_csv.name
+    except (OSError, ValueError) as exc:
+        parents = {}
+        problems.append(str(exc))
+    if error_blocks_path.is_file() and parents:
+        overlap = invalid_hashes & {parent.block_hash for parent in parents.values()}
+        if overlap:
+            problems.append(
+                "accepted stale descendants overlap the error catalogue "
+                f"({len(overlap)}; first {min(overlap)})"
             )
-            if not validated_path.is_file():
-                problems.append(f"{chain} committed validated input is missing")
-                accepted_stale_count = 0
-                accepted_stale_hashes: set[str] | None = set()
-            else:
-                accepted_stale_count = _accepted_stale_count(validated_path)
-                try:
-                    accepted_stale_hashes = _accepted_stale_hashes(validated_path)
-                except ValueError as exc:
-                    accepted_stale_hashes = set()
-                    problems.append(str(exc))
-                if accepted_stale_count < expected_categories["stale"]:
-                    problems.append(
-                        f"{chain} accepted direct-stale coverage is below the "
-                        "publication baseline"
-                    )
-            baseline_source_kind = baseline_row.get("source_kind") or ""
-            if baseline_source_kind == "full_inventory":
-                if (
-                    source.source_kind != "full_inventory"
-                    or source.provenance != "archive"
-                    or source.path is None
-                ):
-                    problems.append(f"{chain} lacks its private full inventory")
-                    continue
-                # The builder replaces every stale row in the private inventory
-                # with the committed validated overlay. Count that projected
-                # result, rather than adding the overlay to the unfiltered raw
-                # inventory (which could let duplicate stales hide truncation).
-                source_counts = _classification_counts(source.path)
-                coverage = sum(source_counts.values()) - source_counts["stale"]
-                canonical_source = canonical.get(chain)
-                canonical_coverage = source_counts["canonical"]
-                source_hashes = _classification_hashes(source.path, "canonical")
-                if canonical_source is not None and canonical_source.path is not None:
-                    companion_canonical = _classification_counts(canonical_source.path)[
-                        "canonical"
-                    ]
-                    companion_hashes = _classification_hashes(
-                        canonical_source.path, "canonical"
-                    )
-                    if source_hashes is not None and companion_hashes is not None:
-                        canonical_coverage = len(source_hashes | companion_hashes)
-                        coverage += len(companion_hashes - source_hashes)
-                    elif source_counts["canonical"] == 0:
-                        canonical_coverage = companion_canonical
-                        coverage += companion_canonical
-                    else:
-                        canonical_coverage = max(
-                            canonical_coverage, companion_canonical
-                        )
-                    if source_hashes is not None:
-                        if companion_hashes is None:
-                            source_hashes = None
-                        else:
-                            source_hashes |= companion_hashes
-                unknown_source = unknown.get(chain)
-                expected_unknown_identities = _unknown_observation_identities(
-                    source.path, chain, excluded_keys
-                )
-                if unknown_source is not None and unknown_source.path is not None:
-                    expected_unknown_identities.update(
-                        _unknown_observation_identities(
-                            unknown_source.path, chain, excluded_keys
-                        )
-                    )
-                if expected_unknown_identities.count:
-                    if assessed_unknown_identities is None:
-                        problems.append(
-                            f"{chain} relevance inventory lacks assessed-unknown "
-                            "coverage columns"
-                        )
-                    else:
-                        actual_unknown_identities = assessed_unknown_identities.get(
-                            chain, _UnknownIdentityDigest()
-                        )
-                        if expected_unknown_identities != actual_unknown_identities:
-                            missing_count = max(
-                                expected_unknown_identities.count
-                                - actual_unknown_identities.count,
-                                0,
-                            )
-                            extra_count = max(
-                                actual_unknown_identities.count
-                                - expected_unknown_identities.count,
-                                0,
-                            )
-                            detail = (
-                                f"missing {missing_count}, extra {extra_count}"
-                                if missing_count or extra_count
-                                else "same row count, differing identities"
-                            )
-                            problems.append(
-                                f"{chain} relevance inventory assessed-unknown "
-                                "identities do not match private source "
-                                f"({detail})"
-                            )
-                descendant_sources = [source]
-                if unknown_source is not None:
-                    descendant_sources.append(unknown_source)
-                accepted_descendants = _accepted_descendant_observations(
-                    descendant_sources,
-                    descendant_observations,
-                    descendant_correction_keys,
-                    excluded_keys,
-                    consensus_invalid_keys,
-                )
-                accepted_descendant_hashes = {
-                    block_hash
-                    for observation_chain, _height, block_hash in accepted_descendants
-                    if observation_chain == chain
-                }
-                accepted_stale_coverage = accepted_stale_count
-                if accepted_stale_hashes is not None:
-                    accepted_stale_coverage = len(
-                        accepted_stale_hashes - accepted_descendant_hashes
-                    )
-                accepted_final_coverage = (
-                    canonical_coverage
-                    + accepted_stale_coverage
-                    + len(accepted_descendants)
-                )
-                expected_final_coverage = sum(
-                    expected_categories[category]
-                    for category in ("canonical", "stale", "stale_descendant")
-                )
-                if accepted_final_coverage < expected_final_coverage:
-                    problems.append(
-                        f"{chain} accepted canonical/stale/descendant evidence is "
-                        "below the publication baseline"
-                    )
-                if source_hashes is not None and baseline_canonical_hashes.get(chain):
-                    # Category corrections are intentional: a header published as
-                    # canonical in the baseline may now be an accepted direct stale
-                    # or stale descendant. Preserve its exact identity in any final
-                    # category, while rejecting unrelated rows that merely replace
-                    # the old count.
-                    current_final_hashes = set(source_hashes)
-                    if accepted_stale_hashes is not None:
-                        current_final_hashes.update(accepted_stale_hashes)
-                    current_final_hashes.update(accepted_descendant_hashes)
-                    missing_canonical_hashes = (
-                        baseline_canonical_hashes.get(chain, set())
-                        - current_final_hashes
-                    )
-                    if missing_canonical_hashes:
-                        first_missing = min(missing_canonical_hashes)
-                        problems.append(
-                            f"{chain} accepted evidence is missing "
-                            f"{len(missing_canonical_hashes)} baseline canonical "
-                            f"header identities (first: {first_missing})"
-                        )
-                if unknown_source is not None and unknown_source.path is not None:
-                    coverage += _csv_row_count(unknown_source.path)
-                if validated_path.is_file():
-                    coverage += _csv_row_count(validated_path)
-                if descendant_counts[chain]:
-                    coverage += _projected_stale_descendant_count(
-                        source,
-                        descendant_observations,
-                        descendant_correction_keys,
-                        excluded_keys,
-                        consensus_invalid_keys,
-                    )
-                if coverage < expected_source_rows:
-                    problems.append(
-                        f"{chain} private inventory is below the publication baseline "
-                        f"({coverage} < {expected_source_rows})"
-                    )
-                relevance_sources = [source]
-                if unknown_source is not None:
-                    relevance_sources.append(unknown_source)
-                missing_relevance = _missing_unknown_observations(
-                    expected_relevance_rows.get(chain, Counter()), relevance_sources
-                )
-                if missing_relevance:
-                    missing_count = sum(missing_relevance.values())
-                    first_missing = min(missing_relevance)
-                    problems.append(
-                        f"{chain} private inventory is missing {missing_count} "
-                        "baseline strict/weak source rows "
-                        f"(first: {first_missing})"
-                    )
-            elif baseline_source_kind == "canonical_blocks":
-                canonical_source = canonical.get(chain)
-                # A full archival classifier inventory is authoritative for
-                # its canonical rows even when no separate canonical companion
-                # exists. Accept that strictly richer representation here.
-                if (
-                    canonical_source is None
-                    and source.source_kind == "full_inventory"
-                    and source.provenance == "archive"
-                    and source.path is not None
-                ):
-                    canonical_source = source
-                if (
-                    canonical_source is None
-                    or canonical_source.provenance != "archive"
-                    or canonical_source.path is None
-                ):
-                    problems.append(
-                        f"{chain} lacks required private canonical evidence"
-                    )
-                else:
-                    canonical_counts = _classification_counts(canonical_source.path)
-                    if canonical_counts["canonical"] < expected_categories["canonical"]:
-                        problems.append(
-                            f"{chain} canonical-classified evidence is below the "
-                            "publication baseline"
-                        )
-                    if sum(canonical_counts.values()) < expected_source_rows:
-                        problems.append(
-                            f"{chain} canonical evidence is below the publication "
-                            "baseline"
-                        )
-            elif baseline_source_kind == "validated_stales":
-                if (
-                    source.path is None
-                    or _csv_row_count(source.path) < expected_source_rows
-                ):
-                    problems.append(
-                        f"{chain} validated evidence is below the publication baseline"
-                    )
+
+    for chain, baseline_row in baseline.items():
+        if chain in {
+            ERROR_OBSERVATION_ARTIFACT,
+            _DESCENDANT_PARENT_VERDICTS_CHAIN,
+        }:
+            continue
+        expected_rows = int_or_none(baseline_row.get("source_rows") or "0") or 0
+        discovered = [sources.get(chain), canonical.get(chain), unknown.get(chain)]
+        if expected_rows and not any(
+            source is not None and source.path is not None for source in discovered
+        ):
+            problems.append(f"{chain} lacks a complete publication evidence source")
+    try:
+        validate_error_module(
+            catalogue_path=error_blocks_path,
+            ledger_path=error_blocks_path.parent / ERROR_OBSERVATION_LEDGER,
+            nbits_by_epoch_path=(
+                args.data_dir / "bitcoin-epoch-reference" / "btc_nbits_by_epoch.json"
+            ),
+            mtp_context_path=error_blocks_path.parent / "mtp_context.csv",
+        )
+        build_error_observation_rows(data_dir=args.data_dir)
+    except (OSError, ValueError) as exc:
+        problems.append(str(exc))
 
     if problems:
         parser.error(
@@ -1974,6 +1886,22 @@ def _publish_order(path: Path) -> tuple[int, str]:
     if path.name == PUBLICATION_MANIFEST.name:
         return (2, path.name)
     return (0, path.name)
+
+
+class _PublicationRollbackError(RuntimeError):
+    """A failed publication whose rollback needs operator recovery."""
+
+    def __init__(
+        self,
+        recovery_path: Path,
+        rollback_failures: list[str],
+    ) -> None:
+        self.recovery_path = recovery_path
+        detail = "; ".join(rollback_failures)
+        super().__init__(
+            "monitor publication rollback was incomplete; recovery files "
+            f"preserved at {recovery_path}: {detail}"
+        )
 
 
 def _publish_staged_artifacts(staging_dir: Path, output_dir: Path) -> None:
@@ -2018,584 +1946,368 @@ def _publish_staged_artifacts(staging_dir: Path, output_dir: Path) -> None:
             destination = output_dir / staged_path.name
             os.replace(staged_path, destination)
             installed.append((destination, staged_path))
-    except BaseException:
+    except BaseException as publication_error:
+        rollback_failures: list[str] = []
         for destination, staged_path in reversed(installed):
             if destination.exists() or destination.is_symlink():
-                os.replace(destination, staged_path)
+                try:
+                    os.replace(destination, staged_path)
+                except BaseException as exc:
+                    rollback_failures.append(
+                        f"could not return {destination} to {staged_path} "
+                        f"({type(exc).__name__}: {exc})"
+                    )
         for backup, destination in reversed(moved_previous):
             if backup.exists() or backup.is_symlink():
-                os.replace(backup, destination)
+                try:
+                    os.replace(backup, destination)
+                except BaseException as exc:
+                    rollback_failures.append(
+                        f"could not restore {backup} to {destination} "
+                        f"({type(exc).__name__}: {exc})"
+                    )
         if (
             not output_preexisted
             and output_dir.exists()
             and not any(output_dir.iterdir())
         ):
-            output_dir.rmdir()
+            try:
+                output_dir.rmdir()
+            except BaseException as exc:
+                rollback_failures.append(
+                    f"could not remove empty output directory {output_dir} "
+                    f"({type(exc).__name__}: {exc})"
+                )
+        if rollback_failures:
+            raise _PublicationRollbackError(
+                staging_dir.parent.resolve(), rollback_failures
+            ) from publication_error
         raise
 
 
-def _load_error_update_baseline(
+def _load_monitor_count_rows(path: Path) -> list[dict[str, str]]:
+    """Load one canonical counts CSV with exact nonnegative integer cells."""
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        if list(reader.fieldnames or ()) != list(MONITOR_COUNT_FIELDS):
+            raise ValueError(f"{path}: counts header is not canonical")
+        rows: list[dict[str, str]] = []
+        chains: set[str] = set()
+        for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(f"{path}:{row_number}: malformed count row")
+            chain = row["chain"]
+            if not chain or chain != chain.strip() or chain in chains:
+                raise ValueError(
+                    f"{path}:{row_number}: missing or duplicate chain metadata"
+                )
+            chains.add(chain)
+            for field in _MANIFEST_COUNT_FIELDS:
+                raw = row[field]
+                try:
+                    value = int(raw)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: {chain} {field} is not a "
+                        "canonical nonnegative integer"
+                    ) from exc
+                if value < 0 or str(value) != raw:
+                    raise ValueError(
+                        f"{path}:{row_number}: {chain} {field} is not a "
+                        "canonical nonnegative integer"
+                    )
+            rows.append(row)
+    if not rows:
+        raise ValueError(f"{path}: publication counts are empty")
+    return rows
+
+
+def _logical_source_coverage(
     output_dir: Path,
     *,
-    data_dir: Path = DATA_DIR,
-) -> tuple[
-    list[dict[str, str]],
-    dict[str, object],
-    tuple[
-        set[tuple[int, str]],
-        set[tuple[str, int, str, int, str]],
-        dict[tuple[str, int, str, int, str], tuple[str, ...]],
-    ],
-]:
-    """Load a complete normal publication before adding its error aggregate."""
-    counts_path = output_dir / PUBLICATION_COUNTS.name
-    manifest_path = output_dir / PUBLICATION_MANIFEST.name
-    if not counts_path.is_file() or not manifest_path.is_file():
-        raise ValueError(f"publication baseline is incomplete under {output_dir}")
-    with counts_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = set(MONITOR_COUNT_FIELDS) - {"error_block"}
-        missing = required - set(reader.fieldnames or ())
-        if missing:
-            raise ValueError(
-                f"{counts_path}: missing columns: {', '.join(sorted(missing))}"
-            )
-        count_rows = list(reader)
-    if not count_rows:
-        raise ValueError(f"{counts_path}: publication baseline is empty")
-    chains = [(row.get("chain") or "").strip() for row in count_rows]
-    if not all(chains) or len(chains) != len(set(chains)):
-        raise ValueError(f"{counts_path}: invalid or duplicate chain rows")
-    committed_counts_path = MONITOR_OUTPUT_DIR / PUBLICATION_COUNTS.name
-    if not committed_counts_path.is_file():
-        raise ValueError(
-            f"{committed_counts_path}: committed publication counts are missing"
-        )
-    with committed_counts_path.open(newline="") as handle:
-        committed_count_rows = list(csv.DictReader(handle))
-    committed_chains = [
-        (row.get("chain") or "").strip()
-        for row in committed_count_rows
-        if (row.get("chain") or "").strip()
-    ]
-    if set(chains) != set(committed_chains):
-        raise ValueError(
-            f"{counts_path}: add-only baseline chain set differs from the "
-            "committed publication"
-        )
-    if chains != committed_chains:
-        raise ValueError(
-            f"{counts_path}: add-only baseline chain order differs from the "
-            "committed publication"
-        )
+    count_rows: list[dict[str, str]] | None = None,
+) -> Counter[str]:
+    """Count per-child source coverage across ordinary and error interfaces."""
+    if count_rows is None:
+        count_rows = _load_monitor_count_rows(output_dir / PUBLICATION_COUNTS.name)
+    coverage: Counter[str] = Counter()
     for row in count_rows:
-        row.setdefault("error_block", "0")
+        chain = row["chain"]
+        if chain in {
+            ERROR_OBSERVATION_ARTIFACT,
+            _DESCENDANT_PARENT_VERDICTS_CHAIN,
+        }:
+            continue
+        coverage[chain] += int(row["source_rows"])
 
-    manifest = json.loads(manifest_path.read_text())
-    committed_manifest_path = MONITOR_OUTPUT_DIR / PUBLICATION_MANIFEST.name
-    if not committed_manifest_path.is_file():
-        raise ValueError(
-            f"{committed_manifest_path}: committed publication manifest is missing"
-        )
-    committed_manifest = json.loads(committed_manifest_path.read_text())
-    for field in (
-        "output_dir",
-        "counts_csv",
-        "manifest_json",
-        "relevance_inventory",
-        "strict_weak_verdicts_loaded",
-    ):
-        current_value = manifest.get(field)
-        committed_value = committed_manifest.get(field)
-        if field == "strict_weak_verdicts_loaded":
-            matches = (
-                isinstance(current_value, int)
-                and isinstance(committed_value, int)
-                and current_value == committed_value
-            )
-        else:
-            matches = (
-                isinstance(current_value, str)
-                and isinstance(committed_value, str)
-                and current_value == committed_value
-            )
-        if not matches:
-            raise ValueError(
-                f"{manifest_path}: top-level {field} does not preserve the "
-                "committed logical publication path"
-            )
-    logical_root = str(manifest["output_dir"]).rstrip("/")
-    if (
-        manifest["counts_csv"] != f"{logical_root}/monitor-evidence-counts.csv"
-        or manifest["manifest_json"] != f"{logical_root}/monitor-evidence-manifest.json"
-    ):
-        raise ValueError(
-            f"{manifest_path}: top-level logical publication paths are inconsistent"
-        )
-    manifest.pop("validation_contract", None)
-    manifest["validation_contracts"] = MONITOR_VALIDATION_CONTRACTS
-    artifacts = manifest.get("artifacts")
-    manifest_counts = manifest.get("counts")
-    if not isinstance(artifacts, dict) or not isinstance(manifest_counts, list):
-        raise ValueError(f"{manifest_path}: missing artifacts or counts")
-    manifest_chains = [
-        item.get("chain") for item in manifest_counts if isinstance(item, dict)
+    error_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
+    if not error_path.is_file():
+        return coverage
+    with error_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "chain" not in (reader.fieldnames or ()):
+            raise ValueError(f"{error_path}: error aggregate lacks a chain column")
+        for row_number, row in enumerate(reader, start=2):
+            chain = (row.get("chain") or "").strip()
+            if not chain:
+                raise ValueError(f"{error_path}:{row_number}: error row lacks a chain")
+            if chain == _DESCENDANT_PARENT_VERDICTS_CHAIN:
+                continue
+            coverage[chain] += 1
+    return coverage
+
+
+def _validate_logical_source_coverage_floor(
+    staging_dir: Path,
+    committed_dir: Path,
+    *,
+    staged_count_rows: list[dict[str, str]] | None = None,
+) -> None:
+    """Reject source loss while permitting an ordinary-to-error category move."""
+    committed = _logical_source_coverage(committed_dir)
+    staged = _logical_source_coverage(
+        staging_dir,
+        count_rows=staged_count_rows,
+    )
+    losses = [
+        f"{chain} {staged[chain]}<{minimum}"
+        for chain, minimum in sorted(committed.items())
+        if staged[chain] < minimum
     ]
+    if losses:
+        raise ValueError(
+            "full rebuild loses logical per-chain source coverage: " + "; ".join(losses)
+        )
+
+
+def _validate_global_child_event_uniqueness(staging_dir: Path) -> None:
+    """Assign each authenticated child event to one staged artifact location."""
+    events: dict[tuple[str, int, str], tuple[str, str]] = {}
+    for artifact in sorted(staging_dir.glob("*_monitor_evidence.csv")):
+        with artifact.open(newline="") as handle:
+            for row_number, row in enumerate(csv.DictReader(handle), start=2):
+                child_height = int_or_none((row.get("child_height") or "").strip())
+                child_hash = normalize_hash(row.get("child_block_hash"))
+                if child_height is None or child_height < 0 or not is_hash(child_hash):
+                    continue
+                chain = (row.get("chain") or "").strip()
+                parent_hash = normalize_hash(row.get("btc_header_hash"))
+                identity = (chain, child_height, child_hash)
+                location = f"{artifact.name}:{row_number}"
+                previous = events.get(identity)
+                if previous is None:
+                    events[identity] = (parent_hash, location)
+                    continue
+                previous_parent, previous_location = previous
+                if previous_parent == parent_hash:
+                    detail = f"repeats in {previous_location} and {location}"
+                else:
+                    detail = (
+                        "maps to different Bitcoin parents "
+                        f"{previous_parent} and {parent_hash} in "
+                        f"{previous_location} and {location}"
+                    )
+                raise ValueError(f"authenticated child event {identity!r} {detail}")
+
+
+def _validate_staged_publication(
+    staging_dir: Path,
+    *,
+    data_dir: Path,
+    relevance_inventory: Path | None = None,
+) -> None:
+    """Validate one coherent full snapshot before any destination is replaced."""
+    orphan_verdicts = (
+        load_orphan_relevance_verdicts(relevance_inventory)
+        if relevance_inventory is not None
+        else {}
+    )
+    counts_path = staging_dir / PUBLICATION_COUNTS.name
+    manifest_path = staging_dir / PUBLICATION_MANIFEST.name
+    if not counts_path.is_file() or not manifest_path.is_file():
+        raise ValueError("staged publication lacks counts or manifest")
+    count_rows = _load_monitor_count_rows(counts_path)
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{manifest_path}: manifest must be a JSON object")
+    if set(manifest) != _MANIFEST_TOP_LEVEL_FIELDS:
+        missing = sorted(_MANIFEST_TOP_LEVEL_FIELDS - set(manifest))
+        extra = sorted(set(manifest) - _MANIFEST_TOP_LEVEL_FIELDS)
+        raise ValueError(
+            f"{manifest_path}: manifest top-level metadata is not exact "
+            f"(missing={missing}, extra={extra})"
+        )
+    logical_root = manifest.get("output_dir")
     if (
-        set(chains) != set(manifest_chains)
-        or len(manifest_chains) != len(set(manifest_chains))
-        or manifest_chains != chains
+        not isinstance(logical_root, str)
+        or not logical_root
+        or logical_root.endswith("/")
     ):
-        raise ValueError(f"{manifest_path}: counts do not match the CSV baseline")
-    for item in manifest_counts:
-        assert isinstance(item, dict)
-        item.setdefault("error_block", 0)
-    count_rows_by_chain = {row["chain"]: row for row in count_rows}
-    manifest_counts_by_chain = {
-        str(item["chain"]): item
-        for item in manifest_counts
-        if isinstance(item, dict) and item.get("chain")
-    }
-    for chain, row in count_rows_by_chain.items():
-        manifest_row = manifest_counts_by_chain.get(chain)
-        if manifest_row is None:
-            raise ValueError(f"{manifest_path}: {chain} has no manifest count row")
-        csv_scope = (row.get("artifact_scope") or "").strip()
-        manifest_scope = str(manifest_row.get("artifact_scope") or "").strip()
-        if not csv_scope or csv_scope != manifest_scope:
-            raise ValueError(
-                f"{manifest_path}: {chain} artifact scope does not match counts "
-                f"({manifest_scope!r} != {csv_scope!r})"
-            )
-        for field in ("artifact_scope", "source_kind", "source_path", "notes"):
-            csv_value = (row.get(field) or "").strip()
-            manifest_value = str(manifest_row.get(field) or "").strip()
-            if csv_value != manifest_value:
-                raise ValueError(
-                    f"{manifest_path}: {chain} {field} does not match counts "
-                    f"({manifest_value!r} != {csv_value!r})"
-                )
-        for field in _MANIFEST_COUNT_FIELDS:
-            csv_raw = row.get(field)
-            manifest_raw = manifest_row.get(field)
-            if type(manifest_raw) is not int or manifest_raw < 0:
-                raise ValueError(
-                    f"{manifest_path}: {chain} {field} must be a nonnegative "
-                    "manifest integer"
-                )
-            if csv_raw is None or str(csv_raw) != str(manifest_raw):
-                raise ValueError(
-                    f"{counts_path}: {chain} {field} must use the canonical "
-                    f"decimal encoding ({manifest_raw!r} != {csv_raw!r})"
-                )
-    artifact_chains = (set(chains) | set(artifacts)) - {ERROR_OBSERVATION_ARTIFACT}
-    for chain in artifact_chains:
-        expected_name = f"{chain}_monitor_evidence.csv"
-        expected_logical_path = f"{logical_root}/{expected_name}"
-        manifest_declared = artifacts.get(chain)
-        count_declared = count_rows_by_chain.get(chain, {}).get("artifact_path")
-        if (
-            manifest_declared != count_declared
-            or manifest_declared != expected_logical_path
+        raise ValueError(f"{manifest_path}: output_dir is not a canonical logical path")
+    expected_counts_path = f"{logical_root}/{PUBLICATION_COUNTS.name}"
+    expected_manifest_path = f"{logical_root}/{PUBLICATION_MANIFEST.name}"
+    if (
+        manifest.get("counts_csv") != expected_counts_path
+        or manifest.get("manifest_json") != expected_manifest_path
+    ):
+        raise ValueError(f"{manifest_path}: top-level logical paths are inconsistent")
+    if manifest.get("validation_contracts") != MONITOR_VALIDATION_CONTRACTS:
+        raise ValueError(f"{manifest_path}: validation contracts are not canonical")
+    expected_relevance = (
+        REPORTED_RELEVANCE_INVENTORY if relevance_inventory is not None else "missing"
+    )
+    if manifest.get("relevance_inventory") != expected_relevance:
+        raise ValueError(
+            f"{manifest_path}: relevance inventory metadata is not canonical"
+        )
+    if type(manifest.get("strict_weak_verdicts_loaded")) is not int or manifest[
+        "strict_weak_verdicts_loaded"
+    ] != len(orphan_verdicts):
+        raise ValueError(
+            f"{manifest_path}: strict/weak verdict cardinality does not match "
+            "the relevance inventory"
+        )
+
+    manifest_counts = manifest.get("counts")
+    if not isinstance(manifest_counts, list):
+        raise ValueError(f"{manifest_path}: counts do not match the CSV")
+    manifest_chains: list[str] = []
+    for index, manifest_row in enumerate(manifest_counts, start=1):
+        if not isinstance(manifest_row, dict) or set(manifest_row) != set(
+            MONITOR_COUNT_FIELDS
         ):
             raise ValueError(
-                f"{output_dir}: {chain} manifest and count artifact paths must "
-                "agree on a permitted logical publication path"
+                f"{manifest_path}: count metadata row {index} is not exact"
             )
-        artifact_path = output_dir / expected_name
-        if not artifact_path.is_file():
+        chain = manifest_row.get("chain")
+        if not isinstance(chain, str) or not chain:
             raise ValueError(
-                f"{output_dir}: {chain} monitor-evidence artifact is missing"
+                f"{manifest_path}: count metadata row {index} lacks a chain"
             )
-        expected = count_rows_by_chain.get(chain)
-        if expected is None:
-            raise ValueError(f"{output_dir}: {chain} artifact has no count row")
+        manifest_chains.append(chain)
+    count_chains = [row["chain"] for row in count_rows]
+    if manifest_chains != count_chains or len(manifest_chains) != len(
+        set(manifest_chains)
+    ):
+        raise ValueError(
+            f"{manifest_path}: counts have missing, duplicate, extra, or reordered chains"
+        )
+    manifest_by_chain = {
+        row["chain"]: row for row in manifest_counts if isinstance(row, dict)
+    }
+    for row in count_rows:
+        chain = row["chain"]
+        manifest_row = manifest_by_chain[chain]
+        for field in MONITOR_COUNT_FIELDS:
+            if field in _MANIFEST_COUNT_FIELDS:
+                manifest_value = manifest_row[field]
+                if type(manifest_value) is not int or manifest_value != int(row[field]):
+                    raise ValueError(
+                        f"{manifest_path}: {chain} {field} does not exactly match "
+                        "the counts CSV"
+                    )
+            elif (
+                type(manifest_row[field]) is not str
+                or manifest_row[field] != row[field]
+            ):
+                raise ValueError(
+                    f"{manifest_path}: {chain} {field} does not exactly match "
+                    "the counts CSV"
+                )
+
+    expected_artifacts: dict[str, str] = {}
+    for row in count_rows:
+        chain = row["chain"]
+        expected_path = f"{logical_root}/{chain}_monitor_evidence.csv"
+        if row["artifact_path"] != expected_path:
+            raise ValueError(
+                f"{counts_path}: {chain} artifact path is not the canonical "
+                "logical publication path"
+            )
+        expected_artifacts[chain] = expected_path
+    artifacts = manifest.get("artifacts")
+    if artifacts != expected_artifacts:
+        raise ValueError(
+            f"{manifest_path}: artifact map has missing, extra, or mismatched entries"
+        )
+    expected_artifact_names = {
+        f"{chain}_monitor_evidence.csv" for chain in count_chains
+    }
+    actual_artifact_names = {
+        path.name for path in staging_dir.glob("*_monitor_evidence.csv")
+    }
+    if actual_artifact_names != expected_artifact_names:
+        raise ValueError(
+            f"{staging_dir}: staged artifacts have missing or extra entries"
+        )
+
+    for row in count_rows:
+        chain = row["chain"]
+        artifact = staging_dir / f"{chain}_monitor_evidence.csv"
+        if not artifact.is_file():
+            raise ValueError(f"{staging_dir}: missing staged artifact for {chain}")
+        if chain == ERROR_OBSERVATION_ARTIFACT:
+            validate_error_observation_publication(artifact, data_dir=data_dir)
+            observed_rows = _csv_row_count(artifact)
+            for field in _ORDINARY_MONITOR_CATEGORIES:
+                if int(row[field]) != 0:
+                    raise ValueError(
+                        f"{counts_path}: error aggregate has nonzero {field}"
+                    )
+            for field in ("error_block", "monitor_rows", "source_rows"):
+                if int(row[field]) != observed_rows:
+                    raise ValueError(
+                        f"{counts_path}: {chain} {field} does not match artifact"
+                    )
+            expected_status = _expected_canonical_evidence_status(row, 0)
+            if row["canonical_evidence_status"] != expected_status:
+                raise ValueError(
+                    f"{counts_path}: {chain} canonical evidence status is invalid"
+                )
+            continue
+        if int(row["error_block"]) != 0:
+            raise ValueError(f"{counts_path}: ordinary artifact declares error blocks")
         actual = _load_monitor_artifact_counts(
-            artifact_path,
+            artifact,
             chain,
             data_dir=data_dir,
             expected_artifact_scope=frozenset(
                 {
-                    (expected.get("artifact_scope") or "").strip(),
+                    (row.get("artifact_scope") or "").strip(),
+                    "accepted_stale_descendant_observation",
                     "canonical_blocks",
                     "full_classifier_inventory",
                     "partial_canonical_subset",
-                    "stale_descendant_sidecar",
+                    "stale_descendant_parent_verdicts",
                     "stale_only_publication",
                 }
             ),
+            orphan_verdicts=orphan_verdicts,
         )
-        expected_canonical_status = _expected_canonical_evidence_status(
-            expected, actual["canonical"]
-        )
-        count_canonical_status = (
-            expected.get("canonical_evidence_status") or ""
-        ).strip()
-        manifest_canonical_status = str(
-            manifest_counts_by_chain[chain].get("canonical_evidence_status") or ""
-        ).strip()
-        if (
-            count_canonical_status != manifest_canonical_status
-            or count_canonical_status != expected_canonical_status
-        ):
-            raise ValueError(
-                f"{output_dir}: {chain} canonical evidence status is invalid "
-                f"({count_canonical_status!r}, {manifest_canonical_status!r}; "
-                f"expected {expected_canonical_status!r})"
-            )
         for field in (*_ORDINARY_MONITOR_CATEGORIES, "monitor_rows"):
-            observed = actual[field]
-            minimum = int(expected.get(field) or "0")
-            if observed != minimum:
+            if actual[field] != int(row[field]):
                 raise ValueError(
-                    f"{output_dir}: {chain} {field} does not match artifact "
-                    f"({observed} != {minimum})"
+                    f"{counts_path}: {chain} {field} does not match artifact "
+                    f"({actual[field]} != {row[field]})"
                 )
-        error_block_count = int(expected.get("error_block") or "0")
-        if error_block_count != 0:
+        expected_status = _expected_canonical_evidence_status(row, actual["canonical"])
+        if row["canonical_evidence_status"] != expected_status:
             raise ValueError(
-                f"{output_dir}: {chain} ordinary artifact declares "
-                f"nonzero error_block count ({error_block_count})"
+                f"{counts_path}: {chain} canonical evidence status is invalid "
+                f"({row['canonical_evidence_status']!r} != {expected_status!r})"
             )
-    aggregate_path = output_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
-    if aggregate_path.is_file():
-        baseline_identities = _load_error_observation_identity_sets(aggregate_path)
-    elif (
-        aggregate := count_rows_by_chain.get(ERROR_OBSERVATION_ARTIFACT)
-    ) is not None and any(
-        int(aggregate.get(field) or "0") > 0
-        for field in ("error_block", "monitor_rows", "source_rows")
+    _validate_global_child_event_uniqueness(staging_dir)
+    _validate_parent_category_exclusivity(staging_dir)
+    if (
+        MONITOR_OUTPUT_DIR.is_dir()
+        and MONITOR_OUTPUT_DIR.resolve() != staging_dir.resolve()
     ):
-        raise ValueError(f"{output_dir}: error-observation artifact is missing")
-    else:
-        baseline_identities = (set(), set(), {})
-    _validate_add_only_baseline_floors(count_rows, counts_path)
-    committed_identities = _load_monitor_final_identity_sets(MONITOR_OUTPUT_DIR)
-    committed_identity_sequences = _load_monitor_final_identity_sequences(
-        MONITOR_OUTPUT_DIR
-    )
-    _validate_new_ordinary_row_provenance(output_dir, committed_identities)
-    _validate_orphan_parent_overlaps(output_dir)
-    _validate_ordinary_monitor_identity_floor(
-        output_dir,
-        committed=committed_identities,
-        committed_sequences=committed_identity_sequences,
-    )
-    return count_rows, manifest, baseline_identities
-
-
-def _validate_add_only_baseline_floors(
-    count_rows: list[dict[str, str]], counts_path: Path
-) -> None:
-    """Reject a partial diagnostic export before publishing an add-only aggregate."""
-    committed, *_rest = _load_publication_baseline(MONITOR_OUTPUT_DIR)
-    actual = {str(row["chain"]): row for row in count_rows}
-    problems: list[str] = []
-    for chain, expected in committed.items():
-        if chain == ERROR_OBSERVATION_ARTIFACT:
-            continue
-        row = actual.get(chain)
-        if row is None:
-            problems.append(f"missing {chain}")
-            continue
-        for field in ("artifact_scope", "source_kind", "source_path", "notes"):
-            observed_text = (row.get(field) or "").strip()
-            committed_text = (expected.get(field) or "").strip()
-            if observed_text != committed_text:
-                problems.append(
-                    f"{chain} {field} does not preserve the committed baseline "
-                    f"({observed_text!r} != {committed_text!r})"
-                )
-        for field in PUBLICATION_FLOOR_FIELDS:
-            value = row.get(field)
-            try:
-                observed = int(value or "")
-            except ValueError:
-                problems.append(f"{chain} has invalid {field}: {value!r}")
-                continue
-            minimum = int(expected[field])
-            if observed < minimum:
-                problems.append(
-                    f"{chain} {field} is below floor ({observed} < {minimum})"
-                )
-            elif field == "source_rows" and observed != minimum:
-                problems.append(
-                    f"{chain} source_rows must preserve the committed baseline "
-                    f"({observed} != {minimum})"
-                )
-    if problems:
-        raise ValueError(
-            f"{counts_path}: baseline is below committed publication floors: "
-            + "; ".join(problems)
-        )
-
-
-def _validate_error_observation_update_floor(
-    count_rows: list[dict[str, str]], counts_path: Path, observed_rows: int
-) -> None:
-    """Reject an add-only aggregate that would reduce its existing floor."""
-    baseline = next(
-        (
-            row
-            for row in count_rows
-            if (row.get("chain") or "").strip() == ERROR_OBSERVATION_ARTIFACT
-        ),
-        None,
-    )
-    if baseline is None:
-        return
-    problems: list[str] = []
-    for field in ("error_block", "monitor_rows", "source_rows"):
-        value = baseline.get(field)
-        try:
-            expected = int(value or "")
-        except ValueError:
-            problems.append(
-                f"{ERROR_OBSERVATION_ARTIFACT} has invalid {field}: {value!r}"
-            )
-            continue
-        if observed_rows < expected:
-            problems.append(
-                f"{ERROR_OBSERVATION_ARTIFACT} {field} is below floor "
-                f"({observed_rows} < {expected})"
-            )
-    if problems:
-        raise ValueError(
-            f"{counts_path}: regenerated error-observation aggregate is below "
-            "the publication floor: " + "; ".join(problems)
-        )
-
-
-def _error_observation_witness_aliases(
-    witness: tuple[str, int, str, int, str], *, allow_rsk_hash_flip: bool
-) -> set[tuple[str, int, str, int, str]]:
-    """Match a legacy 27-column RSK hash in either published byte order."""
-    aliases = {witness}
-    chain, child_height, child_hash, btc_height, parent_hash = witness
-    if allow_rsk_hash_flip and chain == "rsk" and is_hash(child_hash):
-        aliases.add(
-            (
-                chain,
-                child_height,
-                hash_to_internal_hex(hash_from_display_hex(child_hash)),
-                btc_height,
-                parent_hash,
-            )
-        )
-    return aliases
-
-
-def _validate_error_observation_update_identities(
-    baseline: tuple[
-        set[tuple[int, str]],
-        set[tuple[str, int, str, int, str]],
-        dict[tuple[str, int, str, int, str], tuple[str, ...]],
-    ],
-    regenerated: tuple[
-        set[tuple[int, str]],
-        set[tuple[str, int, str, int, str]],
-        dict[tuple[str, int, str, int, str], tuple[str, ...]],
-    ],
-    counts_path: Path,
-) -> None:
-    """Reject an aggregate replacement that drops published exact identities."""
-    missing_parents = baseline[0] - regenerated[0]
-    allow_rsk_hash_flip = not baseline[2]
-    missing_witnesses = {
-        witness
-        for witness in baseline[1]
-        if _error_observation_witness_aliases(
-            witness, allow_rsk_hash_flip=allow_rsk_hash_flip
-        ).isdisjoint(regenerated[1])
-    }
-    changed_sidecars = [
-        witness
-        for witness, payload in baseline[2].items()
-        if regenerated[2].get(witness) != payload
-    ]
-    if not missing_parents and not missing_witnesses and not changed_sidecars:
-        return
-    details: list[str] = []
-    if missing_parents:
-        details.append(f"missing {len(missing_parents)} published parent identities")
-    if missing_witnesses:
-        details.append(f"missing {len(missing_witnesses)} published witness identities")
-    if changed_sidecars:
-        details.append(f"changed {len(changed_sidecars)} published sidecar payloads")
-    raise ValueError(
-        f"{counts_path}: regenerated error-observation aggregate drops "
-        + "; ".join(details)
-    )
-
-
-def _replace_or_append_count(
-    rows: list[dict[str, object]], count: dict[str, object]
-) -> list[dict[str, object]]:
-    """Replace this aggregate's existing row, keeping normal publication order."""
-    chain = str(count["chain"])
-    replaced = False
-    updated: list[dict[str, object]] = []
-    for row in rows:
-        if str(row.get("chain") or "") != chain:
-            updated.append(row)
-            continue
-        if replaced:
-            raise ValueError(f"duplicate {chain} count rows")
-        updated.append(count)
-        replaced = True
-    if not replaced:
-        updated.append(count)
-    return updated
-
-
-def _publish_error_observation_update(staging_dir: Path, output_dir: Path) -> None:
-    """Atomically replace the aggregate and its two publication metadata files."""
-    names = (
-        f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv",
-        PUBLICATION_COUNTS.name,
-        PUBLICATION_MANIFEST.name,
-    )
-    staged = [staging_dir / name for name in names]
-    missing = [str(path) for path in staged if not path.is_file()]
-    if missing:
-        raise ValueError("error-observation update lacks: " + ", ".join(missing))
-    backup_dir = staging_dir.parent / "previous"
-    backup_dir.mkdir()
-    moved_previous: list[tuple[Path, Path]] = []
-    installed: list[tuple[Path, Path]] = []
-    try:
-        for staged_path in staged:
-            destination = output_dir / staged_path.name
-            if destination.exists() or destination.is_symlink():
-                backup = backup_dir / staged_path.name
-                os.replace(destination, backup)
-                moved_previous.append((backup, destination))
-        for staged_path in sorted(staged, key=_publish_order):
-            destination = output_dir / staged_path.name
-            os.replace(staged_path, destination)
-            installed.append((destination, staged_path))
-    except BaseException:
-        for destination, staged_path in reversed(installed):
-            if destination.exists() or destination.is_symlink():
-                os.replace(destination, staged_path)
-        for backup, destination in reversed(moved_previous):
-            if backup.exists() or backup.is_symlink():
-                os.replace(backup, destination)
-        raise
-
-
-def _logical_error_observation_artifact_path(
-    count_rows: list[dict[str, str]],
-) -> Path:
-    """Derive the aggregate's logical root from ordinary artifact metadata."""
-    logical_paths = {
-        Path(str(row.get("artifact_path") or "")).parent
-        for row in count_rows
-        if row.get("chain") != ERROR_OBSERVATION_ARTIFACT
-        and (row.get("artifact_path") or "").strip()
-    }
-    if len(logical_paths) != 1:
-        raise ValueError(
-            "ordinary artifact metadata does not provide one logical publication root"
-        )
-    return next(iter(logical_paths)) / (
-        f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
-    )
-
-
-def build_error_observation_update(args: argparse.Namespace) -> dict[str, object]:
-    """Publish the sparse error aggregate without rebuilding normal artifacts."""
-    output_dir = args.output_dir.expanduser().resolve()
-    if not output_dir.is_dir():
-        raise ValueError(f"publication output directory is missing: {output_dir}")
-    if output_dir == MONITOR_OUTPUT_DIR.expanduser().resolve():
-        raise ValueError(
-            "add-only error-observation updates require an explicit output "
-            "directory with an immutable ordinary-publication baseline"
-        )
-    count_rows, manifest, baseline_identities = _load_error_update_baseline(
-        output_dir, data_dir=args.data_dir
-    )
-    error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
-    if error_blocks_path.is_file():
-        ordinary_identities = _load_ordinary_monitor_parent_identities(
-            output_dir, count_rows
-        )
-        consensus_invalid_identities = load_consensus_invalid_stale_keys(
-            error_blocks_path
-        )
-        ordinary_hashes = {parent_hash for _height, parent_hash in ordinary_identities}
-        consensus_invalid_hashes = {
-            parent_hash for _height, parent_hash in consensus_invalid_identities
-        }
-        overlap = (
-            ordinary_identities & consensus_invalid_identities
-        ) or ordinary_hashes & consensus_invalid_hashes
-        if overlap:
-            raise ValueError(
-                "add-only error-observation update cannot proceed: ordinary "
-                f"monitor artifacts overlap {len(overlap)} current error-block "
-                "parent identities; run a full publication rebuild"
-            )
-    transaction_dir = Path(
-        tempfile.mkdtemp(
-            prefix=f".{output_dir.name}.error-observations-", dir=output_dir.parent
-        )
-    )
-    staging_dir = transaction_dir / "staged"
-    staging_dir.mkdir()
-    try:
-        artifact = write_error_observation_artifact(
+        _validate_logical_source_coverage_floor(
             staging_dir,
-            data_dir=args.data_dir,
+            MONITOR_OUTPUT_DIR,
+            staged_count_rows=count_rows,
         )
-        observed_rows = int_or_none(str(artifact.get("rows") or ""))
-        if observed_rows is None or observed_rows < 0:
-            raise ValueError("error-observation artifact has an invalid row count")
-        staged_aggregate = (
-            staging_dir / f"{ERROR_OBSERVATION_ARTIFACT}_monitor_evidence.csv"
-        )
-        validate_error_observation_publication(staged_aggregate)
-        regenerated_identities = _load_error_observation_identity_sets(staged_aggregate)
-        _validate_error_observation_update_identities(
-            baseline_identities,
-            regenerated_identities,
-            output_dir / PUBLICATION_COUNTS.name,
-        )
-        _validate_error_observation_update_floor(
-            count_rows,
-            output_dir / PUBLICATION_COUNTS.name,
-            observed_rows,
-        )
-        artifact_path = _logical_error_observation_artifact_path(count_rows)
-        count = error_observation_count_row(
-            artifact,
-            data_dir=args.data_dir,
-            artifact_path=artifact_path,
-        )
-        updated_csv_counts = _replace_or_append_count(count_rows, count)
-        manifest_counts = manifest.get("counts")
-        assert isinstance(manifest_counts, list)
-        manifest["counts"] = _replace_or_append_count(manifest_counts, count)
-        artifacts = manifest.get("artifacts")
-        assert isinstance(artifacts, dict)
-        artifacts[str(count["chain"])] = str(count["artifact_path"])
-        write_csv(
-            staging_dir / PUBLICATION_COUNTS.name,
-            updated_csv_counts,
-            MONITOR_COUNT_FIELDS,
-        )
-        (staging_dir / PUBLICATION_MANIFEST.name).write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-        )
-        _publish_error_observation_update(staging_dir, output_dir)
-        return {
-            "counts_csv": output_dir / PUBLICATION_COUNTS.name,
-            "manifest_json": output_dir / PUBLICATION_MANIFEST.name,
-            "error_observations": count["monitor_rows"],
-        }
-    finally:
-        shutil.rmtree(transaction_dir, ignore_errors=True)
+        _validate_published_observation_floor(staging_dir)
 
 
 def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
@@ -2611,6 +2323,7 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
     )
     staging_dir = transaction_dir / "staged"
     staging_dir.mkdir()
+    preserve_transaction = False
     try:
         summary = build_monitor_evidence_exports(
             data_dir=args.data_dir,
@@ -2628,7 +2341,17 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
             fail_on_missing_child_identity=not args.allow_partial,
             include_error_observations=not args.allow_partial,
         )
+        if not args.allow_partial:
+            _validate_staged_publication(
+                staging_dir,
+                data_dir=args.data_dir,
+                relevance_inventory=args.relevance_inventory,
+            )
         _publish_staged_artifacts(staging_dir, output_dir)
         return summary
+    except _PublicationRollbackError:
+        preserve_transaction = True
+        raise
     finally:
-        shutil.rmtree(transaction_dir, ignore_errors=True)
+        if not preserve_transaction:
+            shutil.rmtree(transaction_dir, ignore_errors=True)

@@ -2,17 +2,103 @@
 
 ## Unreleased
 
+Require the exact stale-descendant parent-verdict, stale-descendant witness-ledger,
+and error-observation witness-ledger schemas, including complete CSV row widths,
+and require every persisted parent gate cell to carry its accepting verdict. Make
+monitor publication authenticate every error-observation row against ordinary
+evidence rules and the canonical ledger, and reject duplicate `(height, hash)`
+keys in the MTP context sidecar.
+
+Remove every ancestry recovery copy after a fully successful in-process
+rollback, preserve all copies when rollback is incomplete, and block a new
+publication when any adjacent recovery file from any process remains.
+
+Preserve multiple distinct authenticated child events from one chain when they
+witness the same accepted stale-descendant parent. Resolve hydration, recovery,
+ancestry, and error-observation joins by exact child event, reject ambiguous or
+cross-parent reuse, authenticate headerless descendant witnesses through the
+selected child-identity index, require canonical POSIX source paths, and validate
+Xaya identities with its external `PowData` `nBits` contract.
+
+Require the canonical stale-descendant witness ledger before attribution can
+admit any parent verdict, and fail provenance fingerprinting if an expected
+publication input disappears.
+
+Require every stored ancestry terminal to exist in the selected data tree's
+accepted per-chain or pinned upstream direct-stale inputs, excluding that
+tree's canonical error blocks. Reject an authenticated child event that is
+assigned to more than one Bitcoin parent.
+
+Preserve address-derived payout recipients through canonical coinbase-output
+reconciliation so legacy bare-address and `address:value` evidence still
+supports pool attribution. Match refined P2PK outputs by their recipient
+HASH160 without treating P2SH or witness programs as the same target.
+
+Fail closed when stale-ancestry reconciliation lacks Bitcoin's canonical
+`nBits` for an inferred height. Treat catalogue error blocks as explicit
+invalid ancestry terminals so every child and deeper descendant is emitted
+only as an uncatalogued-error diagnostic. Collapse compatible physical archive
+copies only after they resolve to the same authenticated child event, reject
+conflicting copies, and normalize Bitcoin-family display-order child hashes
+before storing their logical witness identity while keeping RSK hashes forward.
+Keep RPC credentials out of the `just` launcher output when operators supply
+them explicitly.
+
+Treat split unknown inventories as the same source family as their complete
+classifier inventories so scan-order child heights cannot become authenticated
+publication facts. Reject every low-level ancestry output that resolves under a
+canonical data or results publication surface. Authenticate each committed
+parent's stale-root height, fork depth, path endpoints, and every serialized
+predecessor link before accepting its ancestry verdict.
+
+Keep the authored future-limit follow-up in `docs/error-blocks.md` and make the
+time-rule sweep report fully regenerable without copying prose from the report
+it replaces.
+
+Route every stale-descendant consumer through the canonical parent loader,
+cross-check parent chain/count summaries against the witness ledger, and emit
+reconciliation notes only from the current run. Require each reconciled parent
+header to come from the selected authenticated observations, and keep
+unjudgeable candidates in diagnostics instead of the canonical parent table.
+Rebuild the pending-upstream sidecar solely from current validated inputs,
+without using its prior output as a header cache.
+
+Publish the complete stale-ancestry result as two committed tables: 21 accepted
+parent verdicts in `data/stale_descendants.csv` and 32 authenticated
+child-chain witnesses in `data/stale_descendant_observations.csv`. Reconciliation
+evaluates the full candidate population from declared trusted roots, requires
+active-mainchain placement for direct roots, gives consensus-invalid candidates
+error-block precedence, and treats source bucket labels as audit evidence only.
+Require publication to name the Bitcoin Core verification source explicitly and
+persist that non-secret label with each exact active-hash-at-height verdict.
+
+Publish 39 consensus-invalid full-proof-of-work Bitcoin parents and 86 recovered
+child observations. Four ancestry-derived parents re-derive
+`bip34_coinbase_height_mismatch`; their eight Namecoin, Devcoin, and Ixcoin
+witnesses are authenticated by source coordinate, archive SHA-256, source
+coinbase and available Bitcoin header evidence, and node-verified 80-byte child
+headers.
+
+Refresh Namecoin and Fractal Bitcoin against the same Bitcoin Core generation.
+Publish 1,649 accepted Namecoin direct-stale observations and 40 Fractal
+observations, retain 456,660 and 58,970 canonical rows respectively, and project
+the recovered Namecoin witness at Bitcoin height 941,882 as a stale descendant.
+
+Publish monitor evidence as one coherent transaction. Regenerate every ordinary
+artifact, the error-observation aggregate, counts, and manifest from the same
+authenticated source population. Project a strict orphan's Bitcoin height only
+from the relevance classifier's authenticated BIP34 verdict, rejecting missing
+or conflicting strict heights while leaving weak verdicts timestamp-only.
+
 Publish error-block observations on the 34-column monitor union schema,
 hydrate RSK sidecar cells from committed child-identity, and keep RSK keccak
-child hashes in forward node order. Ordinary publication still excludes those
-five RSK error parents; recovery now includes them in the RSK identity work
-list and will try a canonical `eth_getBlockByNumber` when classified uncle
-metadata is absent.
+child hashes in forward node order. Ordinary publication excludes those
+five RSK error parents; identity recovery includes them in the RSK work list
+and tries canonical `eth_getBlockByNumber` when classified uncle metadata is
+absent.
 
 Catalogue Bitcoin height 957780 (`time_below_mtp`) from merge-mining-monitor
 live capture, with recovered Namecoin, Syscoin, Fractal, and Elastos witnesses.
-The error-block dataset is now 35 parents and the monitor-facing
-error-observation aggregate is 78 rows.
 
 Split monitor-facing evidence projection from full-evidence source
 normalization without changing schemas, publication contracts, or output data.
@@ -21,10 +107,9 @@ Unify Hathor acquisition and classification around one range-neutral dataset.
 Record terminal metadata for the caller-declared height range, retain every
 version-3 proof and its funds-and-graph bytes in one sealed acquisition row,
 and classify that dataset directly into the standard terminal categories in a
-single atomic run. Remove the separate raw/supplement acquisition path, the
-persisted classifier phases, and their compatibility handling. Historical
-private artifacts require a disposable operator transform instead of a
-permanent shim.
+single atomic run. Remove the separate raw/supplement acquisition path and the
+persisted classifier phases. Historical private artifacts require a disposable
+operator transform outside the publication path.
 
 Publish the authenticated Hathor result from height 0 through 6,593,796 as one
 corpus:
@@ -44,113 +129,28 @@ a private full-inventory source before publishing monitor evidence, normalizing
 blank classifications and matching source identities while authenticating
 Hathor child hashes against reconstructed headers.
 
-Keep validation-status tokens byte-exact in add-only monitor artifacts.
+Validate every monitor publication against one manifest root and one complete
+set of ordinary artifacts. Require exact schemas, classifications, hashes,
+heights, serialized parent and child headers, source provenance, stable row
+ordering, numeric counts, and matching artifact paths across the counts CSV and
+manifest. Preserve accepted identities and reject duplicates, undeclared
+chains, category overlap, malformed encodings, and incomplete publication sets.
 
-Preserve retained expected-nBits evidence and authenticate newly admitted
-descendant occurrences during add-only updates.
+Treat physical rows that share one authenticated
+`(chain, btc_header_hash, child_block_hash)` event as a single semantic-floor
+claim only when the retained row refines every committed category and evidence
+field. Preserve injective multiplicity for distinct child hashes and for sparse
+rows without authenticated child identity.
 
-Bind ordinary artifact declarations to the manifest root, validate optional
-child heights exactly, and preserve deterministic ordinary-row ordering.
+Authenticate stale-descendant witnesses against the committed observation
+ledger and validate strict and weak orphan verdicts against the committed
+Bitcoin epoch references. Preserve direct-stale verdicts, expected `nBits`, RSK
+sidecar fields, coinbase evidence, relevance metadata, and child-observation
+multiplicity across the transaction.
 
-Keep row chain tokens exact, preserve numeric manifest count types, and apply
-the selected error-block catalogue consistently during full publication.
-
-Preserve committed artifact scopes and require exact unpadded Bitcoin heights
-in add-only monitor artifacts.
-
-Reject padded child-height encodings in ordinary monitor artifacts.
-
-Require exact ordinary headers, canonical count encodings, and stable summary
-row ordering during add-only publication updates.
-
-Keep add-only updates from introducing new stale, orphan, or canonical
-identities, preserve row scope in identity checks, and reject undeclared
-publication chains.
-
-Keep fallback strict-height verdicts limited to committed evidence, preserve
-relevance metadata, reject uncorroborated canonical additions and duplicate
-schema columns, and prevent orphan verdicts from overlapping known final
-parents.
-
-Authenticate strict orphan heights and descendant promotions against their
-source evidence, require provenance on newly admitted rows, preserve summary
-metadata, and accept the canonical companion scopes emitted by full exports.
-
-Keep direct-stale validation verdicts immutable, preserve the committed
-source-row total during add-only updates, and detect error-block overlaps by
-parent hash when ordinary height evidence is absent.
-
-Keep error-observation publication updates fail-closed when an ordinary monitor
-artifact is missing or the regenerated aggregate falls below its existing
-floor. Require every recovered witness to carry an authenticated child hash,
-deriving it from the supplied child header when available.
-
-Harden add-only error-observation updates by validating ordinary payload
-contents, preserving published parent and witness identities, rejecting
-duplicate child identities, and publishing separate validation contracts for
-ordinary evidence and consensus-invalid error observations.
-
-Require add-only ordinary artifacts to retain the complete monitor schema and
-the exact relevance axes emitted for each supported classification.
-
-Reject add-only rows without a Bitcoin parent hash, crossed orphan verdict
-tuples, manifest count drift, or error-observation validation tokens in stale
-rows.
-
-Also verify serialized parent headers, live-chain child identities, exact raw
-relevance tokens, and the ordinary status contract across every row type.
-
-Corroborate all published parent-header fields and any serialized live-chain
-child header during add-only preflight.
-
-Keep classification and serialized-header encodings exact, enforce self-PoW and
-confirmed expected-nBits contracts, and keep ordinary chains free of error
-observations.
-
-Require historical child-header bundles and confirmed stale heights during
-add-only validation, and refuse an error-observation update when its current
-error-block catalogue overlaps an ordinary monitor artifact that needs a full
-rebuild.
-
-Reject duplicate stale identities, revalidate strict orphan heights against
-the committed Bitcoin epoch targets, and require manifest and count metadata
-to name the same ordinary artifact path.
-
-Revalidate weak orphan timestamp/epoch evidence, require canonical serialized
-parent headers to use the exact lowercase wire encoding, preserve committed
-ordinary identities during add-only updates, and keep publication contracts in
-the shared configuration module. Refresh the validity methodology to describe
-the expanded preflight checks and their remaining contextual caveats.
-
-Reject weak verdicts beyond the epoch-reference horizon, require an immutable
-ordinary baseline for default-directory add-only updates, and accept the safe
-logical paths emitted for complete external publication directories.
-
-Derive project-relative artifact paths from the selected publication directory
-and validate each row's artifact scope against the count/manifest contract so
-stale-descendant sidecar checks cannot be bypassed by editing row metadata.
-
-Require exact decoded parent and child encodings, recheck strict-orphan BIP34
-and timestamp-epoch evidence, preserve child-observation multiplicity in the
-immutable floor, and document the explicit disposable baseline for add-only
-publication updates.
-
-Synchronize artifact scopes across metadata, require descendant source heights,
-validate the RSK monitor sidecar schema, and preserve nonempty coinbase evidence
-in the ordinary publication floor.
-
-Preserve RSK sidecar payloads in the same floor digest and reject noncanonical
-uppercase or padded Bitcoin parent-hash encodings during add-only preflight.
-
-Bind stale-descendant expected-nBits validation to the dedicated sidecar chain
-contract and preserve normalized source provenance in the ordinary floor.
-
-Preserve primary classifications and live child timestamps, reject stale-gate
-fields on non-stale rows, validate canonical-coverage metadata, and keep the
-error aggregate under the baseline's logical publication root.
-
-Preserve serialized child-header fields in the ordinary floor and synchronize
-source provenance metadata across the counts CSV and manifest.
+Require every error witness to carry an authenticated child identity and keep
+ordinary and consensus-invalid validation contracts separate within the same
+complete publication transaction.
 
 Add the pool-attribution layer. The repo has always retained coinbase
 evidence for a later attribution phase; this lands that phase. A pinned
@@ -161,8 +161,9 @@ for the merge-mining-recovered stales.
 Identification matches each coinbase against the registry: scriptSig tags
 longest-first, then coinbase OP_RETURN outputs, then payout addresses.
 
-The record set is this repo's own recovered evidence: every AuxPoW loader
-plus the stale descendants. The upstream census is not labelled here; the
+The record set is this repo's own recovered evidence: every merge-mining
+recovery loader plus the stale descendants. The upstream census is not labelled
+here; the
 combined census-plus-recovered set belongs to the stale-rate analysis,
 which the companion repo assembles from the same functions.
 
@@ -178,8 +179,7 @@ observed-vs-expected analysis and the propagation-era scheme live in a
 companion analysis repo, so this repo carries no era constants;
 `docs/pool-attribution.md` states the boundary and the export contract.
 
-Label error blocks during classification instead of discovering them by hand
-afterwards. A shared routing step now sorts every gate-rejected stale
+Label error blocks during classification. A shared routing step sorts every gate-rejected stale
 candidate by what the rejection means, re-deriving the broken consensus rules
 from the row's own bytes. The three meanings are ranked rather than tested in
 any convenient order, because one row can satisfy several of them: a placement
@@ -204,9 +204,9 @@ retarget-epoch table, so an epoch-start candidate carrying the previous epoch's
 bits becomes an error block rather than being dropped, and its re-routed
 unknowns remain in the unknown inventory. The ancestry
 reconciliation derives rules only from header bytes that authenticate against
-the claimed hash, and routes the candidates it does judge out of
-`data/stale_descendants.csv` into a new `--error-blocks-csv` peer, so the
-descendant sidecar keeps a single `classification`. The classifier output
+the claimed hash, routes consensus-invalid candidates before writing the
+accepted parent and witness tables, and uses internal error-row staging only as
+build mechanics. The classifier output
 writer fails loudly on an unrecognised classification instead of silently
 dropping the row, and its `rejected` count spans every bucket the routing
 produced (with a `rejected_stale`/`rejected_error_block`/`rejected_unknown`
@@ -214,41 +214,40 @@ breakdown) so a fully re-routed run cannot report zero rejections.
 `nbits_retarget_not_applied` and the two `bip34_*_coinbase_height_missing`
 rules join the shared derivation, the rejected-rows sweep gains namecoin
 coverage, and the RSK classifier refuses aliased output paths before it opens
-any of them. All 33 committed error blocks re-derive unchanged under the shared
-decision.
+any of them. Every committed error block re-derives under the shared decision.
 
 Preserve LF line endings in both error-block CSV writers and make the offline
 error-block validator reject every row whose `classification` is not exactly
-`error_block`. Project a source row originally labelled `stale` to
-`stale_descendant` only when its accepted sidecar observation matches both the
-source chain identity and the compact exact-key direct-stale correction
-overlay; ordinary unknown-row descendant observations continue to preserve
-their original source classification.
+`error_block`. Publish stale-descendant parent verdicts only when the accepted
+parent row and an exact authenticated witness agree on chain, Bitcoin identity,
+and source coordinates. Preserve source classification as audit provenance
+without using it to decide the parent verdict.
 
-Project the accepted stale-descendant sidecar's `VALID_STALE_DESCENDANT`
-verdict onto every corresponding monitor source observation while preserving
-its original source classification as provenance. Regenerate the complete
+Project each accepted parent verdict onto the exact witnesses in
+`data/stale_descendant_observations.csv`, retaining the source bucket only as
+audit provenance. Regenerate the complete
 monitor-evidence publication from the authenticated source estate so every
-committed payload follows the same current builder contract, including an
+committed payload follows the same current publication contract, including an
 empty stale-gate axis for canonical and unresolved-unknown rows, plus blank
 child heights where the offline source cannot authenticate consensus height.
 Publish the exact BIP34 child height for 19,610 Xaya canonical observations
-that still carried legacy block-file positions in the prior monitor
-projection.
+whose source artifacts record block-file positions rather than authenticated
+consensus heights.
 
 Require a stale-descendant projection to match the source chain, Bitcoin
 height, and header hash, so a mistyped source height cannot enter monitor
-evidence or satisfy its publication preflight. Make the error-block builder
-reject duplicate witnessing-chain declarations, make its offline validator
-reject duplicate canonical keys, and require every committed error-block
-sweep inventory to meet its recorded minimum row baseline before replacing a
-publication report. Add Elastos to the rejected-row sweep coverage map.
+evidence or satisfy its publication preflight. Make the error-block module
+validator reject duplicate canonical keys and duplicate child observations,
+and require aggregate chain declarations to match the exact witness ledger.
+Require every committed error-block sweep inventory to meet its recorded
+minimum row baseline before replacing a publication report. Add Elastos to the
+rejected-row sweep coverage map.
 
-Reclassify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
-and correct 44 side-chain headers previously retained as canonical into valid
-direct stales. Add the shared Elastos/Syscoin stale descendant, recover child
-identity for all newly retained monitor rows, and rebuild the monitor evidence,
-novelty outputs, and ancestry sidecar. Make normalized evidence inputs
+Classify the preserved Elastos and Syscoin raw extracts against Bitcoin Core
+and publish 44 additional valid direct stales. Include the shared
+Elastos/Syscoin stale descendant, recover child identity for all retained
+monitor rows, and rebuild the monitor evidence,
+novelty outputs, and stale-ancestry module. Make normalized evidence inputs
 idempotent, remove Elastos-only classifier columns and status semantics, and
 exclude the mixed upstream-contribution sidecar from the direct-stale root set
 so descendant publication cannot rewrite its own ancestry on a later run.
@@ -287,13 +286,11 @@ source-authenticated bundles, reject Git LFS pointers and malformed evidence
 schemas in child-header coverage, and document the shared 16-column validated
 stale layout.
 
-Publish all 30 accepted stale-descendant source observations through their
-exact per-chain monitor rows. The 28 observations sourced from unknown rows
-retain `classification=unknown` and record
-`relevance_reason=valid_stale_descendant`; the Namecoin and RSK observations
-corrected from direct stales are projected as
-`classification=stale_descendant` with
-`validation_status=VALID_STALE_DESCENDANT`. Publication now fails closed if
+Publish all 32 authenticated stale-descendant witnesses through their exact
+per-chain monitor rows with `classification=stale_descendant`,
+`validation_status=VALID_STALE_DESCENDANT`, and
+`relevance_reason=valid_stale_descendant`. Retain each witness's source bucket
+only in the audit ledger. Publication fails closed if
 any accepted `(chain, btc_header_hash)` observation is absent, and provenance
 redaction resolves relative paths before deciding whether they are
 repository-local.
@@ -323,7 +320,7 @@ the classifier and evidence exporters preserve and validate the same bundle.
 header/hash, header/time, or header/`nBits` contradictions. The completed
 source-authenticated regeneration covers 2,933,154 of 2,933,154 historical
 rows with zero unrecoverable rows, plus all 6 accepted stale-descendant source
-observations. The generic snapshot classifier's primary accepted and rejected
+observations. The generic classifier's primary accepted and rejected
 publication outputs now use the established normalized `btc_height` /
 `btc_header_hash` / `btc_bits` schema. Its full `--classified-output` inventory
 retains the source-specific `btc_stale_height` / `btc_hash` / `btc_bits_hex`
@@ -332,20 +329,17 @@ standalone `nbits_match` or `post_bch_fork` columns; those diagnostics remain
 represented by `validation_status` and `expected_nbits` and are preserved as
 standalone fields in the full classifier inventory.
 
-Promote consensus-invalid full-proof-of-work Bitcoin blocks ("error blocks")
-from a negative exclusion overlay into a first-class, re-derivable published
-dataset, hunt for the rest of the population, and add `error_block` as a
-primary classification value.
+Publish consensus-invalid full-proof-of-work Bitcoin blocks ("error blocks")
+as a first-class, re-derivable dataset and add `error_block` as a primary
+classification value.
 
 - New `data/error-blocks/error_blocks.csv` is simultaneously the rich evidence
-  dataset and the exact-key exclusion gate: one committed consolidated file
-  (33 rows) supersedes and removes the former `data/stale_block_exclusions.csv`
-  overlay. Every row carries `classification=error_block` and a named,
+  dataset and the exact-key exclusion gate. Its 39 rows each carry
+  `classification=error_block` and a named,
   mechanically re-checkable `rejection_reason`; the gate keys off that value
-  directly (no `exclusion_scope` column) via the renamed
-  `src/stale_blocks_analysis/error_blocks.py` loader. A committed
-  `data/error-blocks/mtp_context.csv` sidecar carries the canonical parent's
-  median-time-past for the `time_below_mtp` row.
+  directly via `src/stale_blocks_analysis/error_blocks.py`. A committed
+  `data/error-blocks/mtp_context.csv` sidecar carries the canonical parents'
+  median-time-past for all three MTP-rule rows.
 - `error_block` is added to the primary `classification` vocabulary alongside
   `canonical`/`stale`/`unknown`/`stale_descendant`/`near`: a consensus-invalid
   full-PoW block witnessed via merge mining that was never a stale/orphan
@@ -354,11 +348,11 @@ primary classification value.
   and additions must land in lockstep with the monitor (documented in
   `docs/data-reference.md` and `docs/upstreaming.md`). Blocks that merely fail
   the PoW target are not error blocks; they remain `near`.
-- New builder `scripts/prep/build_error_blocks.py` assembles the dataset from
-  reachable archives, and new offline validator
+- The canonical error-block catalogue, MTP context, and child-observation
+  ledger are reviewed together. The offline validator
   `scripts/analysis/validate_error_blocks.py` re-derives every row's full PoW
-  and named violation from committed bytes in CI (fail-closed; no row enters on
-  an old label).
+  and named violation from committed bytes and checks exact witness coverage
+  in CI.
 - Four sweeps under `scripts/analysis/` sharing `scripts/analysis/_sweep_common.py`
   hunted for new members, each with a dated report under
   `results/analysis/error-blocks/`. The rejected-row sweep found and promoted
@@ -370,27 +364,30 @@ primary classification value.
   offline. The version/BIP and coinbase-form sweeps found 0 new error blocks
   (no accepted VALID stale is an error block; the single
   `coinbase_scriptsig_length_above_100` member is real).
-- Deliberate scope expansion (operator-approved): the former overlay's
-  `direct_stale_only` row at height 656,478 is removed from the overlay-guard
-  model entirely. It is a valid `stale_descendant` that was double-catalogued
-  and now lives in exactly one place (`data/stale_descendants.csv`) with no
-  exclusion guard. No other validated-stales baseline is touched.
+- Represent height 656,478 only as a valid `stale_descendant`. Its predecessor
+  is a trusted stale root, so the candidate is not a direct stale or an error
+  block. No validated-stales baseline changes.
 - New `scripts/reports/report_error_blocks_by_chain.py` generates per-chain
   observation views under `results/analysis/error-blocks/by-chain/` as
   diagnostics (not committed loader inputs), via `just error-blocks-report`.
 
-Recover node-verified child block identity for the six live-lifecycle chains
-(Namecoin, RSK, Syscoin, Hathor, Elastos, Fractal) and publish it through the
+Recover node-verified child block identity for the five active hydration chains
+(Namecoin, RSK, Syscoin, Elastos, and Fractal) and publish it through the
 monitor-evidence exports, so merge-mining-monitor's dataset importer can key
-imported rows exactly like live capture and deduplicate against it.
+imported rows exactly like live capture and deduplicate against it. Hathor's API
+acquisition retains source-authenticated child identity directly, so it does
+not need a separate hydration ledger.
 
 - New `scripts/extract/recover_child_identity.py` recovers each row's child
   block hash and timestamp by height -> hash -> block RPC against the live
-  child nodes (public API for Hathor), verifying the Bitcoin parent linkage
-  re-derives from every fetched child block. All 2,287 chain/header
-  observations across the six chains verified (1,919 distinct Bitcoin
-  parent headers; 232 parents were observed by more than one chain);
-  results are committed under `data/child-identity/`.
+  child nodes, verifying the Bitcoin parent linkage re-derives from every
+  fetched child block. The five active hydration ledgers
+  contain 2,325 chain/header observations (1,932 distinct Bitcoin parent
+  headers; 239 parents observed by more than one chain). Small historical
+  Devcoin and Ixcoin ledgers add ten source-row-authenticated observations;
+  across all seven generic ledgers the directory contains 2,335 observations
+  for 1,933 distinct parents, 245 of them observed by more than one chain.
+  Results are committed under `data/child-identity/`.
 - The evidence schema gains `child_block_time` (after `child_block_hash`),
   and both the monitor and full-evidence exports hydrate the child identity
   columns from `data/child-identity/` at build time, refusing identities
@@ -402,21 +399,21 @@ imported rows exactly like live capture and deduplicate against it.
   files.
   Hydrated child hashes use the pipeline's internal (wire) byte order
   (forward for RSK), matching monitor storage. Coverage lands in the counts
-  `notes` as `child_identity_hydration=hydrated:N`, and the six live chains
-  are targeted unconditionally: a missing, empty, or verification-less
-  identity file surfaces as `missing_identity` (fatal to a publication
-  build) instead of silently narrowing the target set.
+  `notes` as `child_identity_hydration=hydrated:N`, and the five active
+  hydration chains are targeted unconditionally: a missing, empty, or
+  verification-less identity file surfaces as `missing_identity` (fatal to a
+  publication build) instead of silently narrowing the target set.
 - The RSK monitor export appends the seven columns the monitor's
   `rsk_merge_mining_evidence` sidecar requires (`rsk_miner`,
   `merge_mining_hash`, `is_uncle`, `uncle_index`, `uncle_parent_height`,
   `rsk_merkle_proof`, `rsk_coinbase_tail`), sourced from the live RSK node
   and cross-checked against the classified recovery metadata.
-- The stale-descendants export is deliberately outside the exact
-  child-identity contract: its rows aggregate observations from several
-  chains into chain-less rows and merge-mining-monitor's import surface has
-  no stale-descendants entry, so its child identity columns stay empty. The
-  counts row records `child_identity=represented_by_source_chain_observations`;
-  all 28 corresponding source-chain observations are published through their
+- The stale-descendants parent-summary export is deliberately outside the exact
+  child-identity contract: its rows represent parent verdicts rather than
+  individual chain witnesses, so its child identity columns stay empty. The
+  counts row records `child_height=unavailable` and
+  `parent_verdicts_only_witnesses_in_observation_ledger`;
+  all 32 authenticated source-chain witnesses are published through their
   exact per-chain rows with source-authenticated child evidence. Six of those
   observations have complete historical child headers and belong to the 17
   refresh chains reported by `results/child-header-coverage.csv`; the live-chain
@@ -425,10 +422,11 @@ imported rows exactly like live capture and deduplicate against it.
 - Because the strict/weak orphan projections mirror the monitor export's
   schema, the regenerated RSK projection also carries the seven sidecar
   columns; the other chains' projections gain only `child_block_time`.
-- Regenerate all 30 monitor publication artifacts from the same complete
-  inputs. Normal publication now includes every available canonical row for
-  every chain, with no per-chain allowlist, together with accepted direct
-  stales, accepted descendants, and strict/weak unknown-row observations.
+- Regenerate all 28 ordinary monitor artifacts, the error-observation
+  aggregate, counts, and manifest from the same complete inputs. Normal
+  publication includes every available canonical row for every chain, with no
+  per-chain allowlist, together with accepted direct stales, accepted
+  descendants, and strict/weak unknown-row observations.
   `--skip-canonical` remains available only for explicit disposable
   diagnostics. The strict/weak projection contains 24 strict and 10 weak
   observations across 7 chains.

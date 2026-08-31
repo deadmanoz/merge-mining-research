@@ -80,7 +80,10 @@ The 24% SHA-256d fraction across the full 1.825M → tip window is broadly consi
 **Loader filter** (`load_argentum_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader follows the established multi-algo pattern: semicolon-joined raw pkscript hex in `coinbase_outputs`, with no address decoding at extract time. This preserves the outputs for later attribution research. Both validated entries pass the filter.

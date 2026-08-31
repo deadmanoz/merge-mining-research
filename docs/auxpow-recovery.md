@@ -20,8 +20,8 @@ failures.
 Passing these necessary header and contextual checks does not establish full
 Bitcoin block validity. Most compact recovery rows omit the complete Bitcoin
 block body, and some omit a self-contained AuxPoW proof. See the
-[data validity contract](data-validity.md) before interpreting `stale` or
-`validation_status=VALID`.
+[data validity contract](data-validity.md) before interpreting `stale` or an
+accepted direct-stale `validation_status`.
 
 The 20 July 2026 audit replayed all 3,652 then-accepted direct observations
 against Bitcoin Core tip 958,882. Every row passed its available checks. The
@@ -30,6 +30,8 @@ observations that passed the same profile against Bitcoin Core. This includes
 active-parent linkage and median-time-past for the complete set; RSK's 298 rows
 remain unable to test coinbase scriptSig length or BIP34 prefix because the
 required coinbase data is not recoverable.
+The 30 August same-generation Namecoin and Fractal refresh added 33 further
+accepted direct observations under the same profile.
 
 From height 224,413, version 2 or newer blocks required the exact height prefix
 while version 1 remained valid. From height 227,931, version 1 was rejected and
@@ -99,27 +101,25 @@ reproducible Bitcoin `nBits` and timestamp context from the private runtime
 cache used for optional mainchain lookups.
 
 `data/error-blocks/error_blocks.csv` is the consensus-invalid error-blocks
-dataset and exact-key exclusion gate over the
-pinned upstream dataset and committed per-chain inputs. It supersedes the
-former `data/stale_block_exclusions.csv` overlay. Its 35 rows carry 31
-consensus-invalid keys plus four later observations. Of the 31 carried-over
-keys, 21 fail BIP34's coinbase-height
-rule, three version 2 headers after height 363,725 fail BIP66's minimum version
-3 rule, five headers below version 4 after height 388,381 fail BIP65's minimum
-version 4 rule, one violates median-time-past, and one has a 103-byte coinbase
-scriptSig. The four added rows are the 946,213 and 957,780 `time_below_mtp`
-blocks (from merge-mining-monitor live evidence), the 717,696
-`nbits_retarget_not_applied` block (found by the rejected-row sweep), and the
-649,674 `bip34_coinbase_height_missing` block emitted by the Hathor classifier. The
-former overlay's 32nd key, a
-direct-stale-only correction at Bitcoin
-height 656,478, is not an error block: its predecessor is a known stale rather
-than an active-chain block, so it now lives only in the accepted
-stale-descendant sidecar. It is not part of the error-block gate, but projection
-of a raw direct-stale source row additionally requires the compact
-`data/stale_descendant_corrections.csv` exact-key correction overlay and its
-matching chain-specific sidecar observation. Loaders and upstream-derived reports apply the
-gate by exact `(height, hash)` key, keying off `classification == "error_block"`.
+dataset and exact-key exclusion gate over the pinned upstream dataset and
+committed per-chain inputs. Its 39 rows each carry
+`classification=error_block`, authenticated parent evidence, and at least one
+named consensus violation that re-derives offline. The catalogue includes the
+two `time_below_mtp` blocks at 946,213 and 957,780, the 717,696
+`nbits_retarget_not_applied` block, the Hathor-witnessed 649,674
+`bip34_coinbase_height_missing` block, and four stale-ancestry candidates whose
+bytes re-derive `bip34_coinbase_height_mismatch`. Loaders and upstream-derived
+reports apply the gate by exact `(height, hash)` key.
+
+Accepted stale descendants use a separate two-table module:
+`data/stale_descendants.csv` contains 21 parent verdicts and
+`data/stale_descendant_observations.csv` contains their 32 authenticated
+child-chain witnesses. Reconciliation evaluates all authenticated candidates,
+walks only from declared trusted stale roots, requires active-mainchain
+placement for a direct stale root, and routes consensus-invalid candidates to
+the error-block catalogue first. A witness's source bucket is audit evidence,
+not a classification authority. Height 656,478 is therefore represented as a
+valid stale descendant because its predecessor is a trusted stale root.
 
 A separate generated evidence layer serves downstream consumers that need more
 than the stale census. Run `just full-evidence` to write normalized per-chain
@@ -145,19 +145,21 @@ bundle must be regenerated from their original sources, not post-processed.
 Rows follow the documented **merge-mining evidence chronology**, matching
 `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
 
-One derived contribution sits outside the per-chain direct-stale counts:
-`data/stale_descendants.csv` records headers whose ancestry walks back to a
-known BTC stale root. Source-chain rows originally classified `unknown` remain
-`unknown`; the sidecar carries their separate descendant promotion. One
-historical direct-stale row is instead corrected out of that class because its
-predecessor is stale rather than active. The sidecar carries the separate
-`classification=stale_descendant` contribution for multi-block BTC stale-fork
-continuations, and the analysis loader admits only rows with
-`validation_status=VALID_STALE_DESCENDANT`. Current reconciliation evidence
-finds 25 stale-rooted headers (20 direct children + 5 deeper descendants), of
-which 21 are accepted under the declared descendant gate and 4 remain recorded
-as BIP34-height rejections. A follow-up audit confirms
-those 4 are not script artifacts: their coinbase BIP34 heights decode exactly
+One derived contribution sits outside the per-chain direct-stale counts. The
+stale-descendant module stores 21 accepted parent verdicts in
+`data/stale_descendants.csv` and 32 authenticated child-chain witnesses in
+`data/stale_descendant_observations.csv`. Reconciliation considers every
+authenticated candidate bucket, starts only from declared trusted stale roots,
+excludes active-mainchain parents from the descendant class, and gives
+consensus-invalid candidates error-block precedence. Source classifications
+remain audit provenance and cannot create or override the parent verdict.
+Monitor publication emits each accepted witness once as
+`classification=stale_descendant` with
+`validation_status=VALID_STALE_DESCENDANT`.
+
+Four stale-ancestry candidates are consensus-invalid and therefore live only
+in the error-block catalogue and observation ledger. Their coinbase BIP34
+heights decode exactly
 one block above the height implied by stale-root ancestry, while their header
 hashes, PoW, nBits, prev_hash paths, and stale-root Core-parent heights all
 check out.
@@ -174,7 +176,7 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 
 | # | Chain | Accepted direct stales | Novel\* | Notes |
 |---:|---|---:|---:|---|
-| 1 | [Namecoin](chains/namecoin.md) | 1,625 | 0 | First production merge-mined chain with non-zero direct-stale header-candidate recovery; activates the practical AuxPoW recovery window at BTC 148,553 (Oct 2011). Chronological novelty is 0: all 1,625 accepted direct rows are present in effective upstream after the exclusion overlay is applied. |
+| 1 | [Namecoin](chains/namecoin.md) | 1,649 | 0 | First production merge-mined chain with non-zero direct-stale header-candidate recovery; activates the practical AuxPoW recovery window at BTC 148,553 (Oct 2011). Chronological novelty is 0: all 1,649 accepted direct rows are present in effective upstream after the error-block gate is applied. |
 | 2 | [Geistgeld](chains/geistgeld.md) | 0 | 0 | Dead chain, archival `getblock`-JSON dump shared by Nicholas Stifter (1.6 GB gzipped, 7.3M blocks, 2.49M AuxPoW-bearing). Catalogue activation 2011-10-08, tied with Namecoin (alphabetical tie-break to second). The dump shows earlier experimental AuxPoW activity from GG height 14,092 / 2011-09-16 using Geistgeld's copy of Durham's implementation. **Zero accepted direct-stale candidates**: of 2,291 self-target-PoW-valid unique parent headers, 1 is canonical and 2,290 are unknowns. Their relaxed `nBits` cluster does not match Bitcoin's target history. The private full inventory preserves 2,290 unknowns. |
 | 3 | [i0coin](chains/i0coin.md) | 166 | 37 | Offline `blk*.dat` parse of a January 2018 snapshot on `<archival-host>`; chain no longer has live nodes. Provisional and incomplete: the snapshot bounds coverage at Jan 2018, so the 166 committed rows are a lower bound. |
 | 4 | [ixcoin](chains/ixcoin.md) | 465 | 50 | Raw-hex parse on IXCore 0.14.x; needed a single source patch touching six files for GCC 13 / modern Boost. |
@@ -199,7 +201,7 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 | 23 | [Bitcoin Vault](chains/bitcoin-vault.md) | 9 | 6 | Dormant chain recovered without running a node, via Blockbook `/api/rawblock/<hash>`. The original run classified 8 stale-labelled candidates from 2,575 self-target-PoW-valid headers; the refreshed committed input adds one already-upstream accepted candidate. |
 | 24 | [Electric Cash](chains/elcash.md) | 3 | 0 | Bitcoin Core 0.20.2 fork merge-mining from a fresh Dec 2020 genesis; the three accepted stales (Jun-Sep 2021) fall inside a 2021-2024 real-hashrate era that peaked Sep-Oct 2021, and all three re-observe Bitcoin Vault-first-claimed headers. Self-synced `elcashd`; standard Namecoin-style CAuxPow. Zombie chain, negligible current hashrate. |
 | 25 | [Lyncoin](chains/lyncoin.md) | 0 | 0 | Live-peer P2P header recovery across the complete pre-Flex merge-mined era through child height 260,499. No accepted stale or strict/weak evidence was found in the recovered window. |
-| 26 | [Fractal Bitcoin](chains/fractal.md) | 31 | 1 | Newest integrated chain. `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The run produced 601,760 AuxPoW rows, 59,504 self-target-PoW-valid unique parent headers, 31 accepted direct-stale candidates, and 493 unknowns. 15 rows also appear upstream; 29 were already first-seen by RSK or Namecoin, leaving 1 chronologically novel accepted candidate at BTC height 928,455. |
+| 26 | [Fractal Bitcoin](chains/fractal.md) | 40 | 1 | Newest integrated chain. `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The current reclassification of 59,504 self-target-PoW-valid unique parents yields 58,970 canonical rows, 40 accepted direct stales, and 494 unknowns. Of the accepted rows, 24 are upstream and 16 are upstream-new; RSK first-claims 19, Namecoin 16, and Elastos 1. Bitcoin height 928,455 remains the sole chronologically novel candidate. |
 
 \* "Novel" = **chronologically novel at this chain's position** in
 `CHAINS_BY_AUXPOW_ACTIVATION`: not in upstream `bitcoin-data/stale-blocks`
@@ -216,7 +218,7 @@ The historical first-recovery-count framing is preserved in
 Other chain-specific infrastructure and qualified recovery states are
 documented separately in
 [`chains/surveyed-infra.md`](chains/surveyed-infra.md). The 2026-07-10 pass over
-all nine sources formerly labelled "Catalogued (not recovered)" has a detailed
+all nine catalogued sources has a detailed
 status and provenance record in
 [`chains/catalogued-recovery.md`](chains/catalogued-recovery.md). Those entries
 include partial, historical, surveyed, blocked, source-only, and excluded

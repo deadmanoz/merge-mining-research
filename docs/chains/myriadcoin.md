@@ -77,7 +77,10 @@ The 22.2% SHA-256d fraction is consistent with the equal-time-share assumption a
 **Loader filter** (`load_myriadcoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader delegates to the shared `load_auxpow_validated_stales()` helper and parses `coinbase_outputs` as raw pkscript hex semicolon-joined (matches i0coin/ixcoin/elastos/unobtanium blkdat format). The extractor preserves the parent-coinbase outputs verbatim without address decoding so they remain available for later attribution research. All 40 entries pass the filter (the committed CSV is VALID-only).

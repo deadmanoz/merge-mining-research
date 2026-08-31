@@ -270,9 +270,7 @@ HATHOR_CSV = VALIDATED_STALES_DIR / "hathor_validated_stales.csv"
 # promoting only entries whose backward header walk reaches a known stale and
 # whose validation_status is VALID_STALE_DESCENDANT.
 STALE_DESCENDANTS_CSV = DATA_DIR / "stale_descendants.csv"
-# Compact exact-key correction overlay for source rows that were formerly
-# classified as direct stales but belong to the stale-descendant sidecar.
-STALE_DESCENDANT_CORRECTIONS_CSV = DATA_DIR / "stale_descendant_corrections.csv"
+STALE_DESCENDANT_OBSERVATIONS_CSV = DATA_DIR / "stale_descendant_observations.csv"
 
 # AuxPoW-recovered stale blocks (Emercoin merged mining side channel).
 # Hybrid PoW/PoS chain in the Peercoin lineage — only PoW blocks carry
@@ -462,6 +460,12 @@ BIP65_HEIGHT = 388_381
 # a confirmed row is written with an EMPTY `btc_stale_relevance` and a
 # `relevance_reason` of `valid_direct_stale` / `valid_stale_descendant`. The
 # derived axis holds only the unknown-row refinement values below.
+ACCEPTED_STALE_VALIDATION_STATUSES = frozenset(
+    {
+        "VALID",
+        "VALID (post-BCH, difficulty matches BTC)",
+    }
+)
 RELEVANCE_STRICT_BTC_ORPHAN = "strict_btc_orphan"
 RELEVANCE_WEAK_BTC_ORPHAN = "weak_btc_orphan"
 RELEVANCE_EXCLUDED = "excluded"
@@ -470,9 +474,9 @@ RELEVANCE_EXCLUDED = "excluded"
 # is extended. Mirrors the monitor's `pending` horizon semantics.
 RELEVANCE_PENDING = "pending"
 
-# Machine-readable publication contracts shared by the normal exporter and
-# the add-only monitor-evidence preflight. Keep this protocol data in config so
-# metadata consumers do not depend on an exporter implementation module.
+# Machine-readable publication contracts shared by the exporter and the full
+# transactional monitor-evidence validator. Keep this protocol data in config
+# so metadata consumers do not depend on an exporter implementation module.
 MONITOR_VALIDATION_CONTRACTS = {
     "ordinary_monitor_evidence": {
         "profile": "direct_stale_header_context_v1",

@@ -21,7 +21,14 @@ Time rules applied per candidate:
 - `time_below_mtp`: candidate `nTime` <= the canonical parent's
   median-time-past (the `mediantime` of the canonical block at
   `height - 1`). This check is robust: the parent MTP is committed
-  canonical-chain context.
+  canonical-chain context. A confirmed finding must ALSO meet the
+  canonical expected-nBits target at the claimed height (the
+  inventory's `expected_nbits` column, else the committed epoch
+  table at the height's epoch start): a `time_below_mtp` violation
+  whose digest meets only an easy self-declared embedded target is
+  a share/contamination observation, tallied separately as
+  `canonical_target_fail`, never a confirmed error block (the same
+  rule the offline validator enforces).
 - `time_beyond_future_limit`: candidate `nTime` > the canonical
   parent's block `time` + 2h (`MAX_FUTURE_BLOCK_TIME`). Reference
   caveat: Bitcoin's real future bound is network-adjusted time + 2h,
@@ -51,9 +58,10 @@ against it is uninterpretable; those full-PoW rows are tallied as
 - Candidates with full-PoW pass: 1368201
 - Full-PoW candidates with an untrustworthy claimed height (no valid check possible): 1366885
 - `time_below_mtp` violations (trustworthy heights): 0
-- `time_beyond_future_limit` flags (trustworthy heights, approximate reference, manual review): 15 — RESOLVED 2026-07-30: 0 violations, all consistent with late mining (see the follow-up section below)
+- `time_beyond_future_limit` flags (trustworthy heights, approximate reference, manual review): 15
+- `time_below_mtp` observations failing the canonical expected-nBits target (share/contamination, not confirmed): 0
 - Already catalogued in the dataset: 0
-- NEW confirmed error blocks: 0
+- NEW confirmed error blocks: 0 observations across 0 distinct (height, hash) blocks (the same new BTC error block can be witnessed in several sibling-chain inventories)
 
 ## Per-chain results
 
@@ -85,9 +93,9 @@ against it is uninterpretable; those full-PoW rows are tallied as
 - No `time_below_mtp` (time-too-old) violations among trustworthy-height candidates: the 946213 and 957780 class does not recur in these historical classified inventories. The 946213 and 957780 rows themselves are recent (2026) and not present in these historical inventories, so they do not appear here as already-catalogued.
 - 1352175 unknown rows were skipped for lacking a parseable claimed height (no `btc_height`, a malformed value, an implausible value above the canonical tip, or a `btc_height` disagreeing with the decoded BIP34 coinbase height).
 - 1366885 full-PoW candidates carried a non-authoritative claimed height (unknown rows, and the canonical-fill-scratch stale inventories): their `btc_height` is not verified against the canonical chain, so no valid time-rule check is possible. They are negatives, not violations.
-- No NEW confirmed time-rule error blocks promoted: see the future-limit caveat and the review list below. (2026-07-30 follow-up: all 15 flags resolved as late-mined, 0 violations; see below.)
+- No NEW confirmed time-rule error blocks promoted: see the future-limit caveat and the review list below.
 
-## `time_beyond_future_limit` flags (NEEDS_CONTEXT, not promoted — RESOLVED 2026-07-30: 0 violations)
+## `time_beyond_future_limit` flags (NEEDS_CONTEXT, not promoted)
 
 These trustworthy-height rows have `nTime` more than 2h beyond
 the canonical parent's block time. Under Bitcoin's REAL future
@@ -96,9 +104,9 @@ NOT a violation — network-adjusted time tracks the wall clock,
 which is near the block's own `nTime`. The canonical parent time
 is only a neighbor-evidence approximation, so these are reported
 for manual review and are NOT promoted into the dataset. The
-`time_beyond_future_limit` rule is also rejected by the
+`time_beyond_future_limit` rule is also still deferred in the
 offline validator's `TIME_RULES` (it needs a network-adjusted-
-time reference that is not committed, so it fails closed).
+time reference that is not committed).
 
 - height 256558 hash `000000000000000205dcc98671ad7a96cdcdc028bb94b3d4f9922f49ed6319f6` (seen on devcoin|ixcoin) — nTime 7.49h beyond the canonical parent time
 - height 256558 hash `00000000000000097dc0e4c05d2c8d386c5e7f9e378583f712095a17f9a91ce4` (seen on devcoin|ixcoin) — nTime 2.36h beyond the canonical parent time
@@ -112,55 +120,5 @@ time reference that is not committed, so it fails closed).
 Row-level candidate detail remains in the authoritative inventories on
 the chain archive host; this report is the compact committed summary.
 
-## Follow-up investigation (2026-07-30): future-limit flags resolved
-
-The 15 flags above (8 distinct blocks; the devcoin/ixcoin blocks each
-appear in both chains' inventories) were resolved by cross-referencing
-each candidate's `nTime` against the CHILD chain's block time. The
-AuxPoW commitment in a child block is an existence proof: the BTC
-header must have existed by the time the child block that commits to
-it was created. The child block time is therefore an independent
-upper bound on the header's real creation time, and a candidate whose
-`nTime` sits within minutes of that commit time cannot be meaningfully
-future-dated — under the real rule (network-adjusted time + 2h) the
-bound tracks the wall clock, which the commit time approximates.
-
-Method: for each candidate, take the committing child block's time
-and compute delta = btc `nTime` − child block time. A delta within
-±5 minutes is two orders of magnitude below the 7200s future-limit
-threshold and is consistent with ordinary timestamp jitter, not a
-future-limit violation.
-
-Verdict: 0 of the 8 distinct blocks are provable
-`time_beyond_future_limit` violations. All 8 are consistent with late
-mining — the header was genuinely created after the canonical winner
-for its height, which is exactly why it is stale — and NONE were
-promoted to the dataset. Even the extreme case, unobtanium 379924
-(`011bf0d4`, 125.22h beyond the canonical parent time), was genuinely
-created ~125h after the canonical winner and committed 152s before
-its own `nTime`: a very late block, not a future-dated one.
-
-| height | hash (prefix) | seen on | delta = btc `nTime` − child block time |
-|---|---|---|---|
-| 256558 | `05dcc986` | devcoin / ixcoin | +252s / +123s |
-| 256558 | `97dc0e4c` | devcoin / ixcoin | +99s / +131s |
-| 256558 | `2dfbdd2e` | devcoin / ixcoin | +4s / −30s |
-| 261419 | `15a6ab8f` | devcoin / ixcoin | +41s / +42s |
-| 297835 | `07b28cb1` | devcoin / ixcoin | −290s / −129s |
-| 297835 | `53b3fce4` | devcoin / ixcoin | +290s / +90s |
-| 297835 | `64cb2f55` | devcoin / ixcoin | +149s / +270s |
-| 379924 | `011bf0d4` | unobtanium | +152s |
-
-All deltas are within ±5 minutes (max 290s).
-
-Category boundary this establishes: `time_beyond_future_limit` is NOT
-mechanically re-checkable from committed evidence alone, because
-Bitcoin's real bound is network-adjusted time + 2h and
-network-adjusted time is not reconstructable offline. The one
-exception is when child-chain commit-time evidence shows the `nTime`
-more than 2h beyond the commit time itself — the commit-time upper
-bound makes that a provable violation. None of these candidates came
-close. By contrast, `time_below_mtp` IS mechanically re-checkable:
-the parent's median-time-past is committed canonical-chain context.
-This is why the dataset contains two `time_below_mtp` rows (946213 and
-957780) but no `time_beyond_future_limit` rows.
+The authored resolution of the future-limit flags is maintained at
+[docs/error-blocks.md#future-limit-follow-up-investigation](../../../docs/error-blocks.md#future-limit-follow-up-investigation).

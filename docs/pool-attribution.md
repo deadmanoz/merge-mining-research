@@ -51,7 +51,11 @@ not include census rows.)
 `tag_stale_blocks` then labels each record, preferring a raw block from the
 fetched census clone's `blocks/` directory where one archives a header we
 witnessed, and otherwise using the carried AuxPoW coinbase
-fields. RSK rows enter tagging untagged like every other record (their loader
+fields. Legacy decoded-address projections remain semantic recipient claims
+rather than being promoted to exact P2PKH scripts. They can therefore match a
+registry P2PKH address when the recovered output was either P2PKH or P2PK,
+while exact P2SH and witness targets remain distinct. RSK rows enter tagging
+untagged like every other record (their loader
 returns header identity only); the historical registry label is joined
 afterwards: any merged row whose `(height, hash)` matches an accepted RSK
 stale observation and whose coinbase evidence produced no attribution

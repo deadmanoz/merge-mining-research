@@ -68,6 +68,7 @@ from pathlib import Path
 
 from . import stale_blocks as _stale_loaders
 from .config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
     BLOCKS_DIR,
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
@@ -77,7 +78,7 @@ from .config import (
     PROJECT_ROOT,
     RESULTS_DIR,
     RSK_CSV,
-    STALE_DESCENDANT_CORRECTIONS_CSV,
+    STALE_DESCENDANT_OBSERVATIONS_CSV,
     STALE_DESCENDANTS_CSV,
     STALE_DIR,
     VALIDATED_STALES_DIR,
@@ -190,7 +191,9 @@ def apply_rsk_historical_labels(stale: list[dict]) -> None:
         for row in csv.DictReader(f):
             if row.get("classification") != "stale":
                 continue
-            if not (row.get("validation_status") or "").startswith("VALID"):
+            if (
+                row.get("validation_status") or ""
+            ) not in ACCEPTED_STALE_VALIDATION_STATUSES:
                 continue
             label = (row.get("pool_label") or "").strip()
             # The registry column uses the literal sentinel "Unknown" for
@@ -326,7 +329,8 @@ def _repository_input_files() -> list[Path]:
     """The repository files whose content shapes the export.
 
     Data side: every committed loader CSV, the stale descendants and their
-    correction overlay, and the error-blocks exclusion inputs. Code side:
+    stale-descendant observation ledger, and the error-blocks exclusion inputs.
+    Code side:
     every module in this package. Two runs with the same commit but
     different local edits to any of these can produce different labels, so
     the sidecar fingerprints their content rather than relying on the
@@ -335,7 +339,7 @@ def _repository_input_files() -> list[Path]:
     files = sorted(VALIDATED_STALES_DIR.glob("*.csv"))
     files += [
         STALE_DESCENDANTS_CSV,
-        STALE_DESCENDANT_CORRECTIONS_CSV,
+        STALE_DESCENDANT_OBSERVATIONS_CSV,
         ERROR_BLOCKS_CSV,
         ERROR_BLOCKS_MTP_CONTEXT_CSV,
     ]
@@ -347,12 +351,16 @@ def _repository_input_files() -> list[Path]:
 
 
 def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
-    """SHA-256 over the repository files the export consumes."""
+    """SHA-256 over every repository file the export consumes.
+
+    Fixed publication inputs must remain present between the preflight guard
+    and provenance capture. Missing files therefore fail instead of silently
+    disappearing from the digest.
+    """
     h = hashlib.sha256()
     for f in files if files is not None else _repository_input_files():
-        if f.exists():
-            h.update(f.name.encode())
-            h.update(f.read_bytes())
+        h.update(f.name.encode())
+        h.update(f.read_bytes())
     return h.hexdigest()
 
 
@@ -480,6 +488,8 @@ def require_committed_inputs() -> None:
     ]
     if not STALE_DESCENDANTS_CSV.exists():
         missing.append(STALE_DESCENDANTS_CSV)
+    if not STALE_DESCENDANT_OBSERVATIONS_CSV.exists():
+        missing.append(STALE_DESCENDANT_OBSERVATIONS_CSV)
     if not missing:
         # Presence is not enough: a zero-byte or header-truncated CSV
         # yields no rows and is indistinguishable in the export from a

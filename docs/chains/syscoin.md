@@ -23,7 +23,7 @@ Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin
 
 **Provenance.** Chain data under `<chain-data-dir>` on `<archival-host>` (config in `~/.syscoin/`). Standard `txindex=1` + RPC config. Default P2P 8369 / RPC 8370. Bitcoin Core on `<archival-host>` provided the BTC RPC for classification.
 
-**Coverage.** Validated stales span BTC heights **585,083 → 939,150** (Jul 2019 → Mar 2026) and SYS heights **62,165 → 2,197,798**. The window starts ~6,000 BTC blocks after Syscoin chain 2's genesis (Jun 2019, BTC ~579,000) and continues through to recent blocks.
+**Coverage.** Validated stales span BTC heights **585,083 → 944,852** (Jul 2019 → Apr 2026) and SYS heights **62,165 → 2,220,906**. The window starts ~6,000 BTC blocks after Syscoin chain 2's genesis (Jun 2019, BTC ~579,000) and continues through to recent blocks.
 
 **Holes.**
 
@@ -57,7 +57,7 @@ Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin
 | `stale` | 99 raw; 98 committed after `nBits` validation |
 | **Total** | **116,994** |
 
-The one rejected stale candidate is BTC 717,696 (SYS 1,336,057, Jan 2022) - the first block of difficulty epoch 356, whose header carries the previous epoch's target (`nBits` `170b98ab` vs expected `170b8c8b`). Emercoin's set rejects a BTC 717,696 candidate with the same `nBits` mismatch (emercoin.md §3). The 18,282-row unknown tail is mid-sized for the integrated set - larger than Namecoin's 7,841, well below Devcoin's 75,141 or Argentum's 634,277. Syscoin's recovery window (2019-06 onward) post-dates the Namecoin-family era discussed in Namecoin's [private research boundary](namecoin.md#private-research-boundary).
+The one rejected stale candidate is BTC 717,696 (SYS 1,336,057, Jan 2022) - the first block of difficulty epoch 356, whose header carries the previous epoch's target (`nBits` `170b98ab` vs expected `170b8c8b`). Emercoin's set rejects a BTC 717,696 candidate with the same `nBits` mismatch (emercoin.md §3). The 18,282-row unknown tail is mid-sized for the integrated set - larger than Namecoin's 7,843, well below Devcoin's 75,141 or Argentum's 634,277. Syscoin's recovery window (2019-06 onward) post-dates the Namecoin-family era discussed in Namecoin's [private research boundary](namecoin.md#private-research-boundary).
 
 **Chain-specific quirks.**
 
@@ -71,13 +71,16 @@ The one rejected stale candidate is BTC 717,696 (SYS 1,336,057, Jan 2022) - the 
 **Loader filter** (`load_syscoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
-The `VALID` gate is unconditional and fails closed - rows without a
-`VALID`-prefixed `validation_status` never load. The shared loader also
-applies the exact-key error-blocks exclusion gate
-(`data/error-blocks/error_blocks.csv`; no syscoin rows at present). 98 entries pass.
+The exact status gate is unconditional and fails closed: only `VALID` and
+`VALID (post-BCH, difficulty matches BTC)` load. The shared loader also
+applies the exact-key error-blocks exclusion gate. No accepted Syscoin loader
+row overlaps the gate. 98 entries pass.
 
 **Post-filter count: 98 accepted direct-stale header candidates.**
 
@@ -103,10 +106,10 @@ Syscoin is 21st chronologically. Earlier-born integrated chains now include Name
 | Split | Count |
 |---|---:|
 | also in upstream | 83 |
-| also in earlier-born chain (`namecoin`: 52, `emercoin`: 15, `rsk`: 12, `elastos`: 10, `xaya`: 5 - first-claim distribution) | 94 |
+| also in earlier-born chain (`namecoin`: 67, `emercoin`: 14, `rsk`: 12, `elastos`: 1, `xaya`: 1 - first-claim distribution) | 95 |
 | **novel at this position** | **1** |
 
-Three rows are upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 98. Namecoin, Emercoin, RSK, Elastos, and Xaya contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
+Two rows are upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 98. Namecoin, Emercoin, RSK, Elastos, and Xaya contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
 
 - **BTC 751,763** (`0000000000000000000993e1c4ab09844605bbec0b810e70beb0c364312bce86`, Aug 2022) - not in upstream `bitcoin-data/stale-blocks`, and not in any chronologically-earlier integrated chain's validated set.
 
@@ -128,7 +131,7 @@ Three rows are upstream-only (in upstream but first-claimed by no earlier-born c
 **External references.**
 
 - `docs/auxpow-recovery.md` - cross-chain summary table (Syscoin row at chronological position 21).
-- `chainz.cryptoid.info/sys-old/` - former archive of Syscoin chain 1 (May 2016 → Jun 2019); dead as of 2026-07 ("hosting expired"). The current-chain page `chainz.cryptoid.info/sys/` remains live.
+- `chainz.cryptoid.info/sys-old/` - defunct archive of Syscoin chain 1 (May 2016 → Jun 2019); dead as of 2026-07 ("hosting expired"). The current-chain page `chainz.cryptoid.info/sys/` remains live.
 
 **Remaining work.**
 

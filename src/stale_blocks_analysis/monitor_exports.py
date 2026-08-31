@@ -8,11 +8,20 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
+from .auxpow_parse import CHILD_HEADER_FIELDS, validate_child_header_fields
+from .coinbase_output_claims import (
+    merge_coinbase_output_claim_sets,
+    parse_coinbase_output_claims,
+    render_coinbase_output_claims,
+)
 from .config import (
+    ACCEPTED_STALE_VALIDATION_STATUSES,
+    BIP34_HEIGHT,
     CHAIN_SPECS,
     MONITOR_VALIDATION_CONTRACTS,
     RELEVANCE_STRICT_BTC_ORPHAN,
@@ -33,13 +42,13 @@ from .evidence_normalization import (
     SourceStats,
     canonical_evidence_status,
     collect_source_rows,
-    dedupe_canonical_companion_rows,
     enforce_unknown_split_contract,
     int_or_none,
     is_hash,
     merge_stats,
     normalize_hash,
     note_child_height_availability,
+    parse_header_fields,
     safe_path,
     write_csv,
 )
@@ -48,11 +57,11 @@ from .evidence_sources import (
     discover_canonical_sources,
     discover_evidence_sources,
     discover_unknown_sources,
-    stale_descendant_source,
+    stale_descendant_parent_verdict_source,
 )
-from .stale_blocks import (
-    load_stale_descendant_correction_keys,
-    load_stale_descendant_observation_keys,
+from .stale_descendants import (
+    load_stale_descendant_observations,
+    load_stale_descendant_parents,
 )
 
 MONITOR_OUTPUT_DIR = RESULTS_DIR / "monitor-evidence"
@@ -99,9 +108,25 @@ MONITOR_COUNT_FIELDS = [
     "notes",
 ]
 
+_STRICT_HEIGHT_SOURCES = frozenset({"coinbase_bip34_height", "btc_bip34_height"})
+_ORPHAN_RELEVANCE_REASONS = {
+    RELEVANCE_STRICT_BTC_ORPHAN: "strict_height_nbits_match",
+    RELEVANCE_WEAK_BTC_ORPHAN: "timestamp_epoch_nbits_match",
+}
 
-def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, tuple[str, str]]:
-    """Map ``btc_header_hash`` -> (bucket, reason) for strict/weak orphans.
+
+@dataclass(frozen=True, slots=True)
+class MonitorVerdict:
+    """Final relevance verdict plus its authenticated strict Bitcoin height."""
+
+    bucket: str
+    reason: str
+    btc_height: int | None = None
+    strict_height_source: str = ""
+
+
+def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, MonitorVerdict]:
+    """Map ``btc_header_hash`` to an authenticated strict/weak verdict.
 
     Reads the relevance inventory produced by
     ``scripts/analysis/classify_btc_stale_relevance.py``. Only the
@@ -111,40 +136,93 @@ def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, tuple[str, st
     The verdict is per header: the same header observed by several chains
     can carry different per-row verdicts (evidence quality differs by
     source), and the strongest wins — a strict verdict from any observing
-    chain beats a weak one, and the first row of the winning bucket is
-    kept so regeneration is deterministic.
+    chain beats a weak one, and the first row of the winning bucket is kept so
+    regeneration is deterministic. Every strict verdict must carry the exact
+    Bitcoin height and recognized height-evidence source authenticated by the
+    relevance classifier. Conflicting strict heights for one parent fail
+    closed. Weak verdicts retain their timestamp-only semantics and never
+    project a height from this join.
     """
     if path is None or not path.exists():
         return {}
-    verdicts: dict[str, tuple[str, str]] = {}
+    verdicts: dict[str, MonitorVerdict] = {}
     with path.open(newline="") as f:
-        for row in csv.DictReader(f):
-            bucket = (row.get("btc_stale_relevance") or "").strip()
+        for row_number, row in enumerate(csv.DictReader(f), start=2):
+            raw_bucket = row.get("btc_stale_relevance") or ""
+            bucket = raw_bucket.strip()
             if bucket not in (
                 RELEVANCE_STRICT_BTC_ORPHAN,
                 RELEVANCE_WEAK_BTC_ORPHAN,
             ):
                 continue
+            if raw_bucket != bucket:
+                raise ValueError(f"{path}:{row_number}: relevance bucket is not exact")
             block_hash = normalize_hash(row.get("btc_header_hash"))
             if not is_hash(block_hash):
                 continue
+            raw_reason = row.get("relevance_reason") or ""
+            reason = raw_reason.strip()
+            if raw_reason != reason or reason != _ORPHAN_RELEVANCE_REASONS[bucket]:
+                raise ValueError(
+                    f"{path}:{row_number}: {bucket} relevance reason is not exact"
+                )
+            if bucket == RELEVANCE_STRICT_BTC_ORPHAN:
+                raw_height = row.get("btc_height") or ""
+                height = int_or_none(raw_height)
+                raw_height_source = row.get("strict_height_source") or ""
+                height_source = raw_height_source.strip()
+                if (
+                    raw_height != raw_height.strip()
+                    or not raw_height.isascii()
+                    or not raw_height.isdigit()
+                    or height is None
+                    or height < BIP34_HEIGHT
+                    or str(height) != raw_height
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: strict relevance verdict lacks an "
+                        "exact post-BIP34 Bitcoin height"
+                    )
+                if (
+                    raw_height_source != height_source
+                    or height_source not in _STRICT_HEIGHT_SOURCES
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: strict relevance verdict has an "
+                        "unauthenticated height source"
+                    )
+                candidate = MonitorVerdict(
+                    bucket=bucket,
+                    reason=reason,
+                    btc_height=height,
+                    strict_height_source=height_source,
+                )
+            else:
+                candidate = MonitorVerdict(bucket=bucket, reason=reason)
             existing = verdicts.get(block_hash)
-            if existing is not None and (
-                existing[0] == RELEVANCE_STRICT_BTC_ORPHAN or bucket == existing[0]
-            ):
-                continue
-            verdicts[block_hash] = (
-                bucket,
-                (row.get("relevance_reason") or "").strip(),
-            )
+            if existing is not None:
+                if (
+                    existing.bucket == RELEVANCE_STRICT_BTC_ORPHAN
+                    and candidate.bucket == RELEVANCE_STRICT_BTC_ORPHAN
+                    and existing.btc_height != candidate.btc_height
+                ):
+                    raise ValueError(
+                        f"{path}:{row_number}: strict relevance verdict conflicts "
+                        f"with the Bitcoin height already recorded for {block_hash}"
+                    )
+                if (
+                    existing.bucket == RELEVANCE_STRICT_BTC_ORPHAN
+                    or candidate.bucket == existing.bucket
+                ):
+                    continue
+            verdicts[block_hash] = candidate
     return verdicts
 
 
 def monitor_verdict(
     row: dict[str, str],
-    orphan_verdicts: dict[str, tuple[str, str]],
-    descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
-) -> tuple[str, str] | None:
+    orphan_verdicts: dict[str, MonitorVerdict],
+) -> MonitorVerdict | None:
     """Final-category verdict for a normalized evidence row; None drops it.
 
     Canonical rows carry an empty relevance (the relevance layer refines
@@ -153,55 +231,45 @@ def monitor_verdict(
     a confirmed row already restates its VALID verdict on the primary
     `classification`/`validation_status` axes, so the derived axis is left
     empty and only the `relevance_reason` records the confirmation.
-    Unknown-classified rows survive when the accepted stale-descendant sidecar
-    identifies the same source-chain observation, or with a strict/weak verdict
-    from the relevance inventory. The caller projects the accepted sidecar's
-    ``VALID_STALE_DESCENDANT`` verdict onto the published source observation.
-    Near, rejected, and everything else is dropped.
+    Unknown-classified rows survive only with a strict/weak verdict from the
+    relevance inventory. Accepted descendants already arrive as final rows from
+    the canonical observation ledger.
     """
     classification = str(row.get("classification", ""))
     status = str(row.get("validation_status", "")).strip()
     if classification == "canonical":
-        return "", ""
+        return MonitorVerdict("", "")
     if classification == "stale":
         # A stale row without a persisted VALID verdict (empty status in a
         # pre-gate archive inventory, or any REJECTED/UNKNOWN form) is not
         # admissible monitor evidence — the committed validated files are
         # the arbiter of which stales carry a gate verdict.
-        if not status.startswith("VALID"):
+        if status not in ACCEPTED_STALE_VALIDATION_STATUSES:
             return None
-        return "", "valid_direct_stale"
+        return MonitorVerdict("", "valid_direct_stale")
     if classification == "stale_descendant":
         if status != "VALID_STALE_DESCENDANT":
             return None
-        return "", "valid_stale_descendant"
+        return MonitorVerdict("", "valid_stale_descendant")
     if classification == "unknown":
-        height = int_or_none(row.get("btc_height"))
-        observation_key = (
-            str(row.get("chain", "")),
-            height,
-            normalize_hash(row.get("btc_header_hash")),
-        )
-        if observation_key in descendant_observations:
-            return "", "valid_stale_descendant"
         return orphan_verdicts.get(normalize_hash(row.get("btc_header_hash")))
     return None
 
 
 def _monitor_rows_and_counts(
     rows: list[dict[str, str]],
-    orphan_verdicts: dict[str, tuple[str, str]],
+    orphan_verdicts: dict[str, MonitorVerdict],
     *,
     include_canonical: bool = True,
-    descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
 ) -> tuple[list[dict[str, str]], Counter[str]]:
     """Filter normalized rows to the monitor-facing set and tally categories.
 
     Keeps canonical rows (unless ``include_canonical`` is False), VALID
     stales and descendants (with an empty derived relevance and a
     ``valid_direct_stale``/``valid_stale_descendant`` reason), and unknown
-    rows represented by an accepted descendant or carrying a strict/weak
-    verdict; everything else is dropped. Each kept row gains the
+    rows carrying a strict/weak verdict; everything else is dropped. Accepted
+    descendant witnesses arrive as final rows from the canonical observation
+    ledger. Each kept row gains the
     ``btc_stale_relevance`` / ``relevance_reason`` columns the monitor parses.
     The counter uses ``stale_descendant`` for admitted source observations,
     primary classification for canonical/stale rows, and bucket for
@@ -210,7 +278,7 @@ def _monitor_rows_and_counts(
     kept: list[dict[str, str]] = []
     counts: Counter[str] = Counter()
     for row in rows:
-        verdict = monitor_verdict(row, orphan_verdicts, descendant_observations)
+        verdict = monitor_verdict(row, orphan_verdicts)
         if verdict is None:
             continue
         classification = str(row.get("classification", ""))
@@ -218,18 +286,27 @@ def _monitor_rows_and_counts(
             # Compact configuration: canonical rows (whether from companion
             # files or retained in-file) are sized and published separately.
             continue
-        bucket, reason = verdict
+        bucket = verdict.bucket
+        reason = verdict.reason
         out = dict(row)
-        if reason == "valid_stale_descendant" and classification == "unknown":
-            # The source classification remains provenance, while the accepted
-            # descendant sidecar supplies the publication validation verdict.
-            out["validation_status"] = "VALID_STALE_DESCENDANT"
+        if bucket == RELEVANCE_STRICT_BTC_ORPHAN:
+            assert verdict.btc_height is not None
+            raw_height = (out.get("btc_height") or "").strip()
+            existing_height = int_or_none(raw_height)
+            if raw_height and existing_height != verdict.btc_height:
+                source_path = out.get("source_path") or "<unknown-source>"
+                source_row = out.get("source_row_number") or "?"
+                raise ValueError(
+                    f"{source_path}:{source_row}: source Bitcoin height "
+                    f"{raw_height!r} conflicts with authenticated strict relevance "
+                    f"height {verdict.btc_height}"
+                )
+            if not raw_height:
+                out["btc_height"] = str(verdict.btc_height)
         out["btc_stale_relevance"] = bucket
         out["relevance_reason"] = reason
         kept.append(out)
-        if reason == "valid_stale_descendant" and classification == "unknown":
-            counts["stale_descendant"] += 1
-        elif bucket in (RELEVANCE_STRICT_BTC_ORPHAN, RELEVANCE_WEAK_BTC_ORPHAN):
+        if bucket in (RELEVANCE_STRICT_BTC_ORPHAN, RELEVANCE_WEAK_BTC_ORPHAN):
             counts[bucket] += 1
         else:
             counts[classification] += 1
@@ -262,6 +339,259 @@ def monitor_count_row(
         "canonical_evidence_status": canonical_evidence_status(source, stats),
         "notes": notes,
     }
+
+
+def _stale_descendant_evidence_rows(
+    data_dir: Path,
+) -> dict[str, list[dict[str, str]]]:
+    """Project the accepted witness ledger into normalized evidence rows.
+
+    The ledger is the sole witness/provenance interface. Source bucket names
+    remain audit metadata there, while every projected row carries the final
+    accepted stale-descendant verdict. A raw archive copy can collapse into a
+    ledger row only after child-identity hydration proves the same event and
+    semantic reconciliation preserves every evidence claim.
+    """
+    parents_path = data_dir / "stale_descendants.csv"
+    observations_path = data_dir / "stale_descendant_observations.csv"
+    parents = load_stale_descendant_parents(parents_path, data_dir=data_dir)
+    observations = load_stale_descendant_observations(
+        observations_path,
+        parents_path=parents_path,
+        data_dir=data_dir,
+    )
+    by_chain: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for observation in observations:
+        parent = parents[(observation.parent_height, observation.parent_hash)]
+        parent_row = parent.row
+        parsed_parent = parse_header_fields(parent_row["btc_header_hex"])
+        row = {field: "" for field in EVIDENCE_FIELDS}
+        row.update(
+            {
+                "chain": observation.chain,
+                "source_kind": "stale_descendant_observation_ledger",
+                "source_path": observation.row["source_path"],
+                "source_row_number": observation.row["source_row_number"],
+                "artifact_scope": "accepted_stale_descendant_observation",
+                "provenance": observation.row["provenance"],
+                "child_height": str(observation.child_height),
+                "child_block_hash": observation.child_hash,
+                "child_header_hex": observation.row["child_header_hex"],
+                "child_block_time": observation.row["child_block_time"],
+                "child_nbits": observation.row["child_nbits"],
+                "btc_height": str(parent.height),
+                "btc_header_hash": parent.block_hash,
+                "btc_prev_hash": parent_row.get("btc_prev_hash", ""),
+                "btc_time": parent_row.get("btc_time", ""),
+                "btc_bits": parent_row.get("btc_bits", ""),
+                "btc_nonce": parsed_parent.get("nonce", ""),
+                "btc_header_hex": parent_row["btc_header_hex"],
+                "coinbase_scriptsig_hex": parent_row.get("coinbase_scriptsig_hex", ""),
+                "coinbase_outputs": parent_row.get("coinbase_outputs", ""),
+                "classification": "stale_descendant",
+                "validation_status": "VALID_STALE_DESCENDANT",
+                "expected_nbits": parent_row.get("expected_nbits", ""),
+            }
+        )
+        by_chain[observation.chain].append(row)
+    for rows in by_chain.values():
+        rows.sort(
+            key=lambda row: (
+                int(row["btc_height"]),
+                row["btc_header_hash"],
+                int(row["child_height"]),
+                row["child_block_hash"],
+            )
+        )
+    return dict(by_chain)
+
+
+_EVENT_SOURCE_FIELDS = frozenset(
+    {
+        "source_kind",
+        "source_path",
+        "source_row_number",
+        "artifact_scope",
+        "provenance",
+    }
+)
+_EVENT_VERDICT_FIELDS = frozenset(
+    {
+        "classification",
+        "validation_status",
+        "rejection_reason",
+        "btc_stale_relevance",
+        "relevance_reason",
+    }
+)
+
+
+def _decrement_stats_for_merged_row(stats: SourceStats, row: dict[str, str]) -> None:
+    """Remove one redundant physical row from final source accounting."""
+    stats.source_rows -= 1
+    classification = row.get("classification", "")
+    stats.classifications[classification] -= 1
+    if (row.get("validation_status") or "").upper().startswith("REJECTED"):
+        stats.rejected -= 1
+    if classification == "malformed":
+        stats.malformed -= 1
+    if classification not in {
+        "canonical",
+        "stale",
+        "unknown",
+        "stale_descendant",
+        "near",
+    }:
+        stats.other -= 1
+    if not row.get("btc_header_hex"):
+        stats.missing_btc_header_hex -= 1
+    if not row.get("coinbase_scriptsig_hex"):
+        stats.missing_coinbase_scriptsig_hex -= 1
+    if not row.get("coinbase_outputs"):
+        stats.missing_coinbase_outputs -= 1
+
+
+def _publication_row_rank(
+    row: dict[str, str],
+    orphan_verdicts: dict[str, MonitorVerdict],
+) -> int:
+    """Rank one admissible final verdict for exact-event reconciliation."""
+    verdict = monitor_verdict(row, orphan_verdicts)
+    if verdict is None:
+        return -1
+    if verdict.bucket == RELEVANCE_WEAK_BTC_ORPHAN:
+        return 0
+    if verdict.bucket == RELEVANCE_STRICT_BTC_ORPHAN:
+        return 1
+    return {
+        "canonical": 2,
+        "stale": 3,
+        "stale_descendant": 4,
+    }.get(row.get("classification", ""), -1)
+
+
+def _merge_authenticated_child_event_rows(
+    rows: list[dict[str, str]],
+    stats: SourceStats,
+    orphan_verdicts: dict[str, MonitorVerdict],
+) -> tuple[list[dict[str, str]], int]:
+    """Collapse only semantically compatible copies of one child event.
+
+    A validated 80-byte child header authenticates the chain-local event hash.
+    Rows without that complete bundle stay distinct, so sparse source evidence
+    can never be deleted by parent-hash matching. Duplicate hashes must agree
+    on every populated child height and Bitcoin parent. The strongest final
+    classification wins, while every populated evidence fact from every copy
+    is retained or required to agree. Coinbase outputs use the shared semantic
+    claim merger rather than raw-string equality.
+    """
+
+    def authenticates_event(row: dict[str, str]) -> bool:
+        height = int_or_none(row.get("child_height"))
+        if row.get("source_kind") in {
+            "validated_stales",
+            "stale_descendant_observation_ledger",
+        }:
+            return height is not None and height >= 0
+        if not all((row.get(field) or "").strip() for field in CHILD_HEADER_FIELDS):
+            return False
+        chain_spec = CHAIN_SPECS.get(row.get("chain", ""))
+        validate_child_header_fields(
+            row,
+            nbits_from_header=(
+                chain_spec.child_nbits_from_header if chain_spec else True
+            ),
+        )
+        return True
+
+    authenticated_hashes = {
+        normalize_hash(row.get("child_block_hash"))
+        for row in rows
+        if is_hash(normalize_hash(row.get("child_block_hash")))
+        and authenticates_event(row)
+    }
+    merged_rows: list[dict[str, str]] = []
+    index_by_child_hash: dict[str, int] = {}
+    merged_count = 0
+    evidence_fields = tuple(
+        field
+        for field in (*EVIDENCE_FIELDS, *RSK_SIDECAR_EXPORT_FIELDS)
+        if field
+        not in {
+            *_EVENT_SOURCE_FIELDS,
+            *_EVENT_VERDICT_FIELDS,
+            "coinbase_outputs",
+        }
+    )
+    for row in rows:
+        chain = row.get("chain", "")
+        child_hash = normalize_hash(row.get("child_block_hash"))
+        child_height = int_or_none(row.get("child_height"))
+        if child_hash not in authenticated_hashes:
+            merged_rows.append(row)
+            continue
+        if child_height is not None and child_height < 0:
+            raise ValueError(f"{chain}: child event {child_hash} has negative height")
+        previous_index = index_by_child_hash.get(child_hash)
+        if previous_index is None:
+            index_by_child_hash[child_hash] = len(merged_rows)
+            merged_rows.append(row)
+            continue
+
+        previous = merged_rows[previous_index]
+        previous_height = int_or_none(previous.get("child_height"))
+        if (
+            previous_height is not None
+            and child_height is not None
+            and previous_height != child_height
+        ):
+            raise ValueError(
+                f"{row.get('chain')}: child event {child_hash} has conflicting "
+                f"heights {previous_height} and {child_height}"
+            )
+        previous_parent = normalize_hash(previous.get("btc_header_hash"))
+        current_parent = normalize_hash(row.get("btc_header_hash"))
+        if previous_parent != current_parent:
+            raise ValueError(
+                f"{row.get('chain')}: child event {child_hash} is attributed to "
+                f"two Bitcoin parents ({previous_parent}, {current_parent})"
+            )
+
+        previous_rank = _publication_row_rank(previous, orphan_verdicts)
+        current_rank = _publication_row_rank(row, orphan_verdicts)
+        if current_rank > previous_rank:
+            winner, loser = dict(row), previous
+        else:
+            winner, loser = dict(previous), row
+
+        for field in evidence_fields:
+            winner_value = (winner.get(field) or "").strip()
+            loser_value = (loser.get(field) or "").strip()
+            if winner_value and loser_value and winner_value != loser_value:
+                raise ValueError(
+                    f"{row.get('chain')}: child event {child_hash} has conflicting "
+                    f"{field} evidence"
+                )
+            if not winner_value and loser_value:
+                winner[field] = loser_value
+        winner["coinbase_outputs"] = render_coinbase_output_claims(
+            merge_coinbase_output_claim_sets(
+                parse_coinbase_output_claims(
+                    previous.get("coinbase_outputs") or "",
+                    previous.get("full_coinbase_hex") or "",
+                ),
+                parse_coinbase_output_claims(
+                    row.get("coinbase_outputs") or "",
+                    row.get("full_coinbase_hex") or "",
+                ),
+            )
+        )
+        merged_rows[previous_index] = winner
+        _decrement_stats_for_merged_row(stats, loser)
+        merged_count += 1
+    if merged_count:
+        stats.notes.add(f"merged_duplicate_authenticated_child_events={merged_count}")
+    return merged_rows, merged_count
 
 
 def build_monitor_evidence_exports(
@@ -306,14 +636,11 @@ def build_monitor_evidence_exports(
     namecoin_paths = namecoin_header_candidate_paths(data_dir, chain_archive_dirs)
     child_identity = load_child_identity(data_dir)
     error_blocks_path = data_dir / "error-blocks" / "error_blocks.csv"
+    excluded_error_rows: list[dict[str, str]] | None = (
+        [] if include_error_observations else None
+    )
     orphan_verdicts = load_orphan_relevance_verdicts(relevance_inventory)
-    descendant_observations = load_stale_descendant_observation_keys(
-        data_dir / "stale_descendants.csv"
-    )
-    descendant_correction_keys = load_stale_descendant_correction_keys(
-        data_dir / "stale_descendant_corrections.csv"
-    )
-    represented_descendant_observations: set[tuple[str, int, str]] = set()
+    descendant_rows_by_chain = _stale_descendant_evidence_rows(data_dir)
     inventory_available = bool(orphan_verdicts) or (
         relevance_inventory is not None and relevance_inventory.exists()
     )
@@ -333,10 +660,7 @@ def build_monitor_evidence_exports(
 
         ``validated`` replaces the full inventory's stale rows with the
         committed validated file (the arbiter of gate verdicts); ``companion``
-        merges a canonical-parent companion file, skipping any companion
-        canonical row already carried by the primary inventory (a
-        never-split chain's inventory and companion can overlap; see
-        ``dedupe_canonical_companion_rows``); ``unknown_companion`` merges
+        merges a canonical-parent companion file; ``unknown_companion`` merges
         the split-out ``_unknown_blocks.csv`` and is applied UNCONDITIONALLY --
         after the split the stale inventory has no unknown rows, so a
         conditional merge would silently drop every unknown monitor row and
@@ -350,74 +674,73 @@ def build_monitor_evidence_exports(
             # in source accounting but are omitted from monitor output.
             rows, stats = collect_source_rows(
                 source,
+                data_dir=data_dir,
                 exclude_classifications=frozenset({"stale"}),
-                stale_descendant_observations=descendant_observations,
-                stale_descendant_correction_keys=descendant_correction_keys,
                 error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
             )
             validated_rows, validated_stats = collect_source_rows(
-                validated, error_blocks_path=error_blocks_path
+                validated,
+                data_dir=data_dir,
+                error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
             )
             rows.extend(validated_rows)
             stats = merge_stats(stats, validated_stats)
         else:
             rows, stats = collect_source_rows(
                 source,
-                stale_descendant_observations=descendant_observations,
-                stale_descendant_correction_keys=descendant_correction_keys,
+                data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
             )
         if unknown_companion is not None:
             enforce_unknown_split_contract(source, stats, unknown_companion)
             unknown_rows, unknown_stats = collect_source_rows(
-                unknown_companion, error_blocks_path=error_blocks_path
+                unknown_companion,
+                data_dir=data_dir,
+                error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
             )
             rows.extend(unknown_rows)
             stats = merge_stats(stats, unknown_stats)
-        skipped_canonical = 0
         if companion is not None:
             companion_rows, companion_stats = collect_source_rows(
-                companion, error_blocks_path=error_blocks_path
+                companion,
+                data_dir=data_dir,
+                error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
             )
-            companion_rows, skipped_canonical = dedupe_canonical_companion_rows(
-                rows, companion_rows
-            )
-            if skipped_canonical:
-                companion_stats.source_rows -= skipped_canonical
-                companion_stats.classifications["canonical"] -= skipped_canonical
             rows.extend(companion_rows)
             stats = merge_stats(stats, companion_stats)
+        ledger_rows = descendant_rows_by_chain.get(source.chain, [])
+        if ledger_rows:
+            rows.extend(dict(row) for row in ledger_rows)
+            ledger_stats = SourceStats(source_rows=len(ledger_rows))
+            ledger_stats.classifications["stale_descendant"] = len(ledger_rows)
+            stats = merge_stats(stats, ledger_stats)
+        # Hydrate before exact-event reconciliation so legacy source rows that
+        # carry only a parent hash can acquire their authenticated child event
+        # and refine into a validated-stale or descendant-ledger row. The
+        # identity stats used by the publication gate are recomputed below on
+        # the final kept set, so unadmitted unknown rows do not create false
+        # coverage failures.
+        hydration = hydrate_namecoin_headers(rows, namecoin_paths)
+        hydrate_child_identity(rows, child_identity)
+        rows, _merged_events = _merge_authenticated_child_event_rows(
+            rows,
+            stats,
+            orphan_verdicts,
+        )
         kept, counts = _monitor_rows_and_counts(
             rows,
             orphan_verdicts,
             include_canonical=include_canonical,
-            descendant_observations=descendant_observations,
         )
-        hydration = hydrate_namecoin_headers(kept, namecoin_paths)
         identity_hydration = hydrate_child_identity(kept, child_identity)
         note_child_height_availability(stats, kept)
         if identity_hydration.missing_identity or identity_hydration.height_mismatch:
             identity_shortfalls[source.chain] = identity_hydration
-        if source.chain != "stale-descendants":
-            for row in kept:
-                if row.get("relevance_reason") != "valid_stale_descendant":
-                    continue
-                child_height = int_or_none(row.get("child_height"))
-                if (
-                    child_height is None
-                    or child_height < 0
-                    or not row.get("child_block_hash")
-                    or not row.get("child_block_time")
-                ):
-                    continue
-                height = int_or_none(row.get("btc_height"))
-                observation_key = (
-                    source.chain,
-                    height,
-                    normalize_hash(row.get("btc_header_hash")),
-                )
-                if observation_key in descendant_observations:
-                    represented_descendant_observations.add(observation_key)
         artifact_fields = MONITOR_EVIDENCE_FIELDS
         if source.chain == "rsk":
             artifact_fields = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
@@ -426,6 +749,7 @@ def build_monitor_evidence_exports(
             source.path is not None
             or companion is not None
             or unknown_companion is not None
+            or ledger_rows
         ):
             artifact_path = output_dir / artifact_name
             write_csv(artifact_path, kept, artifact_fields)
@@ -436,10 +760,6 @@ def build_monitor_evidence_exports(
         notes_parts = sorted(stats.notes)
         if stats.classifications.get("unknown", 0) and not inventory_available:
             notes_parts.append("unknown_rows_present_no_relevance_inventory")
-        if skipped_canonical:
-            notes_parts.append(
-                f"skipped_duplicate_canonical_companion_rows={skipped_canonical}"
-            )
         if source.artifact_scope == "partial_canonical_subset":
             notes_parts.append("partial_canonical_subset_not_complete_coverage")
         if hydration.note():
@@ -447,27 +767,7 @@ def build_monitor_evidence_exports(
         if identity_hydration.note():
             notes_parts.append(identity_hydration.note())
         if source.chain == "stale-descendants":
-            # The descendants export aggregates observations from several
-            # chains into chain-less rows and cannot carry one exact child
-            # identity. Report representation only when every corresponding
-            # source-chain observation was actually admitted above.
-            missing_observations = (
-                descendant_observations - represented_descendant_observations
-            )
-            if missing_observations:
-                notes_parts.append("child_identity=deferred_per_observation_recovery")
-                notes_parts.append(
-                    "missing_usable_source_chain_observations="
-                    f"{len(missing_observations)}"
-                )
-            else:
-                notes_parts.append(
-                    "child_identity=represented_by_source_chain_observations"
-                )
-                notes_parts.append(
-                    "represented_source_chain_observations="
-                    f"{len(represented_descendant_observations)}"
-                )
+            notes_parts.append("parent_verdicts_only_witnesses_in_observation_ledger")
         notes = "; ".join(notes_parts)
         reported_artifact_path = (
             logical_output_dir / artifact_name if artifact_path is not None else None
@@ -515,9 +815,9 @@ def build_monitor_evidence_exports(
             continue
         export(canonical_source, f"{chain}_monitor_evidence.csv")
 
-    sidecar = stale_descendant_source(data_dir)
-    if sidecar is not None:
-        export(sidecar, "stale-descendants_monitor_evidence.csv")
+    parent_verdicts = stale_descendant_parent_verdict_source(data_dir)
+    if parent_verdicts is not None:
+        export(parent_verdicts, "stale-descendants_monitor_evidence.csv")
 
     if include_error_observations:
         # Imported lazily to keep the ordinary final-category projection free
@@ -527,9 +827,13 @@ def build_monitor_evidence_exports(
             write_error_observation_artifact,
         )
 
+        assert excluded_error_rows is not None
+        hydrate_namecoin_headers(excluded_error_rows, namecoin_paths)
+        hydrate_child_identity(excluded_error_rows, child_identity)
         error_artifact = write_error_observation_artifact(
             output_dir,
             data_dir=data_dir,
+            source_evidence_rows=excluded_error_rows,
         )
         error_chain = str(error_artifact["artifact"])
         error_path = error_artifact["path"]
@@ -544,10 +848,6 @@ def build_monitor_evidence_exports(
             )
         )
 
-    missing_descendant_observations = (
-        descendant_observations - represented_descendant_observations
-    )
-
     if fail_on_missing_child_identity and identity_shortfalls:
         detail = "; ".join(
             f"{chain}: missing_identity={stats.missing_identity}, "
@@ -559,19 +859,6 @@ def build_monitor_evidence_exports(
             f"importer would silently drop them ({detail}); regenerate "
             "data/child-identity/ with scripts/extract/recover_child_identity.py "
             "or pass --allow-partial for a disposable diagnostic build"
-        )
-    if fail_on_missing_child_identity and missing_descendant_observations:
-        preview = ", ".join(
-            f"{chain}:{height}:{block_hash}"
-            for chain, height, block_hash in sorted(missing_descendant_observations)[:5]
-        )
-        raise ValueError(
-            "accepted stale-descendant source observations are absent from the "
-            "per-chain monitor payloads: "
-            f"{len(missing_descendant_observations)} source observations missing"
-            + (f" (first: {preview})" if preview else "")
-            + "; restore the complete classified source inventories or pass "
-            "--allow-partial for a disposable diagnostic build"
         )
     counts_path = output_dir / "monitor-evidence-counts.csv"
     manifest_json_path = output_dir / "monitor-evidence-manifest.json"

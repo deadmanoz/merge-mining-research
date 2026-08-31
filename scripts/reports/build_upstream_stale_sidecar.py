@@ -8,10 +8,9 @@ import csv
 from collections import Counter
 from pathlib import Path
 
-from stale_blocks_analysis.error_blocks import (
-    load_consensus_invalid_stale_keys,
-    load_stale_exclusion_keys,
-)
+from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
+from stale_blocks_analysis.error_blocks import load_error_block_keys
+from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -32,23 +31,17 @@ def _display_path(path: Path) -> str:
 
 
 def valid_committed_row(row: dict[str, str]) -> bool:
-    """Return True if a committed loader-input row is eligible for the sidecar.
+    """Return True if a committed direct-stale row is eligible for the sidecar.
 
-    A ``stale_descendant`` row qualifies only with
-    ``validation_status == "VALID_STALE_DESCENDANT"``. A ``stale`` row
-    qualifies with an empty status, ``"VALID"``, or any ``"VALID ..."``
-    variant. Every other classification (``canonical``, ``unknown``, etc.) or
-    a non-VALID status is excluded.
+    Descendant parents enter through their canonical loader separately. A
+    direct ``stale`` row qualifies only with one of the exact accepted
+    validation statuses. Every other classification or status is excluded.
     """
     classification = row.get("classification", "")
     status = row.get("validation_status", "")
-    if classification == "stale_descendant":
-        return status == "VALID_STALE_DESCENDANT"
     if classification != "stale":
         return False
-    if status and status != "VALID" and not status.startswith("VALID "):
-        return False
-    return True
+    return status in ACCEPTED_STALE_VALIDATION_STATUSES
 
 
 def row_key_and_header(
@@ -79,7 +72,7 @@ def load_upstream_keys(path: Path) -> set[tuple[int, str]]:
     """
     if not path.exists():
         raise SystemExit(f"upstream stale CSV not found: {path}")
-    excluded = load_consensus_invalid_stale_keys()
+    excluded = load_error_block_keys()
     with path.open(newline="") as f:
         return {
             (int(row["height"]), row["hash"].strip().lower())
@@ -89,54 +82,26 @@ def load_upstream_keys(path: Path) -> set[tuple[int, str]]:
 
 
 def iter_committed_inputs(data_dir: Path):
-    """Yield every committed loader-input CSV under ``data_dir``.
+    """Yield each committed direct-stale loader input under ``data_dir``.
 
-    Every ``*_validated_stales.csv`` (sorted), plus
-    ``rsk_validated_stales.csv`` and ``stale_descendants.csv`` when present.
+    Descendant parents are loaded through ``load_stale_descendant_parents``
+    instead of being treated as another permissive CSV schema.
     """
     yield from sorted(data_dir.glob("validated-stales/*_validated_stales.csv"))
-    for name in [
-        "validated-stales/rsk_validated_stales.csv",
-        "stale_descendants.csv",
-    ]:
-        path = data_dir / name
-        if path.exists():
-            yield path
-
-
-def load_header_cache(paths: list[Path]) -> dict[tuple[int, str], str]:
-    """Build a ``(height, hash) -> header_hex`` cache from prior sidecar-shaped CSVs.
-
-    Used to backfill headers for committed rows that lack
-    ``btc_header_hex``/``header``. The first non-empty header seen for a key
-    wins; missing files are skipped.
-    """
-    cache: dict[tuple[int, str], str] = {}
-    for path in paths:
-        if not path.exists():
-            continue
-        with path.open(newline="") as f:
-            for row in csv.DictReader(f):
-                parsed = row_key_and_header(row)
-                if parsed is None:
-                    continue
-                key, header = parsed
-                if header:
-                    cache.setdefault(key, header)
-    return cache
 
 
 def collect_candidates(
     data_dir: Path,
-    header_cache: dict[tuple[int, str], str],
+    *,
+    upstream_path: Path | None = None,
 ) -> tuple[dict[tuple[int, str], str], dict[str, set[tuple[int, str]]], Counter[str]]:
     """Scan every committed input under ``data_dir`` for VALID sidecar candidates.
 
-    For each ``valid_committed_row``, resolves a header from the row itself
-    or ``header_cache``; rows still missing a header are tracked per source in
-    ``missing_header`` rather than dropped silently. A key seen with two
-    different headers across sources is a warning and the later value is
-    discarded (the first-seen header wins). Returns
+    Direct stales come from their committed per-chain loaders; accepted
+    descendants come from the strict canonical parent loader. Rows missing a
+    header are tracked per source rather than dropped silently. A key seen
+    with two different headers across sources is a warning and the later value
+    is discarded. Returns
     ``(candidates, missing_header, warnings)`` where ``candidates`` maps
     ``(height, hash) -> header_hex`` and ``warnings`` counts each distinct
     warning message.
@@ -144,11 +109,24 @@ def collect_candidates(
     candidates: dict[tuple[int, str], str] = {}
     missing_header: dict[str, set[tuple[int, str]]] = {}
     warnings: Counter[str] = Counter()
-    excluded = load_stale_exclusion_keys()
+    excluded = load_error_block_keys()
+
+    def add_candidate(key: tuple[int, str], header: str | None, source: str) -> None:
+        if key in excluded:
+            return
+        if header is None:
+            missing_header.setdefault(source, set()).add(key)
+            return
+        previous = candidates.get(key)
+        if previous and previous != header:
+            warnings[f"{source}: conflicting header"] += 1
+            return
+        candidates[key] = header
+
     for path in iter_committed_inputs(data_dir):
         source = _display_path(path)
         with path.open(newline="") as f:
-            for row_number, row in enumerate(csv.DictReader(f), start=2):
+            for row in csv.DictReader(f):
                 if not valid_committed_row(row):
                     continue
                 parsed = row_key_and_header(row)
@@ -156,18 +134,21 @@ def collect_candidates(
                     warnings[f"{source}: missing height/hash"] += 1
                     continue
                 key, header = parsed
-                if key in excluded:
-                    continue
-                if header is None:
-                    header = header_cache.get(key)
-                if header is None:
-                    missing_header.setdefault(source, set()).add(key)
-                    continue
-                previous = candidates.get(key)
-                if previous and previous != header:
-                    warnings[f"{source}: conflicting header"] += 1
-                    continue
-                candidates[key] = header
+                add_candidate(key, header, source)
+
+    parents_path = data_dir / "stale_descendants.csv"
+    if parents_path.exists():
+        source = _display_path(parents_path)
+        for parent in load_stale_descendant_parents(
+            parents_path,
+            data_dir=data_dir,
+            upstream_path=upstream_path,
+        ).values():
+            add_candidate(
+                (parent.height, parent.block_hash),
+                parent.row["btc_header_hex"],
+                source,
+            )
     return candidates, missing_header, warnings
 
 
@@ -175,7 +156,6 @@ def build(
     output: Path,
     data_dir: Path,
     upstream_path: Path,
-    header_cache_paths: list[Path],
 ) -> dict[str, int]:
     """Compute and write the upstream-new stale sidecar CSV to ``output``.
 
@@ -184,12 +164,13 @@ def build(
     hash, with columns ``height, hash, header``. A candidate missing a header
     that would otherwise qualify as upstream-new is counted as a warning
     rather than silently dropped. Returns a stats dict:
-    ``{committed_valid_candidates, header_cache_entries, upstream_known,
-    sidecar_rows, warnings}``.
+    ``{committed_valid_candidates, upstream_known, sidecar_rows, warnings}``.
     """
     upstream = load_upstream_keys(upstream_path)
-    header_cache = load_header_cache(header_cache_paths)
-    candidates, missing_header, warnings = collect_candidates(data_dir, header_cache)
+    candidates, missing_header, warnings = collect_candidates(
+        data_dir,
+        upstream_path=upstream_path,
+    )
     for source, keys in missing_header.items():
         needed = [key for key in keys if key not in upstream and key not in candidates]
         if needed:
@@ -211,7 +192,6 @@ def build(
         print(f"warning: {warning}: {count}")
     return {
         "committed_valid_candidates": len(candidates),
-        "header_cache_entries": len(header_cache),
         "upstream_known": len(upstream),
         "sidecar_rows": len(rows),
         "warnings": sum(warnings.values()),
@@ -224,26 +204,12 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--upstream", type=Path, default=UPSTREAM_STALES)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument(
-        "--header-cache",
-        type=Path,
-        action="append",
-        default=[],
-        help=(
-            "Existing height/hash/header CSV to use when compact committed "
-            "inputs lack btc_header_hex. Can be passed multiple times."
-        ),
-    )
     args = parser.parse_args()
-    header_cache_paths = args.header_cache or (
-        [args.output] if args.output.exists() else []
-    )
-    stats = build(args.output, args.data_dir, args.upstream, header_cache_paths)
+    stats = build(args.output, args.data_dir, args.upstream)
     print(
         f"wrote {_display_path(args.output)}: "
         f"{stats['sidecar_rows']:,} upstream-new rows "
         f"from {stats['committed_valid_candidates']:,} committed candidates "
-        f"using {stats['header_cache_entries']:,} cached headers "
         f"({stats['warnings']} warnings)"
     )
 

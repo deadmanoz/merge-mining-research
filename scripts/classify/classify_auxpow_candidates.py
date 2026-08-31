@@ -59,6 +59,9 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     stale_header_context_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args  # noqa: E402
+from stale_blocks_analysis.config import (  # noqa: E402
+    ACCEPTED_STALE_VALIDATION_STATUSES,
+)
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     CHILD_HEADER_FIELDS,
@@ -1116,7 +1119,7 @@ def classify_and_validate(
         }
         entry_list.append(out_row)
         stale_inventory_rows.append((input_index, row, out_row))
-        if evidence_csv is not None and status.startswith("VALID"):
+        if evidence_csv is not None and status in ACCEPTED_STALE_VALIDATION_STATUSES:
             evidence.append((input_index, out_row))
 
         print(

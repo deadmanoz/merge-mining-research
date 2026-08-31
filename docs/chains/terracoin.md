@@ -84,7 +84,10 @@ The 99.95% AuxPoW-density figure is exact at the extraction stage: 2,368,318 Aux
 **Loader filter** (`load_terracoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader parses `coinbase_outputs` ("addr:value|..." with addresses sourced from the legacy plural `scriptPubKey.addresses` field - see §2 "Chain-specific quirks"). All 35 entries pass the filter.

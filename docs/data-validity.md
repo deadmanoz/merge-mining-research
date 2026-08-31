@@ -29,16 +29,15 @@ These are necessary conditions for a valid Bitcoin stale block. They are strong
 evidence that the miner constructed a competing Bitcoin header at that height,
 but they are not sufficient to prove that the complete block was valid.
 
-## What `VALID` does and does not mean
+## What an accepted direct-stale status does and does not mean
 
-`validation_status=VALID` is a legacy, downstream-compatible token. In the
-per-chain CSVs it means **passed the repository's declared direct-stale
-header-context profile**. It must not be read as “full Bitcoin consensus
-validation succeeded.” `VALID (...)` variants have the same scope and add a
-historical diagnostic annotation.
+The only accepted direct-stale statuses are exactly `VALID` and
+`VALID (post-BCH, difficulty matches BTC)`. Either means **passed the
+repository's declared direct-stale header-context profile**. Neither means
+“full Bitcoin consensus validation succeeded.”
 
-Several private intermediate filenames and internal counters retain the
-legacy label `btc_valid` or `btc_difficulty`. In those Phase 1 contexts the
+Several private intermediate filenames and internal counters use the label
+`btc_valid` or `btc_difficulty`. In those Phase 1 contexts the
 label means only that the header hash meets the target encoded in its own
 `nBits`. It does not mean that the header met Bitcoin's contemporaneous target;
 that comparison occurs later through the expected-`nBits` gate.
@@ -69,7 +68,7 @@ blocks. RSK's midstate-compressed proof does not expose the real parent
 coinbase scriptSig, so RSK cannot independently apply the scriptSig-length or
 BIP34-prefix checks.
 
-## Current audit snapshot
+## Published audit
 
 On 20 July 2026, the committed direct-stale inputs were replayed chain by
 chain against Bitcoin Core at active-chain tip 958,882. The audit covered 26
@@ -83,8 +82,10 @@ where the coinbase was available.
 
 On 3 August, source-driven Elastos and Syscoin reclassification added 44
 direct observations, each of which passed the same available-evidence profile
-against Bitcoin Core. The current committed direct set therefore contains
-3,696 observations and 2,133 unique header hashes.
+against Bitcoin Core. The 30 August same-generation Namecoin and Fractal
+refresh added another 33 accepted direct observations under that profile. The
+current committed direct set therefore contains 3,729 observations and 2,137
+unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin has 228 headers
 that are absent from its loader CSV but were hash-verified after hydration into
@@ -98,12 +99,11 @@ full-block consensus replay.
 | Public state | Meaning | Full-block validity claim |
 |---|---|---|
 | `canonical` | Bitcoin Core reports the header on the active chain | Yes for the canonical Bitcoin block identified by Core |
-| `stale` + `VALID*` | Direct-stale header candidate passing the declared profile | No |
-| `stale_descendant` + `VALID_STALE_DESCENDANT` | Header candidate whose recovered ancestry reaches a known stale root and passes its declared gates | No |
+| `stale` + an exact accepted direct-stale status | Direct-stale header candidate passing the declared profile | No |
+| `stale_descendant` + `VALID_STALE_DESCENDANT` | Header candidate whose authenticated ancestry reaches a declared trusted stale root, remains outside the active main chain, and passes its declared gates | No |
 | `unknown` + `strict_btc_orphan` | Core-absent header with strong BIP34-height and Bitcoin-epoch `nBits` evidence | No, and not classified as stale |
 | `unknown` + `weak_btc_orphan` | Core-absent header with weaker timestamp/epoch evidence | No, and not classified as stale |
 | `error_block` | Consensus-invalid full-proof-of-work Bitcoin block catalogued in `data/error-blocks/error_blocks.csv`; the candidate fails at least one necessary Bitcoin rule | Explicitly invalid under the recorded reason |
-| `stale_descendant` single-home (formerly a `direct_stale_only` overlay row) | Candidate must not enter a direct-stale loader but remains accepted as a stale descendant | Depends on the replacement evidence class |
 
 Cross-chain repetition strengthens provenance because independent sibling
 ledgers preserve the same header. It does not upgrade a header candidate into a
@@ -120,51 +120,61 @@ staging preflight is stricter than that importer: it requires the complete
 published schema, canonical lowercase serialized parent headers, authenticated
 parent fields and available child bundles, category/status/relevance contracts,
 duplicate-free confirmed stale identities, and the applicable strict-height or
-weak-timestamp epoch predicates. It also preserves committed ordinary
-identities during add-only updates. These checks still do not replay active
-parent, MTP, coinbase, or other contextual gates, so acceptance confirms the
-upstream publication contract rather than independent full-block validation.
-Add-only updates also require an explicit output directory with an immutable
-ordinary-publication baseline; the command refuses to compare a default output
-directory with itself. Consumers must retain this distinction.
+weak-timestamp epoch predicates. Those ordinary-artifact checks still do not
+replay active-parent, MTP, coinbase, or other contextual gates, so acceptance
+confirms the upstream publication contract rather than independent full-block
+validation.
+
+The error module has a separate complete preflight. It re-derives the declared
+consensus failures, including MTP and coinbase rules, from the canonical 39-row
+catalogue, 86-row observation ledger, and MTP context. The staged error
+aggregate must then match every canonical ledger identity and derived field.
+Any full-coinbase enrichment is parsed and must authenticate the published
+coinbase scriptSig. A release stages all ordinary artifacts, that verified
+error aggregate, counts, and manifest as one transaction.
 
 ## Namecoin release scope
 
-The corrected Namecoin set contains 1,625 distinct direct-stale header
-candidates. All 1,625 have a public header source after monitor-export
-hydration: 1,397 headers are embedded in
+The Namecoin set contains 1,649 distinct direct-stale header
+candidates. All 1,649 have a public header source after monitor-export
+hydration: 1,421 headers are embedded in
 `data/validated-stales/namecoin_validated_stales.csv`, and 228 are supplied by
-`results/monitor-evidence/namecoin_monitor_evidence.csv`. All 1,625 rows retain
+`results/monitor-evidence/namecoin_monitor_evidence.csv`. All 1,649 rows retain
 the parent coinbase scriptSig, but the compact CSV does not retain the complete
 serialized coinbase transaction or its parent-merkle branch.
 
 The pinned upstream `bitcoin-data/stale-blocks` checkout currently carries a
-matching full-block blob for 295 of the 1,625 accepted Namecoin candidates. Its
+matching full-block blob for 319 of the 1,649 accepted Namecoin candidates. Its
 public sanity check confirms that each blob starts with the expected header; it
 does not perform full historical Bitcoin consensus validation, and none of the
-295 blobs has undergone a full consensus replay in this project. The remaining
+319 blobs has undergone a full consensus replay in this project. The remaining
 1,330 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
-The error-blocks dataset records 33 consensus-invalid Namecoin candidates: 21
-fail BIP34's coinbase-height rule, three fail BIP66's minimum block version,
-five fail BIP65's minimum block version, three violate the median-time-past
-rule (380,992 `median_time_past_violation` plus the 946,213 and 957,780
-`time_below_mtp` rows), and one has a 103-byte coinbase scriptSig. A separate
-direct-only correction moves the candidate at Bitcoin height 656,478 out of
-the direct-stale set and into the accepted stale-descendant sidecar because
-its predecessor is a known stale, not an active-chain block.
+The current Namecoin source classification routes 32 consensus-invalid
+candidates to the error-block module: 21 fail BIP34's coinbase-height rule,
+three fail BIP66's minimum block version, five fail BIP65's minimum block
+version, one violates median-time-past at height 380,992, one has a 103-byte
+coinbase scriptSig, and one carries the prior epoch's `nBits` at height 717,696.
+Two additional Namecoin-witnessed live captures at
+946,213 and 957,780 fail `time_below_mtp`, and four ancestry-derived parents
+fail BIP34's coinbase-height rule. Those six do not belong to the direct-stale
+set and do not change its 1,649 accepted plus 32 excluded accounting. Bitcoin
+height 656,478 belongs to the stale-descendant module because its predecessor
+is a trusted stale root, not an active-chain block. The recovered Namecoin
+observation at height 941,882 is also projected through the shared accepted
+descendant verdict.
 
 Accordingly, the defensible public statement for this release is:
 
-> Namecoin preserves 1,625 distinct direct-stale Bitcoin header candidates that
-> pass the declared available-evidence header-context checks. Thirty-three
+> Namecoin preserves 1,649 distinct direct-stale Bitcoin header candidates that
+> pass the declared available-evidence header-context checks. Thirty-two
 > additional candidates are excluded because they fail a necessary Bitcoin
-> rule, and one former direct-stale row is retained separately as an accepted
-> stale descendant. Full Bitcoin block validity has not been established for
-> any of the 1,625 accepted direct candidates.
+> rule, and heights 656,478 and 941,882 have Namecoin observations represented
+> separately as accepted stale descendants. Full Bitcoin block validity has not
+> been established for any of the 1,649 accepted direct candidates.
 
 This validity scope is independent of coverage completeness. Namecoin's source
 snapshot boundary is not recorded in a committed provenance manifest, so the
-1,625-row set is neither a claim of full Bitcoin block validity nor a claim of
+1,649-row set is neither a claim of full Bitcoin block validity nor a claim of
 exhaustive Namecoin-chain recovery.

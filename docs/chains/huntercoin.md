@@ -93,7 +93,10 @@ An earlier diagnostic instead RPC-classified *every* raw row before the PoW filt
 **Loader filter** (`load_huntercoin_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 All 13 entries pass (the committed CSV is VALID-only).
@@ -134,7 +137,7 @@ The 29 self-target-PoW-passing **unknowns-by-our-standard** (parent not in BTC m
 | Huntercoin unknown `parent_hash` ∈ any chain's unknown `prev_hash` | **0 / 29** |
 | Huntercoin unknown `parent_hash` ∈ any chain's unknown inventory | **0 / 29** |
 
-Across all integrated chains' validated-stale sets (`namecoin`, `i0coin`, `ixcoin`, `coiledcoin`, `devcoin`, `unobtanium`, `terracoin`, `elastos`, `syscoin`, `rsk`, plus `bitcoin-data/stale-blocks` upstream) AND the archived unknown inventories (`namecoin_stale_blocks.csv` 7,841 unknowns, `devcoin_unknown_blocks.csv` 75,141 unknowns, `ixcoin_unknown_blocks.csv` 253,974 unknowns, `syscoin_unknown_blocks.csv` 18,282 unknowns, `elastos_unknown_blocks.csv` 9,004 unknowns) - **none** of Huntercoin's 29 unknown hashes appear anywhere. The chain segment is fully isolated to Huntercoin's AuxPoW recording.
+Across all integrated chains' validated-stale sets (`namecoin`, `i0coin`, `ixcoin`, `coiledcoin`, `devcoin`, `unobtanium`, `terracoin`, `elastos`, `syscoin`, `rsk`, plus `bitcoin-data/stale-blocks` upstream) AND the archived unknown inventories (`namecoin_stale_blocks.csv` 7,843 unknowns, `devcoin_unknown_blocks.csv` 75,141 unknowns, `ixcoin_unknown_blocks.csv` 253,974 unknowns, `syscoin_unknown_blocks.csv` 18,282 unknowns, `elastos_unknown_blocks.csv` 9,004 unknowns) - **none** of Huntercoin's 29 unknown hashes appear anywhere. The chain segment is fully isolated to Huntercoin's AuxPoW recording.
 
 **Historical pool-attribution audit (decisive on the H1/H2 question):** an earlier private analysis returned **0 / 29 recognisable BTC pool tags** across the 29 unknown coinbase scriptSigs and outputs, with every row labelled `Unknown`. By contrast, the 13 validated stales were **13 / 13 recognisable** (F2Pool 7, Eligius 4, CloudHashing 2). The table and conclusion are retained as historical research evidence. The current public recovery pipeline does not reproduce this attribution pass. The two populations shared **no pools at all**:
 

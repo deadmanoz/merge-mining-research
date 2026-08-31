@@ -14,13 +14,23 @@ from stale_blocks_analysis.config import DATA_DIR
 from stale_blocks_analysis.error_observations import (
     ERROR_OBSERVATION_FIELDS,
     ERROR_OBSERVATION_LEDGER,
+    ERROR_OBSERVATION_LEDGER_FIELDS,
     RSK_SIDECAR_EXPORT_FIELDS,
     build_error_observation_rows,
+    error_observation_count_row,
     load_error_blocks,
+    validate_error_observation_ledger,
     validate_rsk_sidecar_cells,
 )
-from stale_blocks_analysis.evidence_hydration import load_child_identity
-from stale_blocks_analysis.monitor_exports import MONITOR_EVIDENCE_FIELDS
+from stale_blocks_analysis.evidence_hydration import (
+    ChildIdentityIndex,
+    child_identity_candidates,
+    load_child_identity,
+)
+from stale_blocks_analysis.monitor_exports import (
+    MONITOR_COUNT_FIELDS,
+    MONITOR_EVIDENCE_FIELDS,
+)
 
 
 def _copy_error_observation_inputs(data_dir) -> None:
@@ -33,6 +43,17 @@ def _rewrite_ledger(ledger_path, rows, fieldnames) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _copied_error_ledger(tmp_path):
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    return data_dir, ledger_path, fieldnames, rows
 
 
 def _rewrite_rsk_identity(data_dir, mutate) -> None:
@@ -49,6 +70,23 @@ def _rewrite_rsk_identity(data_dir, mutate) -> None:
         writer.writerows(rows)
 
 
+def _only_identity(
+    identities: ChildIdentityIndex, chain: str, parent_hash: str
+) -> dict[str, str]:
+    candidates = child_identity_candidates(identities, chain, parent_hash)
+    assert len(candidates) == 1
+    return candidates[0]
+
+
+def _has_child_header_identity(
+    identities: ChildIdentityIndex, chain: str, parent_hash: str
+) -> bool:
+    candidates = child_identity_candidates(identities, chain, parent_hash)
+    return len(candidates) == 1 and bool(
+        candidates[0].get("child_header_hex") and candidates[0].get("child_nbits")
+    )
+
+
 def test_catalogue_preserves_an_expected_target_that_differs_from_header_bits() -> None:
     row = next(block for block in load_error_blocks() if block.height == 717696)
 
@@ -58,16 +96,253 @@ def test_catalogue_preserves_an_expected_target_that_differs_from_header_bits() 
 
 def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None:
     rows, inventory = build_error_observation_rows()
-    expected = {
-        (chain, child_height, block.block_hash)
-        for block in load_error_blocks()
-        for chain, child_height in block.observations
-    }
+    blocks, ledger = validate_error_observation_ledger(
+        catalogue_path=DATA_DIR / "error-blocks" / "error_blocks.csv",
+        ledger_path=DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER,
+    )
 
     assert {
-        (row["chain"], int(row["child_height"]), row["btc_header_hash"]) for row in rows
+        (
+            row["chain"],
+            int(row["child_height"]),
+            row["child_block_hash"],
+            row["btc_header_hash"],
+        )
+        for row in rows
+    } == set(ledger)
+    assert inventory["rows"] == len(ledger)
+    assert len(blocks) == 39
+    assert inventory["rows"] == 86
+
+
+def test_error_observation_count_row_has_canonical_publication_shape() -> None:
+    _rows, inventory = build_error_observation_rows()
+
+    count_row = error_observation_count_row(
+        inventory,
+        data_dir=DATA_DIR,
+        artifact_path=DATA_DIR / "error-block-observations_monitor_evidence.csv",
+    )
+
+    assert list(count_row) == MONITOR_COUNT_FIELDS
+
+
+def test_ancestry_derived_error_witnesses_are_exact() -> None:
+    expected = {
+        (
+            "000000000000000010bcbb75dc17fce43da835bd26ccec95ed0d39570a51112a",
+            "devcoin",
+            "163400",
+        ),
+        (
+            "000000000000000010bcbb75dc17fce43da835bd26ccec95ed0d39570a51112a",
+            "ixcoin",
+            "234208",
+        ),
+        (
+            "000000000000000010bcbb75dc17fce43da835bd26ccec95ed0d39570a51112a",
+            "namecoin",
+            "207157",
+        ),
+        (
+            "00000000000000000d610e393ffeed6b9494d54121f05f7a3905f940f0e0cf69",
+            "devcoin",
+            "163402",
+        ),
+        (
+            "00000000000000000d610e393ffeed6b9494d54121f05f7a3905f940f0e0cf69",
+            "ixcoin",
+            "234210",
+        ),
+        (
+            "00000000000000000d610e393ffeed6b9494d54121f05f7a3905f940f0e0cf69",
+            "namecoin",
+            "207159",
+        ),
+        (
+            "000000000000000003a1ce220ae97419cc4bdb5d70b90189b8f8a06b0b37e3a2",
+            "namecoin",
+            "276713",
+        ),
+        (
+            "00000000000000000254ed1e8143f0bcd3c3564db07e7c35631e999d53e81fa7",
+            "namecoin",
+            "296773",
+        ),
+    }
+    with (DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER).open(
+        newline=""
+    ) as handle:
+        rows = [
+            row
+            for row in csv.DictReader(handle)
+            if (row["btc_header_hash"], row["chain"], row["child_height"]) in expected
+        ]
+
+    assert {
+        (row["btc_header_hash"], row["chain"], row["child_height"]) for row in rows
     } == expected
-    assert inventory["rows"] == len(expected)
+    assert len(rows) == 8
+    identities = load_child_identity(DATA_DIR)
+    for row in rows:
+        assert row["btc_height_provenance"] == "ancestry-root-plus-depth"
+        assert row["identity_provenance"] == f"node-verified-rpc:{row['chain']}"
+        assert row["provenance"].startswith(
+            "catalogue:stale-ancestry-reconciliation|observation:"
+        )
+        identity = _only_identity(identities, row["chain"], row["btc_header_hash"])
+        assert identity["verification"] == (
+            "node-verified-rpc+source-row-authenticated-child-header"
+        )
+        assert identity["note"].startswith(
+            f"node-verified-rpc:{row['chain']};source-row-authenticated:"
+        )
+        for field in (
+            "child_height",
+            "child_block_hash",
+            "child_block_time",
+            "child_header_hex",
+            "child_nbits",
+        ):
+            assert identity[field] == row[field]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("child_height", "999999", "exact child identity disagrees"),
+        ("child_block_hash", "00" * 32, "child_block_hash disagrees"),
+        ("child_block_time", "1", "child_block_time disagrees"),
+        ("child_header_hex", "00" * 80, "child_header_hex disagrees"),
+        ("child_nbits", "00000000", "child_nbits disagrees"),
+    ],
+)
+def test_error_ledger_rejects_generic_child_identity_drift(
+    tmp_path,
+    field: str,
+    replacement: str,
+    message: str,
+) -> None:
+    data_dir, ledger_path, _fieldnames, ledger = _copied_error_ledger(tmp_path)
+    identities = load_child_identity(data_dir)
+    witness = next(
+        row
+        for row in ledger
+        if _has_child_header_identity(identities, row["chain"], row["btc_header_hash"])
+    )
+    identity_path = (
+        data_dir / "child-identity" / f"{witness['chain']}_child_identity.csv"
+    )
+    with identity_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    identity = next(
+        row for row in rows if row["btc_header_hash"] == witness["btc_header_hash"]
+    )
+    identity[field] = replacement
+    _rewrite_ledger(identity_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match=message):
+        validate_error_observation_ledger(
+            catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+            ledger_path=ledger_path,
+        )
+
+
+def test_error_observation_ledger_rejects_wrong_catalogue_row_number(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    rows[0]["catalogue_row_number"] = "999"
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="wrong catalogue_row_number"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "source_btc_height",
+        "source_classification",
+        "btc_height_provenance",
+        "child_height_provenance",
+        "identity_provenance",
+    ),
+)
+def test_error_observation_ledger_requires_complete_audit_schema(
+    tmp_path, field: str
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    fieldnames = [name for name in ERROR_OBSERVATION_LEDGER_FIELDS if name != field]
+    for row in rows:
+        row.pop(field)
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="header is not canonical"):
+        validate_error_observation_ledger(
+            catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+            ledger_path=ledger_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "row_mutation",
+    ("extra", "missing"),
+)
+def test_error_observation_ledger_rejects_ragged_rows(
+    tmp_path, row_mutation: str
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        rows = list(csv.reader(handle))
+    if row_mutation == "extra":
+        rows[1].append("unexpected")
+    else:
+        rows[1].pop()
+    with ledger_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="canonical field count"):
+        validate_error_observation_ledger(
+            catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+            ledger_path=ledger_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "source_btc_height",
+        "source_classification",
+        "btc_height_provenance",
+        "child_height_provenance",
+        "identity_provenance",
+    ),
+)
+def test_error_observation_ledger_rejects_lost_audit_provenance(
+    tmp_path, field: str
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    row = next(candidate for candidate in rows if candidate[field])
+    row[field] = ""
+    _rewrite_ledger(ledger_path, rows, ERROR_OBSERVATION_LEDGER_FIELDS)
+
+    with pytest.raises(ValueError, match=field):
+        validate_error_observation_ledger(
+            catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+            ledger_path=ledger_path,
+        )
 
 
 def test_error_observation_header_is_the_34_column_union() -> None:
@@ -249,6 +524,102 @@ def test_error_observation_ledger_rejects_duplicate_child_identity(tmp_path) -> 
         build_error_observation_rows(data_dir=data_dir)
 
 
+def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    witness = next(
+        row
+        for row in rows
+        if row["chain"] == "elastos"
+        and row["btc_header_hash"]
+        == "00000000000000000000c3d95a4bdc068dfe0c6d1e7ad13045c6f570e58d9ed7"
+    )
+    sibling_hash = "ab" * 32
+    sibling_hash_input = sibling_hash.upper()
+    assert sibling_hash not in {row["child_block_hash"].lower() for row in rows}
+    sibling_source_row = str(
+        max(
+            int(row["source_row_number"])
+            for row in rows
+            if row["chain"] == witness["chain"]
+            and row["source_path"] == witness["source_path"]
+            and row["source_sha256"] == witness["source_sha256"]
+        )
+        + 1
+    )
+    rows.append(
+        {
+            **witness,
+            "child_block_hash": sibling_hash_input,
+            "source_row_number": sibling_source_row,
+            "provenance": witness["provenance"] + "|test:same-height-sibling",
+        }
+    )
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    exported, inventory = build_error_observation_rows(data_dir=data_dir)
+    siblings = [
+        row
+        for row in exported
+        if row["chain"] == witness["chain"]
+        and row["child_height"] == witness["child_height"]
+        and row["btc_header_hash"] == witness["btc_header_hash"]
+    ]
+
+    assert {row["child_block_hash"] for row in siblings} == {
+        witness["child_block_hash"],
+        sibling_hash,
+    }
+    assert inventory["parents"] == 39
+    assert inventory["rows"] == 87
+
+
+@pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))
+def test_error_observation_ledger_rejects_noncanonical_source_path(
+    tmp_path, alias: str
+) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    source_path = rows[0]["source_path"]
+    head, tail = source_path.split("/", 1)
+    rows[0]["source_path"] = {
+        "whitespace": f" {source_path}",
+        "dot": f"./{source_path}",
+        "separator": f"{head}//{tail}",
+        "parent": f"discard/../{source_path}",
+    }[alias]
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="non-canonical source_path"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_rejects_reused_source_coordinate(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    witness = next(row for row in rows if not row["child_header_hex"])
+    rows.append({**witness, "child_block_hash": "ac" * 32})
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="duplicate source coordinate"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_rejects_undeclared_summary(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    rows[0]["child_height"] = str(int(rows[0]["child_height"]) + 1)
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="1 unexpected, 1 missing"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_rejects_uncovered_catalogue_summary(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    rows.pop(0)
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="1 missing"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
 def test_error_observation_rejects_missing_rsk_child_identity(tmp_path) -> None:
     data_dir = tmp_path / "data"
     _copy_error_observation_inputs(data_dir)
@@ -257,6 +628,49 @@ def test_error_observation_rejects_missing_rsk_child_identity(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="missing child-identity"):
         build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_selects_exact_rsk_event_from_multi_event_parent(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        ledger_witness = next(
+            row for row in csv.DictReader(handle) if row["chain"] == "rsk"
+        )
+
+    def add_second_event(rows) -> None:
+        original = next(
+            row
+            for row in rows
+            if row["btc_header_hash"] == ledger_witness["btc_header_hash"]
+        )
+        distinct_hash = "01" * 32
+        assert distinct_hash not in {row["child_block_hash"] for row in rows}
+        rows.append(
+            {
+                **original,
+                "child_height": str(int(original["child_height"]) + 1),
+                "child_block_hash": distinct_hash,
+                "child_block_time": str(int(original["child_block_time"]) + 1),
+                "verification": "test-second-authenticated-event",
+            }
+        )
+
+    _rewrite_rsk_identity(data_dir, add_second_event)
+
+    rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    exported = next(
+        row
+        for row in rows
+        if row["chain"] == "rsk"
+        and row["btc_header_hash"] == ledger_witness["btc_header_hash"]
+    )
+
+    assert exported["child_height"] == ledger_witness["child_height"]
+    assert exported["child_block_hash"] == ledger_witness["child_block_hash"]
 
 
 def test_error_observation_corroborates_rsk_child_timestamp(tmp_path) -> None:
@@ -276,7 +690,9 @@ def test_error_observation_corroborates_rsk_child_timestamp(tmp_path) -> None:
 
     rsk["child_block_time"] = ""
     _rewrite_ledger(ledger_path, rows, fieldnames)
-    identity = load_child_identity(data_dir)[("rsk", rsk["btc_header_hash"])]
+    identity = _only_identity(
+        load_child_identity(data_dir), "rsk", rsk["btc_header_hash"]
+    )
     exported = next(
         row
         for row in build_error_observation_rows(data_dir=data_dir)[0]
@@ -309,11 +725,14 @@ def test_error_observation_rejects_reversed_rsk_hash_without_overwriting(
 
     _rewrite_rsk_identity(data_dir, reverse_hash)
 
-    with pytest.raises(ValueError, match="child_block_hash disagrees"):
+    with pytest.raises(ValueError, match="exact child identity disagrees"):
         build_error_observation_rows(data_dir=data_dir)
 
     identity_after = load_child_identity(data_dir)
-    assert identity_after[("rsk", rsk_parent)]["child_block_hash"] != ledger_hash
+    assert (
+        _only_identity(identity_after, "rsk", rsk_parent)["child_block_hash"]
+        != ledger_hash
+    )
 
 
 def test_rsk_sidecar_rejects_0x_prefix_and_i32_overflow() -> None:

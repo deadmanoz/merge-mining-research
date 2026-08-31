@@ -53,7 +53,10 @@ through the observed tip, not a claim about blocks produced after 2026-07-10.
 The header-only loader input follows the common fail-closed contract:
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 No row passes. The header-only

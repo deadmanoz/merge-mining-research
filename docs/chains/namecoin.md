@@ -42,25 +42,28 @@ and Namecoin Core revision are not recorded in a committed provenance
 manifest. The ranges below describe the recovered accepted rows, not the
 terminal boundary or completeness of the source snapshot.
 
-The corrected snapshot contains **1,625 distinct direct-stale Bitcoin header
+The published dataset contains **1,649 distinct direct-stale Bitcoin header
 candidates accepted by the declared header-context profile**:
 
 | `validation_status` | Rows |
 |---|---:|
 | `VALID` | 1,353 |
-| `VALID (post-BCH, difficulty matches BTC)` | 272 |
-| **Total** | **1,625** |
+| `VALID (post-BCH, difficulty matches BTC)` | 296 |
+| **Total** | **1,649** |
 
 The rows span:
 
-- Bitcoin heights 149,589 through 934,425
-- recorded legacy Namecoin heights 22,379 through 809,650
-- Bitcoin parent timestamps 2011-10-17 through 2026-01-31
+- Bitcoin heights 149,589 through 944,852
+- recorded historical Namecoin heights 22,379 through 820,198
+- Bitcoin parent timestamps 2011-10-17 through 2026-04-13
 
 The current public block-file extractor writes the child block evidence and a
 blank height slot: block-file order is not consensus height. The `nmc_height`
-values above originated as historical acquisition metadata from the legacy
-inventory, but every accepted row's height is now node-verified:
+values above originated as historical acquisition metadata from the archival
+inventory. Normalization therefore blanks the height from Namecoin's
+full/unknown/canonical classifier sources before publication; it never treats
+that scan-order value as consensus data. Every accepted row's published height
+is instead node-verified:
 `scripts/extract/recover_child_identity.py`
 (which does carry a Namecoin RPC configuration, `NAMECOIN_RPC_*`) fetched the
 canonical Namecoin block at each recorded height and required its decoded
@@ -70,26 +73,26 @@ verified child block hash and timestamp to
 either replay that height -> hash -> block verification against a Namecoin
 node or resolve child hashes directly, as before.
 
-`btc_header_hex` is present for 1,397 loader rows. The committed monitor
+`btc_header_hex` is present for 1,421 loader rows. The committed monitor
 evidence publishes hydrated headers for the remaining 228 accepted rows, so
-all 1,625 accepted rows now have a public header source, and every monitor
+all 1,649 accepted rows now have a public header source, and every monitor
 row also carries the node-verified Namecoin child block hash and timestamp
 hydrated from `data/child-identity/` (internal byte order, per the
 `child_block_hash` contract). Every row retains the detached parent coinbase
-scriptSig, and 1,476 retain decoded output data. No row retains the complete
+scriptSig, and 1,500 retain decoded output data. No row retains the complete
 serialized parent coinbase transaction, its parent-merkle branch, or a
 self-contained AuxPoW proof. Reproducing the 228 header hydrations still
 requires prototype or private extraction artifacts that are not in the
 public checkout.
 
-The pinned upstream dataset carries a matching full-block blob for 295 of the
-1,625 direct candidates. The repository confirms that each blob starts with
+The pinned upstream dataset carries a matching full-block blob for 319 of the
+1,649 direct candidates. The repository confirms that each blob starts with
 the expected header, but none has undergone full historical consensus replay
 here. The other 1,330 direct candidates have no matching full block body in the
 pinned dataset.
 
-The `VALID` token is retained for compatibility. It means that the row passed
-the declared publication gate, not that Bitcoin Core validated a complete
+Either exact accepted direct-stale status means that the row passed the
+declared publication gate, not that Bitcoin Core validated a complete
 Bitcoin block. See the [data validity contract](../data-validity.md).
 
 On 20 July 2026, all 1,625 direct rows were replayed against Bitcoin Core tip
@@ -133,7 +136,8 @@ The public workflow is:
    for every valid block. Modern Bitcoin Core buries the deployment at 227,931,
    so the classifier implements the earlier transition explicitly.
 9. The committed loader input contains only `classification == "stale"` rows
-   whose validation status starts with `VALID`. Candidates are deduplicated by
+   whose validation status is one of the two exact accepted direct-stale
+   verdicts. Candidates are deduplicated by
    `(height, hash)`, not by height alone.
 
 These checks establish necessary header and contextual conditions. They do not
@@ -142,40 +146,38 @@ the complete candidate block's transactions, merkle tree, weight, witness
 commitment, sigops, finality, scripts, subsidy, or fees. Passing the gate
 therefore does not establish full Bitcoin consensus validity.
 
-Direct-stale loaders apply every exact-key publication correction. The general
-upstream catalogue applies only the consensus-invalid keys, retaining the
-direct-only correction as stale-descendant evidence. This prevents an older
-source from reintroducing an invalid or misclassified direct candidate without
-discarding the corrected descendant.
+Direct-stale loaders apply the exact-key error-block gate before publication.
+Stale-ancestry reconciliation independently publishes height 656,478 through
+the parent verdict and witness tables. Source bucket labels are audit evidence
+and cannot override either result.
 
-## Publication corrections
+## Consensus-invalid and descendant routing
 
-A publication audit found 31 Namecoin stale candidates that passed the
-header-target and canonical-height `nBits` checks but failed Bitcoin consensus.
+The current source classification routes 32 Namecoin direct-stale candidates
+to the error-block module. They passed the header-target and canonical-height
+`nBits` checks but failed Bitcoin consensus.
 Twenty-one fail BIP34's mandatory coinbase-height rule: 12 version 2 candidates
 at heights 225,013 through 226,912 during the historical transition, plus nine
 later candidates. Three version 2 headers after height 363,725 fail BIP66's
 minimum version 3 rule. Five headers below version 4 after height 388,381 fail
 BIP65's minimum version 4 rule. One candidate violates median-time-past, and
 one has a 103-byte coinbase scriptSig above Bitcoin's 100-byte limit.
+One further candidate at height 717,696 carries the prior epoch's `nBits`.
+That parent is already catalogued from authenticated Emercoin and Syscoin
+witnesses. Namecoin's block-file occurrence carries scan order rather than a
+durable child identity, so it does not add an error-observation ledger row.
 
-A separate correction applies only to direct-stale classification. The header
-at Bitcoin height 656,478 extends a known stale at height 656,477 rather than an
-active-chain block. It passes the available branch-context checks and remains
-accepted in `data/stale_descendants.csv`, but it is not a direct stale.
-
-The correction makes three related changes:
-
-- removes the 31 consensus-invalid rows and the one direct-only reclassification
-  from `data/validated-stales/namecoin_validated_stales.csv`;
-- rejects equivalent rows in any other committed chain input; and
-- records the 31 consensus-invalid exact keys, signed header versions, coinbase
-  evidence, and rejection reasons in
-  `data/error-blocks/error_blocks.csv` (which supersedes the former
-  `data/stale_block_exclusions.csv` overlay) until the pinned upstream source
-  publishes a corresponding correction. The 656,478 direct-only correction is
-  not an error block; it now lives only in `data/stale_descendants.csv` with no
-  exclusion guard.
+The header at Bitcoin height 656,478 extends a trusted stale root at height
+656,477 rather than an active-chain block. It passes the available
+branch-context checks and is represented as a stale descendant, not a direct
+stale. `data/validated-stales/namecoin_validated_stales.csv` therefore contains
+neither that descendant nor the 32 consensus-invalid candidates.
+`data/error-blocks/error_blocks.csv` records the invalid candidates by exact
+parent identity with their signed header versions, coinbase evidence, and
+rejection reasons.
+The current raw source also records height 941,882 as unknown; its authenticated
+Namecoin child observation is published against the shared accepted descendant
+parent verdict.
 
 The historical Namecoin contribution therefore contains **1,061 accepted direct
 additions**, not 1,089. The historical upstream commit still records the
@@ -184,15 +186,15 @@ original 1,089-row addition and is retained as provenance:
 
 ## Upstream and chronological novelty
 
-At the snapshot immediately preceding the historical contribution, 564 of the
-corrected direct Namecoin rows were already present upstream and 1,061 were
-additions. At the currently pinned upstream snapshot, all 1,625 accepted
+At the time of the historical contribution, 564 accepted direct Namecoin rows
+were already present upstream and 1,061 were additions. In the pinned upstream
+dataset, all 1,649 accepted
 Namecoin direct rows are
 present, so current isolated novelty versus upstream is zero.
 
 | Current split | Rows |
 |---|---:|
-| Also in effective upstream after the error-blocks gate | 1,625 |
+| Also in effective upstream after the error-blocks gate | 1,649 |
 | Novel versus upstream | 0 |
 | Earlier-chain attribution | 0 |
 | Chronologically novel at this position | 0 |
@@ -211,12 +213,14 @@ this repository's current public reproducibility boundary.
 
 The preserved historical classifier inventory contains 466,184 extracted
 self-target-valid candidates: 456,685 labelled canonical, 1,658 labelled
-stale, and 7,841 written with the legacy `orphan` spelling now read as
-`unknown`. A separate 344,707-row investigation table contains 335,208
-`near`, 1,658 `stale`, and the same 7,841 unknown rows. These are legacy
-classifications, not a current normalized canonical-coverage export. Producing
-that export still requires reclassifying all 466,184 raw candidates against a
-current Bitcoin Core node.
+stale, and 7,841 written with the historical `orphan` spelling that readers
+normalize to `unknown`. A separate 344,707-row investigation table contains
+335,208 `near`, 1,658 `stale`, and the same 7,841 unknown rows. These are historical
+source classifications, not the current normalized canonical-coverage export.
+The 30 August reclassification of the same 466,184 candidates against current
+Bitcoin Core yields 456,660 canonical, 1,649 accepted direct stale, 32
+`error_block`, and 7,843 unknown rows. That same-generation source drives the
+committed Monitor projection.
 
 The public loader therefore continues to exclude `classification == "unknown"`
 rows. No public claim is made here that those rows are deep Bitcoin
@@ -228,12 +232,11 @@ in the strict/weak and monitor evidence artifacts.
 
 ## Public artifacts
 
-- `data/validated-stales/namecoin_validated_stales.csv`: corrected publication-gate-accepted
-  loader input. The historical filename is retained for compatibility.
+- `data/validated-stales/namecoin_validated_stales.csv`: publication-gate-accepted
+  direct-stale loader input.
 - `data/error-blocks/error_blocks.csv`: the consensus-invalid error-blocks
   dataset and exact-key exclusion gate, with raw coinbase scriptSig evidence.
-  It supersedes the former `data/stale_block_exclusions.csv` overlay and is an
-  audit record, not a self-contained AuxPoW proof.
+  It is an audit record, not a self-contained AuxPoW proof.
 - `results/per-chain-novelty/namecoin.csv`: row-level upstream and chronology
   comparison.
 - `results/monitor-evidence/namecoin_monitor_evidence.csv`: monitor-facing
@@ -247,7 +250,7 @@ in the strict/weak and monitor evidence artifacts.
 - `docs/data-reference.md`: schemas and value vocabularies.
 - `LICENSE-DATA`: data licensing terms.
 
-These 1,625 rows define the accepted Namecoin direct header-candidate set for this
+These 1,649 rows define the accepted Namecoin direct header-candidate set for this
 release. This is not a claim of full Bitcoin block validity or exhaustive chain
 coverage because complete Bitcoin block bodies are generally unavailable and
 the source snapshot boundary is not publicly documented. Full re-extraction

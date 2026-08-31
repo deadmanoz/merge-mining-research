@@ -4,9 +4,9 @@ An **error block** is a full-proof-of-work Bitcoin block, witnessed via
 merge-mining evidence, that *would have been* a stale/orphan contender except
 that the block itself violates a consensus rule. It lost no race; it was never
 eligible to race. The proof of work is real (the header hash meets the Bitcoin
-target in force at the claimed position), the AuxPoW commitments are real, but
-the block is consensus-invalid for a specific, mechanically re-checkable
-reason.
+target in force at the claimed position), the merge-mining commitments are
+authentic, but the block is consensus-invalid for a specific, mechanically
+re-checkable reason.
 
 The category is defined by three necessary conditions, all re-derived from
 committed bytes:
@@ -16,10 +16,10 @@ committed bytes:
    the PoW *target* is not an error block; it is a share / `near` row, a
    different category that is permanently out of scope. This distinction is
    re-verified per row via `hash_meets_btc_difficulty`, never inherited from
-   an old rejection label.
-2. **AuxPoW-witnessed.** The header is recovered from a merge-mining proof
-   embedded in a sibling chain's block (or, for one row, from merge-mining
-   monitor live capture of the same commitment).
+   a source rejection label.
+2. **Merge-mining-witnessed.** The header is recovered from merge-mining
+   evidence embedded in a sibling chain's block, including two blocks recovered
+   from merge-mining-monitor live captures of the same commitments.
 3. **At least one named, mechanically re-checkable consensus violation.** The
    block fails a rule that can be re-derived offline from the committed header
    and coinbase bytes plus committed canonical-chain context. Rules that
@@ -29,8 +29,7 @@ committed bytes:
 Error blocks are catalogued in `data/error-blocks/error_blocks.csv` and carry
 the primary `classification` value `error_block` (see
 [`data-reference.md`](data-reference.md) "Value vocabularies"). The dataset is
-simultaneously the rich evidence record and the exact-key exclusion gate: it
-supersedes the former `data/stale_block_exclusions.csv` overlay, and public
+simultaneously the rich evidence record and the exact-key exclusion gate. Public
 loaders, upstream novelty calculations, the upstream sidecar builder,
 full-evidence and relevance exports, and unknown-ancestry reconciliation all
 derive the exclusion key set from its `classification == "error_block"` rows
@@ -47,6 +46,7 @@ are the constants in `stale_blocks_analysis.config`; the gates are reused from
 |---|---|---|
 | `bip34_v2_coinbase_height_mismatch` | BIP34 coinbase-height prefix, first stage: version 2 or newer blocks must begin the coinbase scriptSig with the exact serialized height | from height 224,413 |
 | `bip34_coinbase_height_mismatch` | BIP34 coinbase-height prefix, second stage: the prefix is mandatory for every valid block and version 1 is rejected | from height 227,931 |
+| `bip34_coinbase_height_missing` | Mandatory BIP34 coinbase-height prefix is absent | from height 227,931 |
 | `bip34_block_version_below_2` | BIP34 minimum block version 2 (vocabulary-only; no committed row uses it yet) | from height 227,931 |
 | `bip66_block_version_below_3` | BIP66 minimum block version 3 | from height 363,725 |
 | `bip65_block_version_below_4` | BIP65 minimum block version 4 | from height 388,381 |
@@ -67,8 +67,8 @@ cutover at the observed canonical activation heights (227,931 / 363,725 /
 388,381). This is an approximation of Bitcoin Core's actual IsSuperMajority
 enforcement, which required a rolling threshold of 750-of-1000 blocks to
 *lock in* and then 950-of-1000 to *enforce* the new minimum version. The
-approximation is exact for a direct stale, which covers every row currently in
-the dataset, and exactly at the boundary as much as far past it. Core counts
+approximation is exact for a direct stale, which covers every committed
+minimum-version row, and exactly at the boundary as much as far past it. Core counts
 the vote over the block's OWN ancestors, and a direct stale's parent is
 canonical, so its 1000-block window is the same window the canonical block at
 that height has and the two verdicts cannot differ. Distance from activation is
@@ -101,8 +101,58 @@ contrast, `time_below_mtp` and `median_time_past_violation` *are*
 mechanically re-checkable, because the canonical parent's median-time-past is
 committed canonical-chain context. This is why the dataset contains two
 `time_below_mtp` rows (946,213 and 957,780) and a `median_time_past_violation`
-row (380,992) but no `time_beyond_future_limit` rows. See the time-rule sweep
-report for the full resolution.
+row (380,992) but no `time_beyond_future_limit` rows. The detailed child-chain
+evidence is recorded below.
+
+### Future-limit follow-up investigation
+
+The time-rule sweep flagged 15 observations representing eight distinct
+blocks. The Devcoin/Ixcoin blocks each appear in both chains' inventories. The
+2026-07-30 follow-up resolved them by comparing each candidate's Bitcoin
+`nTime` with the committing child block's time.
+
+An AuxPoW commitment in a child block is an existence proof: the Bitcoin
+header must have existed by the time the child block that commits to it was
+created. The child block time is therefore an independent upper bound on the
+header's real creation time. A candidate whose `nTime` sits within minutes of
+that commit time cannot be meaningfully future-dated under the real rule,
+whose network-adjusted-time bound tracks the wall clock that the commit time
+approximates.
+
+For each candidate, the investigation computed `btc nTime - child block time`.
+A delta within five minutes is two orders of magnitude below the 7,200-second
+future-limit threshold and is consistent with ordinary timestamp jitter, not a
+future-limit violation.
+
+| height | hash (prefix) | seen on | `btc nTime - child block time` |
+|---|---|---|---|
+| 256558 | `05dcc986` | Devcoin / Ixcoin | +252s / +123s |
+| 256558 | `97dc0e4c` | Devcoin / Ixcoin | +99s / +131s |
+| 256558 | `2dfbdd2e` | Devcoin / Ixcoin | +4s / -30s |
+| 261419 | `15a6ab8f` | Devcoin / Ixcoin | +41s / +42s |
+| 297835 | `07b28cb1` | Devcoin / Ixcoin | -290s / -129s |
+| 297835 | `53b3fce4` | Devcoin / Ixcoin | +290s / +90s |
+| 297835 | `64cb2f55` | Devcoin / Ixcoin | +149s / +270s |
+| 379924 | `011bf0d4` | Unobtanium | +152s |
+
+All deltas are within five minutes, with a maximum absolute delta of 290
+seconds. None of the eight distinct blocks is a provable
+`time_beyond_future_limit` violation. All eight are consistent with late
+mining: the header was genuinely created after the canonical winner for its
+height, which is exactly why it is stale. None was admitted to the error-block
+catalogue. Even the extreme Unobtanium case at height 379,924 (`011bf0d4`),
+whose `nTime` is 125.22 hours beyond the canonical parent time, was committed
+152 seconds before its own `nTime`. It is a very late block, not a future-dated
+one.
+
+This establishes the category boundary. `time_beyond_future_limit` is not
+mechanically re-checkable from committed evidence alone because Bitcoin's real
+bound is network-adjusted time plus two hours, and historical
+network-adjusted time is not reconstructable offline. The exception would be
+child-chain commit-time evidence showing an `nTime` more than two hours beyond
+the commit time itself. None of these candidates came close. By contrast,
+`time_below_mtp` is mechanically re-checkable from the canonical parent's
+committed median-time-past context.
 
 `nbits_retarget_not_applied` is distinct from a plain `nBits mismatch`
 rejection at a non-boundary height. The latter is the contamination gate's
@@ -127,37 +177,37 @@ rules_violated, first_observed_child_time, provenance
 
 `hash` is in display order; byte order is handled via
 `stale_blocks_analysis.auxpow_chainid` helpers. `classification` is
-`error_block` for every data row, and the gate keys off that value directly —
-there is no `exclusion_scope` column, because membership in the dataset already
-means consensus-invalid. `rejection_reason` is the primary (first) failure in
+`error_block` for every data row, so membership in the dataset means
+consensus-invalid. `rejection_reason` is the primary (first) failure in
 the ordered gate composition; `rules_violated` is the pipe-joined full set.
 The `btc_header_version`, `btc_time`, `btc_bits`, and `coinbase_height`
 columns are convenience/audit values derived from `btc_header_hex` and
-`coinbase_scriptsig_hex` by the builder at build time; they are kept so the
-CSV is human-auditable without re-parsing, and the byte-identical rebuild
-guarantees they match the header bytes.
+`coinbase_scriptsig_hex`. They are kept so the CSV is human-auditable without
+re-parsing. `just validate-error-blocks` re-derives them from the committed
+bytes and rejects any disagreement.
 `provenance` records the artifact each row's facts came from.
 
 A committed sidecar, `data/error-blocks/mtp_context.csv`, carries the
 canonical parent's median-time-past for the `time_below_mtp` and
 `median_time_past_violation` rows, keyed by `(height, hash)`, so those rules
-re-derive offline.
+re-derive offline. Each key is unique; duplicate context rows fail validation
+instead of overwriting one another.
 
 ### Composition and per-rule counts
 
-The dataset holds **35 rows** (35 distinct `(height, hash)` blocks), spanning
-Bitcoin heights 225,013 through 957,780. Thirty-one are carried over from the
-former exclusion overlay; heights 946,213 and 957,780 (`time_below_mtp`, from
-merge-mining-monitor live evidence) and height 717,696
-(`nbits_retarget_not_applied`, found by the rejected-row sweep) were added by
-the error-block work. The unified Hathor classifier adds height 649,674
-(`bip34_coinbase_height_missing`). Per-rule counts by primary
+The dataset holds **39 rows** (39 distinct `(height, hash)` blocks), spanning
+Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
+957,780 (`time_below_mtp`), height 717,696
+(`nbits_retarget_not_applied`), height 649,674
+(`bip34_coinbase_height_missing`), and the stale-ancestry candidates at
+331,673, 331,674, 402,610, and 422,059 whose committed bytes re-derive
+`bip34_coinbase_height_mismatch`. Per-rule counts by primary
 `rejection_reason`:
 
 | Rule | Rows |
 |---|---:|
 | `bip34_v2_coinbase_height_mismatch` | 12 |
-| `bip34_coinbase_height_mismatch` | 9 |
+| `bip34_coinbase_height_mismatch` | 13 |
 | `bip34_coinbase_height_missing` | 1 |
 | `bip65_block_version_below_4` | 5 |
 | `bip66_block_version_below_3` | 3 |
@@ -165,25 +215,24 @@ the error-block work. The unified Hathor classifier adds height 649,674
 | `median_time_past_violation` | 1 |
 | `time_below_mtp` | 2 |
 | `nbits_retarget_not_applied` | 1 |
-| **Total** | **35** |
+| **Total** | **39** |
 
-Because one invalid block is witnessed by several sibling chains, the 35
-blocks produce 78 per-chain observations: namecoin 33, devcoin 16, ixcoin 13,
+Because one invalid block is witnessed by several sibling chains, the 39
+blocks produce 86 per-chain observations: namecoin 37, devcoin 18, ixcoin 15,
 rsk 5, syscoin 3, elastos 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
 i0coin 1, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
 
-The former overlay's 32nd row — height 656,478,
-`exclusion_scope=direct_stale_only` — is not an error block and is not carried
-into this dataset. It is a valid `stale_descendant` that was double-catalogued;
-it now lives in exactly one place (`data/stale_descendants.csv`) with no
-exclusion guard.
+Height 656,478 is not an error block. Its predecessor is a trusted stale root,
+so it is represented as a valid `stale_descendant` in
+`data/stale_descendants.csv`.
 
 ## Evidence standard
 
-No row enters on an old label. Every violation is re-derived from committed
-bytes by the offline validator, `scripts/analysis/validate_error_blocks.py`,
+Catalogue membership derives from evidence, not a source bucket label. Every
+violation is re-derived from committed bytes by the offline validator,
+`scripts/analysis/validate_error_blocks.py`,
 which is wired into `tests/` so it runs in CI. For every row it re-checks,
 with no live RPC:
 
@@ -196,25 +245,35 @@ with no live RPC:
 4. `time_below_mtp` and `median_time_past_violation` against the committed
    `mtp_context.csv` sidecar.
 
-A row that fails re-derivation fails the test suite. The builder
-(`scripts/prep/build_error_blocks.py`) and the sweeps fail closed when a
-required private input is absent, requiring `--allow-partial` plus a
-disposable output directory for any diagnostic run — the same contract as the
-ancestry reconciliation and `just monitor-evidence`.
+A row that fails re-derivation fails the test suite. The catalogue, MTP
+sidecar, and exact observation ledger form one reviewed canonical data module.
+Run `just validate-error-blocks` to validate all three without private inputs
+or live RPC. Population sweeps remain diagnostic research tools and fail
+closed when their required private inputs are absent.
 
-The offline validator deliberately does NOT verify active-parent placement:
-it does not check that a row's claimed parent (`btc_prev_hash`) is a
-canonical/active Bitcoin block. That check requires canonical chain context
-(a live RPC view of the active chain) and is enforced by the online
-classification pipeline at classification time, not by the offline
-re-derivation. The offline validator's job is to prove the named consensus
-violation from the committed bytes; active-parent/canonical placement is a
-separate, online gate.
+The four ancestry-derived errors and their eight authenticated child
+observations are reviewed members of that canonical module. Their observation
+rows retain exact source coordinates, source-file SHA-256 values, and verified
+80-byte child headers. The catalogue retains the parent header and coinbase
+scriptSig that prove the named violation. `just reconcile-stale-ancestry`
+validates the canonical error module before scanning, excludes those parent
+hashes from stale-descendant publication, and aborts without installing output
+if it discovers any uncatalogued consensus-invalid candidate. It does not
+rewrite the error module.
+
+The offline validator deliberately does NOT require every error block to extend
+an active-chain parent. Direct-stale candidates receive that active-parent
+placement check from the online classification pipeline. The four reconciled
+descendant errors instead extend a stale or invalid parent, and their Bitcoin
+height is derived from the authenticated ancestry path as `prev + 1`. The
+offline validator's job is to prove the named consensus violation from the
+committed bytes; it does not replace either classification-time active-parent
+checks or reconciliation-time ancestry validation.
 
 ## Classification-time labelling
 
-Error blocks are now an outcome of the normal classification pass, not a
-separate discovery step. `route_rejected_stale_rows`
+Error blocks are an outcome of the normal classification pass.
+`route_rejected_stale_rows`
 (`src/stale_blocks_analysis/btc_classify.py`) sorts every gate-rejected stale
 candidate by what the rejection actually means, re-deriving the broken rules
 from the row's own bytes via `consensus_violations` rather than parsing the
@@ -238,13 +297,12 @@ because one row can satisfy several of them and the weakest claim has to win
    are the previous epoch's by definition, the sanctioned `nBits` mismatch that
    really is a Bitcoin consensus violation;
 3. only then does a proven consensus violation make the row
-   `classification=error_block`, written to the `data/<chain>_error_blocks.csv`
-   sibling of the stale inventory (gitignored, like its four bucket peers). That
-   file carries its peers' columns plus the pipe-joined `rules_violated`, the
-   full derived rule set: the rules are the evidence for the claim, and
-   `validation_status` names only the gate that fired first, which for
-   `nbits_retarget_not_applied` is a generic `nBits` mismatch. The four peers,
-   including the `*_validated_stales.csv` loader input, keep their schema;
+   `classification=error_block`. Private classifier staging carries the full
+   pipe-joined `rules_violated` set into transactional reconciliation. The
+   rules are the evidence for the claim, while `validation_status` names only
+   the gate that fired first, which for `nbits_retarget_not_applied` is a
+   generic `nBits` mismatch. The committed catalogue and observation ledger,
+   not the staging rows, are the public classification surface;
 4. a rejection whose evidence proves nothing stays a rejected stale, as does
    one where the canonical `nBits` was never recorded, since nothing then shows
    the header is Bitcoin's at that height.
@@ -256,11 +314,13 @@ the version, median-time-past, and retarget rules, since its proof exposes no
 parent coinbase), and the unified Hathor classifier. The stale-descendant
 reconciliation applies the identical derivation to its rejected candidates
 (`descendant_consensus_rules` in
-`scripts/analysis/reconcile_unknown_stale_ancestry.py`), judging only rows
+`src/stale_blocks_analysis/reconcile_publication.py`), judging only rows
 whose supplied header authenticates against the claimed hash and whose path,
-proof of work, and canonical bits all verified; the ones it does judge leave
-`data/stale_descendants.csv` entirely for its `_error_blocks` peer, so the
-descendant sidecar only ever carries `stale_descendant` rows. Hathor now uses
+proof of work, and canonical bits all verified. Consensus-invalid candidates
+leave the accepted descendant population before publication, so
+`data/stale_descendants.csv` only ever carries `stale_descendant` rows. Internal
+error-candidate diagnostics are disposable reconciliation output rather than a
+publication input or another classification surface. Hathor uses
 the same shared verdict and rejection-routing vocabulary directly, without
 persisted intermediate phases.
 
@@ -268,17 +328,17 @@ Every gate rejection is still counted, whichever bucket the routing moved the
 row into: `write_classifier_outputs` returns the total as `rejected` plus the
 `rejected_stale` / `rejected_error_block` / `rejected_unknown` breakdown.
 
-The committed dataset below remains the publication surface and exclusion
-gate; consolidating classifier-emitted rows into it across chains is the
-builder's job, not the classifier's.
+The committed dataset is the publication surface and exclusion gate. Adding a
+parent is an explicit reviewed data change accompanied by its exact witness
+ledger rows and a successful `just validate-error-blocks` run. Classifiers and
+ancestry reconciliation emit candidates for review; they never rewrite the
+canonical module.
 
 ## The sweeps
 
-Four sweeps under `scripts/analysis/`, sharing `scripts/analysis/_sweep_common.py`,
-hunted for error blocks beyond the carried-over set, and they predate
-classification-time labelling: they remain the retroactive path for archived
-inventories produced before the routing existed. Each re-verifies full
-proof of work per row and writes a dated report to
+Four sweeps under `scripts/analysis/`, sharing
+`scripts/analysis/_sweep_common.py`, audit archived populations for additional
+error blocks. Each re-verifies full proof of work per row and writes a dated report to
 `results/analysis/error-blocks/`, including negative results.
 
 - **Rejected-row sweep** (`sweep_error_blocks_rejected_rows.py`;

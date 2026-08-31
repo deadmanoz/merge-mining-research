@@ -6,8 +6,8 @@ repository, which contains:
 - `stale-blocks.csv` - canonical list of known stale blocks with heights and hashes
 - `blocks/` - raw block binaries retained as full evidence for known stale blocks
 
-Derived recovery sidecars also live here when they are consumed by the main
-analysis package:
+Derived recovery datasets and validation context also live here when consumed
+by the main analysis package:
 
 - `bitcoin-epoch-reference/` - compact public-source Bitcoin reference used by
   strict and weak BTC-orphan relevance gates. It contains one row per retarget
@@ -16,26 +16,23 @@ analysis package:
   The source URL and finalized block identity are recorded in its manifest. This is
   reproducible input data, not a private runtime cache.
 
-- `stale_descendants.csv` - publication-gate-accepted BTC stale-fork
-  continuation header candidates
-  recovered by walking the full unknown inventories back to known stale
-  roots, plus one historical direct-stale row corrected after its predecessor
-  was shown to be stale rather than active. Raw classifier rows stay `unknown`;
-  this file carries the separate `stale_descendant` classification, and loaders
-  admit only `VALID_STALE_DESCENDANT` rows.
+- `stale_descendants.csv` - 21 publication-gate-accepted Bitcoin stale-fork
+  continuation parent verdicts. Each candidate's authenticated ancestry reaches
+  a trusted stale root, every prospective direct root passes the active-mainchain
+  predecessor gate, and consensus-invalid candidates take error-block
+  precedence. Loaders admit only `classification=stale_descendant` and
+  `validation_status=VALID_STALE_DESCENDANT` rows.
+- `stale_descendant_observations.csv` - 32 authenticated child-chain witnesses
+  for the accepted parents. Source coordinates, hashes, and child headers bind
+  each witness to its archive row. `source_classification` records the source
+  bucket for audit; it does not determine the parent verdict.
 - `error-blocks/error_blocks.csv` - the error-blocks dataset and publication
-  gate: 34 full-proof-of-work Bitcoin headers that each fail a contextual
-  consensus rule, keyed off `classification == "error_block"` (there is no
-  `exclusion_scope` column). It supersedes the deleted
-  `stale_block_exclusions.csv` overlay: its rows are removed from all public
-  stale sets by exact `(height, hash)` key. The former `direct_stale_only`
-  row (656478) is not here - it is a `stale_descendant` single-home in
-  `stale_descendants.csv`; raw source projection requires its separate
-  exact-key correction overlay.
-- `stale_descendant_corrections.csv` - the compact exact-key correction
-  overlay for raw source rows originally labelled direct stales. A projection
-  requires agreement between this overlay and the accepted stale-descendant
-  sidecar observation.
+  gate: 39 full-proof-of-work Bitcoin headers that each fail a contextual
+  consensus rule. Exact `(height, hash)` membership and
+  `classification=error_block` remove these candidates from every public stale
+  surface.
+- `error-blocks/error_block_observations.csv` - the recovered child-observation
+  ledger for every catalogued parent.
 - `error-blocks/mtp_context.csv` - the median-time-past sidecar: the
   canonical parent's median-time-past for each time-rule error block, keyed
   by `(height, hash)`, so the offline validator can re-derive time-rule
@@ -122,11 +119,12 @@ child-header columns (`child_block_hash`, `child_header_hex`,
 `btc_prev_hash`, `btc_time`, `btc_bits`, `coinbase_scriptsig_hex`,
 `coinbase_outputs`, `btc_header_hex`),
 `classification`, and the persisted publication-gate verdict (`validation_status`,
-`expected_nbits`). The committed file is publication-gate accepted only
-(`stale` rows with `validation_status=VALID`); the gate runs once at
-classification time and the loader never recomputes it. `VALID` is a legacy
-compatibility token for the declared available-evidence header-context checks,
-not proof that a complete Bitcoin block was consensus-valid. Those checks
+`expected_nbits`). The committed file is publication-gate accepted only:
+`stale` rows whose status is exactly `VALID` or
+`VALID (post-BCH, difficulty matches BTC)`. The gate runs once at
+classification time and the loader never recomputes it. Either accepted token
+means the row passed the declared available-evidence header-context checks, not
+that a complete Bitcoin block was consensus-valid. Those checks
 include header hash and self-PoW, active-parent linkage, expected `nBits`,
 median-time-past, historical minimum block version, and, when the real
 coinbase scriptSig is available, its length and BIP34 height prefix. RSK lacks
@@ -139,6 +137,9 @@ The 20 July 2026 audit replayed all 3,652 accepted direct observations against
 Bitcoin Core tip 958,882. All passed their available checks; this was not a
 full-block consensus replay. RSK's 298 rows still lack evidence for the two
 coinbase-dependent checks.
+The 3 August Elastos/Syscoin refresh added 44 accepted direct observations, and
+the 30 August same-generation Namecoin/Fractal refresh added another 33. Each
+passed the same available-evidence profile.
 
 Many extractor/classifier scripts keep their defaults under `data/` so an
 operator can run them from the repo root without a long path. Those outputs are

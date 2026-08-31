@@ -21,17 +21,24 @@ following hold:
 - Bitcoin Core does not report the header itself as canonical, but does report
   its previous block hash as canonical. This establishes a direct stale rather
   than merely a full-difficulty non-canonical header.
-- The committed row carries an accepted `VALID` validation status.
+- The committed row carries exactly `VALID` or
+  `VALID (post-BCH, difficulty matches BTC)`.
 
 A stale descendant may also qualify when the same header, hash, proof-of-work,
-and expected-`nBits` checks pass and its validated ancestry reaches a known
-stale root. These rows carry `classification=stale_descendant` and
-`validation_status=VALID_STALE_DESCENDANT`.
+and expected-`nBits` checks pass, it remains outside Bitcoin's active main
+chain, and its authenticated ancestry reaches a declared trusted stale root.
+`data/stale_descendants.csv` carries that parent verdict and
+`data/stale_descendant_observations.csv` carries the authenticated child-chain
+witnesses. Source bucket labels are audit provenance only. Accepted parent
+rows carry `classification=stale_descendant` and
+`validation_status=VALID_STALE_DESCENDANT`; every consumer uses the canonical
+parent loader that authenticates the header and Bitcoin Core placement gates.
 
 In both cases, the hash must be absent from the pinned upstream
 `data/stale-blocks/stale-blocks.csv` and from the other pending contribution
 rows. `scripts/reports/build_upstream_stale_sidecar.py` derives this set from
-the committed validated inputs rather than relying on manual row removal.
+the committed validated inputs rather than relying on manual row removal or a
+previous sidecar as a cache.
 
 ## CSV schema
 
@@ -75,24 +82,22 @@ commit.
 
 The `error_block` primary `classification` value (catalogued in
 `data/error-blocks/error_blocks.csv`) and the extended `rejection_reason` /
-`rules_violated` vocabulary this branch introduces are a BREAKING change for
-the merge-mining-monitor importer and its ported BTC-orphan relevance
-classifier, which read these strings verbatim. The new rejection-reason
-tokens are:
+`rules_violated` vocabulary are a lockstep schema contract with the
+merge-mining-monitor importer and its ported BTC-orphan relevance classifier,
+which read these strings verbatim. The rejection-reason tokens include:
 
-- `time_below_mtp` and `nbits_retarget_not_applied` — each has a committed
-  dataset row (heights 946,213 and 717,696 respectively);
+- `time_below_mtp` has two committed rows (heights 946,213 and 957,780), and
+  `nbits_retarget_not_applied` has one (height 717,696);
 - `time_beyond_future_limit` — vocabulary-only (no committed row; the rule is
   not offline-recheckable, so the offline validator rejects any row carrying
   the token);
 - `bip34_block_version_below_2` and `coinbase_scriptsig_length_below_2` —
   vocabulary-only correctness hardening (no committed row uses them yet).
 
-Landing this PR means the monitor will need a corresponding update to handle
-`error_block` and the new tokens; until that update lands, the monitor may
-reject or misclassify these rows. The monitor-side change is a deliberate,
-accepted follow-up in that repository: merging this PR constitutes accepting
-that the monitor must be updated to match (break-then-fix).
+The research catalogue and the monitor importer form a lockstep schema
+contract. A monitor release must pin a research commit whose classification
+and rejection-rule vocabulary it already understands; the research dataset
+does not describe a temporary mixed-version state as valid publication.
 
 ## Contribution and post-merge workflow
 

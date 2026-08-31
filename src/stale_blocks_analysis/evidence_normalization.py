@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from .auxpow_chainid import hash_from_header_bytes
 from .auxpow_parse import (
@@ -16,9 +17,14 @@ from .auxpow_parse import (
     validate_child_header_fields,
 )
 from .bitcoin_binary import format_outputs_addr, parse_coinbase_tx, sha256d
-from .config import CHAIN_SPECS, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
-from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
-from .evidence_sources import EvidenceSource
+from .config import CHAIN_SPECS, DATA_DIR, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
+from .error_blocks import load_error_block_keys
+from .evidence_sources import (
+    CHILD_HEIGHT_AUTHENTICATED,
+    CHILD_HEIGHT_NOT_APPLICABLE,
+    CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER,
+    EvidenceSource,
+)
 
 EVIDENCE_FIELDS = [
     "chain",
@@ -100,12 +106,14 @@ BTC_HEIGHT_COLUMNS = (
     "btc_canonical_height",
 )
 NON_CHILD_HEIGHT_COLUMNS = {
+    "active_mainchain_hash_at_height",
     "btc_height",
     "btc_stale_height",
     "btc_parent_height",
     "btc_canonical_height",
     "btc_bip34_height",
     "height",
+    "root_active_mainchain_hash_at_height",
     "root_stale_height",
     "stale_fork_depth",
 }
@@ -216,6 +224,42 @@ def parse_header_fields(header_hex: str) -> dict[str, str]:
     }
 
 
+def reconcile_parent_header_fields(
+    row: dict[str, str],
+    *,
+    context: str,
+    parsed: dict[str, str] | None = None,
+) -> None:
+    """Fill and authenticate normalized audit fields from a parent header.
+
+    A parseable serialized Bitcoin parent header is the authoritative source
+    for its hash, previous hash, time, bits, and nonce. Missing normalized
+    fields are filled in place; every populated field must agree after the
+    normal lowercase normalization for hashes and bits. Missing or malformed
+    header hex remains the caller's separate coverage concern.
+    """
+    if parsed is None:
+        parsed = parse_header_fields(row.get("btc_header_hex", ""))
+    if not parsed:
+        return
+    for field, parsed_field in (
+        ("btc_header_hash", "hash"),
+        ("btc_prev_hash", "prev_hash"),
+        ("btc_time", "time"),
+        ("btc_bits", "bits"),
+        ("btc_nonce", "nonce"),
+    ):
+        published = (row.get(field) or "").strip()
+        if field in {"btc_header_hash", "btc_prev_hash", "btc_bits"}:
+            published = published.lower()
+        derived = parsed[parsed_field]
+        if published and published != derived:
+            raise ValueError(
+                f"{context}: {field} disagrees with serialized Bitcoin parent header"
+            )
+        row[field] = published or derived
+
+
 def int_or_none(value: str) -> int | None:
     """Parse an int, returning None on empty or non-numeric input."""
     try:
@@ -246,17 +290,29 @@ def btc_height(
 
 
 def child_height_for(
-    chain: str,
+    source: EvidenceSource,
     row: dict[str, str],
     fieldnames: Iterable[str] | None,
 ) -> str:
-    """Resolve the child-chain height column for ``chain``.
+    """Resolve the authenticated child-chain height for ``source``.
 
-    Prefers the chain's registered ``height_column`` from CHAIN_SPECS, then
-    any populated ``*_height`` column that is not a BTC-side height, then a
-    literal ``child_height`` column. Returns '' when absent.
+    Sources whose declared schema records scan order instead of consensus
+    height return blank for later authenticated hydration. Parent-only sources
+    declare child height not applicable and also return blank. Authenticated
+    child sources prefer the chain's registered ``height_column`` from
+    CHAIN_SPECS, then any populated ``*_height`` column that is not a BTC-side
+    height, then a literal ``child_height`` column. Returns '' when absent.
     """
-    spec = CHAIN_SPECS.get(chain)
+    if source.child_height_semantics in {
+        CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER,
+        CHILD_HEIGHT_NOT_APPLICABLE,
+    }:
+        return ""
+    if source.child_height_semantics != CHILD_HEIGHT_AUTHENTICATED:
+        raise ValueError(
+            f"unsupported child-height semantics: {source.child_height_semantics}"
+        )
+    spec = CHAIN_SPECS.get(source.chain)
     if spec and spec.height_column and spec.height_column in (fieldnames or []):
         value = row.get(spec.height_column, "").strip()
         if value:
@@ -380,17 +436,24 @@ def normalize_evidence_row(
 
     header_hex = get_value(row, fieldnames, HEADER_HEX_COLUMNS)
     parsed = parse_header_fields(header_hex)
-    header_hash = normalize_hash(get_value(row, fieldnames, HASH_COLUMNS))
-    if not is_hash(header_hash):
-        header_hash = parsed.get("hash", "")
-    prev_hash = normalize_hash(get_value(row, fieldnames, PREV_COLUMNS))
-    if not is_hash(prev_hash):
-        prev_hash = parsed.get("prev_hash", "")
-    btc_time = get_value(row, fieldnames, ("btc_time",)) or parsed.get("time", "")
-    btc_bits = get_value(row, fieldnames, BITS_COLUMNS).lower() or parsed.get(
-        "bits", ""
+    parent_header_fields = {
+        "btc_header_hash": normalize_hash(get_value(row, fieldnames, HASH_COLUMNS)),
+        "btc_prev_hash": normalize_hash(get_value(row, fieldnames, PREV_COLUMNS)),
+        "btc_time": get_value(row, fieldnames, ("btc_time",)),
+        "btc_bits": get_value(row, fieldnames, BITS_COLUMNS).lower(),
+        "btc_nonce": row.get("btc_nonce", "").strip(),
+        "btc_header_hex": header_hex,
+    }
+    reconcile_parent_header_fields(
+        parent_header_fields,
+        context=f"{source.chain} evidence row {row_number}",
+        parsed=parsed,
     )
-    btc_nonce = row.get("btc_nonce", "").strip() or parsed.get("nonce", "")
+    header_hash = parent_header_fields["btc_header_hash"]
+    prev_hash = parent_header_fields["btc_prev_hash"]
+    btc_time = parent_header_fields["btc_time"]
+    btc_bits = parent_header_fields["btc_bits"]
+    btc_nonce = parent_header_fields["btc_nonce"]
     validation_status = row.get("validation_status", "").strip()
     scriptsig, outputs, full_coinbase, malformed_coinbase = parse_coinbase_fields(row)
     child_hash = child_hash_for(source.chain, row, fieldnames).lower()
@@ -468,7 +531,7 @@ def normalize_evidence_row(
         # Canonical and unresolved-unknown state is already represented on the
         # primary axis. Source-specific annotations do not belong on the
         # stale-validation axis; accepted descendants receive their verdict
-        # later from the exact-key sidecar.
+        # later from the accepted parent-verdict module.
         validation_status = ""
         expected_nbits = ""
         normalized_rejection_reason = ""
@@ -482,7 +545,7 @@ def normalize_evidence_row(
         "source_row_number": source_metadata("source_row_number", str(row_number)),
         "artifact_scope": source_metadata("artifact_scope", source.artifact_scope),
         "provenance": source_metadata("provenance", source.provenance),
-        "child_height": child_height_for(source.chain, row, fieldnames),
+        "child_height": child_height_for(source, row, fieldnames),
         "child_block_hash": child_hash,
         "child_header_hex": child_header_hex,
         "child_block_time": child_time,
@@ -539,37 +602,6 @@ def enforce_unknown_split_contract(
         )
 
 
-def dedupe_canonical_companion_rows(
-    primary_rows: list[dict[str, str]],
-    companion_rows: list[dict[str, str]],
-) -> tuple[list[dict[str, str]], int]:
-    """Drop companion canonical rows already present among ``primary_rows``.
-
-    A never-split chain's full inventory can already carry the same
-    canonical rows a separate ``<chain>_canonical_blocks.csv`` companion also
-    carries (see i0coin), which would otherwise double the canonical
-    evidence in canonical-bearing exports. Split chains have no such
-    overlap, so this is a no-op there. Rows are matched on
-    ``(btc_height, btc_header_hash)`` with the hash lowercased. Returns
-    ``(deduped_companion_rows, skipped_count)``.
-    """
-    seen = {
-        (row["btc_height"], row["btc_header_hash"].strip().lower())
-        for row in primary_rows
-        if row.get("classification") == "canonical"
-    }
-    kept: list[dict[str, str]] = []
-    skipped = 0
-    for row in companion_rows:
-        if row.get("classification") == "canonical":
-            key = (row["btc_height"], row["btc_header_hash"].strip().lower())
-            if key in seen:
-                skipped += 1
-                continue
-        kept.append(row)
-    return kept, skipped
-
-
 def write_csv(
     path: Path, rows: Iterable[dict[str, object]], fieldnames: list[str]
 ) -> int:
@@ -591,6 +623,8 @@ def write_csv(
 
 def iter_source_rows(
     source: EvidenceSource,
+    *,
+    data_dir: Path = DATA_DIR,
 ) -> Iterable[tuple[dict[str, str], set[str]]]:
     """Yield ``(normalized_row, errors)`` for every row of a source CSV.
 
@@ -598,6 +632,22 @@ def iter_source_rows(
     the header). Yields nothing when the source has no path.
     """
     if source.path is None:
+        return
+    if source.source_kind == "stale_descendant_parent_verdicts":
+        # Import lazily because the canonical parent loader authenticates
+        # serialized fields with helpers from this module.
+        from .stale_descendants import load_stale_descendant_parents
+
+        for parent in load_stale_descendant_parents(
+            source.path,
+            data_dir=data_dir,
+        ).values():
+            yield normalize_evidence_row(
+                source,
+                parent.row,
+                list(parent.row),
+                parent.row_number,
+            )
         return
     with source.path.open(newline="") as f:
         reader = csv.DictReader(f)
@@ -609,70 +659,57 @@ def iter_source_rows(
 def collect_source_rows(
     source: EvidenceSource,
     *,
+    data_dir: Path = DATA_DIR,
     exclude_classifications: frozenset[str] = frozenset(),
-    stale_descendant_observations: frozenset[tuple[str, int, str]] = frozenset(),
-    stale_descendant_correction_keys: frozenset[tuple[int, str]] = frozenset(),
     error_blocks_path: Path | None = None,
+    excluded_error_rows: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
     """Read and normalize an entire source CSV, accumulating SourceStats.
 
     Every normalized row is kept except requested source classifications and
-    exact identities in the committed error-blocks dataset. The stats record
-    error labels rather than dropping malformed rows; classification tallies,
-    rejection counts, and missing-evidence counts feed the counts/manifest
-    artifacts. A source row formerly published as a direct stale is projected
-    into its accepted ``stale_descendant`` state only when the descendant
-    sidecar supplies both its exact chain/height/hash observation and the
-    compact exact-key correction overlay. A stale descendant is never an error
-    block, but the consensus-invalid gate below still filters any exact key the
-    dataset records as an error block.
+    exact identities in the committed error-blocks dataset. Applying
+    exclusions here keeps them out of both projection and source statistics.
+    Final-category conflicts are not repaired at this boundary: source
+    classifiers must emit the current verdict, and the publication validator
+    rejects any conflicting snapshot.
     """
     stats = SourceStats()
     rows: list[dict[str, str]] = []
     if source.path is None:
         stats.notes.add("no evidence source discovered")
         return rows, stats
-    if error_blocks_path is None:
-        excluded = load_stale_exclusion_keys()
-        consensus_invalid = load_consensus_invalid_stale_keys()
-    elif error_blocks_path.is_file():
-        excluded = load_stale_exclusion_keys(error_blocks_path)
-        consensus_invalid = load_consensus_invalid_stale_keys(error_blocks_path)
-    else:
-        excluded = load_stale_exclusion_keys()
-        consensus_invalid = load_consensus_invalid_stale_keys()
+    error_block_keys = (
+        load_error_block_keys(error_blocks_path)
+        if error_blocks_path is not None and error_blocks_path.is_file()
+        else load_error_block_keys()
+    )
+    error_block_hashes = {block_hash for _height, block_hash in error_block_keys}
+    source_sha256: str | None = None
+
+    def authenticated_source_sha256() -> str:
+        nonlocal source_sha256
+        if source_sha256 is not None:
+            return source_sha256
+        digest = hashlib.sha256()
+        assert source.path is not None
+        with source.path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        source_sha256 = digest.hexdigest()
+        return source_sha256
+
     excluded_count = 0
-    reclassified_descendant_count = 0
-    for normalized, errors in iter_source_rows(source):
+    for normalized, errors in iter_source_rows(source, data_dir=data_dir):
         classification = normalized["classification"]
-        try:
-            key = (
-                int(normalized["btc_height"]),
-                normalized["btc_header_hash"].lower(),
-            )
-        except (TypeError, ValueError):
-            key = None
-        observation_key = None
-        if key is not None:
-            observation_key = (source.chain, key[0], key[1])
-        if (
-            classification == "stale"
-            and observation_key in stale_descendant_observations
-            and key in stale_descendant_correction_keys
-        ):
-            normalized = {
-                **normalized,
-                "classification": "stale_descendant",
-                "validation_status": "VALID_STALE_DESCENDANT",
-            }
-            classification = "stale_descendant"
-            reclassified_descendant_count += 1
-        if classification in exclude_classifications:
-            continue
-        if key in consensus_invalid or (
-            key in excluded and normalized["classification"] != "stale_descendant"
-        ):
+        parent_hash = normalized["btc_header_hash"].lower()
+        if parent_hash in error_block_hashes:
+            if excluded_error_rows is not None:
+                captured = dict(normalized)
+                captured["source_sha256"] = authenticated_source_sha256()
+                excluded_error_rows.append(captured)
             excluded_count += 1
+            continue
+        if classification in exclude_classifications:
             continue
         rows.append(normalized)
         stats.source_rows += 1
@@ -697,11 +734,6 @@ def collect_source_rows(
             stats.missing_coinbase_outputs += 1
     if excluded_count:
         stats.notes.add(f"publication_exclusions={excluded_count}")
-    if reclassified_descendant_count:
-        stats.notes.add(
-            "reclassified_stale_descendant_observations="
-            f"{reclassified_descendant_count}"
-        )
     return rows, stats
 
 
@@ -714,7 +746,7 @@ def canonical_evidence_status(source: EvidenceSource, stats: SourceStats) -> str
     """
     if source.source_kind == "missing":
         return "not_checked_missing_source"
-    if source.source_kind == "stale_descendant_sidecar":
+    if source.source_kind == "stale_descendant_parent_verdicts":
         return "not_applicable"
     # A canonical companion merged into stats retains canonical evidence even
     # when the primary source is a stale-only publication.

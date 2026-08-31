@@ -16,7 +16,6 @@ from stale_blocks_analysis.monitor_exports import (  # noqa: E402
     MONITOR_OUTPUT_DIR,
 )
 from stale_blocks_analysis.monitor_publication import (  # noqa: E402
-    build_error_observation_update,
     build_transactionally,
     validate_publication_inputs,
 )
@@ -67,14 +66,6 @@ def build_parser() -> argparse.ArgumentParser:
             "committed publication artifacts."
         ),
     )
-    parser.add_argument(
-        "--add-error-observations",
-        action="store_true",
-        help=(
-            "Add only the error-block witness aggregate to an existing complete "
-            "monitor publication. This does not rebuild ordinary chain artifacts."
-        ),
-    )
     return parser
 
 
@@ -82,16 +73,6 @@ def main(argv: list[str] | None = None) -> None:
     """Write the monitor-facing exports and print the manifest summary."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.add_error_observations:
-        if args.allow_partial or args.skip_canonical:
-            parser.error(
-                "--add-error-observations cannot be combined with partial-build options"
-            )
-        summary = build_error_observation_update(args)
-        print(f"wrote {summary['counts_csv']}")
-        print(f"wrote {summary['manifest_json']}")
-        print(f"error observations added: {summary['error_observations']}")
-        return
     validate_publication_inputs(args, parser)
     if args.allow_partial:
         print(

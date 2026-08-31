@@ -8,15 +8,20 @@ and `tag_stale_blocks` attributes each record to a mining pool via
 the acquisition/recovery pipeline never imports the pool dataset.
 
 Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
-pool_identification (identify_pool_detailed), stale_blocks (_addr_to_spk).
+pool_identification (identify_pool_detailed), coinbase_output_claims
+(parse/merge/render claim helpers).
 """
 
 import hashlib
 
 from .bitcoin_binary import parse_coinbase, sha256d
+from .coinbase_output_claims import (
+    merge_coinbase_output_claim_sets,
+    parse_coinbase_output_claims,
+    render_coinbase_output_claims,
+)
 from .config import BLOCKS_DIR
 from .pool_identification import identify_pool_detailed
-from .stale_blocks import _addr_to_spk
 
 
 def merge_stale_sources(
@@ -72,13 +77,13 @@ def merge_stale_sources(
             # and i0coin yield complete raw scripts. Keeping only the first
             # observation's list discards a tag another chain preserved.
             if b.get("_outputs_str"):
-                existing = [
-                    e for e in (pri.get("_outputs_str") or "").split(";") if e.strip()
-                ]
-                incoming = [e for e in b["_outputs_str"].split(";") if e.strip()]
-                unioned = existing + [e for e in incoming if e not in existing]
-                if unioned != existing:
-                    pri["_outputs_str"] = ";".join(unioned)
+                existing = parse_coinbase_output_claims(pri.get("_outputs_str") or "")
+                incoming = parse_coinbase_output_claims(b["_outputs_str"])
+                reconciled = render_coinbase_output_claims(
+                    merge_coinbase_output_claim_sets(existing, incoming)
+                )
+                if reconciled != (pri.get("_outputs_str") or ""):
+                    pri["_outputs_str"] = reconciled
                     filled = True
             if filled:
                 pri.setdefault("_outputs_str", "")
@@ -246,27 +251,13 @@ def tag_stale_blocks(
 
         scriptsig = bytes.fromhex(sig_hex) if sig_hex else b""
         if scriptsig or outputs_str:
-            # Build (value, scriptPubKey) tuples. Each entry is either a
-            # base58/bech32 address (NMC, Syscoin loaders) or a raw
-            # scriptPubKey hex string (Devcoin, ixcoin loaders, whose
-            # source CSVs carry scripts not addresses). Try address first,
-            # fall back to hex.
-            outputs = []
             if outputs_str:
-                for entry in outputs_str.split(";"):
-                    entry = entry.strip()
-                    if not entry:
-                        continue
-                    spk = _addr_to_spk(entry)
-                    if spk is None:
-                        try:
-                            spk = bytes.fromhex(entry)
-                        except ValueError:
-                            continue
-                    outputs.append((0, spk))
-            b["pool"], b["_pool_match"] = identify_pool_detailed(
-                scriptsig, outputs or None
-            )
+                output_claims = parse_coinbase_output_claims(outputs_str)
+                b["pool"], b["_pool_match"] = identify_pool_detailed(
+                    scriptsig, output_claims=output_claims
+                )
+            else:
+                b["pool"], b["_pool_match"] = identify_pool_detailed(scriptsig)
         else:
             b["pool"] = "Unknown"
             b["_pool_match"] = "none"

@@ -92,7 +92,10 @@ The 26.7% merge-mined share (1,695,912 of 6,344,114) confirms a dense AuxPoW env
 **Loader filter** (`load_xaya_stales()` in `stale_blocks.py`):
 
 ```python
-classification == "stale" and validation_status.startswith("VALID")
+classification == "stale" and validation_status in {
+    "VALID",
+    "VALID (post-BCH, difficulty matches BTC)",
+}
 ```
 
 The loader parses `coinbase_outputs` as raw pkscript hex, semicolon-joined
@@ -123,7 +126,7 @@ Xaya is 19th chronologically. Earlier-born integrated chains: namecoin, geistgel
 | Split | Count |
 |---|---:|
 | also in upstream | 29 |
-| also in earlier-born chain (`namecoin`: 16, `emercoin`: 11, `rsk`: 7 - first-claim distribution) | 34 |
+| also in earlier-born chain (`namecoin`: 21, `emercoin`: 10, `rsk`: 7 - first-claim distribution) | 38 |
 | **novel at this position** | **0** |
 
 All 40 accepted rows in the 2026-06-24 refresh are accounted for by upstream or an earlier-born chain: 29 are already upstream and the other 11 are first-claimed by an earlier chain. Xaya therefore adds **0 chronologically novel candidates and 0 net-new upstream sidecar rows**, while providing independent cross-chain evidence for 40 accepted header candidates across a large 2018 to 2024 window. The overlap does not, by itself, establish a shared miner population.

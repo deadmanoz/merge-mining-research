@@ -531,50 +531,129 @@ def test_sweep_unreachable_inventory_fails_soft() -> None:
     assert report.error
 
 
-# ---------------------------------------------------------------------------
-# Resolution-section preservation across regeneration
-# ---------------------------------------------------------------------------
-
-
 def _empty_report(chain: str = "devcoin") -> "sweep.ChainReport":
     return sweep.ChainReport(chain=chain, stale_inventory="/fake/stale.csv")
 
 
-def test_extract_resolution_section_returns_followup_to_eof() -> None:
-    text = (
-        "# Error-blocks time-rule sweep\n\n... generated body ...\n\n"
-        "## Follow-up investigation (2026-07-30): future-limit flags resolved\n\n"
-        "The 15 flags were resolved as late-mined, 0 violations.\n"
-    )
-    section = sweep.extract_resolution_section(text)
-    assert section.startswith("## Follow-up investigation")
-    assert "0 violations" in section
-    assert "generated body" not in section
-    # No follow-up section -> empty.
-    assert sweep.extract_resolution_section("# no follow-up here\n") == ""
+def _committed_report_snapshot() -> list["sweep.ChainReport"]:
+    """Reconstruct the 2026-07-30 sweep state behind the committed report."""
+    chain_rows = [
+        ("argentum", 2, 634_277, 289_866, 289_864, 0),
+        ("bitmark", 1, 81_921, 41_709, 41_708, 0),
+        ("coiledcoin", 27, 13_308, 1, 0, 0),
+        ("crown", 23, 383_622, 237_212, 237_189, 0),
+        ("devcoin", 484, 75_141, 42_360, 41_940, 7),
+        ("elcash", 3, 2_711, 2_714, 2_711, 0),
+        ("emercoin", 97, 16_545, 16_095, 15_998, 0),
+        ("geistgeld", 0, 2_290, 0, 0, 0),
+        ("groupcoin", 32, 2_713, 32, 0, 0),
+        ("huntercoin", 13, 29, 13, 0, 0),
+        ("i0coin", 176, 86_249, 149, 0, 0),
+        ("ixcoin", 478, 253_974, 126_344, 125_928, 7),
+        ("myriadcoin", 40, 166_844, 116_845, 116_805, 0),
+        ("terracoin", 35, 523_315, 253_948, 253_913, 0),
+        ("unobtanium", 44, 430_931, 213_325, 213_281, 1),
+        ("xaya", 40, 17_642, 40, 0, 0),
+        ("syscoin", 18_360, 0, 17_881, 17_881, 0),
+        ("elastos", 9_156, 0, 9_152, 9_152, 0),
+        ("fractal", 524, 0, 515, 515, 0),
+    ]
+    reports: list[sweep.ChainReport] = []
+    by_chain: dict[str, sweep.ChainReport] = {}
+    for chain, stale, unknown, candidates, untrustworthy, future_flags in chain_rows:
+        report = sweep.ChainReport(
+            chain=chain,
+            stale_inventory=f"/snapshot/{chain}_stale_blocks.csv",
+            stale_rows=stale,
+            unknown_rows=unknown,
+            candidates=candidates,
+            pow_pass=candidates,
+            untrustworthy_height=untrustworthy,
+            time_beyond_future_limit=future_flags,
+        )
+        reports.append(report)
+        by_chain[chain] = report
+    reports[0].unknown_no_height = 1_352_175
+
+    flag_specs = [
+        (
+            256_558,
+            "000000000000000205dcc98671ad7a96cdcdc028bb94b3d4f9922f49ed6319f6",
+            7.49,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            256_558,
+            "00000000000000097dc0e4c05d2c8d386c5e7f9e378583f712095a17f9a91ce4",
+            2.36,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            256_558,
+            "000000000000002dfbdd2e33bd2aa6d4f3d41a202d954c07f5221a79b1cc648f",
+            5.01,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            261_419,
+            "0000000000000015a6ab8f6f2c055b1813902c58fd485903bb7a2afff1d89fcf",
+            2.32,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            297_835,
+            "000000000000000007b28cb11b554efb34d62d51b13a1bb84a37ac1a80e5704b",
+            2.60,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            297_835,
+            "000000000000000053b3fce44eaa50c0dca6d6c5d2d63818e08ae72b9894a5fe",
+            2.16,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            297_835,
+            "000000000000000064cb2f55ea3758db22489b77997a1a198d1cc3a249820ec7",
+            3.84,
+            ("devcoin", "ixcoin"),
+        ),
+        (
+            379_924,
+            "0000000000000000011bf0d411f64a5c4d9c1abad8c5d1c9b1b974af7fc79b7a",
+            125.22,
+            ("unobtanium",),
+        ),
+    ]
+    for height, block_hash, excess_hours, chains in flag_specs:
+        for chain in chains:
+            by_chain[chain].future_limit_flags.append(
+                sweep.Candidate(
+                    chain=chain,
+                    source="stale",
+                    inventory=f"/snapshot/{chain}_stale_blocks.csv",
+                    height=height,
+                    block_hash=block_hash,
+                    n_time=round(excess_hours * 3_600),
+                    meets_full_pow=True,
+                    authoritative_height=True,
+                    parent_time=0,
+                    violation="time_beyond_future_limit",
+                )
+            )
+    return reports
 
 
-def test_render_report_preserves_existing_resolution_section() -> None:
-    # A prior report carrying the manually-written follow-up investigation:
-    # regenerating must carry the section forward verbatim, not drop it.
-    resolution = (
-        "## Follow-up investigation (2026-07-30): future-limit flags resolved\n\n"
-        "All 15 flags resolved as late-mined, 0 violations.\n"
-    )
-    prior = f"# old report\n\nold body\n\n{resolution}"
-    rendered = sweep.render_report([_empty_report()], "2026-01-01 00:00 UTC", prior)
-    assert "## Follow-up investigation" in rendered
-    assert "All 15 flags resolved as late-mined, 0 violations." in rendered
-    # The section is appended after the generated body, exactly once.
-    assert rendered.count("## Follow-up investigation") == 1
-    assert rendered.index("Row-level candidate detail") < rendered.index(
-        "## Follow-up investigation"
-    )
-
-
-def test_render_report_without_prior_text_has_no_resolution_section() -> None:
+def test_render_report_points_to_authored_followup_doc() -> None:
     rendered = sweep.render_report([_empty_report()], "2026-01-01 00:00 UTC")
     assert "## Follow-up investigation" not in rendered
+    assert sweep.FOLLOW_UP_DOC_LINK in rendered
+
+
+def test_committed_report_exactly_matches_current_renderer() -> None:
+    rendered = sweep.render_report(_committed_report_snapshot(), "2026-07-30 04:52 UTC")
+    committed = REPO / "results/analysis/error-blocks/time-rule-report.md"
+    assert committed.read_text() == rendered
 
 
 # ---------------------------------------------------------------------------
@@ -930,7 +1009,7 @@ def test_main_incomplete_mtp_context_writes_partial_with_allow_partial(
     assert "no canonical parent context available" in report
 
 
-def test_main_carries_follow_up_investigation_through_rewrite(
+def test_main_does_not_copy_prior_follow_up_through_rewrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mapping = _full_mapping_with_candidate()
@@ -953,7 +1032,7 @@ def test_main_carries_follow_up_investigation_through_rewrite(
     report_path.write_text(
         "# old report\n\n"
         "## Follow-up investigation (2026-07-30): future-limit flags resolved\n\n"
-        "All 15 flags resolved as late-mined, 0 violations.\n"
+        "old-output-only sentinel\n"
     )
     monkeypatch.setattr(
         sys,
@@ -969,6 +1048,6 @@ def test_main_carries_follow_up_investigation_through_rewrite(
     )
     assert sweep.main() == 0
     text = report_path.read_text()
-    assert "## Follow-up investigation" in text
-    assert "All 15 flags resolved as late-mined, 0 violations." in text
-    assert text.count("## Follow-up investigation") == 1
+    assert "## Follow-up investigation" not in text
+    assert "old-output-only sentinel" not in text
+    assert sweep.FOLLOW_UP_DOC_LINK in text
