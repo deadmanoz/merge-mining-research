@@ -152,9 +152,12 @@ provenance:
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence. The
   canonical loader requires the exact ordered witness schema and complete row
-  widths. One authenticated child event can witness exactly one Bitcoin
-  parent, while distinct child events from the same chain may witness the same
-  parent.
+  widths and rejects non-canonical POSIX source paths. A row without a
+  serialized child header must match the exact chain, parent, child height, and
+  child hash in the selected `data/` tree's `child-identity/` index; any
+  populated child time, header, or `nBits` evidence must agree. One authenticated
+  child event can witness exactly one Bitcoin parent, while distinct child
+  events from the same chain may witness the same parent.
 
 Reconciliation evaluates every authenticated candidate, begins only from the
 declared trusted-root set, and verifies the full predecessor path. A direct
@@ -406,15 +409,16 @@ current parent catalogue before publication. The catalogue declares each
 `(chain, child_height, parent_hash)` summary, while the ledger owns the exact
 `(chain, child_height, child_block_hash, parent_hash)` event identity. This
 preserves distinct sibling blocks from the same chain and height. Each
-normalized source coordinate may authenticate only one exact event. Every
-ledger row must identify its child either with a well-formed hash or with a
-serialized child header from which that hash can be authenticated. Staged
-publication applies the ordinary parent/child evidence checks to the aggregate
-and requires every catalogue/ledger-derived field and identity to match the
-canonical 86-row module exactly; source-derived coinbase output enrichment may
-add evidence but cannot replace it. The release path stages every ordinary
-artifact, the error aggregate, counts, and manifest as one coherent transaction
-after validating them against the current schemas and source contracts.
+canonical source coordinate may authenticate only one exact event. Every
+ledger row must have the exact canonical field count and identify its child
+either with a well-formed hash or with a serialized child header from which
+that hash can be authenticated. Staged publication applies the ordinary
+parent/child evidence checks to the aggregate and requires every
+catalogue/ledger-derived field and identity to match the canonical 86-row
+module exactly; source-derived coinbase output enrichment may add evidence but
+cannot replace it. The release path stages every ordinary artifact, the error
+aggregate, counts, and manifest as one coherent transaction after validating
+them against the current schemas and source contracts.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes

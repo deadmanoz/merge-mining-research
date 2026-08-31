@@ -174,6 +174,10 @@ def _stage_trusted_root_inputs(
     errors = data_dir / "error-blocks" / "error_blocks.csv"
     errors.parent.mkdir(parents=True, exist_ok=True)
     errors.write_text(f"height,hash,classification\n0,{'00' * 32},error_block\n")
+    shutil.copytree(
+        REPO / "data" / "child-identity",
+        data_dir / "child-identity",
+    )
 
 
 def _write_relevance_identities(

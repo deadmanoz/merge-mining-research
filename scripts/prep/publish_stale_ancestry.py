@@ -11,11 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from stale_blocks_analysis.config import DATA_DIR, ERROR_BLOCKS_CSV
-from stale_blocks_analysis.error_observations import (
-    ERROR_OBSERVATION_LEDGER,
-    validate_error_observation_ledger,
-)
+from stale_blocks_analysis import error_block_validation
+from stale_blocks_analysis.config import DATA_DIR
 from stale_blocks_analysis.stale_descendants import (
     OBSERVATIONS_PATH,
     PARENTS_PATH,
@@ -25,8 +22,6 @@ from stale_blocks_analysis.stale_descendants import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ANCESTRY_SCRIPT = PROJECT_ROOT / "scripts/analysis/reconcile_unknown_stale_ancestry.py"
-ERROR_VALIDATION_SCRIPT = PROJECT_ROOT / "scripts/analysis/validate_error_blocks.py"
-ERROR_LEDGER = ERROR_BLOCKS_CSV.parent / ERROR_OBSERVATION_LEDGER
 
 _PROTECTED_ANCESTRY_OPTIONS = frozenset(
     {
@@ -155,10 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        _run([sys.executable, str(ERROR_VALIDATION_SCRIPT)])
-        error_catalogue, error_observations = validate_error_observation_ledger(
-            catalogue_path=ERROR_BLOCKS_CSV,
-            ledger_path=ERROR_LEDGER,
+        error_catalogue, error_observations = (
+            error_block_validation.validate_error_module()
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(

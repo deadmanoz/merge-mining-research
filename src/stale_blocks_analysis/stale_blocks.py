@@ -34,7 +34,7 @@ from .config import (
     STALE_DESCENDANT_OBSERVATIONS_CSV,
     STALE_DESCENDANTS_CSV,
 )
-from .error_blocks import exclude_consensus_invalid_rows, exclude_stale_rows
+from .error_blocks import exclude_error_block_rows
 from .stale_descendants import (
     load_stale_descendant_observations,
     load_stale_descendant_parents,
@@ -84,7 +84,7 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
                 rows.append(
                     {"height": h, "hash": row["hash"], "source": "stale-blocks"}
                 )
-    rows = exclude_consensus_invalid_rows(rows)
+    rows = exclude_error_block_rows(rows)
     rows.sort(key=lambda r: r["height"])
     return rows
 
@@ -192,7 +192,7 @@ def load_auxpow_validated_stales(
                     "_outputs_str": outputs_str,
                 }
             )
-    rows = exclude_stale_rows(rows)
+    rows = exclude_error_block_rows(rows)
     rows.sort(key=lambda r: r["height"])
     return rows
 
@@ -668,7 +668,7 @@ def load_rsk_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
                     "source": "rsk",
                 }
             )
-    rows = exclude_stale_rows(rows)
+    rows = exclude_error_block_rows(rows)
     rows.sort(key=lambda r: r["height"])
     return rows
 
@@ -800,4 +800,4 @@ def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
             }
         )
     rows.sort(key=lambda r: r["height"])
-    return exclude_consensus_invalid_rows(rows)
+    return exclude_error_block_rows(rows)

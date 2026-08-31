@@ -15,7 +15,6 @@ from stale_blocks_analysis.reconcile_observations import (
 )
 from stale_blocks_analysis.reconcile_publication import (
     build_descendant_observation_rows,
-    write_csv,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -51,7 +50,7 @@ def _load(
     unknown_files: dict[str, Path] | None = None,
     canonical_files: dict[str, Path] | None = None,
     validated_files: dict[str, Path] | None = None,
-    consensus_invalid_keys: set[tuple[int, str]] | None = None,
+    error_block_keys: set[tuple[int, str]] | None = None,
 ) -> dict[str, object]:
     return load_observations(
         data_dir=data_dir,
@@ -61,8 +60,7 @@ def _load(
         canonical_files=canonical_files or {},
         validated_files=validated_files or {},
         epoch_bits={},
-        excluded_keys=set(),
-        consensus_invalid_keys=consensus_invalid_keys or set(),
+        error_block_keys=error_block_keys or set(),
     )
 
 
@@ -191,14 +189,6 @@ def test_split_unknown_keeps_authenticated_height_for_other_chains(
     assert observation.child_height == "817176"
     assert observation.source_child_hash == "aa" * 32
     assert observation.source_kind == "full_inventory"
-
-
-def test_reconciliation_writer_uses_lf_line_endings(tmp_path: Path) -> None:
-    output = tmp_path / "reconciled.csv"
-
-    write_csv(output, [{"value": "one"}, {"value": "two"}], ["value"])
-
-    assert output.read_bytes() == b"value\none\ntwo\n"
 
 
 def test_discover_canonical_files_finds_classifier_companions(tmp_path: Path) -> None:
@@ -365,7 +355,7 @@ def test_error_catalogue_hash_precedence_excludes_candidate_but_indexes_terminal
         tmp_path,
         full_files={"test": inventory},
         validated_files={"test": inventory},
-        consensus_invalid_keys={(102, block_hash)},
+        error_block_keys={(102, block_hash)},
     )
 
     assert block_hash not in state["known_stale_hashes"]
@@ -411,7 +401,7 @@ def test_error_catalogue_parent_is_explicit_invalid_ancestry_terminal(
     state = _load(
         tmp_path,
         full_files={"test": inventory},
-        consensus_invalid_keys={(102, invalid_parent)},
+        error_block_keys={(102, invalid_parent)},
     )
     walks = classify_walks(
         unknown_row_counts_by_hash=state["unknown_row_counts_by_hash"],
@@ -458,7 +448,7 @@ def test_error_catalogue_rejects_conflicting_heights_for_one_hash(
     with pytest.raises(ValueError, match="assigns conflicting heights"):
         _load(
             tmp_path,
-            consensus_invalid_keys={(102, block_hash), (103, block_hash)},
+            error_block_keys={(102, block_hash), (103, block_hash)},
         )
 
 

@@ -18,7 +18,7 @@ from .auxpow_parse import (
 )
 from .bitcoin_binary import format_outputs_addr, parse_coinbase_tx, sha256d
 from .config import CHAIN_SPECS, DATA_DIR, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
-from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
+from .error_blocks import load_error_block_keys
 from .evidence_sources import (
     CHILD_HEIGHT_AUTHENTICATED,
     CHILD_HEIGHT_NOT_APPLICABLE,
@@ -678,16 +678,12 @@ def collect_source_rows(
     if source.path is None:
         stats.notes.add("no evidence source discovered")
         return rows, stats
-    if error_blocks_path is None:
-        excluded = load_stale_exclusion_keys()
-        consensus_invalid = load_consensus_invalid_stale_keys()
-    elif error_blocks_path.is_file():
-        excluded = load_stale_exclusion_keys(error_blocks_path)
-        consensus_invalid = load_consensus_invalid_stale_keys(error_blocks_path)
-    else:
-        excluded = load_stale_exclusion_keys()
-        consensus_invalid = load_consensus_invalid_stale_keys()
-    consensus_invalid_hashes = {block_hash for _height, block_hash in consensus_invalid}
+    error_block_keys = (
+        load_error_block_keys(error_blocks_path)
+        if error_blocks_path is not None and error_blocks_path.is_file()
+        else load_error_block_keys()
+    )
+    error_block_hashes = {block_hash for _height, block_hash in error_block_keys}
     source_sha256: str | None = None
 
     def authenticated_source_sha256() -> str:
@@ -705,17 +701,8 @@ def collect_source_rows(
     excluded_count = 0
     for normalized, errors in iter_source_rows(source, data_dir=data_dir):
         classification = normalized["classification"]
-        try:
-            key = (
-                int(normalized["btc_height"]),
-                normalized["btc_header_hash"].lower(),
-            )
-        except (TypeError, ValueError):
-            key = None
         parent_hash = normalized["btc_header_hash"].lower()
-        if parent_hash in consensus_invalid_hashes or (
-            key in excluded and normalized["classification"] != "stale_descendant"
-        ):
+        if parent_hash in error_block_hashes:
             if excluded_error_rows is not None:
                 captured = dict(normalized)
                 captured["source_sha256"] = authenticated_source_sha256()

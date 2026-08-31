@@ -23,14 +23,12 @@ from stale_blocks_analysis.btc_stale_validation import (
     coinbase_scriptsig_length_error,
 )
 from stale_blocks_analysis.error_blocks import (
-    exclude_consensus_invalid_rows,
-    load_consensus_invalid_stale_keys,
-    load_stale_exclusion_keys,
+    exclude_error_block_rows,
+    load_error_block_keys,
 )
 from stale_blocks_analysis.reconcile_observations import (
     accepted_stale_root,
     scan_upstream_stales,
-    stale_identity_key,
 )
 from stale_blocks_analysis.reconcile_publication import (
     OUTPUT_SUMMARY,
@@ -46,30 +44,23 @@ INCLUDED_HASH = "11" * 32
 
 
 def test_load_keys_from_committed_dataset() -> None:
-    keys = load_stale_exclusion_keys(ERROR_BLOCKS_CSV)
+    keys = load_error_block_keys(ERROR_BLOCKS_CSV)
     assert (
         363967,
         "00000000000000000954ed93eda1e79e8261137548fa9ccf4d516bb384a3660b",
     ) in keys
 
 
-def test_consensus_invalid_subset_equals_all_rows() -> None:
-    # Every dataset row is an error block, so the two key sets are identical.
-    assert load_stale_exclusion_keys(
-        ERROR_BLOCKS_CSV
-    ) == load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)
-
-
 def test_missing_file_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        load_stale_exclusion_keys(tmp_path / "nope.csv")
+        load_error_block_keys(tmp_path / "nope.csv")
 
 
 def test_blank_classification_fails_closed(tmp_path: Path) -> None:
     p = tmp_path / "error_blocks.csv"
     p.write_text("height,hash,classification\n1," + "00" * 32 + ",\n")
     with pytest.raises(ValueError):
-        load_stale_exclusion_keys(p)
+        load_error_block_keys(p)
 
 
 def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
@@ -80,19 +71,17 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
     header_only = tmp_path / "header_only.csv"
     header_only.write_text("height,hash,classification\n")
     with pytest.raises(ValueError, match="no error block rows"):
-        load_stale_exclusion_keys(header_only)
-    with pytest.raises(ValueError, match="no error block rows"):
-        load_consensus_invalid_stale_keys(header_only)
+        load_error_block_keys(header_only)
 
     empty = tmp_path / "empty.csv"
     empty.write_text("")
     with pytest.raises(ValueError, match="no error block rows"):
-        load_stale_exclusion_keys(empty)
+        load_error_block_keys(empty)
 
 
 def test_committed_dataset_loads_39_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 39
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 39
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -103,7 +92,7 @@ def test_exclude_rows_filters_exact_key() -> None:
         },
         {"height": "1", "hash": "11" * 32},
     ]
-    kept = exclude_consensus_invalid_rows(rows, path=ERROR_BLOCKS_CSV)
+    kept = exclude_error_block_rows(rows, path=ERROR_BLOCKS_CSV)
     assert kept == [{"height": "1", "hash": "11" * 32}]
 
 
@@ -187,8 +176,7 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
         rows = list(csv.DictReader(f))
 
     assert len(rows) == 39
-    assert len(load_stale_exclusion_keys(ERROR_BLOCKS_CSV)) == 39
-    assert len(load_consensus_invalid_stale_keys(ERROR_BLOCKS_CSV)) == 39
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 39
     assert Counter(row["rejection_reason"] for row in rows) == {
         "bip34_v2_coinbase_height_mismatch": 12,
         "bip34_coinbase_height_mismatch": 13,
@@ -216,7 +204,7 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
 
 
 def test_error_block_keys_are_absent_from_committed_publication_csvs() -> None:
-    excluded = load_stale_exclusion_keys()
+    excluded = load_error_block_keys()
     paths = [
         *sorted((REPO / "data" / "validated-stales").glob("*_validated_stales.csv")),
         *sorted((REPO / "results" / "per-chain-novelty").glob("*.csv")),
@@ -329,6 +317,27 @@ def _write_upstream(path: Path) -> None:
         )
 
 
+def _write_error_catalogue(data_dir: Path, keys: set[tuple[int, str]]) -> Path:
+    path = data_dir / "error-blocks" / "error_blocks.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["height", "hash", "classification"],
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for height, block_hash in sorted(keys):
+            writer.writerow(
+                {
+                    "height": height,
+                    "hash": block_hash,
+                    "classification": "error_block",
+                }
+            )
+    return path
+
+
 def test_dataset_rejects_duplicate_and_malformed_keys(tmp_path: Path) -> None:
     duplicate = tmp_path / "duplicate.csv"
     duplicate.write_text(
@@ -337,21 +346,19 @@ def test_dataset_rejects_duplicate_and_malformed_keys(tmp_path: Path) -> None:
         f"331735,{EXCLUDED_HASH},error_block\n"
     )
     with pytest.raises(ValueError, match="duplicate error block key"):
-        load_stale_exclusion_keys(duplicate)
+        load_error_block_keys(duplicate)
 
     malformed = tmp_path / "malformed.csv"
     malformed.write_text("height,hash,classification\n331735,not-a-hash,error_block\n")
     with pytest.raises(ValueError, match="invalid error block row"):
-        load_stale_exclusion_keys(malformed)
+        load_error_block_keys(malformed)
 
     missing_classification = tmp_path / "missing-classification.csv"
     missing_classification.write_text(
         f"height,hash,classification\n331735,{EXCLUDED_HASH},\n"
     )
     with pytest.raises(ValueError, match="invalid error block row"):
-        load_stale_exclusion_keys(missing_classification)
-    with pytest.raises(ValueError, match="invalid error block row"):
-        load_consensus_invalid_stale_keys(missing_classification)
+        load_error_block_keys(missing_classification)
 
 
 def test_upstream_sidecar_loader_applies_error_block_gate(
@@ -365,11 +372,8 @@ def test_upstream_sidecar_loader_applies_error_block_gate(
     _write_upstream(upstream)
     monkeypatch.setattr(
         module,
-        "load_consensus_invalid_stale_keys",
+        "load_error_block_keys",
         lambda: {(331735, EXCLUDED_HASH)},
-    )
-    monkeypatch.setattr(
-        module, "load_stale_exclusion_keys", lambda: {(331735, EXCLUDED_HASH)}
     )
 
     assert module.load_upstream_keys(upstream) == {(331736, INCLUDED_HASH)}
@@ -408,7 +412,7 @@ def test_upstream_sidecar_candidates_apply_error_block_gate(
                 }
             )
     monkeypatch.setattr(
-        module, "load_stale_exclusion_keys", lambda: {(331735, EXCLUDED_HASH)}
+        module, "load_error_block_keys", lambda: {(331735, EXCLUDED_HASH)}
     )
 
     candidates, missing, warnings = module.collect_candidates(data_dir)
@@ -448,7 +452,7 @@ def test_upstream_sidecar_descendants_use_canonical_parent_loader(
     trust_errors = data_dir / "error-blocks" / "error_blocks.csv"
     trust_errors.parent.mkdir()
     trust_errors.write_text(f"height,hash,classification\n0,{'00' * 32},error_block\n")
-    monkeypatch.setattr(module, "load_stale_exclusion_keys", lambda: set())
+    monkeypatch.setattr(module, "load_error_block_keys", lambda: set())
 
     candidates, missing, warnings = module.collect_candidates(
         data_dir,
@@ -500,19 +504,6 @@ def test_unknown_ancestry_upstream_scan_applies_error_block_gate(
     assert all_hash_chains[INCLUDED_HASH] == {"upstream"}
 
 
-def test_unknown_ancestry_inventory_identity_uses_parent_height_fallback() -> None:
-    row = {
-        "btc_hash": EXCLUDED_HASH,
-        "btc_parent_height": "331734",
-        "btc_bip34_height": "331736",
-    }
-
-    assert stale_identity_key(row, list(row), "btc_hash") == (
-        331735,
-        EXCLUDED_HASH,
-    )
-
-
 @pytest.mark.parametrize(
     ("classification", "validation_status", "expected"),
     [
@@ -541,7 +532,7 @@ def test_unknown_ancestry_admits_only_accepted_stale_roots(
     )
 
 
-def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
+def test_unknown_ancestry_uses_selected_catalogue_for_all_inventory_scans(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_script(
@@ -552,6 +543,8 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
     upstream_dir = data_dir / "stale-blocks"
     upstream_dir.mkdir(parents=True)
     (upstream_dir / "stale-blocks.csv").write_text("height,hash,header\n")
+    selected_excluded_hash = "aa" * 32
+    _write_error_catalogue(data_dir, {(331735, selected_excluded_hash)})
 
     accepted_hash = "22" * 32
     rejected_hash = "33" * 32
@@ -565,7 +558,7 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
     rows = [
         {
             "btc_height": "331735",
-            "btc_hash": EXCLUDED_HASH,
+            "btc_hash": selected_excluded_hash,
             "btc_prev_hash": "44" * 32,
             "classification": "stale",
             "validation_status": "VALID",
@@ -599,9 +592,6 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
     results_dir = tmp_path / "results"
     parent_verdicts_csv = tmp_path / "stale_descendants.csv"
     monkeypatch.setattr(
-        module, "load_stale_exclusion_keys", lambda: {(331735, EXCLUDED_HASH)}
-    )
-    monkeypatch.setattr(
         sys,
         "argv",
         [
@@ -627,6 +617,37 @@ def test_unknown_ancestry_full_and_validated_scans_cannot_restore_exclusions(
     summary = json.loads((results_dir / OUTPUT_SUMMARY).read_text())
     assert summary["known_stale_hashes"] == 1
     assert summary["auxpow_stale_hashes"] == 1
+
+
+def test_unknown_ancestry_reports_missing_selected_error_catalogue(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _load_script(
+        "scripts/analysis/reconcile_unknown_stale_ancestry.py",
+        "reconcile_unknown_stale_ancestry_missing_catalogue_under_test",
+    )
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--data-dir",
+                str(data_dir),
+                "--results-dir",
+                str(tmp_path / "results"),
+                "--parent-verdicts-csv",
+                str(tmp_path / "stale_descendants.csv"),
+                "--observations-csv",
+                str(tmp_path / "stale_descendant_observations.csv"),
+                "--error-candidates-csv",
+                str(tmp_path / "error_candidates.csv"),
+                "--allow-partial",
+            ]
+        )
+
+    expected = data_dir / "error-blocks" / "error_blocks.csv"
+    assert f"error blocks dataset missing: {expected}" in capsys.readouterr().err
 
 
 def _header(version: int) -> str:
@@ -758,18 +779,6 @@ def test_unresolved_offline_child_heights_remain_blank() -> None:
                 assert row.get("child_height") == "", (path, row_number)
 
 
-def test_unknown_ancestry_inventory_identity_uses_bip34_height_fallback() -> None:
-    row = {
-        "btc_hash": EXCLUDED_HASH,
-        "btc_bip34_height": "331736",
-    }
-
-    assert stale_identity_key(row, list(row), "btc_hash") == (
-        331736,
-        EXCLUDED_HASH,
-    )
-
-
 def test_unknown_ancestry_does_not_treat_mixed_upstream_sidecar_as_roots(
     tmp_path: Path,
 ) -> None:
@@ -781,6 +790,7 @@ def test_unknown_ancestry_does_not_treat_mixed_upstream_sidecar_as_roots(
     upstream_dir = data_dir / "stale-blocks"
     upstream_dir.mkdir(parents=True)
     (upstream_dir / "stale-blocks.csv").write_text("height,hash,header\n")
+    _write_error_catalogue(data_dir, {(0, "00" * 32)})
 
     derived_root = "22" * 32
     derived_child = "33" * 32
@@ -831,6 +841,7 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
     upstream_dir.mkdir(parents=True)
     upstream = upstream_dir / "stale-blocks.csv"
     _write_upstream(upstream)
+    _write_error_catalogue(data_dir, {(0, "00" * 32)})
 
     header_hex, descendant_hash = _easy_pow_header(INCLUDED_HASH)
     inventory = data_dir / "namecoin_stale_blocks.csv"
@@ -921,9 +932,6 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
                 }
             )
 
-    direct_only_key = (331737, descendant_hash)
-    monkeypatch.setattr(module, "load_stale_exclusion_keys", lambda: {direct_only_key})
-    monkeypatch.setattr(module, "load_consensus_invalid_stale_keys", set)
     monkeypatch.setattr(
         "stale_blocks_analysis.reconcile_publication.expected_bits_for_height",
         lambda *_args: "207fffff",

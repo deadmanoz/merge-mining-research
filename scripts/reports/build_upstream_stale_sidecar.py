@@ -9,10 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
-from stale_blocks_analysis.error_blocks import (
-    load_consensus_invalid_stale_keys,
-    load_stale_exclusion_keys,
-)
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -75,7 +72,7 @@ def load_upstream_keys(path: Path) -> set[tuple[int, str]]:
     """
     if not path.exists():
         raise SystemExit(f"upstream stale CSV not found: {path}")
-    excluded = load_consensus_invalid_stale_keys()
+    excluded = load_error_block_keys()
     with path.open(newline="") as f:
         return {
             (int(row["height"]), row["hash"].strip().lower())
@@ -112,7 +109,7 @@ def collect_candidates(
     candidates: dict[tuple[int, str], str] = {}
     missing_header: dict[str, set[tuple[int, str]]] = {}
     warnings: Counter[str] = Counter()
-    excluded = load_stale_exclusion_keys()
+    excluded = load_error_block_keys()
 
     def add_candidate(key: tuple[int, str], header: str | None, source: str) -> None:
         if key in excluded:

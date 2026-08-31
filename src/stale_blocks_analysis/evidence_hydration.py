@@ -247,10 +247,15 @@ class ChildIdentityIndex:
 
     def __init__(self) -> None:
         self._by_parent: dict[ChildIdentityParentKey, list[ChildIdentityRow]] = {}
+        self._by_event: dict[tuple[str, str, int, str], ChildIdentityRow] = {}
 
     def add(self, key: ChildIdentityParentKey, row: ChildIdentityRow) -> None:
         """Append one already-validated child event under ``key``."""
         self._by_parent.setdefault(key, []).append(row)
+        child_height = int_or_none(row.get("child_height"))
+        child_hash = normalize_hash(row.get("child_block_hash"))
+        if child_height is not None and is_hash(child_hash):
+            self._by_event[(key[0], key[1], child_height, child_hash)] = row
 
     def candidates(self, key: ChildIdentityParentKey) -> tuple[ChildIdentityRow, ...]:
         """Return every authenticated child event for one parent."""
@@ -259,6 +264,23 @@ class ChildIdentityIndex:
     def parent_keys(self) -> tuple[ChildIdentityParentKey, ...]:
         """Return the parent keys represented by this exact-event index."""
         return tuple(self._by_parent)
+
+    def exact_event(
+        self,
+        chain: str,
+        parent_hash: str,
+        child_height: int,
+        child_hash: str,
+    ) -> ChildIdentityRow | None:
+        """Return one validated exact child event, if present."""
+        return self._by_event.get(
+            (
+                chain,
+                normalize_hash(parent_hash),
+                child_height,
+                normalize_hash(child_hash),
+            )
+        )
 
 
 def child_identity_candidates(

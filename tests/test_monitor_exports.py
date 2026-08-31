@@ -70,6 +70,16 @@ def _write_stale_descendant_module(
     observation = {**observation, "parent_row_number": "2"}
     _write_csv(data_dir / "stale_descendants.csv", [parent])
     _write_csv(data_dir / "stale_descendant_observations.csv", [observation])
+    identity = next(
+        row
+        for row in _read_csv(
+            REPO / "data" / "child-identity" / f"{chain}_child_identity.csv"
+        )
+        if row["btc_header_hash"] == observation["btc_header_hash"]
+        and row["child_height"] == observation["child_height"]
+        and row["child_block_hash"] == observation["child_block_hash"]
+    )
+    _write_csv(data_dir / "child-identity" / f"{chain}_child_identity.csv", [identity])
     _write_csv(
         data_dir / "validated-stales" / "root_validated_stales.csv",
         [
@@ -1105,12 +1115,7 @@ def test_collect_source_rows_uses_selected_error_catalogue(
         seen.append(path)
         return {(656478, header_hash)}
 
-    monkeypatch.setattr(
-        evidence_normalization, "load_stale_exclusion_keys", selected_keys
-    )
-    monkeypatch.setattr(
-        evidence_normalization, "load_consensus_invalid_stale_keys", selected_keys
-    )
+    monkeypatch.setattr(evidence_normalization, "load_error_block_keys", selected_keys)
     source = EvidenceSource(
         chain="namecoin",
         display_name="Namecoin",
@@ -1124,7 +1129,7 @@ def test_collect_source_rows_uses_selected_error_catalogue(
 
     assert rows == []
     assert stats.source_rows == 0
-    assert seen == [catalogue, catalogue]
+    assert seen == [catalogue]
 
 
 @pytest.mark.parametrize("source_height", ["656479", ""])
@@ -1165,12 +1170,7 @@ def test_collect_source_rows_excludes_error_parent_with_wrong_or_blank_height(
     catalogue.write_text("selected\n")
     monkeypatch.setattr(
         evidence_normalization,
-        "load_stale_exclusion_keys",
-        lambda _path: {(656478, error_hash)},
-    )
-    monkeypatch.setattr(
-        evidence_normalization,
-        "load_consensus_invalid_stale_keys",
+        "load_error_block_keys",
         lambda _path: {(656478, error_hash)},
     )
     source = EvidenceSource(
@@ -1650,7 +1650,7 @@ def test_monitor_export_reports_consensus_exclusions(
     )
     monkeypatch.setattr(
         evidence_normalization,
-        "load_consensus_invalid_stale_keys",
+        "load_error_block_keys",
         lambda *_args, **_kwargs: {(331735, excluded_hash)},
     )
 

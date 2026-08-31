@@ -2,11 +2,12 @@
 
 ## Unreleased
 
-Require the exact stale-descendant parent-verdict and witness-ledger schemas,
-including complete CSV row widths, and require every persisted parent gate cell
-to carry its accepting verdict. Make monitor publication authenticate every
-error-observation row against ordinary evidence rules and the canonical ledger,
-and reject duplicate `(height, hash)` keys in the MTP context sidecar.
+Require the exact stale-descendant parent-verdict, stale-descendant witness-ledger,
+and error-observation witness-ledger schemas, including complete CSV row widths,
+and require every persisted parent gate cell to carry its accepting verdict. Make
+monitor publication authenticate every error-observation row against ordinary
+evidence rules and the canonical ledger, and reject duplicate `(height, hash)`
+keys in the MTP context sidecar.
 
 Remove every ancestry recovery copy after a fully successful in-process
 rollback, preserve all copies when rollback is incomplete, and block a new
@@ -15,8 +16,9 @@ publication when any adjacent recovery file from any process remains.
 Preserve multiple distinct authenticated child events from one chain when they
 witness the same accepted stale-descendant parent. Resolve hydration, recovery,
 ancestry, and error-observation joins by exact child event, reject ambiguous or
-cross-parent reuse, and validate Xaya identities with its external `PowData`
-`nBits` contract.
+cross-parent reuse, authenticate headerless descendant witnesses through the
+selected child-identity index, require canonical POSIX source paths, and validate
+Xaya identities with its external `PowData` `nBits` contract.
 
 Require the canonical stale-descendant witness ledger before attribution can
 admit any parent verdict, and fail provenance fingerprinting if an expected

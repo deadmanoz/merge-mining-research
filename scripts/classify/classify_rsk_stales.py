@@ -61,7 +61,7 @@ from stale_blocks_analysis.btc_stale_validation import (
     median_time_past_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
-from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 
 BATCH = 100
 
@@ -650,7 +650,7 @@ def main():
     # Resolve every committed dependency before opening either output, so a
     # missing error-block exclusion input or historical registry cannot leave
     # a newly written full inventory beside a stale validated artifact.
-    excluded = load_stale_exclusion_keys()
+    excluded = load_error_block_keys()
     pool_labels = load_pool_labels(args.pool_registry)
     public_rows = build_validated_rows(verified, pool_labels, excluded)
 

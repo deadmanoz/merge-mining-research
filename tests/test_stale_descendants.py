@@ -609,18 +609,12 @@ def test_parent_loader_uses_the_selected_data_directory_trust_inputs(
 
 
 @pytest.mark.parametrize(
-    ("schema_mutation", "message"),
-    [
-        ("missing", "missing columns: provenance"),
-        ("extra", "exactly match the canonical schema"),
-        ("duplicate", "exactly match the canonical schema"),
-        ("reordered", "exactly match the canonical schema"),
-    ],
+    "schema_mutation",
+    ("missing", "extra", "duplicate", "reordered"),
 )
 def test_observation_ledger_requires_the_exact_canonical_schema(
     tmp_path: Path,
     schema_mutation: str,
-    message: str,
 ) -> None:
     parents, observations = _copy_module(tmp_path)
     with observations.open(newline="") as handle:
@@ -649,21 +643,17 @@ def test_observation_ledger_requires_the_exact_canonical_schema(
         writer.writeheader()
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="exactly match the canonical schema"):
         load_stale_descendant_observations(observations, parents_path=parents)
 
 
 @pytest.mark.parametrize(
-    ("row_mutation", "message"),
-    [
-        ("extra", "observation ledger row has extra CSV values"),
-        ("missing", "observation ledger row has missing CSV values"),
-    ],
+    "row_mutation",
+    ("extra", "missing"),
 )
 def test_observation_ledger_rejects_ragged_rows(
     tmp_path: Path,
     row_mutation: str,
-    message: str,
 ) -> None:
     parents, observations = _copy_module(tmp_path)
     with observations.open(newline="") as handle:
@@ -676,7 +666,7 @@ def test_observation_ledger_rejects_ragged_rows(
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="canonical field count"):
         load_stale_descendant_observations(observations, parents_path=parents)
 
 
@@ -713,6 +703,28 @@ def test_observation_ledger_rejects_identity_regressions(
         load_stale_descendant_observations(observations, parents_path=parents)
 
 
+@pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))
+def test_observation_ledger_rejects_noncanonical_source_path(
+    tmp_path: Path, alias: str
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        source_path = rows[0]["source_path"]
+        head, tail = source_path.split("/", 1)
+        rows[0]["source_path"] = {
+            "whitespace": f" {source_path}",
+            "dot": f"./{source_path}",
+            "separator": f"{head}//{tail}",
+            "parent": f"discard/../{source_path}",
+        }[alias]
+
+    _rewrite(observations, mutate)
+
+    with pytest.raises(ValueError, match="non-canonical source_path"):
+        load_stale_descendant_observations(observations, parents_path=parents)
+
+
 def test_observation_ledger_rejects_one_child_event_for_multiple_parents(
     tmp_path: Path,
 ) -> None:
@@ -740,6 +752,58 @@ def test_observation_ledger_rejects_one_child_event_for_multiple_parents(
 
     with pytest.raises(ValueError, match="assigned to multiple Bitcoin parents"):
         load_stale_descendant_observations(observations, parents_path=parents)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    (
+        ("child_block_hash", "ff" * 32, "no exact authenticated child identity"),
+        (
+            "child_block_time",
+            "1",
+            "child_block_time disagrees with authenticated child identity",
+        ),
+    ),
+)
+def test_headerless_observation_rejects_child_identity_mismatch(
+    tmp_path: Path, field: str, replacement: str, message: str
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+
+    def mutate(rows: list[dict[str, str]]) -> None:
+        row = next(row for row in rows if not row["child_header_hex"])
+        row[field] = replacement
+
+    _rewrite(observations, mutate)
+
+    with pytest.raises(ValueError, match=message):
+        load_stale_descendant_observations(observations, parents_path=parents)
+
+
+def test_headerless_observation_uses_selected_data_directory_identity_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+    with parents.open(newline="") as handle:
+        parent_rows = list(csv.DictReader(handle))
+    trusted_roots = {
+        (int(row["root_stale_height"]), row["root_stale_hash"]) for row in parent_rows
+    }
+    monkeypatch.setattr(
+        stale_descendants,
+        "_load_trusted_stale_root_keys",
+        lambda **_kwargs: trusted_roots,
+    )
+    selected_data_dir = tmp_path / "selected-data"
+    selected_data_dir.mkdir()
+
+    with pytest.raises(ValueError, match="no exact authenticated child identity"):
+        load_stale_descendant_observations(
+            observations,
+            parents_path=parents,
+            data_dir=selected_data_dir,
+        )
 
 
 def test_display_order_child_hash_is_normalized_to_internal_identity(

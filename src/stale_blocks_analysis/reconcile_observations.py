@@ -13,7 +13,7 @@ from typing import Iterable
 
 from stale_blocks_analysis.btc_rpc import BtcRpc
 from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
-from stale_blocks_analysis.error_blocks import load_consensus_invalid_stale_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.evidence_sources import (
     CHILD_HEIGHT_AUTHENTICATED,
     child_height_semantics_for_source,
@@ -476,7 +476,7 @@ def scan_upstream_stales(
         return 0
     excluded = excluded_keys
     if excluded is None:
-        excluded = load_consensus_invalid_stale_keys()
+        excluded = load_error_block_keys()
     count = 0
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
@@ -514,37 +514,6 @@ def scan_upstream_stales(
                 prevs_by_hash[block_hash].add(prev_hash)
             count += 1
     return count
-
-
-def stale_identity_key(
-    row: dict[str, str], fieldnames: list[str], hash_col: str | None
-) -> tuple[int, str] | None:
-    """Return the authoritative ``(height, hash)`` key for a stale row."""
-    block_hash = get_hash(row, hash_col)
-    if not is_hash(block_hash):
-        return None
-
-    height_text = ""
-    fields = set(fieldnames)
-    for column in ("btc_height", "btc_stale_height", "height"):
-        if column in fields and row.get(column, "").strip():
-            height_text = row[column].strip()
-            break
-    if not height_text:
-        parent_height = int_or_none(row.get("btc_parent_height", ""))
-        if parent_height is not None:
-            height_text = str(parent_height + 1)
-    if not height_text and "btc_bip34_height" in fields:
-        # Legacy inventories sometimes expose no height other than a decoded
-        # BIP34 claim. This fallback can match an independently established
-        # exclusion key only when that claim agrees exactly; a mismatch leaves
-        # the row unmatched rather than guessing ancestry.
-        height_text = row.get("btc_bip34_height", "").strip()
-    try:
-        height = int(height_text)
-    except (TypeError, ValueError):
-        return None
-    return height, block_hash
 
 
 def accepted_stale_root(row: dict[str, str]) -> bool:
@@ -596,12 +565,11 @@ def load_observations(
     canonical_files: dict[str, Path],
     validated_files: dict[str, Path],
     epoch_bits: dict[int, str],
-    excluded_keys: set[tuple[int, str]],
-    consensus_invalid_keys: set[tuple[int, str]],
+    error_block_keys: set[tuple[int, str]],
 ) -> dict[str, object]:
     """Load inventories and return the reconciliation indexes and anomalies."""
     consensus_invalid_heights_by_hash: dict[str, int] = {}
-    for height, block_hash in sorted(consensus_invalid_keys):
+    for height, block_hash in sorted(error_block_keys):
         prior_height = consensus_invalid_heights_by_hash.setdefault(block_hash, height)
         if prior_height != height:
             raise ValueError(
@@ -633,7 +601,7 @@ def load_observations(
         stale_by_hash,
         all_hash_chains,
         prevs_by_hash,
-        excluded_keys,
+        error_block_keys,
         consensus_invalid_hashes,
     )
 
@@ -920,8 +888,6 @@ def load_observations(
                 btc_time = get_value(row, fieldnames, ("btc_time",))
                 child_height = get_child_height(row, fieldnames)
                 if not accepted_stale_root(row):
-                    continue
-                if stale_identity_key(row, fieldnames, hash_col) in excluded_keys:
                     continue
                 stale_by_hash[block_hash].append(
                     StaleObservation(

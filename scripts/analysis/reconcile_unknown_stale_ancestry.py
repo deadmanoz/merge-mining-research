@@ -18,10 +18,7 @@ from stale_blocks_analysis.ancestry_walk import (
 )
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth
 from stale_blocks_analysis.config import BITCOIN_EPOCH_REFERENCE_DIR
-from stale_blocks_analysis.error_blocks import (
-    load_consensus_invalid_stale_keys,
-    load_stale_exclusion_keys,
-)
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.full_evidence import (
     int_or_none,
     is_hash,
@@ -143,7 +140,9 @@ def main(argv: list[str] | None = None) -> None:
             parser,
         )
     epoch_bits = load_epoch_bits(args.epoch_reference_dir / "btc_nbits_by_epoch.json")
+    error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
     try:
+        error_block_keys = load_error_block_keys(error_blocks_path)
         state = load_observations(
             data_dir=args.data_dir,
             chain_names=chain_names,
@@ -152,10 +151,9 @@ def main(argv: list[str] | None = None) -> None:
             canonical_files=canonical_files,
             validated_files=validated_files,
             epoch_bits=epoch_bits,
-            excluded_keys=load_stale_exclusion_keys(),
-            consensus_invalid_keys=load_consensus_invalid_stale_keys(),
+            error_block_keys=error_block_keys,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
     mainchain_cache = load_mainchain_cache(args.cache_dir)
 

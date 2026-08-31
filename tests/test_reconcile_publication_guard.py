@@ -1095,6 +1095,11 @@ def test_allow_partial_writes_only_to_explicit_disposable_outputs(
     module = _load_module()
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    error_dir = data_dir / "error-blocks"
+    error_dir.mkdir()
+    (error_dir / "error_blocks.csv").write_text(
+        f"height,hash,classification\n0,{'00' * 32},error_block\n"
+    )
     results = tmp_path / "scratch-results"
     parent_verdicts = tmp_path / "scratch" / "stale_descendants.csv"
     observations = tmp_path / "scratch" / "stale_descendant_observations.csv"

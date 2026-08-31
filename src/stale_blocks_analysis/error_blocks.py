@@ -16,7 +16,10 @@ from .config import ERROR_BLOCKS_CSV
 ERROR_BLOCK_CLASSIFICATION = "error_block"
 
 
-def _load_keys(path: Path) -> set[tuple[int, str]]:
+def load_error_block_keys(
+    path: Path = ERROR_BLOCKS_CSV,
+) -> set[tuple[int, str]]:
+    """Return exact ``(height, hash)`` keys from the error-block catalogue."""
     if not path.exists():
         raise FileNotFoundError(f"error blocks dataset missing: {path}")
 
@@ -48,41 +51,13 @@ def _load_keys(path: Path) -> set[tuple[int, str]]:
     return keys
 
 
-def load_stale_exclusion_keys(
-    path: Path = ERROR_BLOCKS_CSV,
-) -> set[tuple[int, str]]:
-    """Return exact ``(height, hash)`` keys excluded from direct-stale loaders."""
-    return _load_keys(path)
-
-
-def load_consensus_invalid_stale_keys(
-    path: Path = ERROR_BLOCKS_CSV,
-) -> set[tuple[int, str]]:
-    """Return exact keys whose evidence proves a Bitcoin consensus failure."""
-    return _load_keys(path)
-
-
-def exclude_stale_rows(
+def exclude_error_block_rows(
     rows: list[dict],
     *,
     path: Path = ERROR_BLOCKS_CSV,
 ) -> list[dict]:
-    """Remove excluded exact stale keys from normalized loader rows."""
-    excluded = load_stale_exclusion_keys(path)
-    return [
-        row
-        for row in rows
-        if (int(row["height"]), str(row["hash"]).lower()) not in excluded
-    ]
-
-
-def exclude_consensus_invalid_rows(
-    rows: list[dict],
-    *,
-    path: Path = ERROR_BLOCKS_CSV,
-) -> list[dict]:
-    """Remove consensus-invalid (error block) keys from a stale catalogue."""
-    excluded = load_consensus_invalid_stale_keys(path)
+    """Remove exact error-block identities from normalized loader rows."""
+    excluded = load_error_block_keys(path)
     return [
         row
         for row in rows

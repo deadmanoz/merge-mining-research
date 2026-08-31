@@ -76,7 +76,7 @@ from stale_blocks_analysis.config import (
     RELEVANCE_STRICT_BTC_ORPHAN as STRICT_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN as WEAK_ORPHAN,
 )
-from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
 # Reasons stamped on confirmed direct-stale / stale-descendant rows. These
@@ -612,9 +612,9 @@ def iter_source_rows(
     )
     exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
     excluded_keys = (
-        load_stale_exclusion_keys(exclusions_path)
+        load_error_block_keys(exclusions_path)
         if exclusions_path.is_file()
-        else load_stale_exclusion_keys()
+        else load_error_block_keys()
     )
     excluded_hashes = {block_hash for _height, block_hash in excluded_keys}
     for chain in sorted(chain_names):

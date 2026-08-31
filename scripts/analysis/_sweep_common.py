@@ -73,7 +73,7 @@ from stale_blocks_analysis.config import (
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_DIR,
 )
-from stale_blocks_analysis.error_blocks import load_stale_exclusion_keys
+from stale_blocks_analysis.error_blocks import load_error_block_keys
 
 # Private chain-archive host alias, redacted from the tracked tree per the
 # repo's leak-redaction guidance. Operators set ERROR_BLOCKS_ARCHIVE_HOST to
@@ -216,14 +216,14 @@ def load_dataset_keys(path: Path = ERROR_BLOCKS_CSV) -> set[tuple[int, str]]:
     """Load the committed error-blocks dataset keys as (height, hash).
 
     Applies the same fail-closed validation as the publication gate loader
-    (``stale_blocks_analysis.error_blocks._load_keys``, reached via
-    ``load_stale_exclusion_keys``): a blank/non-``error_block`` classification,
+    (``stale_blocks_analysis.error_blocks.load_error_block_keys``): a
+    blank/non-``error_block`` classification,
     a malformed height or hash, a duplicate key, or an empty/header-only
     dataset all raise. The sweeps treat any rediscovered catalogued row absent
     from this key set as NEW, so a silently tolerated bad row (or an empty key
     set) would make a sweep mis-report catalogued error blocks as NEW findings.
     """
-    return load_stale_exclusion_keys(path)
+    return load_error_block_keys(path)
 
 
 def ssh_inventory_reader(chain: str, path: str) -> str:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -43,6 +42,7 @@ from stale_blocks_analysis.evidence_hydration import (
     child_identity_candidates,
     load_child_identity,
 )
+from stale_blocks_analysis.evidence_normalization import write_csv
 from stale_blocks_analysis.ancestry_walk import WalkResult
 from stale_blocks_analysis.reconcile_observations import (
     StaleObservation,
@@ -513,27 +513,6 @@ def validate_publication_rows(
             + "; ".join(problems)
             + ". Use --allow-partial only with disposable output paths."
         )
-
-
-def write_csv(
-    path: Path, rows: Iterable[dict[str, object]], fieldnames: list[str]
-) -> None:
-    """Write `rows` to `path` as a CSV with header `fieldnames`.
-
-    Creates parent directories as needed. A row missing a field is written
-    with `""` for that column.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fieldnames})
-
-
-def join_sorted(values: Iterable[str]) -> str:
-    """Join the non-empty values of `values`, sorted, with `|` as the CSV-friendly delimiter."""
-    return "|".join(sorted(v for v in values if v))
 
 
 def select_parent_evidence(

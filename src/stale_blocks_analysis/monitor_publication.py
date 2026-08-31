@@ -44,7 +44,7 @@ from .config import (
     HISTORICAL_CHILD_HEADER_CHAINS,
     MONITOR_VALIDATION_CONTRACTS,
 )
-from .error_blocks import load_consensus_invalid_stale_keys, load_stale_exclusion_keys
+from .error_blocks import load_error_block_keys
 from .error_block_validation import validate_error_module
 from .error_observations import (
     ERROR_OBSERVATION_ARTIFACT,
@@ -233,8 +233,7 @@ def _load_monitor_artifact_counts(
     btc_nbits_by_epoch: dict[int, int] | None = None
     descendant_observations: set[tuple[str, int, str, int, str]] | None = None
     descendant_parents: set[tuple[int, str]] | None = None
-    descendant_exclusions: set[tuple[int, str]] | None = None
-    descendant_consensus_invalid: set[tuple[int, str]] | None = None
+    descendant_error_blocks: set[tuple[int, str]] | None = None
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = reader.fieldnames or []
@@ -608,13 +607,8 @@ def _load_monitor_artifact_counts(
                         for observation in observation_rows
                     }
                     exclusions_path = data_dir / "error-blocks" / "error_blocks.csv"
-                    descendant_exclusions = (
-                        load_stale_exclusion_keys(exclusions_path)
-                        if exclusions_path.is_file()
-                        else set()
-                    )
-                    descendant_consensus_invalid = (
-                        load_consensus_invalid_stale_keys(exclusions_path)
+                    descendant_error_blocks = (
+                        load_error_block_keys(exclusions_path)
                         if exclusions_path.is_file()
                         else set()
                     )
@@ -622,8 +616,7 @@ def _load_monitor_artifact_counts(
                 if (
                     btc_height is None
                     or parent_identity not in (descendant_parents or set())
-                    or parent_identity in (descendant_exclusions or set())
-                    or parent_identity in (descendant_consensus_invalid or set())
+                    or parent_identity in (descendant_error_blocks or set())
                 ):
                     raise ValueError(
                         f"{path}:{row_number}: stale descendant parent is not "
@@ -1789,9 +1782,7 @@ def validate_publication_inputs(
         try:
             invalid_hashes = {
                 block_hash
-                for _height, block_hash in load_consensus_invalid_stale_keys(
-                    error_blocks_path
-                )
+                for _height, block_hash in load_error_block_keys(error_blocks_path)
             }
         except (OSError, ValueError) as exc:
             problems.append(str(exc))

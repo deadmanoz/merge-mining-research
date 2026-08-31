@@ -8,6 +8,7 @@ bucket names are retained only as provenance and never select a final category.
 from __future__ import annotations
 
 import csv
+import posixpath
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,7 +28,8 @@ from .config import (
     STALE_CSV,
     VALIDATED_STALES_DIR,
 )
-from .error_blocks import load_stale_exclusion_keys
+from .error_blocks import load_error_block_keys
+from .evidence_hydration import ChildIdentityIndex, load_child_identity
 from .evidence_normalization import (
     is_hash,
     parse_header_fields,
@@ -172,6 +174,42 @@ def _exact_nonnegative_int(
     return int(value)
 
 
+def _authenticate_headerless_child_identity(
+    observation: StaleDescendantObservation,
+    *,
+    identity: ChildIdentityIndex,
+    path: Path,
+) -> None:
+    """Bind a partial ledger row to one exact authenticated child event."""
+    event = (
+        f"{observation.chain}:{observation.parent_hash}:"
+        f"{observation.child_height}:{observation.child_hash}"
+    )
+    candidate = identity.exact_event(
+        observation.chain,
+        observation.parent_hash,
+        observation.child_height,
+        observation.child_hash,
+    )
+    if candidate is None:
+        raise ValueError(
+            f"{path}:{observation.row_number}: no exact authenticated child identity "
+            f"for {event}"
+        )
+
+    for field in ("child_header_hex", "child_block_time", "child_nbits"):
+        ledger_value = (observation.row.get(field) or "").strip()
+        identity_value = (candidate.get(field) or "").strip()
+        if field != "child_block_time":
+            ledger_value = ledger_value.lower()
+            identity_value = identity_value.lower()
+        if ledger_value and identity_value and ledger_value != identity_value:
+            raise ValueError(
+                f"{path}:{observation.row_number}: {field} disagrees with "
+                f"authenticated child identity for {event}"
+            )
+
+
 def _validate_persisted_parent_verdict(
     row: dict[str, str],
     *,
@@ -240,7 +278,7 @@ def _load_trusted_stale_root_keys(
     if not upstream_path.is_file():
         raise ValueError(f"pinned upstream stale census is missing: {upstream_path}")
 
-    excluded = load_stale_exclusion_keys(error_blocks_path)
+    excluded = load_error_block_keys(error_blocks_path)
     roots: set[tuple[int, str]] = set()
     for source_path in validated_paths:
         with source_path.open(newline="") as handle:
@@ -533,7 +571,7 @@ def load_stale_descendant_observations(
     data_dir: Path = DATA_DIR,
     upstream_path: Path | None = None,
 ) -> tuple[StaleDescendantObservation, ...]:
-    """Load the canonical witness ledger and validate it against parent verdicts."""
+    """Load the canonical witness ledger and validate its parents and child events."""
     parents = load_stale_descendant_parents(
         parents_path,
         data_dir=data_dir,
@@ -547,25 +585,19 @@ def load_stale_descendant_observations(
     source_seen: set[tuple[str, str, int, str]] = set()
     parent_counts: dict[tuple[int, str], int] = {key: 0 for key in parents}
     parent_chains: dict[tuple[int, str], set[str]] = {key: set() for key in parents}
+    child_identities = load_child_identity(data_dir)
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
-        fields = reader.fieldnames or []
-        missing = set(OBSERVATION_FIELDS) - set(fields)
-        if missing:
-            raise ValueError(f"{path}: missing columns: {', '.join(sorted(missing))}")
-        if tuple(fields) != OBSERVATION_FIELDS:
+        if tuple(reader.fieldnames or ()) != OBSERVATION_FIELDS:
             raise ValueError(
                 f"{path}: observation ledger header must exactly match the "
                 "canonical schema"
             )
         for row_number, row in enumerate(reader, start=2):
-            if None in row:
+            if None in row or any(value is None for value in row.values()):
                 raise ValueError(
-                    f"{path}:{row_number}: observation ledger row has extra CSV values"
-                )
-            if any(value is None for value in row.values()):
-                raise ValueError(
-                    f"{path}:{row_number}: observation ledger row has missing CSV values"
+                    f"{path}:{row_number}: observation ledger row does not match "
+                    "the canonical field count"
                 )
             parent_height = _exact_nonnegative_int(
                 _required(row, "btc_height", path=path, row_number=row_number),
@@ -645,9 +677,19 @@ def load_stale_descendant_observations(
                 row_number=row_number,
                 field="source_sha256",
             )
+            raw_source_path = row.get("source_path") or ""
+            source_path = _required(
+                row, "source_path", path=path, row_number=row_number
+            )
+            if (
+                raw_source_path != source_path
+                or posixpath.normpath(source_path) != source_path
+                or "//" in source_path
+            ):
+                raise ValueError(f"{path}:{row_number}: non-canonical source_path")
+            row["source_path"] = source_path
             for required_field in (
                 "source_kind",
-                "source_path",
                 "source_classification",
                 "btc_height_provenance",
                 "child_height_provenance",
@@ -672,7 +714,13 @@ def load_stale_descendant_observations(
                     f"{path}:{row_number}: authenticated child event is assigned "
                     "to multiple Bitcoin parents"
                 )
-            source_identity = (chain, row["source_path"], source_row, source_sha)
+            if not row["child_header_hex"].strip():
+                _authenticate_headerless_child_identity(
+                    obs,
+                    identity=child_identities,
+                    path=path,
+                )
+            source_identity = (chain, source_path, source_row, source_sha)
             if source_identity in source_seen:
                 raise ValueError(f"{path}:{row_number}: duplicate source coordinate")
             logical_seen.add(obs.logical_identity)

@@ -45,6 +45,17 @@ def _rewrite_ledger(ledger_path, rows, fieldnames) -> None:
         writer.writerows(rows)
 
 
+def _copied_error_ledger(tmp_path):
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or ())
+        rows = list(reader)
+    return data_dir, ledger_path, fieldnames, rows
+
+
 def _rewrite_rsk_identity(data_dir, mutate) -> None:
     path = data_dir / "child-identity" / "rsk_child_identity.csv"
     with path.open(newline="") as handle:
@@ -197,25 +208,22 @@ def test_ancestry_derived_error_witnesses_are_exact() -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "replacement"),
+    ("field", "replacement", "message"),
     [
-        ("child_height", "999999"),
-        ("child_block_hash", "00" * 32),
-        ("child_block_time", "1"),
-        ("child_header_hex", "00" * 80),
-        ("child_nbits", "00000000"),
+        ("child_height", "999999", "exact child identity disagrees"),
+        ("child_block_hash", "00" * 32, "child_block_hash disagrees"),
+        ("child_block_time", "1", "child_block_time disagrees"),
+        ("child_header_hex", "00" * 80, "child_header_hex disagrees"),
+        ("child_nbits", "00000000", "child_nbits disagrees"),
     ],
 )
 def test_error_ledger_rejects_generic_child_identity_drift(
     tmp_path,
     field: str,
     replacement: str,
+    message: str,
 ) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
-    with ledger_path.open(newline="") as handle:
-        ledger = list(csv.DictReader(handle))
+    data_dir, ledger_path, _fieldnames, ledger = _copied_error_ledger(tmp_path)
     identities = load_child_identity(data_dir)
     witness = next(
         row
@@ -235,7 +243,7 @@ def test_error_ledger_rejects_generic_child_identity_drift(
     identity[field] = replacement
     _rewrite_ledger(identity_path, rows, fieldnames)
 
-    with pytest.raises(ValueError, match=f"{field} disagrees"):
+    with pytest.raises(ValueError, match=message):
         validate_error_observation_ledger(
             catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
             ledger_path=ledger_path,
@@ -243,14 +251,7 @@ def test_error_ledger_rejects_generic_child_identity_drift(
 
 
 def test_error_observation_ledger_rejects_wrong_catalogue_row_number(tmp_path) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames
-        rows = list(reader)
-    assert fieldnames is not None
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
     rows[0]["catalogue_row_number"] = "999"
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
@@ -282,6 +283,33 @@ def test_error_observation_ledger_requires_complete_audit_schema(
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
     with pytest.raises(ValueError, match="header is not canonical"):
+        validate_error_observation_ledger(
+            catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
+            ledger_path=ledger_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "row_mutation",
+    ("extra", "missing"),
+)
+def test_error_observation_ledger_rejects_ragged_rows(
+    tmp_path, row_mutation: str
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    with ledger_path.open(newline="") as handle:
+        rows = list(csv.reader(handle))
+    if row_mutation == "extra":
+        rows[1].append("unexpected")
+    else:
+        rows[1].pop()
+    with ledger_path.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="canonical field count"):
         validate_error_observation_ledger(
             catalogue_path=data_dir / "error-blocks" / "error_blocks.csv",
             ledger_path=ledger_path,
@@ -497,16 +525,7 @@ def test_error_observation_ledger_rejects_duplicate_child_identity(tmp_path) -> 
 
 
 def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
-
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames
-        rows = list(reader)
-
-    assert fieldnames is not None
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
     witness = next(
         row
         for row in rows
@@ -554,37 +573,29 @@ def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> Non
     assert inventory["rows"] == 87
 
 
-@pytest.mark.parametrize("source_path_suffix", ("", " "))
-def test_error_observation_rejects_sibling_with_reused_source_coordinate_alias(
-    tmp_path, source_path_suffix: str
+@pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))
+def test_error_observation_ledger_rejects_noncanonical_source_path(
+    tmp_path, alias: str
 ) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    source_path = rows[0]["source_path"]
+    head, tail = source_path.split("/", 1)
+    rows[0]["source_path"] = {
+        "whitespace": f" {source_path}",
+        "dot": f"./{source_path}",
+        "separator": f"{head}//{tail}",
+        "parent": f"discard/../{source_path}",
+    }[alias]
+    _rewrite_ledger(ledger_path, rows, fieldnames)
 
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames
-        rows = list(reader)
+    with pytest.raises(ValueError, match="non-canonical source_path"):
+        build_error_observation_rows(data_dir=data_dir)
 
-    assert fieldnames is not None
-    witness = next(
-        row
-        for row in rows
-        if row["chain"] == "elastos"
-        and row["source_kind"] == "monitor_live_event"
-        and not row["source_sha256"]
-        and not row["child_header_hex"]
-    )
-    sibling_hash = "ac" * 32
-    assert sibling_hash not in {row["child_block_hash"].lower() for row in rows}
-    rows.append(
-        {
-            **witness,
-            "child_block_hash": sibling_hash,
-            "source_path": witness["source_path"] + source_path_suffix,
-        }
-    )
+
+def test_error_observation_rejects_reused_source_coordinate(tmp_path) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    witness = next(row for row in rows if not row["child_header_hex"])
+    rows.append({**witness, "child_block_hash": "ac" * 32})
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
     with pytest.raises(ValueError, match="duplicate source coordinate"):
@@ -592,16 +603,7 @@ def test_error_observation_rejects_sibling_with_reused_source_coordinate_alias(
 
 
 def test_error_observation_ledger_rejects_undeclared_summary(tmp_path) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
-
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames
-        rows = list(reader)
-
-    assert fieldnames is not None
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
     rows[0]["child_height"] = str(int(rows[0]["child_height"]) + 1)
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
@@ -610,16 +612,7 @@ def test_error_observation_ledger_rejects_undeclared_summary(tmp_path) -> None:
 
 
 def test_error_observation_ledger_rejects_uncovered_catalogue_summary(tmp_path) -> None:
-    data_dir = tmp_path / "data"
-    _copy_error_observation_inputs(data_dir)
-    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
-
-    with ledger_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames
-        rows = list(reader)
-
-    assert fieldnames is not None
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
     rows.pop(0)
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
@@ -732,7 +725,7 @@ def test_error_observation_rejects_reversed_rsk_hash_without_overwriting(
 
     _rewrite_rsk_identity(data_dir, reverse_hash)
 
-    with pytest.raises(ValueError, match="child_block_hash disagrees"):
+    with pytest.raises(ValueError, match="exact child identity disagrees"):
         build_error_observation_rows(data_dir=data_dir)
 
     identity_after = load_child_identity(data_dir)

@@ -11,58 +11,6 @@ SCRIPT = REPO / "scripts" / "prep" / "publish_stale_ancestry.py"
 ANCESTRY_SCRIPT = REPO / "scripts" / "analysis" / "reconcile_unknown_stale_ancestry.py"
 
 
-def test_transition_interface_names_are_removed() -> None:
-    banned = {
-        "promotion" + "_subclass",
-        "--promoted" + "-csv",
-        "--error-blocks" + "-csv",
-        "publish_reconciled" + "_descendants",
-        "reconcile-error" + "-blocks",
-        "build_error" + "_blocks",
-        "derived_error" + "_blocks",
-        "child_identity" + "_manifest",
-        "reconciled_child" + "_identities",
-        "reconciled_error" + "_blocks",
-        "stale_descendants" + "_error_blocks",
-        "stale_descendant" + "_corrections",
-        "classifier-emitted:" + "ancestry-reconciliation",
-        "stale-descendant" + "-reconciliation",
-        "add-error" + "-observations",
-        "reclassified" + "_from_",
-    }
-    paths = [
-        REPO / name for name in ("AGENTS.md", "CHANGELOG.md", "README.md", "justfile")
-    ]
-    for directory in ("docs", "scripts", "src", "tests"):
-        paths.extend(
-            path
-            for path in (REPO / directory).rglob("*")
-            if path.is_file() and path.suffix in {".md", ".py"}
-        )
-    paths.extend(
-        [
-            REPO / "data" / "error-blocks" / "error_blocks.csv",
-            REPO / "data" / "error-blocks" / "error_block_observations.csv",
-            REPO / "data" / "stale_descendants.csv",
-            REPO / "data" / "stale_descendant_observations.csv",
-        ]
-    )
-    offenders = {
-        str(path.relative_to(REPO)): sorted(token for token in banned if token in text)
-        for path in paths
-        if path.exists()
-        for text in [path.read_text()]
-        if any(token in text for token in banned)
-    }
-    stale_names = [
-        str(path.relative_to(REPO))
-        for path in (REPO / "data").rglob("*")
-        if path.is_file() and any(token in path.name for token in banned)
-    ]
-    assert offenders == {}
-    assert stale_names == []
-
-
 def _load_module():
     spec = importlib.util.spec_from_file_location("publish_stale_ancestry_test", SCRIPT)
     assert spec is not None and spec.loader is not None
@@ -139,14 +87,18 @@ def test_invalid_canonical_error_module_stops_before_ancestry(
     module = _load_module()
     commands: list[list[str]] = []
 
-    def fail_validation(command: list[str]) -> None:
-        commands.append(command)
+    def fail_validation() -> None:
         raise RuntimeError("invalid canonical module")
 
-    monkeypatch.setattr(module, "_run", fail_validation)
+    monkeypatch.setattr(
+        module.error_block_validation,
+        "validate_error_module",
+        fail_validation,
+    )
+    monkeypatch.setattr(module, "_run", lambda command: commands.append(command))
 
     assert module.main(["--rpc-source-label", "test-node"]) == 1
-    assert commands == [[module.sys.executable, str(module.ERROR_VALIDATION_SCRIPT)]]
+    assert commands == []
 
 
 @pytest.mark.parametrize("candidate_count", [0, 1])
@@ -161,8 +113,6 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
 
     def run_stage(command: list[str]) -> None:
         nonlocal ancestry_calls
-        if Path(command[1]) == module.ERROR_VALIDATION_SCRIPT:
-            return
         ancestry_calls += 1
         candidate_path = Path(command[command.index("--error-candidates-csv") + 1])
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,9 +124,9 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
 
     monkeypatch.setattr(module, "_run", run_stage)
     monkeypatch.setattr(
-        module,
-        "validate_error_observation_ledger",
-        lambda **_kwargs: ([object()] * 39, {index: {} for index in range(86)}),
+        module.error_block_validation,
+        "validate_error_module",
+        lambda: ([object()] * 39, {index: {} for index in range(86)}),
     )
     monkeypatch.setattr(
         module,
@@ -195,7 +145,8 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     )
 
     result = module.main(["--rpc-source-label", "test-node"])
-    error = capsys.readouterr().err
+    captured = capsys.readouterr()
+    error = captured.err
 
     assert ancestry_calls == 1
     if candidate_count:
@@ -207,6 +158,7 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
         assert result == 0
         assert len(installed) == 1
         assert set(installed[0]) == {module.PARENTS_PATH, module.OBSERVATIONS_PATH}
+        assert "39-parent/86-observation error-block module" in captured.out
 
 
 def test_successful_rollback_cleans_backups_and_allows_next_install(
