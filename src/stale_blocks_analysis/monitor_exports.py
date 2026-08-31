@@ -75,6 +75,7 @@ DEFAULT_RELEVANCE_INVENTORY = (
 # staging basenames do not make otherwise identical builds non-reproducible.
 # Diagnostic library calls still report the sanitized path they actually read.
 REPORTED_RELEVANCE_INVENTORY = "<external>/btc-stale-relevance-inventory.csv"
+STALE_DESCENDANT_OBSERVATION_ARTIFACT = "stale-descendant-observations"
 
 # The full-evidence exports in ``full_evidence.py`` carry every evidence state,
 # which makes them large (unknown/near rows dominate). This module keeps only
@@ -647,6 +648,11 @@ def build_monitor_evidence_exports(
 
     count_rows: list[dict[str, object]] = []
     artifacts: dict[str, str] = {}
+    observation_chain_counts = {
+        STALE_DESCENDANT_OBSERVATION_ARTIFACT: {
+            chain: len(rows) for chain, rows in sorted(descendant_rows_by_chain.items())
+        }
+    }
     identity_shortfalls: dict[str, ChildIdentityStats] = {}
 
     def export(
@@ -823,6 +829,7 @@ def build_monitor_evidence_exports(
         # Imported lazily to keep the ordinary final-category projection free
         # of the error aggregate's archive-only reconstruction dependency.
         from .error_observations import (
+            ERROR_OBSERVATION_ARTIFACT,
             error_observation_count_row,
             write_error_observation_artifact,
         )
@@ -837,7 +844,14 @@ def build_monitor_evidence_exports(
         )
         error_chain = str(error_artifact["artifact"])
         error_path = error_artifact["path"]
+        source_chain_counts = error_artifact["source_chain_counts"]
         assert isinstance(error_path, Path)
+        assert isinstance(source_chain_counts, dict)
+        if error_chain != ERROR_OBSERVATION_ARTIFACT:
+            raise ValueError(
+                "error observation writer returned a non-canonical artifact name"
+            )
+        observation_chain_counts[ERROR_OBSERVATION_ARTIFACT] = source_chain_counts
         reported_error_path = logical_output_dir / error_path.name
         artifacts[error_chain] = safe_path(reported_error_path)
         count_rows.append(
@@ -881,6 +895,7 @@ def build_monitor_evidence_exports(
             else "missing"
         ),
         "strict_weak_verdicts_loaded": len(orphan_verdicts),
+        "observation_chain_counts": observation_chain_counts,
         "counts": count_rows,
     }
     manifest_json_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")

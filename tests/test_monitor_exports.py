@@ -336,6 +336,9 @@ def test_monitor_export_keeps_only_final_categories(tmp_path: Path) -> None:
     assert namecoin["weak_btc_orphan"] == "1"
     assert namecoin["monitor_rows"] == "4"
     assert summary["strict_weak_verdicts_loaded"] == 2
+    assert summary["observation_chain_counts"] == {
+        "stale-descendant-observations": {"ixcoin": 1}
+    }
 
 
 def test_monitor_export_skip_canonical_excludes_in_file_and_companion_rows(
@@ -1695,6 +1698,45 @@ def test_monitor_export_reports_consensus_exclusions(
             "source_observation_coordinates",
         ],
         "documentation": "docs/data-validity.md",
+    }
+
+
+def test_monitor_export_publishes_both_observation_chain_inventories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stale_blocks_analysis import error_observations
+
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+
+    def write_error_artifact(directory: Path, **_kwargs) -> dict[str, object]:
+        path = directory / "error-block-observations_monitor_evidence.csv"
+        path.write_text("")
+        return {
+            "artifact": "error-block-observations",
+            "path": path,
+            "rows": 2,
+            "parents": 1,
+            "source_chain_counts": {"namecoin": 2},
+        }
+
+    monkeypatch.setattr(
+        error_observations,
+        "write_error_observation_artifact",
+        write_error_artifact,
+    )
+
+    summary = monitor_exports.build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=output_dir,
+        relevance_inventory=None,
+        include_error_observations=True,
+    )
+
+    assert summary["observation_chain_counts"] == {
+        monitor_exports.STALE_DESCENDANT_OBSERVATION_ARTIFACT: {"ixcoin": 1},
+        "error-block-observations": {"namecoin": 2},
     }
 
 
