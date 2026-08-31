@@ -209,7 +209,7 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
         assert set(installed[0]) == {module.PARENTS_PATH, module.OBSERVATIONS_PATH}
 
 
-def test_second_descendant_install_failure_restores_first(
+def test_successful_rollback_cleans_backups_and_allows_next_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_module()
@@ -240,3 +240,93 @@ def test_second_descendant_install_failure_restores_first(
     assert first.read_text() == "old parents\n"
     assert second.read_text() == "old observations\n"
     assert not list(tmp_path.glob(".*.next-*"))
+    assert not list(tmp_path.glob(".*.previous-*"))
+
+    module._install_transaction({first: staged_first, second: staged_second})
+
+    assert first.read_text() == "new parents\n"
+    assert second.read_text() == "new observations\n"
+    assert not list(tmp_path.glob(".*.next-*"))
+    assert not list(tmp_path.glob(".*.previous-*"))
+
+
+@pytest.mark.parametrize("recovery_kind", ("previous", "next"))
+def test_different_pid_recovery_file_blocks_install_without_mutating_targets(
+    tmp_path: Path, recovery_kind: str
+) -> None:
+    module = _load_module()
+    first = tmp_path / "stale_descendants.csv"
+    second = tmp_path / "stale_descendant_observations.csv"
+    staged_first = tmp_path / "staged-parents.csv"
+    staged_second = tmp_path / "staged-observations.csv"
+    first.write_text("old parents\n")
+    second.write_text("old observations\n")
+    staged_first.write_text("new parents\n")
+    staged_second.write_text("new observations\n")
+    foreign_pid = module.os.getpid() + 1
+    recovery_file = first.with_name(f".{first.name}.{recovery_kind}-{foreign_pid}")
+    recovery_file.write_text("operator recovery evidence\n")
+
+    with pytest.raises(
+        ValueError, match="stale transaction recovery file blocks publication"
+    ):
+        module._install_transaction({first: staged_first, second: staged_second})
+
+    assert first.read_text() == "old parents\n"
+    assert second.read_text() == "old observations\n"
+    assert staged_first.read_text() == "new parents\n"
+    assert staged_second.read_text() == "new observations\n"
+    assert recovery_file.read_text() == "operator recovery evidence\n"
+    assert set(tmp_path.iterdir()) == {
+        first,
+        second,
+        staged_first,
+        staged_second,
+        recovery_file,
+    }
+
+
+def test_incomplete_rollback_preserves_all_backups_and_blocks_next_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    first = tmp_path / "stale_descendants.csv"
+    second = tmp_path / "stale_descendant_observations.csv"
+    staged_first = tmp_path / "staged-parents.csv"
+    staged_second = tmp_path / "staged-observations.csv"
+    first.write_text("old parents\n")
+    second.write_text("old observations\n")
+    staged_first.write_text("new parents\n")
+    staged_second.write_text("new observations\n")
+    real_replace = module.os.replace
+    replacements = 0
+
+    def fail_second_install_and_rollback(source, destination):
+        nonlocal replacements
+        if ".next-" in Path(source).name:
+            replacements += 1
+            if replacements == 2:
+                raise OSError("second install failed")
+            if replacements == 3:
+                raise OSError("rollback failed")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", fail_second_install_and_rollback)
+
+    with pytest.raises(OSError, match="second install failed"):
+        module._install_transaction({first: staged_first, second: staged_second})
+
+    backups = sorted(tmp_path.glob(".*.previous-*"))
+    assert len(backups) == 2
+    assert {backup.read_text() for backup in backups} == {
+        "old parents\n",
+        "old observations\n",
+    }
+    assert not list(tmp_path.glob(".*.next-*"))
+
+    with pytest.raises(
+        ValueError, match="stale transaction recovery file blocks publication"
+    ):
+        module._install_transaction({first: staged_first, second: staged_second})
+
+    assert sorted(tmp_path.glob(".*.previous-*")) == backups

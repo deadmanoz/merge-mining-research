@@ -2,10 +2,15 @@
 
 ## Unreleased
 
-Require the exact stale-descendant parent-verdict schema and its persisted
-accepting gate cells. Make monitor publication authenticate every
+Require the exact stale-descendant parent-verdict and witness-ledger schemas,
+including complete CSV row widths, and require every persisted parent gate cell
+to carry its accepting verdict. Make monitor publication authenticate every
 error-observation row against ordinary evidence rules and the canonical ledger,
 and reject duplicate `(height, hash)` keys in the MTP context sidecar.
+
+Remove every ancestry recovery copy after a fully successful in-process
+rollback, preserve all copies when rollback is incomplete, and block a new
+publication when any adjacent recovery file from any process remains.
 
 Preserve multiple distinct authenticated child events from one chain when they
 witness the same accepted stale-descendant parent. Resolve hydration, recovery,

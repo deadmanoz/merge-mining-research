@@ -85,17 +85,21 @@ def test_catalogue_preserves_an_expected_target_that_differs_from_header_bits() 
 
 def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None:
     rows, inventory = build_error_observation_rows()
-    blocks = load_error_blocks()
-    expected = {
-        (chain, child_height, block.block_hash)
-        for block in blocks
-        for chain, child_height in block.observations
-    }
+    blocks, ledger = validate_error_observation_ledger(
+        catalogue_path=DATA_DIR / "error-blocks" / "error_blocks.csv",
+        ledger_path=DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER,
+    )
 
     assert {
-        (row["chain"], int(row["child_height"]), row["btc_header_hash"]) for row in rows
-    } == expected
-    assert inventory["rows"] == len(expected)
+        (
+            row["chain"],
+            int(row["child_height"]),
+            row["child_block_hash"],
+            row["btc_header_hash"],
+        )
+        for row in rows
+    } == set(ledger)
+    assert inventory["rows"] == len(ledger)
     assert len(blocks) == 39
     assert inventory["rows"] == 86
 
@@ -489,6 +493,137 @@ def test_error_observation_ledger_rejects_duplicate_child_identity(tmp_path) -> 
     _rewrite_ledger(ledger_path, rows, fieldnames)
 
     with pytest.raises(ValueError, match="duplicate child identity"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    witness = next(
+        row
+        for row in rows
+        if row["chain"] == "elastos"
+        and row["btc_header_hash"]
+        == "00000000000000000000c3d95a4bdc068dfe0c6d1e7ad13045c6f570e58d9ed7"
+    )
+    sibling_hash = "ab" * 32
+    sibling_hash_input = sibling_hash.upper()
+    assert sibling_hash not in {row["child_block_hash"].lower() for row in rows}
+    sibling_source_row = str(
+        max(
+            int(row["source_row_number"])
+            for row in rows
+            if row["chain"] == witness["chain"]
+            and row["source_path"] == witness["source_path"]
+            and row["source_sha256"] == witness["source_sha256"]
+        )
+        + 1
+    )
+    rows.append(
+        {
+            **witness,
+            "child_block_hash": sibling_hash_input,
+            "source_row_number": sibling_source_row,
+            "provenance": witness["provenance"] + "|test:same-height-sibling",
+        }
+    )
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    exported, inventory = build_error_observation_rows(data_dir=data_dir)
+    siblings = [
+        row
+        for row in exported
+        if row["chain"] == witness["chain"]
+        and row["child_height"] == witness["child_height"]
+        and row["btc_header_hash"] == witness["btc_header_hash"]
+    ]
+
+    assert {row["child_block_hash"] for row in siblings} == {
+        witness["child_block_hash"],
+        sibling_hash,
+    }
+    assert inventory["parents"] == 39
+    assert inventory["rows"] == 87
+
+
+@pytest.mark.parametrize("source_path_suffix", ("", " "))
+def test_error_observation_rejects_sibling_with_reused_source_coordinate_alias(
+    tmp_path, source_path_suffix: str
+) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    witness = next(
+        row
+        for row in rows
+        if row["chain"] == "elastos"
+        and row["source_kind"] == "monitor_live_event"
+        and not row["source_sha256"]
+        and not row["child_header_hex"]
+    )
+    sibling_hash = "ac" * 32
+    assert sibling_hash not in {row["child_block_hash"].lower() for row in rows}
+    rows.append(
+        {
+            **witness,
+            "child_block_hash": sibling_hash,
+            "source_path": witness["source_path"] + source_path_suffix,
+        }
+    )
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="duplicate source coordinate"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_rejects_undeclared_summary(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    rows[0]["child_height"] = str(int(rows[0]["child_height"]) + 1)
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="1 unexpected, 1 missing"):
+        build_error_observation_rows(data_dir=data_dir)
+
+
+def test_error_observation_ledger_rejects_uncovered_catalogue_summary(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    _copy_error_observation_inputs(data_dir)
+    ledger_path = data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER
+
+    with ledger_path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames is not None
+    rows.pop(0)
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    with pytest.raises(ValueError, match="1 missing"):
         build_error_observation_rows(data_dir=data_dir)
 
 

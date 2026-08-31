@@ -8,6 +8,7 @@ import pytest
 
 from stale_blocks_analysis import stale_descendants
 from stale_blocks_analysis.stale_descendants import (
+    OBSERVATION_FIELDS,
     PARENT_VERDICT_FIELDS,
     load_stale_descendant_observations,
     load_stale_descendant_parents,
@@ -52,6 +53,9 @@ def test_committed_stale_descendant_module_is_exact_and_correction_free() -> Non
     assert fields == PARENT_VERDICT_FIELDS
     assert "source_rows" not in fields
     assert "unknown_rows" not in fields
+    with OBSERVATIONS.open(newline="") as handle:
+        observation_fields = csv.DictReader(handle).fieldnames or []
+    assert observation_fields == list(OBSERVATION_FIELDS)
 
 
 @pytest.mark.parametrize("role", ["candidate", "root"])
@@ -602,6 +606,78 @@ def test_parent_loader_uses_the_selected_data_directory_trust_inputs(
 
     with pytest.raises(ValueError, match="canonical accepted direct-stale inputs"):
         load_stale_descendant_parents(parents, data_dir=data_dir)
+
+
+@pytest.mark.parametrize(
+    ("schema_mutation", "message"),
+    [
+        ("missing", "missing columns: provenance"),
+        ("extra", "exactly match the canonical schema"),
+        ("duplicate", "exactly match the canonical schema"),
+        ("reordered", "exactly match the canonical schema"),
+    ],
+)
+def test_observation_ledger_requires_the_exact_canonical_schema(
+    tmp_path: Path,
+    schema_mutation: str,
+    message: str,
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+    with observations.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        fields = list(reader.fieldnames or ())
+        rows = list(reader)
+
+    if schema_mutation == "missing":
+        fields.remove("provenance")
+    elif schema_mutation == "extra":
+        fields.append("compatibility_note")
+        for row in rows:
+            row["compatibility_note"] = ""
+    elif schema_mutation == "duplicate":
+        fields.append("child_block_hash")
+    else:
+        fields[0], fields[1] = fields[1], fields[0]
+
+    with observations.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fields,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match=message):
+        load_stale_descendant_observations(observations, parents_path=parents)
+
+
+@pytest.mark.parametrize(
+    ("row_mutation", "message"),
+    [
+        ("extra", "observation ledger row has extra CSV values"),
+        ("missing", "observation ledger row has missing CSV values"),
+    ],
+)
+def test_observation_ledger_rejects_ragged_rows(
+    tmp_path: Path,
+    row_mutation: str,
+    message: str,
+) -> None:
+    parents, observations = _copy_module(tmp_path)
+    with observations.open(newline="") as handle:
+        rows = list(csv.reader(handle))
+    if row_mutation == "extra":
+        rows[1].append("unexpected")
+    else:
+        rows[1].pop()
+    with observations.open("w", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match=message):
+        load_stale_descendant_observations(observations, parents_path=parents)
 
 
 @pytest.mark.parametrize(

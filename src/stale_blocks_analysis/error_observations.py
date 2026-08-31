@@ -45,6 +45,9 @@ ERROR_OBSERVATION_STATUS = "VALID_ERROR_BLOCK"
 ERROR_OBSERVATION_FIELDS = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
 ERROR_OBSERVATION_LEDGER = "error_block_observations.csv"
 
+CatalogueObservationKey = tuple[str, int, str]
+ErrorObservationKey = tuple[str, int, str, str]
+
 ERROR_OBSERVATION_LEDGER_FIELDS = (
     "btc_height",
     "btc_header_hash",
@@ -222,11 +225,12 @@ def load_error_blocks(
     return blocks
 
 
-def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
+def _load_ledger(path: Path) -> dict[ErrorObservationKey, dict[str, str]]:
     if not path.is_file():
         raise ValueError(f"{path}: missing recovered error-block witness ledger")
-    observations: dict[tuple[str, int, str], dict[str, str]] = {}
+    observations: dict[ErrorObservationKey, dict[str, str]] = {}
     seen_child_identities: set[tuple[str, str]] = set()
+    seen_source_coordinates: set[tuple[str, str, int, str]] = set()
     with path.open(newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = tuple(reader.fieldnames or ())
@@ -255,9 +259,12 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 raise ValueError(f"{path}:{row_number}: malformed witness height")
             if chain not in CHAIN_SPECS or not is_hash(block_hash):
                 raise ValueError(f"{path}:{row_number}: malformed witness identity")
+            source_path = _required(
+                row, "source_path", row_number=row_number, path=path
+            )
+            row["source_path"] = source_path
             for name in (
                 "source_kind",
-                "source_path",
                 "source_classification",
                 "btc_height_provenance",
                 "child_height_provenance",
@@ -289,6 +296,14 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                 or (not source_sha256 and row["source_kind"] != "monitor_live_event")
             ):
                 raise ValueError(f"{path}:{row_number}: malformed source coordinate")
+            source_coordinate = (
+                chain,
+                source_path,
+                source_row,
+                source_sha256,
+            )
+            if source_coordinate in seen_source_coordinates:
+                raise ValueError(f"{path}:{row_number}: duplicate source coordinate")
             child_hash = normalize_hash(row.get("child_block_hash"))
             if child_hash and not is_hash(child_hash):
                 raise ValueError(f"{path}:{row_number}: malformed child_block_hash")
@@ -350,11 +365,44 @@ def _load_ledger(path: Path) -> dict[tuple[str, int, str], dict[str, str]]:
                     f"{path}:{row_number}: duplicate child identity {child_identity}"
                 )
             seen_child_identities.add(child_identity)
-            key = (chain, child_height, block_hash)
+            seen_source_coordinates.add(source_coordinate)
+            key = (chain, child_height, child_hash, block_hash)
             if key in observations:
                 raise ValueError(f"{path}:{row_number}: duplicate witness {key}")
             observations[key] = row
     return observations
+
+
+def _catalogue_observation_targets(
+    blocks: Iterable[ErrorBlock],
+    ledger: dict[ErrorObservationKey, dict[str, str]],
+) -> dict[ErrorObservationKey, ErrorBlock]:
+    """Bind each exact ledger event to its declared catalogue summary."""
+    declared: dict[CatalogueObservationKey, ErrorBlock] = {
+        (chain, child_height, block.block_hash): block
+        for block in blocks
+        for chain, child_height in block.observations
+    }
+    projected = {
+        (chain, child_height, parent_hash)
+        for chain, child_height, _child_hash, parent_hash in ledger
+    }
+    unexpected = projected - set(declared)
+    missing = set(declared) - projected
+    if unexpected or missing:
+        details = []
+        if unexpected:
+            details.append(f"{len(unexpected)} unexpected")
+        if missing:
+            details.append(f"{len(missing)} missing")
+        raise ValueError(
+            "error-observation ledger disagrees with catalogue: " + ", ".join(details)
+        )
+    targets: dict[ErrorObservationKey, ErrorBlock] = {}
+    for identity in ledger:
+        chain, child_height, _child_hash, parent_hash = identity
+        targets[identity] = declared[(chain, child_height, parent_hash)]
+    return targets
 
 
 I32_MAX = 2_147_483_647
@@ -489,13 +537,9 @@ def build_error_observation_rows(
         source_evidence_by_coordinate.setdefault(coordinate, []).append(source_row)
 
     rows: list[dict[str, str]] = []
-    targets = {
-        (chain, child_height, block.block_hash): block
-        for block in blocks
-        for chain, child_height in block.observations
-    }
+    targets = _catalogue_observation_targets(blocks, ledger)
     for key, block in targets.items():
-        chain, child_height, _block_hash = key
+        chain, child_height, child_hash, _block_hash = key
         witness = ledger[key]
         row = dict.fromkeys(ERROR_OBSERVATION_FIELDS, "")
         row.update(
@@ -507,7 +551,7 @@ def build_error_observation_rows(
                 "artifact_scope": ERROR_OBSERVATION_SCOPE,
                 "provenance": witness["provenance"],
                 "child_height": str(child_height),
-                "child_block_hash": normalize_hash(witness.get("child_block_hash")),
+                "child_block_hash": child_hash,
                 "child_header_hex": (witness.get("child_header_hex") or "").lower(),
                 "child_block_time": (witness.get("child_block_time") or "").strip(),
                 "child_nbits": (witness.get("child_nbits") or "").lower(),
@@ -604,6 +648,7 @@ def build_error_observation_rows(
         key=lambda row: (
             row["chain"],
             int(row["child_height"]),
+            row["child_block_hash"],
             row["btc_header_hash"],
         )
     )
@@ -618,30 +663,15 @@ def build_error_observation_rows(
 
 def validate_error_observation_ledger(
     *, catalogue_path: Path, ledger_path: Path
-) -> tuple[list[ErrorBlock], dict[tuple[str, int, str], dict[str, str]]]:
+) -> tuple[list[ErrorBlock], dict[ErrorObservationKey, dict[str, str]]]:
     """Validate exact catalogue-to-ledger witness coverage without exporting."""
     blocks = load_error_blocks(catalogue_path)
     ledger = _load_ledger(ledger_path)
-    targets = {
-        (chain, child_height, block.block_hash): block
-        for block in blocks
-        for chain, child_height in block.observations
-    }
+    targets = _catalogue_observation_targets(blocks, ledger)
     catalogue_row_numbers = {
         (block.height, block.block_hash): row_number
         for row_number, block in enumerate(blocks, start=2)
     }
-    unexpected = set(ledger) - set(targets)
-    missing = set(targets) - set(ledger)
-    if unexpected or missing:
-        details = []
-        if unexpected:
-            details.append(f"{len(unexpected)} unexpected")
-        if missing:
-            details.append(f"{len(missing)} missing")
-        raise ValueError(
-            "error-observation ledger disagrees with catalogue: " + ", ".join(details)
-        )
     for key, block in targets.items():
         witness = ledger[key]
         if int(witness["btc_height"]) != block.height:
@@ -656,7 +686,12 @@ def validate_error_observation_ledger(
                 f"{witness['catalogue_row_number']}"
             )
     child_identities = load_child_identity(catalogue_path.parent.parent)
-    for (chain, child_height, parent_hash), witness in ledger.items():
+    for (
+        chain,
+        child_height,
+        witness_child_hash,
+        parent_hash,
+    ), witness in ledger.items():
         candidates = child_identity_candidates(child_identities, chain, parent_hash)
         if not candidates:
             continue
@@ -670,7 +705,6 @@ def validate_error_observation_ledger(
                 "error-observation ledger child_height disagrees with generic "
                 f"child identity for {chain}:{parent_hash}"
             )
-        witness_child_hash = normalize_hash(witness.get("child_block_hash"))
         event_matches = tuple(
             identity
             for identity in height_matches

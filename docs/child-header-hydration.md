@@ -104,11 +104,15 @@ row identity, count, and ordering against the prior artifact. The new child
 columns and documented schema normalization may differ; any unexplained delta
 stops publication.
 
-The generic classifier installs its three publication buckets as one
+The generic classifier installs its four publication buckets as one
 transaction. Hidden sibling `.previous-*` files are temporary rollback copies
 and are removed after a successful install. If an interrupted install or
 rollback failure leaves one behind, treat it as recovery evidence rather than
 as a current publication artifact.
+
+The stale-ancestry publisher also removes every recovery copy after a complete
+in-process rollback. Before a later stale-ancestry publication starts, it
+refuses any adjacent `.previous-*` or `.next-*` file left by any process.
 
 Generate the coverage report with:
 

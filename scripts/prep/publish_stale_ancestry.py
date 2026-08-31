@@ -80,36 +80,62 @@ def _install_transaction(staged_by_target: dict[Path, Path]) -> None:
 
     POSIX has no cross-directory multi-file rename. Every replacement is first
     copied beside its target, every old target gets an adjacent recovery copy,
-    and any in-process failure restores all files already replaced. An
-    interrupted process deliberately leaves ``.previous-*`` files as recovery
-    evidence instead of pretending the transaction completed.
+    and any in-process failure attempts to restore all files already replaced.
+    Recovery copies are removed only after the install or rollback completes.
+    Preflight rejects adjacent recovery files left by any process; an
+    interrupted process or incomplete rollback deliberately leaves every
+    ``.previous-*`` file as recovery evidence.
     """
     pid = os.getpid()
     prepared: dict[Path, Path] = {}
     backups: dict[Path, Path] = {}
     installed: list[Path] = []
     try:
-        for target, staged in staged_by_target.items():
+        for target in staged_by_target:
             if not target.is_file():
                 raise ValueError(f"publication target is missing: {target}")
             next_path = target.with_name(f".{target.name}.next-{pid}")
             backup = target.with_name(f".{target.name}.previous-{pid}")
-            if next_path.exists() or backup.exists():
+            recovery_prefixes = (
+                f".{target.name}.next-",
+                f".{target.name}.previous-",
+            )
+            stale_recovery = next(
+                (
+                    entry
+                    for entry in target.parent.iterdir()
+                    if entry.name.startswith(recovery_prefixes)
+                ),
+                None,
+            )
+            if stale_recovery is not None:
                 raise ValueError(
-                    f"stale transaction recovery file blocks publication: {target}"
+                    "stale transaction recovery file blocks publication: "
+                    f"{stale_recovery}"
                 )
-            shutil.copy2(staged, next_path)
-            shutil.copy2(target, backup)
             prepared[target] = next_path
             backups[target] = backup
+        for target, staged in staged_by_target.items():
+            shutil.copy2(staged, prepared[target])
+            shutil.copy2(target, backups[target])
         for target, next_path in prepared.items():
             os.replace(next_path, target)
             installed.append(target)
     except Exception:
+        rollback_complete = True
         for target in reversed(installed):
             backup = backups[target]
-            if backup.exists():
-                os.replace(backup, target)
+            if not backup.is_file():
+                rollback_complete = False
+                continue
+            try:
+                shutil.copy2(backup, prepared[target])
+                os.replace(prepared[target], target)
+            except Exception:
+                rollback_complete = False
+        if rollback_complete:
+            for backup in backups.values():
+                backup.unlink(missing_ok=True)
         raise
     else:
         for backup in backups.values():

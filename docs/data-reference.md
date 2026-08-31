@@ -150,9 +150,11 @@ provenance:
   direct-stale inputs after the error-block exclusion.
 - `data/stale_descendant_observations.csv` contains 32 authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
-  SHA-256, and child identity bind each row to the recovered evidence. One
-  authenticated child event can witness exactly one Bitcoin parent, while
-  distinct child events from the same chain may witness the same parent.
+  SHA-256, and child identity bind each row to the recovered evidence. The
+  canonical loader requires the exact ordered witness schema and complete row
+  widths. One authenticated child event can witness exactly one Bitcoin
+  parent, while distinct child events from the same chain may witness the same
+  parent.
 
 Reconciliation evaluates every authenticated candidate, begins only from the
 declared trusted-root set, and verifies the full predecessor path. A direct
@@ -400,15 +402,19 @@ the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
 a retarget violation. The compact recovered witness ledger lives at
 `data/error-blocks/error_block_observations.csv`; it is checked against the
-current parent catalogue before publication. Every ledger row must identify its
-child either with a well-formed hash or with a serialized child
-header from which that hash can be authenticated. Staged publication applies
-the ordinary parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 86-row
-module exactly; source-derived coinbase output enrichment may add evidence but
-cannot replace it. The release path stages every ordinary artifact, the error
-aggregate, counts, and manifest as one coherent transaction after validating
-them against the current schemas and source contracts.
+current parent catalogue before publication. The catalogue declares each
+`(chain, child_height, parent_hash)` summary, while the ledger owns the exact
+`(chain, child_height, child_block_hash, parent_hash)` event identity. This
+preserves distinct sibling blocks from the same chain and height. Each
+normalized source coordinate may authenticate only one exact event. Every
+ledger row must identify its child either with a well-formed hash or with a
+serialized child header from which that hash can be authenticated. Staged
+publication applies the ordinary parent/child evidence checks to the aggregate
+and requires every catalogue/ledger-derived field and identity to match the
+canonical 86-row module exactly; source-derived coinbase output enrichment may
+add evidence but cannot replace it. The release path stages every ordinary
+artifact, the error aggregate, counts, and manifest as one coherent transaction
+after validating them against the current schemas and source contracts.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes

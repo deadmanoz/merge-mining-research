@@ -553,7 +553,20 @@ def load_stale_descendant_observations(
         missing = set(OBSERVATION_FIELDS) - set(fields)
         if missing:
             raise ValueError(f"{path}: missing columns: {', '.join(sorted(missing))}")
+        if tuple(fields) != OBSERVATION_FIELDS:
+            raise ValueError(
+                f"{path}: observation ledger header must exactly match the "
+                "canonical schema"
+            )
         for row_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise ValueError(
+                    f"{path}:{row_number}: observation ledger row has extra CSV values"
+                )
+            if any(value is None for value in row.values()):
+                raise ValueError(
+                    f"{path}:{row_number}: observation ledger row has missing CSV values"
+                )
             parent_height = _exact_nonnegative_int(
                 _required(row, "btc_height", path=path, row_number=row_number),
                 path=path,

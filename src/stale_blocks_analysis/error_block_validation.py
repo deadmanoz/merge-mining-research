@@ -133,6 +133,7 @@ from stale_blocks_analysis.config import (
 from stale_blocks_analysis.error_observations import (
     ERROR_OBSERVATION_LEDGER,
     ErrorBlock,
+    ErrorObservationKey,
     validate_error_observation_ledger,
 )
 
@@ -756,7 +757,7 @@ def validate_error_module(
     ledger_path: Path | None = None,
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
-) -> tuple[list[ErrorBlock], dict[tuple[str, int, str], dict[str, str]]]:
+) -> tuple[list[ErrorBlock], dict[ErrorObservationKey, dict[str, str]]]:
     """Validate consensus claims and exact witness coverage as one module."""
     if ledger_path is None:
         ledger_path = catalogue_path.parent / ERROR_OBSERVATION_LEDGER
