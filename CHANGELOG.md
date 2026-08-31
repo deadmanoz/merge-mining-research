@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Publish the error-block and stale-descendant observation inventories by chain
+directly in the monitor manifest so downstream consumers can validate the
+canonical ledgers without reconstructing their metadata.
+
 Require the exact stale-descendant parent-verdict, stale-descendant witness-ledger,
 and error-observation witness-ledger schemas, including complete CSV row widths,
 and require every persisted parent gate cell to carry its accepting verdict. Make

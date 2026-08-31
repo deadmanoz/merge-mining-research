@@ -11,6 +11,7 @@ import csv
 import importlib.util
 import json
 import shutil
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from stale_blocks_analysis.error_observations import (
 from stale_blocks_analysis.monitor_exports import (
     MONITOR_COUNT_FIELDS,
     MONITOR_EVIDENCE_FIELDS,
+)
+from stale_blocks_analysis.stale_descendants import (
+    load_stale_descendant_observations,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -1476,6 +1480,13 @@ def _write_staged_publication(directory: Path) -> Path:
             rendered[field] = int(rendered[field])
         manifest_rows.append(rendered)
     artifacts = {str(row["chain"]): str(row["artifact_path"]) for row in rows}
+    source_chain_counts = error_artifact["source_chain_counts"]
+    assert isinstance(source_chain_counts, dict)
+    descendant_observations = load_stale_descendant_observations(
+        REPO / "data" / "stale_descendant_observations.csv",
+        parents_path=REPO / "data" / "stale_descendants.csv",
+        data_dir=REPO / "data",
+    )
     manifest = {
         "output_dir": logical_root,
         "counts_csv": f"{logical_root}/{monitor_publication.PUBLICATION_COUNTS.name}",
@@ -1486,6 +1497,12 @@ def _write_staged_publication(directory: Path) -> Path:
         "artifacts": artifacts,
         "relevance_inventory": monitor_publication.REPORTED_RELEVANCE_INVENTORY,
         "strict_weak_verdicts_loaded": 0,
+        "observation_chain_counts": {
+            "error-block-observations": source_chain_counts,
+            "stale-descendant-observations": dict(
+                sorted(Counter(row.chain for row in descendant_observations).items())
+            ),
+        },
         "counts": manifest_rows,
     }
     (directory / monitor_publication.PUBLICATION_MANIFEST.name).write_text(
@@ -1531,6 +1548,118 @@ def test_staged_publication_accepts_exact_metadata(
         data_dir=REPO / "data",
         relevance_inventory=relevance,
     )
+
+
+def test_staged_publication_rejects_error_source_inventory_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    manifest = _read_manifest(staging)
+    manifest["observation_chain_counts"] = {
+        **manifest["observation_chain_counts"],
+        "error-block-observations": {"namecoin": 1},
+    }
+    _write_manifest(staging, manifest)
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(
+        ValueError,
+        match="error-block-observations observation chain inventory",
+    ):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
+def test_staged_publication_rejects_descendant_source_inventory_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    manifest = _read_manifest(staging)
+    manifest["observation_chain_counts"] = {
+        **manifest["observation_chain_counts"],
+        "stale-descendant-observations": {"namecoin": 1},
+    }
+    _write_manifest(staging, manifest)
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(
+        ValueError,
+        match="stale-descendant-observations observation chain inventory",
+    ):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_inventory",
+    [
+        [],
+        {
+            "error-block-observations": {"namecoin": True},
+            "stale-descendant-observations": {},
+        },
+        {
+            "error-block-observations": {},
+            "stale-descendant-observations": {"namecoin": -1},
+        },
+    ],
+)
+def test_staged_publication_rejects_invalid_observation_chain_inventory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_inventory: object,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    manifest = _read_manifest(staging)
+    manifest["observation_chain_counts"] = invalid_inventory
+    _write_manifest(staging, manifest)
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(ValueError, match="observation chain inventory is invalid"):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
+@pytest.mark.dataset
+def test_committed_manifest_observation_inventories_match_canonical_ledgers() -> None:
+    manifest = json.loads(
+        (
+            REPO / "results" / "monitor-evidence" / "monitor-evidence-manifest.json"
+        ).read_text()
+    )
+    with (REPO / "data" / "error-blocks" / "error_block_observations.csv").open(
+        newline=""
+    ) as handle:
+        error_counts = Counter(row["chain"] for row in csv.DictReader(handle))
+    descendant_counts = Counter(
+        row.chain
+        for row in load_stale_descendant_observations(
+            REPO / "data" / "stale_descendant_observations.csv",
+            parents_path=REPO / "data" / "stale_descendants.csv",
+            data_dir=REPO / "data",
+        )
+    )
+
+    assert manifest["observation_chain_counts"] == {
+        "error-block-observations": dict(sorted(error_counts.items())),
+        monitor_publication.STALE_DESCENDANT_OBSERVATION_ARTIFACT: dict(
+            sorted(descendant_counts.items())
+        ),
+    }
 
 
 def test_staged_publication_allows_distinct_child_events_at_same_height(
@@ -1719,10 +1848,17 @@ def test_error_observation_publication_keys_same_height_witnesses_by_child_hash(
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
+    source_chain_counts: dict[str, int] = {}
+    for row in rows:
+        chain = row["chain"]
+        source_chain_counts[chain] = source_chain_counts.get(chain, 0) + 1
     monkeypatch.setattr(
         monitor_publication,
         "build_error_observation_rows",
-        lambda **_kwargs: (rows, {}),
+        lambda **_kwargs: (
+            rows,
+            {"source_chain_counts": source_chain_counts},
+        ),
     )
 
     monitor_publication.validate_error_observation_publication(

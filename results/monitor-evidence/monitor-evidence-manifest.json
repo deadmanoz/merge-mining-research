@@ -527,6 +527,31 @@
   ],
   "counts_csv": "results/monitor-evidence/monitor-evidence-counts.csv",
   "manifest_json": "results/monitor-evidence/monitor-evidence-manifest.json",
+  "observation_chain_counts": {
+    "error-block-observations": {
+      "devcoin": 18,
+      "elastos": 2,
+      "emercoin": 1,
+      "fractal": 1,
+      "groupcoin": 1,
+      "hathor": 1,
+      "i0coin": 1,
+      "ixcoin": 15,
+      "namecoin": 37,
+      "rsk": 5,
+      "syscoin": 3,
+      "unobtanium": 1
+    },
+    "stale-descendant-observations": {
+      "devcoin": 3,
+      "elastos": 2,
+      "fractal": 1,
+      "ixcoin": 3,
+      "namecoin": 20,
+      "rsk": 2,
+      "syscoin": 1
+    }
+  },
   "output_dir": "results/monitor-evidence",
   "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
   "strict_weak_verdicts_loaded": 21,

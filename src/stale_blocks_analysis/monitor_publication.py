@@ -80,6 +80,7 @@ from .monitor_exports import (
     MONITOR_OUTPUT_DIR,
     MonitorVerdict,
     REPORTED_RELEVANCE_INVENTORY,
+    STALE_DESCENDANT_OBSERVATION_ARTIFACT,
     build_monitor_evidence_exports,
     load_orphan_relevance_verdicts,
 )
@@ -128,8 +129,12 @@ _MANIFEST_TOP_LEVEL_FIELDS = frozenset(
         "artifacts",
         "relevance_inventory",
         "strict_weak_verdicts_loaded",
+        "observation_chain_counts",
         "counts",
     }
+)
+_OBSERVATION_CHAIN_COUNT_ARTIFACTS = frozenset(
+    {ERROR_OBSERVATION_ARTIFACT, STALE_DESCENDANT_OBSERVATION_ARTIFACT}
 )
 _UNKNOWN_IDENTITY_FIELDS = frozenset(
     {
@@ -777,15 +782,15 @@ def _load_monitor_artifact_counts(
 
 def validate_error_observation_publication(
     path: Path, *, data_dir: Path = DATA_DIR
-) -> None:
-    """Require ordinary evidence semantics and the exact canonical error ledger."""
+) -> dict[str, int]:
+    """Validate the canonical error ledger and return its source inventory."""
     _load_monitor_artifact_counts(
         path,
         ERROR_OBSERVATION_ARTIFACT,
         data_dir=data_dir,
         expected_artifact_scope=ERROR_OBSERVATION_SCOPE,
     )
-    expected_rows, _inventory = build_error_observation_rows(data_dir=data_dir)
+    expected_rows, inventory = build_error_observation_rows(data_dir=data_dir)
     # Output claims may be enriched from the selected archive source rows.
     # Every field derived from the committed catalogue and witness ledger must
     # remain byte-for-byte canonical in the aggregate.
@@ -903,6 +908,9 @@ def validate_error_observation_publication(
             f"{path}: error-observation aggregate is missing {len(missing)} "
             f"canonical ledger identities (first {min(missing)!r})"
         )
+    source_chain_counts = inventory["source_chain_counts"]
+    assert isinstance(source_chain_counts, dict)
+    return source_chain_counts
 
 
 _CATEGORY_SUCCESSORS = {
@@ -2167,6 +2175,30 @@ def _validate_staged_publication(
             f"{manifest_path}: strict/weak verdict cardinality does not match "
             "the relevance inventory"
         )
+    manifest_observation_chain_counts = manifest.get("observation_chain_counts")
+    if (
+        not isinstance(manifest_observation_chain_counts, dict)
+        or set(manifest_observation_chain_counts) != _OBSERVATION_CHAIN_COUNT_ARTIFACTS
+        or any(
+            not isinstance(chain_counts, dict)
+            or any(
+                not isinstance(chain, str) or type(count) is not int or count < 0
+                for chain, count in chain_counts.items()
+            )
+            for chain_counts in manifest_observation_chain_counts.values()
+        )
+    ):
+        raise ValueError(f"{manifest_path}: observation chain inventory is invalid")
+    descendant_observations = load_stale_descendant_observations(
+        data_dir / "stale_descendant_observations.csv",
+        parents_path=data_dir / "stale_descendants.csv",
+        data_dir=data_dir,
+    )
+    observed_observation_chain_counts: dict[str, dict[str, int]] = {
+        STALE_DESCENDANT_OBSERVATION_ARTIFACT: dict(
+            sorted(Counter(row.chain for row in descendant_observations).items())
+        )
+    }
 
     manifest_counts = manifest.get("counts")
     if not isinstance(manifest_counts, list):
@@ -2247,7 +2279,10 @@ def _validate_staged_publication(
         if not artifact.is_file():
             raise ValueError(f"{staging_dir}: missing staged artifact for {chain}")
         if chain == ERROR_OBSERVATION_ARTIFACT:
-            validate_error_observation_publication(artifact, data_dir=data_dir)
+            observed_source_counts = validate_error_observation_publication(
+                artifact, data_dir=data_dir
+            )
+            observed_observation_chain_counts[chain] = observed_source_counts
             observed_rows = _csv_row_count(artifact)
             for field in _ORDINARY_MONITOR_CATEGORIES:
                 if int(row[field]) != 0:
@@ -2296,6 +2331,23 @@ def _validate_staged_publication(
                 f"{counts_path}: {chain} canonical evidence status is invalid "
                 f"({row['canonical_evidence_status']!r} != {expected_status!r})"
             )
+    if manifest_observation_chain_counts != observed_observation_chain_counts:
+        for artifact_name in sorted(_OBSERVATION_CHAIN_COUNT_ARTIFACTS):
+            if artifact_name not in observed_observation_chain_counts:
+                raise ValueError(
+                    f"{manifest_path}: staged publication lacks the canonical "
+                    f"{artifact_name} artifact"
+                )
+            published = manifest_observation_chain_counts[artifact_name]
+            observed = observed_observation_chain_counts[artifact_name]
+            for chain in sorted(set(published) | set(observed)):
+                if published.get(chain) != observed.get(chain):
+                    raise ValueError(
+                        f"{manifest_path}: {artifact_name} observation chain inventory "
+                        f"does not match the canonical ledgers for {chain!r} "
+                        f"({published.get(chain)!r} != {observed.get(chain)!r})"
+                    )
+        raise AssertionError("unequal observation chain inventories lack a delta")
     _validate_global_child_event_uniqueness(staging_dir)
     _validate_parent_category_exclusivity(staging_dir)
     if (

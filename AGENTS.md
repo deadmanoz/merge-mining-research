@@ -230,8 +230,11 @@ Be strict about what belongs in git:
   introduce per-chain publication allowlists. The per-chain
   `*_monitor_evidence.csv` payloads are tracked uniformly through Git LFS;
   `monitor-evidence-counts.csv` and `monitor-evidence-manifest.json` remain
-  ordinary Git files. Run `git lfs pull` before consuming or regenerating the
-  committed payloads.
+  ordinary Git files. The JSON manifest owns the per-chain inventories for the
+  canonical error-block and stale-descendant observation ledgers consumed by
+  downstream importers; consumers must not reconstruct them from the lower-level
+  ledgers. Run `git lfs pull` before consuming or regenerating the committed
+  payloads.
 - The largest consolidated datasets (full per-chain evidence exports,
   unknown-origin inventories over ~100 MB) are intended for future external
   publication and are not tracked in git. Private or bulky per-chain artifacts

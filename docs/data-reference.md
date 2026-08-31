@@ -493,7 +493,15 @@ for namecoin -- the header-hydration coverage in the `notes` field
 with `no_namecoin_header_hydration_sources_found` appended when no extract file
 was available). A non-empty chain export also records
 `child_height=unavailable` when one or more rows lack an exact height. The JSON
-manifest also carries a machine-readable
+manifest also publishes `observation_chain_counts`, the canonical per-chain
+inventories for the error-block and stale-descendant observation ledgers. These
+are witness-observation counts, not parent counts, so consumers do not need to
+reopen those lower-level ledgers to reconstruct that metadata. Ordinary stale,
+stale-descendant, and strict/weak orphan rows remain
+covered by the existing per-chain category counts. Each inventory includes only
+chains with observations; an absent chain means zero. Complete publication
+builds carry both observation-ledger keys, while partial diagnostic builds may
+omit `error-block-observations`. The manifest also carries a machine-readable
 `validation_contracts` object. Its `ordinary_monitor_evidence` contract's
 `valid_token_scope=publication_gate_accepted_not_full_block_validity` value is
 the normative interpretation of both exact accepted direct-stale statuses for
