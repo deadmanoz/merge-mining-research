@@ -222,15 +222,15 @@ def _load_accepted_stale_keys(validated_stales_dir: Path) -> set[tuple[int, str]
                     height = int(str(row.get("btc_height", "") or "").strip())
                 except ValueError:
                     continue
-                block_hash = (
-                    str(row.get("btc_header_hash", "") or "").strip().lower()
-                )
+                block_hash = str(row.get("btc_header_hash", "") or "").strip().lower()
                 if height >= 0 and len(block_hash) == 64:
                     keys.add((height, block_hash))
     return keys
 
 
-def _validate_row_shape(row: dict[str, str]) -> tuple[tuple[int, str] | None, list[str]]:
+def _validate_row_shape(
+    row: dict[str, str],
+) -> tuple[tuple[int, str] | None, list[str]]:
     """Check one row's field forms; return (parsed key or None, failures)."""
     failures: list[str] = []
 
@@ -284,9 +284,7 @@ def _validate_row_shape(row: dict[str, str]) -> tuple[tuple[int, str] | None, li
                 "block would belong in error_blocks.csv"
             )
     except ValueError:
-        failures.append(
-            f"malformed legacy_sigops_from_bytes value {legacy_text!r}"
-        )
+        failures.append(f"malformed legacy_sigops_from_bytes value {legacy_text!r}")
 
     if not str(row.get("evidence_source", "") or "").strip():
         failures.append("evidence_source is empty")
@@ -327,13 +325,9 @@ def _validate_row_bytes(
     failures: list[str] = []
     digest = hashlib.sha256(raw).hexdigest()
     if digest != str(row.get("block_sha256", "") or "").strip():
-        failures.append(
-            f"block_sha256 does not match the pinned block file ({digest})"
-        )
+        failures.append(f"block_sha256 does not match the pinned block file ({digest})")
     if len(raw) < 80 or sha256d(raw[:80])[::-1].hex() != key[1]:
-        failures.append(
-            "pinned block file's header does not hash to the row's hash"
-        )
+        failures.append("pinned block file's header does not hash to the row's hash")
         return failures
     try:
         legacy = count_block_legacy_sigops(raw)
@@ -381,9 +375,7 @@ def validate_dataset(
             return failures, 0, 0
         for row in reader:
             row_count += 1
-            row_id = (
-                f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
-            )
+            row_id = f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
             key, shape_failures = _validate_row_shape(row)
             failures.extend(f"{row_id}: {failure}" for failure in shape_failures)
             if key is None:
@@ -406,9 +398,7 @@ def validate_dataset(
                 byte_failures = _validate_row_bytes(row, key, blocks_dir)
                 if not byte_failures:
                     byte_checked += 1
-                failures.extend(
-                    f"{row_id}: {failure}" for failure in byte_failures
-                )
+                failures.extend(f"{row_id}: {failure}" for failure in byte_failures)
     if row_count == 0:
         # Fail closed: a header-only or empty overlay would otherwise pass as
         # success, silently dropping the committed annotations. Mirrors the

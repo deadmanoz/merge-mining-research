@@ -169,9 +169,7 @@ def test_wrong_legacy_count_detected(tmp_path: Path) -> None:
     mutated = dict(rows[0], legacy_sigops_from_bytes="12345")
     path = _write_overlay(tmp_path / "bad_count.csv", fieldnames, [mutated])
     failures = _validate(path, tmp_path, blocks_dir=BLOCKS_DIR)
-    assert any(
-        "does not match the count re-derived" in failure for failure in failures
-    )
+    assert any("does not match the count re-derived" in failure for failure in failures)
 
 
 def test_missing_block_file_reported_when_fetched(tmp_path: Path) -> None:
@@ -197,19 +195,13 @@ def test_main_reports_failures(
 
 
 def test_legacy_sigop_counter_known_scripts() -> None:
-    p2pkh = bytes.fromhex(
-        "76a914c825a1ecf2a6830c4401620c3a16f1995057c2ab88ac"
-    )
+    p2pkh = bytes.fromhex("76a914c825a1ecf2a6830c4401620c3a16f1995057c2ab88ac")
     assert body_invalid_overlay.count_legacy_sigops_in_script(p2pkh) == 1
     # OP_CHECKMULTISIG counts the 20-key maximum in inaccurate mode.
-    assert (
-        body_invalid_overlay.count_legacy_sigops_in_script(b"\x51\x51\xae") == 20
-    )
+    assert body_invalid_overlay.count_legacy_sigops_in_script(b"\x51\x51\xae") == 20
     assert body_invalid_overlay.count_legacy_sigops_in_script(b"\xac\xad") == 2
     # A truncated push ends the walk with the count so far, like Core's GetOp.
-    assert (
-        body_invalid_overlay.count_legacy_sigops_in_script(b"\xac\x4c") == 1
-    )
+    assert body_invalid_overlay.count_legacy_sigops_in_script(b"\xac\x4c") == 1
 
 
 def test_block_counter_rejects_malformed_bytes() -> None:
