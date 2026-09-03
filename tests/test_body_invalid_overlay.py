@@ -15,6 +15,11 @@ from pathlib import Path
 import pytest
 
 from stale_blocks_analysis import body_invalid_overlay
+from stale_blocks_analysis.auxpow_chainid import (
+    hash_from_header_bytes,
+    hash_to_display_hex,
+)
+from stale_blocks_analysis.bitcoin_binary import sha256d
 from stale_blocks_analysis.config import BLOCKS_DIR, BODY_INVALID_STALES_CSV
 
 F2POOL_783426 = (
@@ -210,3 +215,75 @@ def test_block_counter_rejects_malformed_bytes() -> None:
     with pytest.raises(ValueError):
         # 80-byte header + zero tx count.
         body_invalid_overlay.count_block_legacy_sigops(b"\x00" * 80 + b"\x00")
+
+
+def _craft_one_tx_block() -> bytes:
+    """Serialize a minimal 1-transaction block whose header commits to its tx."""
+    tx = (
+        b"\x01\x00\x00\x00"  # nVersion
+        + b"\x01"  # vin count
+        + b"\x00" * 32
+        + b"\xff\xff\xff\xff"  # coinbase outpoint
+        + b"\x00"  # empty scriptSig
+        + b"\xff\xff\xff\xff"  # nSequence
+        + b"\x01"  # vout count
+        + b"\x00" * 8  # value
+        + b"\x01\xac"  # scriptPubKey: OP_CHECKSIG (1 legacy sigop)
+        + b"\x00" * 4  # nLockTime
+    )
+    header = b"\x01\x00\x00\x00" + b"\x00" * 32 + sha256d(tx) + b"\x00" * 12
+    return header + b"\x01" + tx
+
+
+def test_parse_block_body_derives_matching_merkle_root() -> None:
+    raw = _craft_one_tx_block()
+    sigops, merkle_root = body_invalid_overlay.parse_block_body(raw)
+    assert sigops == 1
+    assert merkle_root == raw[36:68]
+
+
+def test_substituted_body_fails_merkle_authentication(tmp_path: Path) -> None:
+    """A genuine header over a tampered body must not count as byte-checked."""
+    import hashlib
+
+    fieldnames, _rows = _committed_rows()
+    raw = _craft_one_tx_block()
+    tampered = raw[:-1] + bytes([raw[-1] ^ 0x01])  # flip a tx locktime byte
+    block_hash = hash_to_display_hex(hash_from_header_bytes(tampered[:80]))
+    blocks_dir = tmp_path / "blocks"
+    blocks_dir.mkdir()
+    (blocks_dir / f"999999-{block_hash}.bin").write_bytes(tampered)
+    row = {
+        "height": "999999",
+        "hash": block_hash,
+        "rule": "bad-blk-sigops",
+        "attested_sigop_cost": "80003",
+        "legacy_sigops_from_bytes": "1",
+        "evidence_source": "test",
+        "evidence_url": "https://example.com/",
+        "block_file": f"blocks/999999-{block_hash}.bin",
+        "block_sha256": hashlib.sha256(tampered).hexdigest(),
+        "notes": "",
+    }
+    path = _write_overlay(tmp_path / "tampered.csv", fieldnames, [row])
+    failures = _validate(path, tmp_path, blocks_dir=blocks_dir)
+    assert any("do not merkle-authenticate" in failure for failure in failures)
+
+
+def test_surplus_csv_field_fails_closed(tmp_path: Path) -> None:
+    """An unquoted comma in the final column must not validate as conformant."""
+    fieldnames, rows = _committed_rows()
+    line = ",".join(rows[0][name] for name in fieldnames) + ",surplus"
+    path = tmp_path / "surplus.csv"
+    path.write_text(",".join(fieldnames) + "\n" + line + "\n")
+    failures = _validate(path, tmp_path)
+    assert any("does not have exactly" in failure for failure in failures)
+
+
+def test_missing_csv_field_fails_closed(tmp_path: Path) -> None:
+    fieldnames, rows = _committed_rows()
+    line = ",".join(rows[0][name] for name in fieldnames[:-1])
+    path = tmp_path / "short.csv"
+    path.write_text(",".join(fieldnames) + "\n" + line + "\n")
+    failures = _validate(path, tmp_path)
+    assert any("does not have exactly" in failure for failure in failures)

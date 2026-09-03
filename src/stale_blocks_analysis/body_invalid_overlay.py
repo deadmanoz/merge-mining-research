@@ -36,11 +36,14 @@ the byte checks):
 
 1. the referenced block file's SHA-256 equals ``block_sha256``;
 2. the file's first 80 bytes hash (sha256d, display order) to ``hash``;
-3. the legacy sigop count over every embedded input scriptSig and output
+3. the transaction payload merkle-authenticates against the header (the
+   legacy txids fold to header bytes 36-68), so a substituted or corrupted
+   body cannot masquerade as re-derived evidence;
+4. the legacy sigop count over every embedded input scriptSig and output
    scriptPubKey (Core's ``GetLegacySigOpCount`` semantics: CHECKSIG counts 1,
    CHECKMULTISIG counts the 20-key maximum) equals
    ``legacy_sigops_from_bytes``; and
-4. that count, scaled by the witness factor, stays at or below the 80,000
+5. that count, scaled by the witness factor, stays at or below the 80,000
    sigop-cost limit -- re-asserting the premise that the attested excess is
    not derivable from the block bytes alone.
 """
@@ -52,6 +55,10 @@ import hashlib
 import struct
 from pathlib import Path
 
+from stale_blocks_analysis.auxpow_chainid import (
+    hash_from_header_bytes,
+    hash_to_display_hex,
+)
 from stale_blocks_analysis.bitcoin_binary import _varint, sha256d
 from stale_blocks_analysis.config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
@@ -144,12 +151,19 @@ def count_legacy_sigops_in_script(script: bytes) -> int:
     return count
 
 
-def _transaction_legacy_sigops_at(raw: bytes, pos: int) -> tuple[int, int]:
-    """Count one transaction's embedded legacy sigops; return (count, new_pos)."""
+def _transaction_at(raw: bytes, pos: int) -> tuple[int, bytes, int]:
+    """Walk one transaction; return (legacy sigops, txid bytes, new_pos).
+
+    The txid is the sha256d of the transaction's LEGACY serialization
+    (version, inputs, outputs, locktime -- excluding any segwit marker, flag,
+    and witness data), in internal byte order, ready for merkle-tree use.
+    """
+    start = pos
     pos += 4  # nVersion
     is_segwit = raw[pos] == 0x00 and raw[pos + 1] == 0x01
     if is_segwit:
         pos += 2  # marker + flag
+    body_start = pos
     vin_count, pos = _varint(raw, pos)
     count = 0
     for _ in range(vin_count):
@@ -167,26 +181,48 @@ def _transaction_legacy_sigops_at(raw: bytes, pos: int) -> tuple[int, int]:
             raise ValueError("truncated output scriptPubKey")
         count += count_legacy_sigops_in_script(raw[pos : pos + script_len])
         pos += script_len
+    body_end = pos
     if is_segwit:
         for _ in range(vin_count):
             item_count, pos = _varint(raw, pos)
             for _ in range(item_count):
                 item_len, pos = _varint(raw, pos)
                 pos += item_len
+    locktime_start = pos
     pos += 4  # nLockTime
     if pos > len(raw):
         raise ValueError("truncated transaction")
-    return count, pos
+    txid = sha256d(
+        raw[start : start + 4]
+        + raw[body_start:body_end]
+        + raw[locktime_start : locktime_start + 4]
+    )
+    return count, txid, pos
 
 
-def count_block_legacy_sigops(raw: bytes) -> int:
-    """Count a serialized block's embedded legacy sigops.
+def _merkle_root(txids: list[bytes]) -> bytes:
+    """Fold internal-order txids into the block merkle root (Core's rule)."""
+    level = txids
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level = [*level, level[-1]]
+        level = [
+            sha256d(level[index] + level[index + 1])
+            for index in range(0, len(level), 2)
+        ]
+    return level[0]
 
-    Sums ``count_legacy_sigops_in_script`` over every transaction's input
-    scriptSigs and output scriptPubKeys -- the portion of Bitcoin Core's block
-    sigop cost that is derivable from the block bytes alone. The P2SH and
-    witness portions need the spent prevout scripts and are deliberately out
-    of scope.
+
+def parse_block_body(raw: bytes) -> tuple[int, bytes]:
+    """Walk a serialized block; return (legacy sigops, derived merkle root).
+
+    The sigop count sums ``count_legacy_sigops_in_script`` over every
+    transaction's input scriptSigs and output scriptPubKeys -- the portion of
+    Bitcoin Core's block sigop cost that is derivable from the block bytes
+    alone. The P2SH and witness portions need the spent prevout scripts and
+    are deliberately out of scope. The merkle root is derived from the
+    transactions' legacy txids so a caller can authenticate the body against
+    header bytes 36-68.
     """
     if len(raw) < 81:
         raise ValueError("serialized block shorter than header plus tx count")
@@ -195,11 +231,19 @@ def count_block_legacy_sigops(raw: bytes) -> int:
     if tx_count == 0:
         raise ValueError("serialized block carries no transactions")
     total = 0
+    txids: list[bytes] = []
     for _ in range(tx_count):
-        sigops, pos = _transaction_legacy_sigops_at(raw, pos)
+        sigops, txid, pos = _transaction_at(raw, pos)
         total += sigops
+        txids.append(txid)
     if pos != len(raw):
         raise ValueError("trailing bytes after the final transaction")
+    return total, _merkle_root(txids)
+
+
+def count_block_legacy_sigops(raw: bytes) -> int:
+    """Count a serialized block's embedded legacy sigops (see parse_block_body)."""
+    total, _merkle = parse_block_body(raw)
     return total
 
 
@@ -326,13 +370,23 @@ def _validate_row_bytes(
     digest = hashlib.sha256(raw).hexdigest()
     if digest != str(row.get("block_sha256", "") or "").strip():
         failures.append(f"block_sha256 does not match the pinned block file ({digest})")
-    if len(raw) < 80 or sha256d(raw[:80])[::-1].hex() != key[1]:
+    if len(raw) < 80 or hash_to_display_hex(hash_from_header_bytes(raw[:80])) != key[1]:
         failures.append("pinned block file's header does not hash to the row's hash")
         return failures
     try:
-        legacy = count_block_legacy_sigops(raw)
+        legacy, derived_merkle_root = parse_block_body(raw)
     except (ValueError, IndexError, struct.error) as exc:
         failures.append(f"pinned block bytes did not parse: {exc}")
+        return failures
+    # Authenticate the transaction payload against the header before trusting
+    # any count derived from it: a file whose header is genuine but whose body
+    # was substituted or corrupted would otherwise still "re-derive" a sigop
+    # count. The merkle-root field is header bytes 36-68 (internal order).
+    if derived_merkle_root != raw[36:68]:
+        failures.append(
+            "pinned block file's transactions do not merkle-authenticate "
+            "against its header"
+        )
         return failures
     committed_text = str(row.get("legacy_sigops_from_bytes", "") or "").strip()
     if committed_text != str(legacy):
@@ -376,6 +430,16 @@ def validate_dataset(
         for row in reader:
             row_count += 1
             row_id = f"{row.get('height', '?')}:{str(row.get('hash', ''))[-12:]}"
+            # DictReader parks surplus fields (an unquoted comma in the final
+            # column) under the None key and fills omitted trailing fields
+            # with None. Either way the row does not conform to the declared
+            # schema, so fail closed before validating field contents.
+            if None in row or any(value is None for value in row.values()):
+                failures.append(
+                    f"{row_id}: row does not have exactly "
+                    f"{len(EXPECTED_COLUMNS)} fields"
+                )
+                continue
             key, shape_failures = _validate_row_shape(row)
             failures.extend(f"{row_id}: {failure}" for failure in shape_failures)
             if key is None:
