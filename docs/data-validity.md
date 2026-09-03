@@ -64,7 +64,12 @@ that a candidate is invalid, while passing all available checks means only that
 no failure was found within this profile. The error-blocks dataset therefore may
 call a rejected row consensus-invalid, but accepted rows are described as
 publication-gate-accepted header candidates rather than fully consensus-valid
-blocks. RSK's midstate-compressed proof does not expose the real parent
+blocks. The F2Pool blocks at heights 783,426 and 784,121 are the committed
+demonstration: both carry accepted statuses, and both are known
+`bad-blk-sigops` invalid from independently observed full blocks — recorded in
+the `data/error-blocks/body_invalid_stales.csv` overlay (see
+[`error-blocks.md`](error-blocks.md) "Externally attested body-invalid
+stales"), not by rewriting their accepted verdicts. RSK's midstate-compressed proof does not expose the real parent
 coinbase scriptSig, so RSK cannot independently apply the scriptSig-length or
 BIP34-prefix checks.
 

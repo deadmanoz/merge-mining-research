@@ -45,6 +45,12 @@ error-blocks-report *ARGS:
 validate-error-blocks:
     {{python}} scripts/analysis/validate_error_blocks.py
 
+# Validate the body-invalid-stales overlay: accepted VALID direct stales whose
+# body is known consensus-invalid from an externally observed full block. Byte
+# cross-checks run when the pinned stale-blocks clone is fetched.
+validate-body-invalid-stales:
+    {{python}} scripts/analysis/validate_body_invalid_stales.py
+
 # Reconcile and publish the complete stale-descendant parent/observation
 # module. Bitcoin Core RPC credentials may be passed through as arguments or
 # the normal environment. Any uncatalogued error candidate fails closed.

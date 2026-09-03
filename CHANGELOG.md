@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+Add the body-invalid stales overlay
+(`data/error-blocks/body_invalid_stales.csv`): annotations for accepted VALID
+direct stales whose complete block body is known consensus-invalid from an
+externally observed full block, starting with the two F2Pool `bad-blk-sigops`
+blocks at heights 783,426 and 784,121. The overlay is not part of the
+error-block catalogue or its exclusion gate — the sigop excess is provably not
+derivable from the committed bytes (the embedded legacy sigops scale to below
+the 80,000 limit; the remainder needs spent-prevout context), so the rows keep
+their accepted statuses and the catalogue keeps its offline re-derivation
+standard. A fail-closed validator (`just validate-body-invalid-stales`,
+`stale_blocks_analysis.body_invalid_overlay`) enforces validated-stales
+membership, catalogue disjointness, the rule-vocabulary boundary, and — when
+the pinned stale-blocks clone is fetched — the archived block files' SHA-256,
+header hashes, and legacy sigop counts.
+
 Publish the error-block and stale-descendant observation inventories by chain
 directly in the monitor manifest so downstream consumers can validate the
 canonical ledgers without reconstructing their metadata.

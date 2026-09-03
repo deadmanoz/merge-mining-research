@@ -99,6 +99,14 @@ contract. A monitor release must pin a research commit whose classification
 and rejection-rule vocabulary it already understands; the research dataset
 does not describe a temporary mixed-version state as valid publication.
 
+The body-invalid stales overlay
+(`data/error-blocks/body_invalid_stales.csv`, see
+[`error-blocks.md`](error-blocks.md)) is outside this lockstep contract: it
+adds no `classification` or `validation_status` vocabulary and changes no
+publication surface the importer reads, so it triggers no coordinated monitor
+release. A monitor that wants to surface the annotation consumes the overlay
+as a pinned mirror on its own schedule.
+
 ## Contribution and post-merge workflow
 
 1. Run `just upstream-check`. If upstream has moved, run

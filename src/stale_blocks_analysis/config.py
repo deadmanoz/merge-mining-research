@@ -88,6 +88,13 @@ ERROR_BLOCKS_CSV = ERROR_BLOCKS_DIR / "error_blocks.csv"
 # parent's median-time-past, keyed by (height, hash), so the validator can
 # re-derive time-rule violations offline.
 ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
+# Committed body-invalid-stales overlay: accepted VALID direct stales whose
+# full block body is known consensus-invalid from an independently observed
+# complete block (a rule the header/coinbase evidence profile cannot cover).
+# The overlay is an annotation, NOT part of the error-block catalogue or its
+# exclusion gate; see docs/error-blocks.md "Externally attested body-invalid
+# stales" and stale_blocks_analysis.body_invalid_overlay.
+BODY_INVALID_STALES_CSV = ERROR_BLOCKS_DIR / "body_invalid_stales.csv"
 
 # Output locations (all relative to the project root).
 RESULTS_DIR = PROJECT_ROOT / "results"
