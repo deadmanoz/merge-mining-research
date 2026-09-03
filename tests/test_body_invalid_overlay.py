@@ -385,6 +385,69 @@ def test_surplus_coinbase_witness_item_rejected() -> None:
     assert any("bad-witness-nonce-size" in failure for failure in failures)
 
 
+def _strip_witnesses(raw: bytes) -> bytes:
+    """Rebuild the crafted 2-tx segwit block with all witness data stripped.
+
+    Legacy txids (and so the header merkle root) are unchanged; only the
+    marker, flag, and witness sections disappear. The coinbase's commitment
+    output stays in place, exactly the incomplete-body shape the validator
+    must reject rather than skip.
+    """
+    pos = 80
+    tx_count, pos = body_invalid_overlay._read_compact_size(raw, pos)
+    stripped_txs = []
+    for _ in range(tx_count):
+        count, txid, wtxid, _outputs, _witness, new_pos = (
+            body_invalid_overlay._transaction_at(raw, pos)
+        )
+        tx = raw[pos:new_pos]
+        # version + body (between marker/flag and witness) + locktime.
+        is_segwit = tx[4] == 0x00 and tx[5] == 0x01
+        if is_segwit:
+            # Recompute the body span exactly as the txid derivation does.
+            legacy = _legacy_tx_bytes(tx)
+        else:
+            legacy = tx
+        assert sha256d(legacy) == txid
+        stripped_txs.append(legacy)
+        pos = new_pos
+    return raw[:81] + b"".join(stripped_txs)
+
+
+def _legacy_tx_bytes(tx: bytes) -> bytes:
+    """Strip marker/flag/witness from one serialized segwit transaction."""
+    pos = 6  # version + marker + flag
+    body_start = pos
+    vin_count, pos = body_invalid_overlay._read_compact_size(tx, pos)
+    for _ in range(vin_count):
+        pos += 36
+        script_len, pos = body_invalid_overlay._read_compact_size(tx, pos)
+        pos += script_len + 4
+    vout_count, pos = body_invalid_overlay._read_compact_size(tx, pos)
+    for _ in range(vout_count):
+        pos += 8
+        script_len, pos = body_invalid_overlay._read_compact_size(tx, pos)
+        pos += script_len
+    body_end = pos
+    return tx[:4] + tx[body_start:body_end] + tx[len(tx) - 4 :]
+
+
+def test_witness_stripped_body_still_fails_commitment_check() -> None:
+    """Stripping every witness must not silently skip commitment validation."""
+    raw = _strip_witnesses(_craft_segwit_block())
+    _sigops, failures = body_invalid_overlay.authenticate_block_body(raw)
+    assert any("bad-witness-nonce-size" in failure for failure in failures)
+
+
+def test_non_canonical_compact_size_rejected() -> None:
+    """A widened-but-equal count encoding must fail, as Core refuses it."""
+    raw = _craft_one_tx_block()
+    assert raw[80] == 0x01
+    widened = raw[:80] + b"\xfd\x01\x00" + raw[81:]
+    with pytest.raises(ValueError, match="non-canonical CompactSize"):
+        body_invalid_overlay.count_block_legacy_sigops(widened)
+
+
 def test_surplus_csv_field_fails_closed(tmp_path: Path) -> None:
     """An unquoted comma in the final column must not validate as conformant."""
     fieldnames, rows = _committed_rows()

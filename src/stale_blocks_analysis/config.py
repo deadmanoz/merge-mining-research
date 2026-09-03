@@ -452,6 +452,15 @@ BIP34_HEIGHT = 227_931
 BIP66_HEIGHT = 363_725
 BIP65_HEIGHT = 388_381
 
+# Bitcoin's block-wide signature-operation consensus limits (Core's
+# MAX_BLOCK_SIGOPS_COST / WITNESS_SCALE_FACTOR / MAX_PUBKEYS_PER_MULTISIG).
+# Used by the body-invalid overlay validator: legacy and P2SH sigops count at
+# the witness scale factor toward the 80,000 cost limit, and an unaccompanied
+# CHECKMULTISIG counts the 20-key maximum.
+MAX_BLOCK_SIGOPS_COST = 80_000
+WITNESS_SCALE_FACTOR = 4
+MAX_PUBKEYS_PER_MULTISIG = 20
+
 # Derived BTC-stale-relevance bucket vocabulary, emitted by
 # scripts/analysis/classify_btc_stale_relevance.py in the
 # `btc_stale_relevance` column. This is the shared refinement taxonomy:

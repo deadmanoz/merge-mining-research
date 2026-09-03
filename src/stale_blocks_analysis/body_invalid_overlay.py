@@ -39,11 +39,13 @@ the byte checks):
 3. the transaction payload merkle-authenticates against the header (the
    legacy txids fold to header bytes 36-68), so a substituted or corrupted
    body cannot masquerade as re-derived evidence;
-4. when any transaction carries witness data, the BIP141 witness commitment
-   re-derives (the wtxid merkle root plus the coinbase witness reserved
+4. when any transaction carries witness data or the coinbase carries a
+   commitment output, the BIP141 witness commitment re-derives (the wtxid
+   merkle root plus the coinbase's exactly-one-32-byte witness reserved
    value hash to the coinbase's ``6a24aa21a9ed`` commitment output), since
    the txid tree does not cover witness bytes and the attested excess lives
-   precisely in witness-path sigops;
+   precisely in witness-path sigops -- a witness-stripped body fails here
+   rather than skipping the check;
 5. the legacy sigop count over every embedded input scriptSig and output
    scriptPubKey (Core's ``GetLegacySigOpCount`` semantics: CHECKSIG counts 1,
    CHECKMULTISIG counts the 20-key maximum) equals
@@ -70,14 +72,13 @@ from stale_blocks_analysis.config import (
     BLOCKS_DIR,
     BODY_INVALID_STALES_CSV,
     ERROR_BLOCKS_CSV,
+    MAX_BLOCK_SIGOPS_COST,
+    MAX_PUBKEYS_PER_MULTISIG,
     VALIDATED_STALES_DIR,
+    WITNESS_SCALE_FACTOR,
 )
 from stale_blocks_analysis.error_block_validation import RULE_GATES, TIME_RULES
 from stale_blocks_analysis.error_blocks import load_error_block_keys
-
-MAX_BLOCK_SIGOPS_COST = 80_000
-WITNESS_SCALE_FACTOR = 4
-_MAX_PUBKEYS_PER_MULTISIG = 20
 
 EXPECTED_COLUMNS = [
     "height",
@@ -121,6 +122,27 @@ _OP_CHECKMULTISIG = 0xAE
 _OP_CHECKMULTISIGVERIFY = 0xAF
 
 
+def _read_compact_size(raw: bytes, pos: int) -> tuple[int, int]:
+    """Read a CompactSize integer, enforcing Core's canonical minimal form.
+
+    ``ReadCompactSize`` rejects a value serialized wider than necessary
+    ("non-canonical ReadCompactSize()"), and those count/length bytes sit
+    outside every txid and the witness commitment: a rewritten-but-equal
+    encoding would change only ``block_sha256`` while every derived check
+    still passed, so a block Core would refuse to even deserialize must not
+    authenticate here.
+    """
+    value, new_pos = _varint(raw, pos)
+    width = new_pos - pos
+    if (
+        (width == 3 and value < 0xFD)
+        or (width == 5 and value <= 0xFFFF)
+        or (width == 9 and value <= 0xFFFF_FFFF)
+    ):
+        raise ValueError("non-canonical CompactSize encoding")
+    return value, new_pos
+
+
 def count_legacy_sigops_in_script(script: bytes) -> int:
     """Count legacy sigops in one script (``CScript::GetSigOpCount(false)``).
 
@@ -152,7 +174,7 @@ def count_legacy_sigops_in_script(script: bytes) -> int:
         elif opcode in (_OP_CHECKSIG, _OP_CHECKSIGVERIFY):
             count += 1
         elif opcode in (_OP_CHECKMULTISIG, _OP_CHECKMULTISIGVERIFY):
-            count += _MAX_PUBKEYS_PER_MULTISIG
+            count += MAX_PUBKEYS_PER_MULTISIG
     return count
 
 
@@ -177,20 +199,20 @@ def _transaction_at(
     if is_segwit:
         pos += 2  # marker + flag
     body_start = pos
-    vin_count, pos = _varint(raw, pos)
+    vin_count, pos = _read_compact_size(raw, pos)
     count = 0
     for _ in range(vin_count):
         pos += 36  # outpoint
-        script_len, pos = _varint(raw, pos)
+        script_len, pos = _read_compact_size(raw, pos)
         if pos + script_len > len(raw):
             raise ValueError("truncated input scriptSig")
         count += count_legacy_sigops_in_script(raw[pos : pos + script_len])
         pos += script_len + 4  # script + nSequence
-    vout_count, pos = _varint(raw, pos)
+    vout_count, pos = _read_compact_size(raw, pos)
     output_scripts: list[bytes] | None = [] if capture_coinbase else None
     for _ in range(vout_count):
         pos += 8  # value
-        script_len, pos = _varint(raw, pos)
+        script_len, pos = _read_compact_size(raw, pos)
         if pos + script_len > len(raw):
             raise ValueError("truncated output scriptPubKey")
         script = raw[pos : pos + script_len]
@@ -202,9 +224,9 @@ def _transaction_at(
     coinbase_witness: list[bytes] | None = None
     if is_segwit:
         for vin_index in range(vin_count):
-            item_count, pos = _varint(raw, pos)
+            item_count, pos = _read_compact_size(raw, pos)
             for _item_index in range(item_count):
-                item_len, pos = _varint(raw, pos)
+                item_len, pos = _read_compact_size(raw, pos)
                 if pos + item_len > len(raw):
                     raise ValueError("truncated witness item")
                 if capture_coinbase and vin_index == 0:
@@ -273,8 +295,9 @@ def _witness_commitment_error(
     any extra coinbase witness item would escape the commitment entirely, so
     a surplus item is rejected, never ignored. The commitment must appear in the
     LAST coinbase output whose scriptPubKey begins ``6a24aa21a9ed`` (Core's
-    ``GetWitnessCommitmentIndex`` scan). The caller only invokes this when
-    some transaction carries witness data.
+    ``GetWitnessCommitmentIndex`` scan). The caller invokes this when some
+    transaction carries witness data OR the coinbase carries a commitment
+    output, mirroring Core: a stripped body must not skip the check.
     """
     commitment_script = None
     for script in coinbase_outputs:
@@ -339,7 +362,7 @@ def _walk_block(raw: bytes) -> tuple[int, bytes, str | None]:
     if len(raw) < 81:
         raise ValueError("serialized block shorter than header plus tx count")
     pos = 80
-    tx_count, pos = _varint(raw, pos)
+    tx_count, pos = _read_compact_size(raw, pos)
     if tx_count == 0:
         raise ValueError("serialized block carries no transactions")
     total = 0
@@ -365,9 +388,19 @@ def _walk_block(raw: bytes) -> tuple[int, bytes, str | None]:
             coinbase_witness = reserved
     if pos != len(raw):
         raise ValueError("trailing bytes after the final transaction")
+    # Core validates the commitment whenever the coinbase CARRIES one, not
+    # only when witness serialization is observed: stripping every marker,
+    # flag, and witness stack leaves each wtxid equal to its txid, and the
+    # header merkle root and legacy sigop count unchanged, so an incomplete
+    # body would otherwise skip this check entirely while its commitment
+    # output still sits in the coinbase.
+    has_commitment_output = any(
+        len(script) >= 38 and script.startswith(_WITNESS_COMMITMENT_PREFIX)
+        for script in coinbase_outputs
+    )
     witness_error = (
         _witness_commitment_error(wtxids, coinbase_outputs, coinbase_witness)
-        if has_witness
+        if has_witness or has_commitment_output
         else None
     )
     return total, _merkle_root(txids), witness_error
