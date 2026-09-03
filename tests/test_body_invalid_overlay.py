@@ -299,6 +299,75 @@ def test_substituted_body_fails_merkle_authentication(tmp_path: Path) -> None:
     assert any("do not merkle-authenticate" in failure for failure in failures)
 
 
+def _craft_segwit_block(tamper_witness: bool = False) -> bytes:
+    """Serialize a 2-tx segwit block with a valid BIP141 witness commitment."""
+    witness_item = b"\xab" if tamper_witness else b"\xaa"
+    spend = (
+        b"\x01\x00\x00\x00"  # nVersion
+        + b"\x00\x01"  # segwit marker + flag
+        + b"\x01"  # vin count
+        + b"\x11" * 32
+        + b"\x00\x00\x00\x00"  # outpoint
+        + b"\x00"  # empty scriptSig
+        + b"\xff\xff\xff\xff"  # nSequence
+        + b"\x01"  # vout count
+        + b"\x00" * 8  # value
+        + b"\x01\xac"  # scriptPubKey: OP_CHECKSIG
+        + b"\x01\x01"  # witness: one 1-byte item
+        + witness_item
+        + b"\x00" * 4  # nLockTime
+    )
+    spend_txid = sha256d(
+        spend[:4] + spend[6 : len(spend) - 7] + spend[len(spend) - 4 :]
+    )
+    # For the COMMITMENT the untampered wtxid is used, so a tampered witness
+    # byte makes the derived commitment disagree with the committed one.
+    committed_spend = spend if not tamper_witness else spend.replace(b"\xab", b"\xaa")
+    spend_wtxid = sha256d(committed_spend)
+    reserved = b"\x00" * 32
+    witness_root = body_invalid_overlay._merkle_root([b"\x00" * 32, spend_wtxid])
+    commitment = sha256d(witness_root + reserved)
+    coinbase = (
+        b"\x01\x00\x00\x00"
+        + b"\x00\x01"
+        + b"\x01"
+        + b"\x00" * 32
+        + b"\xff\xff\xff\xff"  # null outpoint
+        + b"\x01\x51"  # scriptSig: OP_1
+        + b"\xff\xff\xff\xff"
+        + b"\x02"  # vout count
+        + b"\x00" * 8
+        + b"\x01\xac"
+        + b"\x00" * 8
+        + b"\x26"  # 38-byte commitment script
+        + b"\x6a\x24\xaa\x21\xa9\xed"
+        + commitment
+        + b"\x01\x20"  # witness: one 32-byte item (the reserved value)
+        + reserved
+        + b"\x00" * 4
+    )
+    coinbase_txid = sha256d(
+        coinbase[:4] + coinbase[6 : len(coinbase) - 38] + coinbase[len(coinbase) - 4 :]
+    )
+    merkle_root = body_invalid_overlay._merkle_root([coinbase_txid, spend_txid])
+    header = b"\x01\x00\x00\x00" + b"\x00" * 32 + merkle_root + b"\x00" * 12
+    return header + b"\x02" + coinbase + spend
+
+
+def test_segwit_block_witness_commitment_authenticates() -> None:
+    raw = _craft_segwit_block()
+    sigops, failures = body_invalid_overlay.authenticate_block_body(raw)
+    assert failures == []
+    assert sigops == 2
+
+
+def test_tampered_witness_data_fails_commitment_authentication() -> None:
+    """Altered witness bytes leave the txid tree intact but must still fail."""
+    raw = _craft_segwit_block(tamper_witness=True)
+    _sigops, failures = body_invalid_overlay.authenticate_block_body(raw)
+    assert any("coinbase commitment" in failure for failure in failures)
+
+
 def test_surplus_csv_field_fails_closed(tmp_path: Path) -> None:
     """An unquoted comma in the final column must not validate as conformant."""
     fieldnames, rows = _committed_rows()
