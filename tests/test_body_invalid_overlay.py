@@ -75,6 +75,26 @@ def test_committed_overlay_is_exactly_the_f2pool_pair() -> None:
     assert {row["rule"] for row in rows} == {"bad-blk-sigops"}
 
 
+def test_committed_overlay_pins_the_externally_attested_fields() -> None:
+    """Pin the values the validator cannot re-derive from committed bytes.
+
+    The attested sigop cost is the overlay's central externally sourced
+    measurement (b10c counted exactly 80,003 for BOTH blocks), and the
+    evidence URL is the citation the claim rests on. The validator can only
+    check ``> 80000``, so a silently corrupted value would otherwise pass CI;
+    this test pins the exact figures per key.
+    """
+    _fieldnames, rows = _committed_rows()
+    by_height = {int(row["height"]): row for row in rows}
+    evidence_url = "https://b10c.me/observations/11-invalid-blocks-783426-and-784121/"
+    for height, legacy in ((783426, "18630"), (784121, "18051")):
+        row = by_height[height]
+        assert row["attested_sigop_cost"] == "80003"
+        assert row["legacy_sigops_from_bytes"] == legacy
+        assert row["evidence_source"] == "b10c"
+        assert row["evidence_url"] == evidence_url
+
+
 @_blocks_fetched
 def test_committed_overlay_byte_checks_run() -> None:
     failures, _row_count, byte_checked = body_invalid_overlay.validate_dataset()
@@ -240,6 +260,15 @@ def test_parse_block_body_derives_matching_merkle_root() -> None:
     sigops, merkle_root = body_invalid_overlay.parse_block_body(raw)
     assert sigops == 1
     assert merkle_root == raw[36:68]
+
+
+def test_merkle_fold_rejects_cve_2012_2459_duplication() -> None:
+    """A duplicated final leaf yields the same root; it must fail, not match."""
+    a, b, c = (sha256d(bytes([seed])) for seed in (1, 2, 3))
+    odd_root = body_invalid_overlay._merkle_root([a, b, c])
+    assert odd_root  # the legitimate odd-length fold still derives a root
+    with pytest.raises(ValueError, match="CVE-2012-2459"):
+        body_invalid_overlay._merkle_root([a, b, c, c])
 
 
 def test_substituted_body_fails_merkle_authentication(tmp_path: Path) -> None:

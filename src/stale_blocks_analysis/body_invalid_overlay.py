@@ -201,9 +201,22 @@ def _transaction_at(raw: bytes, pos: int) -> tuple[int, bytes, int]:
 
 
 def _merkle_root(txids: list[bytes]) -> bytes:
-    """Fold internal-order txids into the block merkle root (Core's rule)."""
+    """Fold internal-order txids into the block merkle root (Core's rule).
+
+    Rejects the CVE-2012-2459 mutation: duplicating the final element of an
+    odd-length level yields the SAME root as the unduplicated list, so a
+    substituted body with appended duplicate transactions would otherwise
+    still merkle-authenticate while changing the derived sigop count. Core
+    flags an equal adjacent pair at any level (scanned before its own
+    odd-level padding) as a mutated block; mirror that by failing closed.
+    """
     level = txids
     while len(level) > 1:
+        for index in range(0, len(level) - 1, 2):
+            if level[index] == level[index + 1]:
+                raise ValueError(
+                    "mutated merkle tree (duplicated subtree, CVE-2012-2459)"
+                )
         if len(level) % 2 == 1:
             level = [*level, level[-1]]
         level = [
