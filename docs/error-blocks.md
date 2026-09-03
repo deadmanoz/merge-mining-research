@@ -228,6 +228,57 @@ Height 656,478 is not an error block. Its predecessor is a trusted stale root,
 so it is represented as a valid `stale_descendant` in
 `data/stale_descendants.csv`.
 
+## Externally attested body-invalid stales
+
+Two accepted VALID direct stales are known to be consensus-invalid on a
+**body** rule: the F2Pool blocks at heights 783,426
+(`00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4`) and
+784,121
+(`000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d`), each
+rejected by Bitcoin Core as `bad-blk-sigops` with a sigop cost of 80,003
+against the 80,000 limit
+([b10c's P2P observation](https://b10c.me/observations/11-invalid-blocks-783426-and-784121/)).
+Their headers were merge-mined and are witnessed by four sibling chains each
+(namecoin, syscoin, elastos, xaya), which is why they appear in
+`data/validated-stales/` at all.
+
+They are deliberately **not** catalogue rows, and this is the sharp example of
+what an accepted status means: `VALID` asserts that the declared
+header/coinbase publication profile passed, never that the complete block was
+consensus-valid (see [`data-validity.md`](data-validity.md)). The sigop rule
+cannot enter this catalogue because it is not re-derivable under the evidence
+standard below — and not merely for want of committed bytes. The full block
+bodies survive in the pinned `bitcoin-data/stale-blocks` archive, and the
+legacy sigops embedded in their own scripts count to 18,630 (783,426) and
+18,051 (784,121), which scale to 74,520 and 72,204: **below** the limit. The
+attested excess to 80,003 lives in P2SH/witness sigops, which require the
+spent prevout scripts that no committed artifact holds. (The arithmetic agrees:
+80,003 is not divisible by the witness scale factor 4, so at least three
+witness-path sigops must contribute.) A `bad-blk-sigops` row would fail the
+catalogue's own offline validator by construction.
+
+The committed overlay `data/error-blocks/body_invalid_stales.csv` records the
+externally attested invalidity instead: the Core reject family, the attested
+sigop cost, the byte-derivable legacy count, and the SHA-256 of the archived
+full-body artifact. The overlay is an annotation, not a gate: its keys must
+remain accepted direct stales in `data/validated-stales/` and must stay absent
+from `error_blocks.csv`, and it removes nothing from stale publication. The
+sibling-chain witnesses prove only that the headers existed and were mined on;
+the invalidity claim rests on the referenced full-body evidence. Its validator
+(`stale_blocks_analysis.body_invalid_overlay`, run by
+`just validate-body-invalid-stales` and the test suite) enforces the
+membership, disjointness, and rule-vocabulary boundaries, and re-derives the
+file hashes, header hashes, and legacy sigop counts whenever the pinned
+stale-blocks clone is fetched.
+
+The census arithmetic is unchanged: this catalogue holds 39 error blocks, the
+P2P record holds four invalid full blocks (74,638, 783,426, 784,121, and
+809,478), and the two sets remain disjoint — 43 distinct invalid blocks in
+total, of which the two F2Pool blocks are additionally merge-mining-witnessed
+stales. The other two P2P invalids have no merge-mining record: 74,638
+predates Namecoin AuxPoW, and the 809,478 MARA block does not appear in any
+validated-stales input.
+
 ## Evidence standard
 
 Catalogue membership derives from evidence, not a source bucket label. Every

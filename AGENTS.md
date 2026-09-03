@@ -343,7 +343,12 @@ Preserve these distinctions:
   accepted direct-stale statuses are exactly `VALID` and
   `VALID (post-BCH, difficulty matches BTC)`. Either means that this declared
   publication profile passed; neither proves that a complete Bitcoin block was
-  consensus-valid. A descendant whose inferred height has no committed
+  consensus-valid. Two accepted rows (heights 783,426 and 784,121) are known
+  body-invalid from external full-block evidence; they are annotated in the
+  `data/error-blocks/body_invalid_stales.csv` overlay and deliberately keep
+  their accepted statuses — do not "fix" those rows or promote them into the
+  error-block catalogue (see docs/error-blocks.md "Externally attested
+  body-invalid stales"). A descendant whose inferred height has no committed
   canonical `nBits` reference is unpublishable. Loaders read and filter the
   verdict but never recompute the gate.
   RSK does not expose the real parent coinbase and therefore cannot apply the

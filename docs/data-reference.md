@@ -39,7 +39,10 @@ chain. Every committed row is `classification = stale` and
 `validation_status` is exactly `VALID` or
 `VALID (post-BCH, difficulty matches BTC)`. These files are the
 publication-gate-accepted output; no other `VALID`-prefixed spelling is
-accepted. Every file begins with the same 16-column core layout: normalized
+accepted. An accepted status is a header-profile verdict, not a full-block
+validity assertion: two committed rows (the F2Pool blocks at heights 783,426
+and 784,121) are known body-invalid from external full-block evidence and are
+annotated in the body-invalid stales overlay below. Every file begins with the same 16-column core layout: normalized
 Bitcoin-parent fields, the registered child-height slot, the four child-header
 fields, and the verdict fields. Source-specific variants (`btc_stale_height`, `btc_hash`,
 `btc_bits_hex`) are normalized into this layout. Chain-specific research
@@ -106,6 +109,30 @@ rejection at a non-boundary height, which is the contamination gate's target
 class (a share/near row), not an error block: the error-block case is
 specifically the retarget-not-applied at an epoch boundary where the header
 still meets full proof of work.
+
+## Body-invalid stales overlay: `data/error-blocks/body_invalid_stales.csv`
+
+Annotations for accepted VALID direct stales whose complete block body is
+known consensus-invalid from an independently observed full block. The
+overlay is not part of the error-block catalogue or its exclusion gate: its
+keys must remain accepted direct stales in `data/validated-stales/` and must
+stay absent from `error_blocks.csv`, and it removes nothing from publication.
+The current two rows are the F2Pool `bad-blk-sigops` blocks at heights
+783,426 and 784,121; see
+[`error-blocks.md`](error-blocks.md) "Externally attested body-invalid
+stales" for why the sigop rule cannot enter the catalogue. Validated by
+`just validate-body-invalid-stales` and `tests/test_body_invalid_overlay.py`.
+
+| Column | Notes |
+| --- | --- |
+| `height` | Candidate Bitcoin height, matching the validated-stales row. |
+| `hash` | Header hash, display order, lowercase. |
+| `rule` | The Core reject family attested by the external evidence (`bad-blk-sigops`). Never a `rules_violated` token: a byte-recheckable rule belongs in `error_blocks.csv`, and the validator rejects catalogue vocabulary here. |
+| `attested_sigop_cost` | The externally attested sigop cost (80,003). Not re-derivable from committed bytes; must exceed the 80,000 limit. |
+| `legacy_sigops_from_bytes` | Legacy sigops counted from the archived block's own scripts, re-derived by the validator when the pinned stale-blocks clone is fetched. Must stay at or below the limit when scaled by the witness factor (the premise that the excess is not byte-derivable). |
+| `evidence_source`, `evidence_url` | The external full-body observation the invalidity claim rests on. |
+| `block_file`, `block_sha256` | The archived full-body artifact in the pinned `bitcoin-data/stale-blocks` clone (`blocks/<height>-<hash>.bin`) and its SHA-256, cross-checked when fetched. |
+| `notes` | Free-form audit context. |
 
 ## RSK: `data/validated-stales/rsk_validated_stales.csv`
 
