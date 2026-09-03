@@ -299,7 +299,9 @@ def test_substituted_body_fails_merkle_authentication(tmp_path: Path) -> None:
     assert any("do not merkle-authenticate" in failure for failure in failures)
 
 
-def _craft_segwit_block(tamper_witness: bool = False) -> bytes:
+def _craft_segwit_block(
+    tamper_witness: bool = False, extra_coinbase_witness_item: bool = False
+) -> bytes:
     """Serialize a 2-tx segwit block with a valid BIP141 witness commitment."""
     witness_item = b"\xab" if tamper_witness else b"\xaa"
     spend = (
@@ -342,12 +344,20 @@ def _craft_segwit_block(tamper_witness: bool = False) -> bytes:
         + b"\x26"  # 38-byte commitment script
         + b"\x6a\x24\xaa\x21\xa9\xed"
         + commitment
-        + b"\x01\x20"  # witness: one 32-byte item (the reserved value)
-        + reserved
+        + (
+            # An appended second item is NOT covered by the commitment (the
+            # coinbase wtxid leaf is zeroed), so it must be rejected outright.
+            b"\x02\x20" + reserved + b"\x01\xff"
+            if extra_coinbase_witness_item
+            else b"\x01\x20" + reserved  # exactly one 32-byte reserved value
+        )
         + b"\x00" * 4
     )
+    witness_bytes = 36 if extra_coinbase_witness_item else 34
     coinbase_txid = sha256d(
-        coinbase[:4] + coinbase[6 : len(coinbase) - 38] + coinbase[len(coinbase) - 4 :]
+        coinbase[:4]
+        + coinbase[6 : len(coinbase) - witness_bytes - 4]
+        + coinbase[len(coinbase) - 4 :]
     )
     merkle_root = body_invalid_overlay._merkle_root([coinbase_txid, spend_txid])
     header = b"\x01\x00\x00\x00" + b"\x00" * 32 + merkle_root + b"\x00" * 12
@@ -366,6 +376,13 @@ def test_tampered_witness_data_fails_commitment_authentication() -> None:
     raw = _craft_segwit_block(tamper_witness=True)
     _sigops, failures = body_invalid_overlay.authenticate_block_body(raw)
     assert any("coinbase commitment" in failure for failure in failures)
+
+
+def test_surplus_coinbase_witness_item_rejected() -> None:
+    """The zeroed coinbase leaf never covers extra items; BIP141 allows one."""
+    raw = _craft_segwit_block(extra_coinbase_witness_item=True)
+    _sigops, failures = body_invalid_overlay.authenticate_block_body(raw)
+    assert any("bad-witness-nonce-size" in failure for failure in failures)
 
 
 def test_surplus_csv_field_fails_closed(tmp_path: Path) -> None:

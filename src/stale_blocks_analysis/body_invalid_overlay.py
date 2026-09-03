@@ -158,18 +158,18 @@ def count_legacy_sigops_in_script(script: bytes) -> int:
 
 def _transaction_at(
     raw: bytes, pos: int, *, capture_coinbase: bool = False
-) -> tuple[int, bytes, bytes, list[bytes] | None, bytes | None, int]:
+) -> tuple[int, bytes, bytes, list[bytes] | None, list[bytes] | None, int]:
     """Walk one transaction; return its evidence fields and the new position.
 
     Returns ``(legacy_sigops, txid, wtxid, coinbase_output_scripts,
-    witness_reserved_value, new_pos)``. The txid is the sha256d of the
+    coinbase_witness_stack, new_pos)``. The txid is the sha256d of the
     transaction's LEGACY serialization (version, inputs, outputs, locktime --
     excluding any segwit marker, flag, and witness data); the wtxid is the
     sha256d of the FULL serialization (equal to the txid for a non-segwit
     transaction). Both are internal byte order, ready for merkle-tree use.
     ``capture_coinbase`` additionally collects the output scriptPubKeys and
-    the first witness stack item of the first input (BIP141's witness
-    reserved value) for the coinbase commitment check.
+    the complete witness stack of the first input, so the commitment check
+    can enforce BIP141's exactly-one-32-byte-item rule on the coinbase.
     """
     start = pos
     pos += 4  # nVersion
@@ -199,16 +199,18 @@ def _transaction_at(
             output_scripts.append(script)
         pos += script_len
     body_end = pos
-    witness_reserved: bytes | None = None
+    coinbase_witness: list[bytes] | None = None
     if is_segwit:
         for vin_index in range(vin_count):
             item_count, pos = _varint(raw, pos)
-            for item_index in range(item_count):
+            for _item_index in range(item_count):
                 item_len, pos = _varint(raw, pos)
                 if pos + item_len > len(raw):
                     raise ValueError("truncated witness item")
-                if capture_coinbase and vin_index == 0 and item_index == 0:
-                    witness_reserved = raw[pos : pos + item_len]
+                if capture_coinbase and vin_index == 0:
+                    if coinbase_witness is None:
+                        coinbase_witness = []
+                    coinbase_witness.append(raw[pos : pos + item_len])
                 pos += item_len
     locktime_start = pos
     pos += 4  # nLockTime
@@ -220,7 +222,7 @@ def _transaction_at(
         + raw[locktime_start : locktime_start + 4]
     )
     wtxid = sha256d(raw[start:pos]) if is_segwit else txid
-    return count, txid, wtxid, output_scripts, witness_reserved, pos
+    return count, txid, wtxid, output_scripts, coinbase_witness, pos
 
 
 def _merkle_root(txids: list[bytes]) -> bytes:
@@ -255,7 +257,7 @@ _WITNESS_COMMITMENT_PREFIX = bytes.fromhex("6a24aa21a9ed")
 def _witness_commitment_error(
     wtxids: list[bytes],
     coinbase_outputs: list[bytes],
-    witness_reserved: bytes | None,
+    coinbase_witness: list[bytes] | None,
 ) -> str | None:
     """Re-derive the BIP141 witness commitment, or explain why it fails.
 
@@ -266,7 +268,10 @@ def _witness_commitment_error(
     data, Bitcoin requires the coinbase to commit to the wtxid merkle tree:
     the commitment is sha256d(witness merkle root || witness reserved value),
     where the coinbase's wtxid leaf is 32 zero bytes and the reserved value is
-    the coinbase's sole 32-byte witness stack item, and it must appear in the
+    the coinbase's witness stack, which BIP141 requires to be EXACTLY one
+    32-byte item (Core's ``bad-witness-nonce-size``): the zeroed leaf means
+    any extra coinbase witness item would escape the commitment entirely, so
+    a surplus item is rejected, never ignored. The commitment must appear in the
     LAST coinbase output whose scriptPubKey begins ``6a24aa21a9ed`` (Core's
     ``GetWitnessCommitmentIndex`` scan). The caller only invokes this when
     some transaction carries witness data.
@@ -277,10 +282,17 @@ def _witness_commitment_error(
             commitment_script = script
     if commitment_script is None:
         return "block carries witness data but no coinbase witness commitment"
-    if witness_reserved is None or len(witness_reserved) != 32:
-        return "coinbase witness reserved value is missing or not 32 bytes"
+    if (
+        coinbase_witness is None
+        or len(coinbase_witness) != 1
+        or len(coinbase_witness[0]) != 32
+    ):
+        return (
+            "coinbase witness is not exactly one 32-byte reserved value "
+            "(bad-witness-nonce-size)"
+        )
     witness_root = _merkle_root([b"\x00" * 32, *wtxids[1:]])
-    commitment = sha256d(witness_root + witness_reserved)
+    commitment = sha256d(witness_root + coinbase_witness[0])
     if commitment_script[6:38] != commitment:
         return "witness data does not authenticate against the coinbase commitment"
     return None
@@ -334,7 +346,7 @@ def _walk_block(raw: bytes) -> tuple[int, bytes, str | None]:
     txids: list[bytes] = []
     wtxids: list[bytes] = []
     coinbase_outputs: list[bytes] = []
-    witness_reserved: bytes | None = None
+    coinbase_witness: list[bytes] | None = None
     has_witness = False
     for tx_index in range(tx_count):
         capture = tx_index == 0
@@ -350,11 +362,11 @@ def _walk_block(raw: bytes) -> tuple[int, bytes, str | None]:
             has_witness = True
         if capture:
             coinbase_outputs = outputs or []
-            witness_reserved = reserved
+            coinbase_witness = reserved
     if pos != len(raw):
         raise ValueError("trailing bytes after the final transaction")
     witness_error = (
-        _witness_commitment_error(wtxids, coinbase_outputs, witness_reserved)
+        _witness_commitment_error(wtxids, coinbase_outputs, coinbase_witness)
         if has_witness
         else None
     )
