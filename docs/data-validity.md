@@ -92,9 +92,10 @@ refresh added another 33 accepted direct observations under that profile. The
 current committed direct set therefore contains 3,729 observations and 2,137
 unique header hashes.
 
-The evidence limitations remain part of that result. Namecoin has 228 headers
-that are absent from its loader CSV but were hash-verified after hydration into
-the monitor export. RSK has no recoverable parent coinbase for any of its 298
+The evidence limitations remain part of that result. Namecoin's 228
+historically loader-absent headers are now embedded in the loader CSV,
+back-filled from the committed monitor evidence and byte-verified against each
+row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 298
 accepted rows, so its scriptSig-length and BIP34 checks remain untested. The
 audit found no remaining failure in the committed direct sets, but it was not a
 full-block consensus replay.
@@ -141,9 +142,9 @@ error aggregate, counts, and manifest as one transaction.
 ## Namecoin release scope
 
 The Namecoin set contains 1,649 distinct direct-stale header
-candidates. All 1,649 have a public header source after monitor-export
-hydration: 1,421 headers are embedded in
-`data/validated-stales/namecoin_validated_stales.csv`, and 228 are supplied by
+candidates. All 1,649 carry `btc_header_hex` directly in
+`data/validated-stales/namecoin_validated_stales.csv`; the 228 historically
+header-less rows were back-filled from
 `results/monitor-evidence/namecoin_monitor_evidence.csv`. All 1,649 rows retain
 the parent coinbase scriptSig, but the compact CSV does not retain the complete
 serialized coinbase transaction or its parent-merkle branch.
