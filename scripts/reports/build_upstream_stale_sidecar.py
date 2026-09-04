@@ -182,9 +182,12 @@ def _write_sidecar(path: Path, rows: list[tuple[int, str, str]]) -> None:
     rows.sort(key=lambda r: (-r[0], r[1]))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
-        writer = csv.writer(f, lineterminator="\n")
-        writer.writerow(["height", "hash", "header"])
-        writer.writerows(rows)
+        writer = csv.DictWriter(
+            f, fieldnames=["height", "hash", "header"], lineterminator="\n"
+        )
+        writer.writeheader()
+        for height, block_hash, header in rows:
+            writer.writerow({"height": height, "hash": block_hash, "header": header})
 
 
 def build(
@@ -200,12 +203,15 @@ def build(
     ``upstream_header_fills.csv`` beside ``output``) receives the candidates
     whose key exists upstream but is recorded without a header. Both are sorted
     by descending height then hash, with columns ``height, hash, header``. A
-    candidate missing a header that would otherwise qualify as upstream-new is
-    counted as a warning rather than silently dropped. Returns a stats dict:
+    candidate missing a header that would otherwise qualify as upstream-new, or
+    that matches a hash-only upstream row it should fill, is counted as a
+    warning rather than silently dropped. Returns a stats dict:
     ``{committed_valid_candidates, upstream_known, sidecar_rows,
     header_fill_rows, warnings}``.
     """
     fills_output = fills_output or output.parent / FILLS_FILENAME
+    if fills_output.resolve() == output.resolve():
+        raise SystemExit(f"sidecar outputs alias the same file: {output}")
     upstream = load_upstream_keys(upstream_path)
     headerless = load_upstream_headerless_keys(upstream_path)
     candidates, missing_header, warnings = collect_candidates(
@@ -216,6 +222,13 @@ def build(
         needed = [key for key in keys if key not in upstream and key not in candidates]
         if needed:
             warnings[f"{source}: missing header for upstream-new row"] += len(needed)
+        unfillable = [
+            key for key in keys if key in headerless and key not in candidates
+        ]
+        if unfillable:
+            warnings[f"{source}: missing header for upstream fill row"] += len(
+                unfillable
+            )
     rows = [
         (height, block_hash, header)
         for (height, block_hash), header in candidates.items()
