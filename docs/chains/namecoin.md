@@ -73,17 +73,19 @@ verified child block hash and timestamp to
 either replay that height -> hash -> block verification against a Namecoin
 node or resolve child hashes directly, as before.
 
-`btc_header_hex` is present for 1,421 loader rows. The committed monitor
-evidence publishes hydrated headers for the remaining 228 accepted rows, so
-all 1,649 accepted rows now have a public header source, and every monitor
+`btc_header_hex` is present for all 1,649 loader rows. The 228 rows that
+historically carried no loader header (their keys were already upstream, so
+the original compact input deferred to the upstream record) were hydrated
+from the committed monitor evidence, with each recovered header byte-verified
+against the row's committed hash, `btc_prev_hash`, `btc_time`, and
+`btc_bits`. Every monitor
 row also carries the node-verified Namecoin child block hash and timestamp
 hydrated from `data/child-identity/` (internal byte order, per the
 `child_block_hash` contract). Every row retains the detached parent coinbase
 scriptSig, and 1,500 retain decoded output data. No row retains the complete
 serialized parent coinbase transaction, its parent-merkle branch, or a
-self-contained AuxPoW proof. Reproducing the 228 header hydrations still
-requires prototype or private extraction artifacts that are not in the
-public checkout.
+self-contained AuxPoW proof. The hydration is reproducible from the committed
+monitor evidence alone.
 
 The pinned upstream dataset carries a matching full-block blob for 319 of the
 1,649 direct candidates. The repository confirms that each blob starts with

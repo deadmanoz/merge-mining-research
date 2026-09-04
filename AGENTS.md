@@ -435,6 +435,11 @@ local issue database that is not part of this repository.)
   or `/mnt` paths. `just check-leaks` greps tracked files for a built-in LAN-IP
   baseline plus any operator tokens listed in the gitignored `.leak-tokens`
   file (see `.leak-tokens.example`), and fails if any reappear.
+  The real values behind the placeholders (the archival host's name, its
+  archive layout, related hosts) are documented in the gitignored
+  `docs/private/infra-access.md` on the operator's machines. Read that file
+  before asking the operator where the private archive or a chain datadir
+  lives; keep its contents out of anything committed.
 - Prefer `rg` and `rg --files` for search.
 - Use non-interactive command forms where aliases might prompt:
 

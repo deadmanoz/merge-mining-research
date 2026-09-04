@@ -18,6 +18,10 @@ env/
 # aliases, personal handles). Commit only .leak-tokens.example.
 .leak-tokens
 
+# Operator-private infrastructure notes (real hostnames, archive paths behind
+# the <archival-host> placeholders). Never committed; see AGENTS.md.
+docs/private/
+
 # Editors
 .vscode/
 .idea/
