@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Publish the header-fill contribution sidecar
+(`data/upstream_header_fills.csv`): the publication-gate-accepted candidates
+whose `(height, hash)` already exists upstream but is recorded without a
+header, currently 91 rows (heights 179,641 through 380,957). The sidecar
+builder emits it alongside `data/new_stale_blocks_for_upstream.csv` from the
+same committed inputs, so fills disappear on regeneration once upstream
+records the header.
+
 Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `102ba00`
 (September 2026) and regenerate the contribution sidecar ahead of the next
 upstream PR. The sidecar drops to 326 rows (309 first-claimed direct stales

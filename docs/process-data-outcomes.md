@@ -70,6 +70,7 @@ committed.
 | Unique events in post-compact base window | 917 | At `MIN_HEIGHT=421344` with every integrated loader included. |
 | Upstream-novel direct rows across novelty CSVs | 559 | `results/per-chain-novelty/*.csv`, `in_upstream=no`; row-level across chains, so cross-chain duplicates count once per chain. 309 unique events are chronologically first-claimed. Excludes stale descendants. |
 | Pending-upstream sidecar rows | 326 | `data/new_stale_blocks_for_upstream.csv`: 309 first-claimed direct upstream-new rows plus 17 upstream-new stale descendants. |
+| Pending-upstream header fills | 91 | `data/upstream_header_fills.csv`: committed headers for upstream rows recorded hash-only (heights 179,641 through 380,957). |
 
 Important implementation boundary: downstream cross-source publication views
 deduplicate by `(height, hash)`, so same-height competing stale hashes remain

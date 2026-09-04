@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build data/new_stale_blocks_for_upstream.csv from committed inputs."""
+"""Build the upstream contribution sidecars from committed inputs.
+
+Writes ``data/new_stale_blocks_for_upstream.csv`` (accepted stale rows whose
+``(height, hash)`` is absent upstream) and ``data/upstream_header_fills.csv``
+(committed headers for upstream rows recorded hash-only).
+"""
 
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ from stale_blocks_analysis.stale_descendants import load_stale_descendant_parent
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_OUTPUT = DATA_DIR / "new_stale_blocks_for_upstream.csv"
+FILLS_FILENAME = "upstream_header_fills.csv"
 UPSTREAM_STALES = DATA_DIR / "stale-blocks" / "stale-blocks.csv"
 
 
@@ -78,6 +84,25 @@ def load_upstream_keys(path: Path) -> set[tuple[int, str]]:
             (int(row["height"]), row["hash"].strip().lower())
             for row in csv.DictReader(f)
             if (int(row["height"]), row["hash"].strip().lower()) not in excluded
+        }
+
+
+def load_upstream_headerless_keys(path: Path) -> set[tuple[int, str]]:
+    """Load the ``(height, hash)`` keys of upstream rows recorded without a header.
+
+    Applies the same canonical error-block exclusion as ``load_upstream_keys``
+    and tolerates upstream fixtures without a ``header`` column. Raises
+    ``SystemExit`` if ``path`` does not exist.
+    """
+    if not path.exists():
+        raise SystemExit(f"upstream stale CSV not found: {path}")
+    excluded = load_error_block_keys()
+    with path.open(newline="") as f:
+        return {
+            (int(row["height"]), row["hash"].strip().lower())
+            for row in csv.DictReader(f)
+            if not (row.get("header") or "").strip()
+            and (int(row["height"]), row["hash"].strip().lower()) not in excluded
         }
 
 
@@ -152,21 +177,37 @@ def collect_candidates(
     return candidates, missing_header, warnings
 
 
+def _write_sidecar(path: Path, rows: list[tuple[int, str, str]]) -> None:
+    """Write ``height, hash, header`` rows sorted by descending height then hash."""
+    rows.sort(key=lambda r: (-r[0], r[1]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f, lineterminator="\n")
+        writer.writerow(["height", "hash", "header"])
+        writer.writerows(rows)
+
+
 def build(
     output: Path,
     data_dir: Path,
     upstream_path: Path,
+    fills_output: Path | None = None,
 ) -> dict[str, int]:
-    """Compute and write the upstream-new stale sidecar CSV to ``output``.
+    """Compute and write both upstream contribution sidecar CSVs.
 
-    Rows are the committed VALID candidates whose ``(height, hash)`` is absent
-    from the upstream ``stale-blocks.csv``, sorted by descending height then
-    hash, with columns ``height, hash, header``. A candidate missing a header
-    that would otherwise qualify as upstream-new is counted as a warning
-    rather than silently dropped. Returns a stats dict:
-    ``{committed_valid_candidates, upstream_known, sidecar_rows, warnings}``.
+    ``output`` receives the committed VALID candidates whose ``(height, hash)``
+    is absent from the upstream ``stale-blocks.csv``; ``fills_output`` (default:
+    ``upstream_header_fills.csv`` beside ``output``) receives the candidates
+    whose key exists upstream but is recorded without a header. Both are sorted
+    by descending height then hash, with columns ``height, hash, header``. A
+    candidate missing a header that would otherwise qualify as upstream-new is
+    counted as a warning rather than silently dropped. Returns a stats dict:
+    ``{committed_valid_candidates, upstream_known, sidecar_rows,
+    header_fill_rows, warnings}``.
     """
+    fills_output = fills_output or output.parent / FILLS_FILENAME
     upstream = load_upstream_keys(upstream_path)
+    headerless = load_upstream_headerless_keys(upstream_path)
     candidates, missing_header, warnings = collect_candidates(
         data_dir,
         upstream_path=upstream_path,
@@ -180,13 +221,13 @@ def build(
         for (height, block_hash), header in candidates.items()
         if (height, block_hash) not in upstream
     ]
-    rows.sort(key=lambda r: (-r[0], r[1]))
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", newline="") as f:
-        writer = csv.writer(f, lineterminator="\n")
-        writer.writerow(["height", "hash", "header"])
-        writer.writerows(rows)
+    fill_rows = [
+        (height, block_hash, header)
+        for (height, block_hash), header in candidates.items()
+        if (height, block_hash) in headerless
+    ]
+    _write_sidecar(output, rows)
+    _write_sidecar(fills_output, fill_rows)
 
     for warning, count in sorted(warnings.items()):
         print(f"warning: {warning}: {count}")
@@ -194,6 +235,7 @@ def build(
         "committed_valid_candidates": len(candidates),
         "upstream_known": len(upstream),
         "sidecar_rows": len(rows),
+        "header_fill_rows": len(fill_rows),
         "warnings": sum(warnings.values()),
     }
 
@@ -204,13 +246,19 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--upstream", type=Path, default=UPSTREAM_STALES)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--fills-output", type=Path, default=None)
     args = parser.parse_args()
-    stats = build(args.output, args.data_dir, args.upstream)
+    fills_output = args.fills_output or args.output.parent / FILLS_FILENAME
+    stats = build(args.output, args.data_dir, args.upstream, fills_output)
     print(
         f"wrote {_display_path(args.output)}: "
         f"{stats['sidecar_rows']:,} upstream-new rows "
         f"from {stats['committed_valid_candidates']:,} committed candidates "
         f"({stats['warnings']} warnings)"
+    )
+    print(
+        f"wrote {_display_path(fills_output)}: "
+        f"{stats['header_fill_rows']:,} header fills for hash-only upstream rows"
     )
 
 

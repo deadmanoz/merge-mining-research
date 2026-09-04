@@ -40,6 +40,14 @@ rows. `scripts/reports/build_upstream_stale_sidecar.py` derives this set from
 the committed validated inputs rather than relying on manual row removal or a
 previous sidecar as a cache.
 
+An accepted candidate whose `(height, hash)` already exists upstream but is
+recorded without a header qualifies as a header fill instead: the committed
+80-byte header is contributed onto the existing hash-only row, changing no
+height or hash. The sidecar builder emits these to the companion
+`data/upstream_header_fills.csv` in the same run and schema. After upstream
+merges a fill, regeneration drops it because the upstream row now carries a
+header.
+
 ## CSV schema
 
 ```csv
@@ -114,13 +122,17 @@ as a pinned mirror on its own schedule.
    preparing the contribution, so the PR contains only rows still absent from
    the latest baseline.
 2. Fork `bitcoin-data/stale-blocks`, create a feature branch, merge the rows
-   from `data/new_stale_blocks_for_upstream.csv` into `stale-blocks.csv`, and
-   sort the complete file by descending height as upstream CI requires.
+   from `data/new_stale_blocks_for_upstream.csv` into `stale-blocks.csv`,
+   apply the header fills from `data/upstream_header_fills.csv` onto their
+   existing rows, and sort the complete file by descending height as upstream
+   CI requires.
 3. Submit a PR linking to the relevant chain methodology and recovery evidence.
 4. After the PR merges, run `just upstream-update stale-blocks` again. This
    records the merge commit or a later upstream commit as the new baseline.
 5. Run `just upstream-sidecar`. Do not delete contributed rows manually: the
-   generator removes them because they now exist in the pinned upstream CSV.
+   generator removes them because they now exist in the pinned upstream CSV,
+   and merged header fills disappear the same way once the upstream row
+   carries its header.
 6. Regenerate every result whose membership or ownership depends on the
    upstream baseline. At minimum this means the per-chain novelty CSVs and
    their cited documentation. If the known-stale set changed and the private
