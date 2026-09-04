@@ -166,7 +166,7 @@ with accepted direct stales, accepted descendants, and strict/weak unknown-row
 observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
 inputs. The stale-descendant publication joins 21 accepted parent verdicts from
-`data/stale_descendants.csv` to 32 authenticated source-chain witnesses from
+`data/stale_descendants.csv` to 33 authenticated source-chain witnesses from
 `data/stale_descendant_observations.csv`. Each witness retains its source bucket
 as audit provenance, while the parent verdict and
 `validation_status=VALID_STALE_DESCENDANT` come from the ancestry and consensus

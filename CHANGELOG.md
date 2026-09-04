@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Reclassify RSK's archived raw extraction with the side-chain-aware
+active-chain test. The original bespoke classifier treated any
+`getblockheader` hit as canonical, silently filing 39 side-chain parent
+headers (real recovered stales, all already in the upstream census) as
+canonical; RSK was missed by the fleet-wide June 2026 remediation because its
+classifier does not use the shared driver. The committed loader input grows
+from 298 to 337 accepted direct stales with zero regressions, the
+stale-descendant witness ledger gains RSK's observation of the BTC 941,882
+descendant (32 to 33 witnesses, that parent's fifth chain), and the rebuilt
+monitor publication carries 343 RSK rows (was 303). Along the way, fix the
+classifier to emit the four child-identity contract columns and explicit LF
+terminators, fix RSK child-identity recovery after a reclassification (uncle
+metadata for error-observation parents now resolves through the
+`rsk_error_blocks.csv` sibling, and freshly surfaced descendant witnesses can
+be nominated as identity targets), and enrich the i0coin error-observation row
+with its recovered coinbase outputs in the rebuilt error-observation export.
+
 Normalize `coinbase_outputs` onto one rendering contract across every
 committed dataset. The column records Bitcoin parent-coinbase payouts, but each
 acquisition path rendered it differently: raw scriptPubKey hex for most chains,

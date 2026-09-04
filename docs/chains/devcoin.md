@@ -54,7 +54,7 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 1. **Parse**: walk all DVC blocks ≥ 25,000 via raw hex; extract parent header + coinbase tx + Merkle branch.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. Bitcoin's contemporaneous target is checked later for stale-labelled candidates.
 3. **Dedup** on `btc_header_hash`.
-4. **BTC RPC classify** (`classify_devcoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_devcoin_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 5. **Header-context publication gate**: require expected `nBits`, median-time-past, Bitcoin's historical minimum block versions, the coinbase scriptSig length bound, and BIP34's version-sensitive height rule.
 
 **Counts in the private full classifier output** (129,725 rows total):

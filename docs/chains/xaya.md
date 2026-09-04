@@ -67,7 +67,7 @@ at the source block rather than emitting a row for later rejection.
 1. **Parse with merge-mined gate**: walk all `blk*.dat` blocks; decode the `PowData` `algo` byte; discard blocks without the `0x80` merge-mined flag (the NEOSCRYPT majority).
 2. **Self-target PoW filter** (`classify_xaya_stales.py`): keep only headers where `SHA256d(header) <= target(nBits)` using the target encoded in that header.
 3. **Dedup**: keep only unique BTC header hashes (many Xaya blocks can reference the same BTC parent).
-4. **BTC RPC classify**: batched `getblockheader`. Hit -> `canonical`. Miss -> look up `prev_hash`. Prev canonical -> `stale`. Neither -> `unknown`. Then the `validate_stale_nbits` gate over the stale rows.
+4. **BTC RPC classify**: batched `getblockheader`. A header with positive confirmations -> `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations -> `stale`; neither -> `unknown`. Then the `validate_stale_nbits` gate over the stale rows. The 2026-06-24 canonical-refresh re-run is the run that applied that active-chain test to Xaya's extraction, moving side-chain headers the original run had filed as canonical (see the counts below).
 
 **Counts:**
 
@@ -131,7 +131,7 @@ Xaya is 19th chronologically. Earlier-born integrated chains: namecoin, geistgel
 | Split | Count |
 |---|---:|
 | also in upstream | 29 |
-| also in earlier-born chain (`namecoin`: 21, `emercoin`: 10, `rsk`: 7 - first-claim distribution) | 38 |
+| also in earlier-born chain (`namecoin`: 21, `emercoin`: 10, `rsk`: 8 - first-claim distribution) | 39 |
 | **novel at this position** | **0** |
 
 All 40 accepted rows in the 2026-06-24 refresh are accounted for by upstream or an earlier-born chain: 29 are already upstream and the other 11 are first-claimed by an earlier chain. Xaya therefore adds **0 chronologically novel candidates and 0 net-new upstream sidecar rows**, while providing independent cross-chain evidence for 40 accepted header candidates across a large 2018 to 2024 window. The overlap does not, by itself, establish a shared miner population.

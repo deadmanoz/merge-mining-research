@@ -47,7 +47,7 @@ Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin
 1. **Parse**: walk all SYS blocks ≥ 1,973, read `auxpow.parentblock` (80 bytes) + `auxpow.tx` (decoded coinbase).
 2. **Self-target PoW filter** (shared `run_classifier` Phase 1 in `btc_classify.py`, not the extractor): keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. Bitcoin's contemporaneous target is checked later for stale-labelled candidates.
 3. **Dedup**: do *not* dedup at extraction time - with 10× (pre-NEVM) or 4× (post-NEVM) sampling density, consecutive SYS blocks reference different parent headers within the same BTC interval. Downstream cross-source publication views deduplicate only exact `(height, hash)` identities.
-4. **BTC RPC classify** (`classify_syscoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_syscoin_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`. The 2026-08-03 source-driven reclassification below is the run that applied that active-chain test to Syscoin's preserved extraction, correcting side-chain headers the earlier build had filed as canonical (§5).
 
 **Counts.** The 2026-04-17 extraction walked 2,220,963 AuxPoW blocks (SYS 1,973 → tip) and yielded **116,994 unique self-target-PoW-valid parent headers**. The source-driven 2026-08-03 reclassification materialized the complete current split across `syscoin_canonical_blocks.csv`, `syscoin_stale_blocks.csv`, and `syscoin_unknown_blocks.csv`:
 
@@ -111,10 +111,10 @@ Syscoin is 21st chronologically. Earlier-born integrated chains now include Name
 | Split | Count |
 |---|---:|
 | also in upstream | 83 |
-| also in earlier-born chain (`namecoin`: 67, `emercoin`: 14, `rsk`: 12, `elastos`: 1, `xaya`: 1 - first-claim distribution) | 95 |
+| also in earlier-born chain (`namecoin`: 67, `emercoin`: 14, `rsk`: 15 - first-claim distribution) | 96 |
 | **novel at this position** | **1** |
 
-Two rows are upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 98. Namecoin, Emercoin, RSK, Elastos, and Xaya contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
+One row is upstream-only (in upstream but first-claimed by no earlier-born chain), completing the 98. Namecoin, Emercoin, and RSK contribute to the earlier-chain attribution. The Dec-2011 / Jan-2012 Namecoin-family cohort after Namecoin (i0coin, ixcoin, coiledcoin, devcoin, groupcoin) and the mid-2010s singletons (unobtanium, myriadcoin, argentum, terracoin) have zero first-claim overlap with Syscoin's stale set. Only **1 stale is novel** at Syscoin's position:
 
 - **BTC 751,763** (`0000000000000000000993e1c4ab09844605bbec0b810e70beb0c364312bce86`, Aug 2022) - not in upstream `bitcoin-data/stale-blocks`, and not in any chronologically-earlier integrated chain's validated set.
 

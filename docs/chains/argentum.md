@@ -50,7 +50,7 @@ The block header is `class CBlockHeader : public CPureBlockHeader { shared_ptr<C
 1. **Parse with algo filter**: walk all ARG blocks ≥ 1,825,000 via raw hex; decode `nVersion` first; discard blocks where algo bits don't match SHA-256d. Only SHA-256d-flagged blocks proceed to AuxPoW parsing.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. This establishes only internal PoW consistency, not Bitcoin's contemporaneous target or parent identity.
 3. **Dedup**: keep only unique BTC header hashes (multiple ARG blocks can reference the same BTC parent).
-4. **BTC RPC classify** (`classify_argentum_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_argentum_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`. Argentum's committed rows predate that active-chain test - the run that produced them used the earlier build, which filed any `getblockheader` hit as `canonical`. The exposure here is measured and zero: no known-inactive Bitcoin header appears in the raw extraction, in the 27-row canonical bucket, or among the stales, so the counts below are unaffected.
 
 **Counts:**
 

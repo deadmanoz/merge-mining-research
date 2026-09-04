@@ -97,8 +97,8 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,729 accepted direct observations covering
-2,137 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
+The committed chain inputs hold 3,768 accepted direct observations covering
+2,145 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
 
@@ -141,7 +141,7 @@ above.
 | [Argentum](docs/chains/argentum.md) | Local multi-algo node; SHA-256d branch scanned to the recovered tip | 2 | 0 | 0 | Bitcoin-confirmed parent observations are sparse beside the unresolved population; this ratio is not a hashrate estimate. |
 | [Terracoin](docs/chains/terracoin.md) | Local node; full AuxPoW-era scan to the recovered tip | 35 | 0 | 0 | Accepted observations span May 2017 to August 2020. |
 | [Emercoin](docs/chains/emercoin.md) | Local hybrid PoW/PoS node; scanned to the recovered tip | 96 | 0 | 0 | Most post-activation blocks are PoS and cannot preserve this Bitcoin-parent evidence. |
-| [RSK / Rootstock](docs/chains/rsk.md) | RSKj 9.0.1 archive node from child height 139,999; canonical blocks plus uncles/ommers | 298 | 3 | 0 | Earlier full-header proofs below the acquisition floor need backfill; the full coinbase cannot be reconstructed, and the 3 strict verdicts come from cross-chain matches. |
+| [RSK / Rootstock](docs/chains/rsk.md) | RSKj 9.0.1 archive node from child height 139,999; canonical blocks plus uncles/ommers | 337 | 3 | 0 | Earlier full-header proofs below the acquisition floor need backfill; the full coinbase cannot be reconstructed, and the 3 strict verdicts come from cross-chain matches. |
 | [Doichain](docs/chains/doichain.md) | Local node; block-file survey through the active-chain tip observed at child height 430,684 | 0 | 0 | 0 | Observed-window negative result with no accepted stale or strict/weak evidence. |
 | [Bitmark](docs/chains/bitmark.md) | Synced multi-algo node; SHA-256d branch scanned to the recovered tip | 1 | 0 | 0 | The single accepted candidate cross-confirms an event already seen by other chains. |
 | [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 40 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
@@ -340,7 +340,7 @@ ledger that covers it. `just reconcile-stale-ancestry` requires the complete
 staged ancestry inventories. It validates that canonical error module first,
 excludes its known parent hashes, evaluates the complete candidate population
 against trusted stale roots, and publishes 21 accepted parent verdicts in
-`data/stale_descendants.csv` plus 32 authenticated witnesses in
+`data/stale_descendants.csv` plus 33 authenticated witnesses in
 `data/stale_descendant_observations.csv`. Any consensus-invalid candidate not
 already admitted to the canonical error catalogue fails the workflow before
 either stale-ancestry artifact is installed.

@@ -50,7 +50,7 @@ The `CAuxPow` deserialisation order is byte-identical to ixcoin / Devcoin / Myri
 1. **Parse with AuxPoW gate**: walk all Crown blocks ≥ 453,273 via raw hex; decode `nVersion`; discard blocks without the `VERSION_AUXPOW` bit (pre-activation PoW + the whole PoS era).
 2. **Self-target PoW filter** (`classify_crown_stales.py`): keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. `fStrictChainId=true` constrains the AuxPoW commitment's child-chain identity, not the parent header's Bitcoin-mainnet validity.
 3. **Dedup**: keep only unique BTC header hashes - multiple Crown blocks can reference the same BTC parent.
-4. **BTC RPC classify** (`classify_crown_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_crown_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 
 **Counts:**
 

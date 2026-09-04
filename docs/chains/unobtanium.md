@@ -47,7 +47,7 @@ Unobtanium has one of the **longest continuous single-chain AuxPoW scan windows*
 1. **Parse**: walk all UNO blocks ≥ 600,000 via raw hex; extract parent header + coinbase tx + Merkle branch.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. This does not establish Bitcoin's contemporaneous target.
 3. **Dedup**: with ~3.3 UNO blocks per BTC interval, do *not* dedup at extraction time (different miners contribute different parent headers within the same BTC interval). Downstream cross-source publication views deduplicate only exact `(height, hash)` identities.
-4. **BTC RPC classify** (`classify_unobtanium_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_unobtanium_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 
 **Counts** (per recovery report):
 

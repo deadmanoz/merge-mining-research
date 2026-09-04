@@ -220,10 +220,13 @@ historical evidence columns:
 | `coinbase_op_return`, `coinbase_ascii_strings` | Raw coinbase evidence. |
 | `is_uncle`, `uncle_index`, `uncle_parent_height` | RSK uncle (stale) metadata. |
 
-The historical full stale/unknown inventory (`rsk_stale_blocks.csv`, 304
-stale-labelled candidates + 37,031 unknown rows) is not committed. Five parents
-are consensus-invalid and one belongs to the stale-descendant module, leaving
-298 direct-stale rows in the committed validated file.
+The full stale/unknown inventory (`rsk_stale_blocks.csv`, 338
+stale-labelled candidates + 37,048 unknown rows after the 2026-09-05
+side-chain-aware reclassification) is not committed. Four consensus-invalid
+parents route to the error-block sibling output, the exact-key gate excludes
+the stale-labelled BTC 789,038, and the stale-descendant module represents the
+height-656,478 parent, leaving 337 direct-stale rows in the committed
+validated file.
 
 ## Stale descendants
 
@@ -240,7 +243,7 @@ provenance:
   path endpoints, and serialized predecessor links. The terminal identity must
   also occur in the selected data tree's accepted per-chain or pinned upstream
   direct-stale inputs after the error-block exclusion.
-- `data/stale_descendant_observations.csv` contains 32 authenticated
+- `data/stale_descendant_observations.csv` contains 33 authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence. The
   canonical loader requires the exact ordered witness schema and complete row
@@ -406,10 +409,10 @@ parent linkage from the fetched child block and requiring it to match the
 row's own `btc_header_hash`: the decoded CAuxPow parent for Namecoin/Syscoin,
 the serialized AuxPoW tail for Elastos, the `getblockheader (hash, false,
 true)` proof for Fractal, and `sha256d(bitcoinMergedMiningHeader)` for RSK
-(uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,325
+(uncle rows resolve through `eth_getUncleByBlockNumberAndIndex`). All 2,365
 chain/header observations across the five active hydration chains verify
-against today's reachable child nodes (1,932 distinct Bitcoin parent
-headers; 239 parents were observed by more than one chain, a single miner
+against today's reachable child nodes (1,940 distinct Bitcoin parent
+headers; 246 parents were observed by more than one chain, a single miner
 attaching one Bitcoin parent to several merge-mined chains at once).
 
 The directory also contains five-row historical identity ledgers for Devcoin
@@ -417,8 +420,8 @@ and Ixcoin. Those rows pin source-row-authenticated 80-byte child headers for
 archive observations; the four new BIP34 error witnesses additionally record
 independent node RPC verification. They authenticate historical evidence and
 do not imply that the archive rows were live monitor events. Across all seven
-generic ledgers the directory contains 2,335 observations for 1,933 distinct
-Bitcoin parents, 245 of them observed by more than one chain.
+generic ledgers the directory contains 2,375 observations for 1,941 distinct
+Bitcoin parents, 252 of them observed by more than one chain.
 
 Each `<chain>_child_identity.csv` carries `chain`, `btc_header_hash`,
 `child_height`, `child_block_hash`, `child_block_time`, `verification`, `note`,
@@ -537,7 +540,7 @@ rather than being inferred. The standalone stale-descendants export contains
 one row per accepted parent and therefore leaves child identity blank. Its
 counts notes are `child_height=unavailable` and
 `parent_verdicts_only_witnesses_in_observation_ledger`. The
-32 exact source-chain witnesses come from
+33 exact source-chain witnesses come from
 `data/stale_descendant_observations.csv` and enter their chain artifacts once
 with `classification=stale_descendant`,
 `validation_status=VALID_STALE_DESCENDANT`, and
@@ -548,7 +551,7 @@ both metadata files describe the same source generation. The six historical
 observations carry complete authenticated child headers; live-chain
 observations use the independently verified identities in
 `data/child-identity/`. The committed ledger is the sole witness interface, so
-all 32 observations are projected. A complete publication fails closed when a
+all 33 observations are projected. A complete publication fails closed when a
 required child identity is missing or disagrees with its generic ledger; a
 partial diagnostic records that hydration shortfall instead of claiming a
 usable identity.

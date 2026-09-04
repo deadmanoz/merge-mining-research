@@ -238,8 +238,8 @@ Two accepted VALID direct stales are known to be consensus-invalid on a
 rejected by Bitcoin Core as `bad-blk-sigops` with a sigop cost of 80,003
 against the 80,000 limit
 ([b10c's P2P observation](https://b10c.me/observations/11-invalid-blocks-783426-and-784121/)).
-Their headers were merge-mined and are witnessed by four sibling chains each
-(namecoin, syscoin, elastos, xaya), which is why they appear in
+Their headers were merge-mined and are witnessed by five sibling chains each
+(namecoin, syscoin, elastos, xaya, rsk), which is why they appear in
 `data/validated-stales/` at all.
 
 They are deliberately **not** catalogue rows, and this is the sharp example of

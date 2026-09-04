@@ -50,7 +50,7 @@ The block header is `class CBlockHeader : public CPureBlockHeader { shared_ptr<C
 1. **Parse with algo filter**: walk all XMY blocks ≥ 1,402,000 via raw hex; decode `nVersion` first; discard blocks where algo bits indicate Scrypt/Groestl/Yescrypt/Argon2d (or pre-2019 Skein/Qubit). Only SHA-256d-flagged blocks proceed to AuxPoW parsing.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. This does not establish Bitcoin's contemporaneous target.
 3. **Dedup**: do *not* dedup at extraction time - multiple consecutive XMY blocks reference the same BTC `prevhash` but each contains a different parent header. Downstream cross-source publication views deduplicate only exact `(height, hash)` identities.
-4. **BTC RPC classify** (`classify_myriadcoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_myriadcoin_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 
 **Counts:**
 
