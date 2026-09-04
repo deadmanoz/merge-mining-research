@@ -514,10 +514,9 @@ its stale rows. The validated loader now carries `btc_header_hex` for all
 stale-row hydration has no remaining targets: the committed manifest's
 `namecoin_header_hydration=hydrated:228` note is provenance of the existing
 payload build and drops out at the next full monitor publication run. The 21
-published unknown relevance rows are still hydrated from the Namecoin
-`block.dat` prototype extracts when available, otherwise from the private
-archive's classified and raw-extraction pair, so regenerating those
-unknown-row headers still requires non-public inputs. A recovered header is
+published strict/weak unknown rows already carry 160-character headers from
+their private full-inventory source rows, so reproducing them requires that
+private inventory but not the hydration inputs. A recovered header is
 written only when its double-SHA256 verifies against the row's
 `btc_header_hash`; a missing, malformed, or mismatching candidate is never
 written. Hydration touches only Namecoin's `btc_header_hex` column.
