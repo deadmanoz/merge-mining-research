@@ -12,5 +12,5 @@
 # will not disturb a clone that is on a branch or dirty.
 #
 # Columns (tab-separated): key, repo_url, pinned_ref, dest_subdir
-stale-blocks	https://github.com/bitcoin-data/stale-blocks.git	7656c1b46b71f183621bbbb8c0f3730f1c3f03f9	data/stale-blocks
+stale-blocks	https://github.com/bitcoin-data/stale-blocks.git	102ba00801a195cc700af1103e001fe20e195c92	data/stale-blocks
 mining-pools	https://github.com/bitcoin-data/mining-pools.git	75d54404acc21656dcf6bd79d5b393e8c5ca97c9	data/mining-pools
