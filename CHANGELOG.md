@@ -16,7 +16,8 @@ existing payload build and drops out at the next full monitor publication run
 Publish the header-fill contribution sidecar
 (`data/upstream_header_fills.csv`): the publication-gate-accepted candidates
 whose `(height, hash)` already exists upstream but is recorded without a
-header, currently 91 rows (heights 179,641 through 380,957). The sidecar
+header, 91 rows when introduced (grown to 264 by the Namecoin loader-header
+hydration above). The sidecar
 builder emits it alongside `data/new_stale_blocks_for_upstream.csv` from the
 same committed inputs, so fills disappear on regeneration once upstream
 records the header.
