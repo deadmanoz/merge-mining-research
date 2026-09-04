@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 import struct
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis.auxpow_parse import CHILD_HEADER_FIELDS
 from stale_blocks_analysis.config import BIP65_HEIGHT
 from stale_blocks_analysis.auxpow_chainid import (
     hash_from_header_bytes,
@@ -251,3 +253,26 @@ def test_validated_rows_apply_exact_key_exclusions_and_historical_labels() -> No
     assert rows[0]["validation_status"] == "VALID"
     assert rows[0]["pool_label"] == "Historical Pool"
     assert list(rows[0]) == rsk.VALIDATED_COLS
+
+
+def test_validated_cols_match_the_committed_loader_input_schema() -> None:
+    """The emitted schema must equal the committed CSV's, not just itself.
+
+    `data/validated-stales/rsk_validated_stales.csv` gained the four
+    child-identity columns when the uniform child-identity contract landed,
+    but `VALIDATED_COLS` was not updated with it. Re-running the classifier
+    would then have silently rewritten a published loader input with a
+    narrower schema. Compare against the committed header so the pairing
+    cannot drift again.
+    """
+    committed = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "validated-stales"
+        / "rsk_validated_stales.csv"
+    )
+    with committed.open(newline="") as handle:
+        header = next(csv.reader(handle))
+    assert rsk.VALIDATED_COLS == header
+    for field in CHILD_HEADER_FIELDS:
+        assert field in rsk.VALIDATED_COLS

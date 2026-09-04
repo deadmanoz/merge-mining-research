@@ -235,10 +235,16 @@ def load_targets(evidence_path: Path) -> list[RecoveryTarget]:
     return sorted(targets, key=_target_sort_key)
 
 
-def load_error_observation_rsk_targets(ledger_path: Path) -> list[RecoveryTarget]:
-    """RSK error-observation parents excluded from ordinary inventories."""
+def load_rsk_ledger_targets(ledger_path: Path, *, label: str) -> list[RecoveryTarget]:
+    """RSK targets from an observation-ledger-shaped CSV.
+
+    Reads ``chain``/``btc_header_hash``/``child_height``/``child_block_hash``
+    and keeps the ``rsk`` rows. Nominating a slot is not asserting an identity:
+    every target is still authenticated against the live RSK node downstream,
+    and an unresolved row keeps the whole file out of the committed set.
+    """
     if not ledger_path.is_file():
-        raise SystemExit(f"{ledger_path}: error-observation ledger is missing")
+        raise SystemExit(f"{ledger_path}: {label} ledger is missing")
     targets: dict[RecoveryTarget, int] = {}
     event_parents: dict[tuple[int, str], tuple[str, int]] = {}
     with ledger_path.open(newline="") as handle:
@@ -249,7 +255,7 @@ def load_error_observation_rsk_targets(ledger_path: Path) -> list[RecoveryTarget
             height_text = (row.get("child_height") or "").strip()
             if not btc_hash or not height_text:
                 raise SystemExit(
-                    f"{ledger_path}:{row_number}: RSK error-observation row "
+                    f"{ledger_path}:{row_number}: {label} row "
                     "missing btc_header_hash/child_height"
                 )
             try:
@@ -268,17 +274,33 @@ def load_error_observation_rsk_targets(ledger_path: Path) -> list[RecoveryTarget
                 source=ledger_path,
             )
     if not targets:
-        raise SystemExit(f"{ledger_path}: no RSK error-observation targets")
+        raise SystemExit(f"{ledger_path}: no {label} targets")
     return sorted(targets, key=_target_sort_key)
+
+
+def load_error_observation_rsk_targets(ledger_path: Path) -> list[RecoveryTarget]:
+    """RSK error-observation parents excluded from ordinary inventories."""
+    return load_rsk_ledger_targets(ledger_path, label="RSK error-observation")
 
 
 def merge_identity_targets(
     ordinary: list[RecoveryTarget], extra: list[RecoveryTarget]
 ) -> list[RecoveryTarget]:
-    """Combine exact events while rejecting unresolved same-height overlap."""
+    """Combine exact events while rejecting unresolved same-height overlap.
+
+    A supplemental ledger may legitimately repeat events the ordinary work
+    list already carries: pointing ``--extra-rsk-targets`` at the complete
+    committed observation ledger, rather than a hand-built delta, repeats
+    every previously published RSK event alongside the new one. An exact
+    cross-list repeat therefore deduplicates here; each source list has
+    already rejected its own internal duplicates when it was loaded, and a
+    non-identical overlap still fails the same-slot ambiguity checks.
+    """
     merged: dict[RecoveryTarget, int] = {}
     event_parents: dict[tuple[int, str], tuple[str, int]] = {}
     for position, target in enumerate([*ordinary, *extra], start=1):
+        if target in merged:
+            continue
         btc_hash, height, child_hash = target
         _record_target(
             merged,
@@ -814,6 +836,19 @@ def main() -> None:
             "rsk_stale_blocks.csv uncle metadata for full-inventory rows"
         ),
     )
+    parser.add_argument(
+        "--extra-rsk-targets",
+        type=Path,
+        default=None,
+        help=(
+            "Observation-ledger-shaped CSV nominating additional RSK slots. "
+            "A descendant witness surfaced by a fresh reclassification cannot "
+            "reach the ordinary work list, because that list is derived from "
+            "the monitor evidence whose own descendant rows come from the "
+            "ledger the ancestry run has not published yet. Each nominated "
+            "slot is still authenticated against the live RSK node."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None, help="Rows per chain")
     args = parser.parse_args()
 
@@ -837,6 +872,13 @@ def main() -> None:
         rsk_metadata_paths.append(
             args.chain_archive_dir / "rsk" / "classified" / "rsk_stale_blocks.csv"
         )
+        # Error-observation parents are RSK uncles, and the error-block split
+        # moved them out of the stale/unknown inventory into this sibling. It
+        # is the only remaining source of their uncle placement, without which
+        # the uncle cannot be fetched and the row resolves block_not_found.
+        rsk_metadata_paths.append(
+            args.chain_archive_dir / "rsk" / "classified" / "rsk_error_blocks.csv"
+        )
 
     exit_code = 0
     for chain in chains:
@@ -845,12 +887,17 @@ def main() -> None:
             raise SystemExit(f"missing work list: {evidence_path}")
         targets = load_targets(evidence_path)
         if chain == "rsk":
-            targets = merge_identity_targets(
-                targets,
-                load_error_observation_rsk_targets(
-                    DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER
-                ),
+            extra = load_error_observation_rsk_targets(
+                DATA_DIR / "error-blocks" / ERROR_OBSERVATION_LEDGER
             )
+            if args.extra_rsk_targets is not None:
+                extra = merge_identity_targets(
+                    extra,
+                    load_rsk_ledger_targets(
+                        args.extra_rsk_targets, label="RSK supplemental"
+                    ),
+                )
+            targets = merge_identity_targets(targets, extra)
         url = DEFAULT_URLS[chain]
         limit = args.limit if args.limit is not None else len(targets)
         if chain in ("namecoin", "syscoin"):
