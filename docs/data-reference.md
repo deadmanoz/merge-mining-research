@@ -70,8 +70,9 @@ columns trail that shared core:
 Chain-specific research columns trail the shared layout where retained:
 namecoin's `nbits_match` / `post_bch_fork` gate detail,
 `btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
-is populated for 1,421 of 1,649 rows and empty where the loader snapshot did
-not preserve the header; the monitor export supplies verified hydration), and
+is populated for all 1,649 rows; the 228 historically header-less rows were
+back-filled from the committed monitor evidence, byte-verified against each
+row's committed hash and decoded fields), and
 coiledcoin's `eligius_attack_window`.
 
 ## Error blocks: `data/error-blocks/error_blocks.csv`
@@ -507,16 +508,19 @@ header hash so their coverage is explicit:
 | `btc_stale_relevance` | Empty for accepted stales/descendants, whose state is already represented on the primary `classification` plus `validation_status` axes, and for canonical rows in canonical-bearing local runs; `strict_btc_orphan` / `weak_btc_orphan` for admitted unknown rows. |
 | `relevance_reason` | `valid_direct_stale`, `valid_stale_descendant`, `strict_height_nbits_match`, or `timestamp_epoch_nbits_match`. |
 
-Namecoin requires partial header hydration for monitor export. The validated
-loader carries `btc_header_hex` for 1,421 of its 1,649 rows. The remaining 228
-accepted rows, plus 21 published unknown relevance rows, are hydrated from the
-Namecoin `block.dat` prototype extracts when available, otherwise from the
-private archive's classified and raw-extraction pair. The committed monitor
-CSV publishes the resulting headers, but regenerating those hydrated fields
-still requires non-public inputs. A recovered header is written only when its
-double-SHA256 verifies against the row's `btc_header_hash`; a missing,
-malformed, or mismatching candidate is never written. Hydration touches only
-Namecoin's `btc_header_hex` column.
+Namecoin's monitor export previously required partial header hydration for
+its stale rows. The validated loader now carries `btc_header_hex` for all
+1,649 accepted rows (back-filled from the committed monitor evidence), so
+stale-row hydration has no remaining targets: the committed manifest's
+`namecoin_header_hydration=hydrated:228` note is provenance of the existing
+payload build and drops out at the next full monitor publication run. The 21
+published unknown relevance rows are still hydrated from the Namecoin
+`block.dat` prototype extracts when available, otherwise from the private
+archive's classified and raw-extraction pair, so regenerating those
+unknown-row headers still requires non-public inputs. A recovered header is
+written only when its double-SHA256 verifies against the row's
+`btc_header_hash`; a missing, malformed, or mismatching candidate is never
+written. Hydration touches only Namecoin's `btc_header_hex` column.
 
 `monitor-evidence-counts.csv` and `monitor-evidence-manifest.json` record
 per-chain category counts, publication-projected source rows across the main

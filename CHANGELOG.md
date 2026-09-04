@@ -8,7 +8,10 @@ compact input deferred to the upstream record). The bytes come from the
 committed monitor evidence and each recovered header is byte-verified against
 the row's committed hash, `btc_prev_hash`, `btc_time`, and `btc_bits`. The
 header-fill sidecar grows from 91 to 264 rows and the
-missing-header-for-upstream-fill warning drops to zero. Closes #48.
+missing-header-for-upstream-fill warning drops to zero. The committed monitor
+manifest's `namecoin_header_hydration` note remains as provenance of the
+existing payload build and drops out at the next full monitor publication run
+(a private-input step). Closes #48.
 
 Publish the header-fill contribution sidecar
 (`data/upstream_header_fills.csv`): the publication-gate-accepted candidates
