@@ -2235,3 +2235,59 @@ def test_publication_runner_dispatches_only_the_full_writer(
             str(tmp_path / "data"),
         ],
     ) == {"received": args}
+
+
+@pytest.mark.dataset
+def test_committed_validated_stales_match_published_stale_rows() -> None:
+    """Every chain's loader input must agree with its published stale rows.
+
+    The monitor projection emits one `classification=stale` row per accepted
+    direct stale, so the two surfaces are the same set counted twice. Nothing
+    else cross-checks them, which is how a regeneration can rewrite a chain's
+    validated CSV and leave the publication behind: the artifacts move
+    independently and every other check still passes. A mismatch here means a
+    piecemeal regeneration, which `AGENTS.md` forbids -- the loader input,
+    the novelty view and the monitor publication move together or not at all.
+    """
+    mismatches = {}
+    for validated_path in sorted(
+        (REPO / "data" / "validated-stales").glob("*_validated_stales.csv")
+    ):
+        chain = validated_path.name.removesuffix("_validated_stales.csv")
+        monitor_path = (
+            REPO / "results" / "monitor-evidence" / f"{chain}_monitor_evidence.csv"
+        )
+        if not monitor_path.is_file():
+            continue
+        validated_rows = 0
+        validated_keys = set()
+        with validated_path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                validated_rows += 1
+                validated_keys.add((row["btc_height"], row["btc_header_hash"].lower()))
+        published_rows = 0
+        published_keys = set()
+        with monitor_path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                if row["classification"] != "stale":
+                    continue
+                published_rows += 1
+                published_keys.add((row["btc_height"], row["btc_header_hash"].lower()))
+        # Set equality catches a swapped identity that equal counts would
+        # hide; the row-vs-key comparisons catch duplicated (height, hash)
+        # events, which dedup-by-key semantics forbid on either surface.
+        if (
+            validated_keys != published_keys
+            or validated_rows != len(validated_keys)
+            or published_rows != len(published_keys)
+        ):
+            mismatches[chain] = {
+                "validated_only": sorted(validated_keys - published_keys)[:5],
+                "published_only": sorted(published_keys - validated_keys)[:5],
+                "validated_duplicates": validated_rows - len(validated_keys),
+                "published_duplicates": published_rows - len(published_keys),
+            }
+    assert not mismatches, (
+        "validated-stales and monitor-evidence disagree on stale identities: "
+        f"{mismatches}"
+    )
