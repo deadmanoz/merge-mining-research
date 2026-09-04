@@ -227,18 +227,25 @@ authenticated child event, reconciliation keeps one deterministic source
 coordinate only after their parent evidence is compatible. Conflicting copies
 fail closed, and distinct authenticated events remain distinct witnesses.
 
-## Upstream contribution sidecar: `data/new_stale_blocks_for_upstream.csv`
+## Upstream contribution sidecars: `data/new_stale_blocks_for_upstream.csv` and `data/upstream_header_fills.csv`
 
-The set of publication-gate-accepted stale `(height, hash)` pairs this project
-contributes that are not already in `bitcoin-data/stale-blocks`. Rebuilt from the committed inputs
+`new_stale_blocks_for_upstream.csv` is the set of publication-gate-accepted
+stale `(height, hash)` pairs this project
+contributes that are not already in `bitcoin-data/stale-blocks`.
+`upstream_header_fills.csv` is the companion fill set: the accepted candidates
+whose `(height, hash)` already exists upstream but is recorded without a
+header, so the committed header can be contributed onto the existing row.
+Both are rebuilt together from the committed inputs
 above by `scripts/reports/build_upstream_stale_sidecar.py`.
 The builder reads direct stales from the validated per-chain inputs and
-descendants through the canonical parent loader. It never uses the previous
+descendants through the canonical parent loader. It never uses a previous
 sidecar as an input.
-Because this sidecar intentionally combines direct stales and accepted stale
+Because these sidecars intentionally combine direct stales and accepted stale
 descendants without a classification column, ancestry reconciliation never
-uses it as a stale-root input. Direct roots come only from effective upstream
+uses them as a stale-root input. Direct roots come only from effective upstream
 and accepted per-chain direct-stale inventories.
+
+Both files share one schema:
 
 | Column | Meaning |
 | --- | --- |

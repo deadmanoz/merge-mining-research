@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Publish the header-fill contribution sidecar
+(`data/upstream_header_fills.csv`): the publication-gate-accepted candidates
+whose `(height, hash)` already exists upstream but is recorded without a
+header, currently 91 rows (heights 179,641 through 380,957). The sidecar
+builder emits it alongside `data/new_stale_blocks_for_upstream.csv` from the
+same committed inputs, so fills disappear on regeneration once upstream
+records the header.
+
+Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `102ba00`
+(September 2026) and regenerate the contribution sidecar ahead of the next
+upstream PR. The sidecar drops to 326 rows (309 first-claimed direct stales
+plus 17 stale descendants): upstream's fork.observer automation independently
+added the RSK-recovered rows at heights 903,259 and 927,647 with byte-identical
+headers. Upstream also removed six catalogued error-block rows plus the
+height-74,638 row and filled 13 previously header-less historical rows, so the
+affected per-chain novelty CSVs (RSK, Fractal) and the baseline-dependent
+counts in `docs/process-data-outcomes.md` are refreshed to match. The
+monitor-evidence and stale-ancestry surfaces are untouched: rerunning
+unknown-stale ancestry against the new known-stale set needs the private
+classifier inventories and remains the documented post-merge step.
+
 Add the body-invalid stales overlay
 (`data/error-blocks/body_invalid_stales.csv`): annotations for accepted VALID
 direct stales whose complete block body is known consensus-invalid from an

@@ -422,6 +422,120 @@ def test_upstream_sidecar_candidates_apply_error_block_gate(
     assert warnings == {}
 
 
+def test_upstream_sidecar_emits_header_fills_for_headerless_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_script(
+        "scripts/reports/build_upstream_stale_sidecar.py",
+        "build_upstream_stale_sidecar_fills_under_test",
+    )
+    headerless_hash = "22" * 32
+    new_hash = "33" * 32
+    upstream = tmp_path / "stale-blocks.csv"
+    with upstream.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["height", "hash", "header"])
+        writer.writeheader()
+        writer.writerow(
+            {"height": "331736", "hash": INCLUDED_HASH, "header": "00" * 80}
+        )
+        writer.writerow({"height": "331737", "hash": headerless_hash, "header": ""})
+    data_dir = tmp_path / "data"
+    (data_dir / "validated-stales").mkdir(parents=True)
+    candidate_path = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    with candidate_path.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "btc_height",
+                "btc_header_hash",
+                "btc_header_hex",
+                "classification",
+                "validation_status",
+            ],
+        )
+        writer.writeheader()
+        for height, block_hash, header in (
+            (331736, INCLUDED_HASH, "00" * 80),
+            (331737, headerless_hash, "11" * 80),
+            (331738, new_hash, "22" * 80),
+        ):
+            writer.writerow(
+                {
+                    "btc_height": height,
+                    "btc_header_hash": block_hash,
+                    "btc_header_hex": header,
+                    "classification": "stale",
+                    "validation_status": "VALID",
+                }
+            )
+    monkeypatch.setattr(module, "load_error_block_keys", lambda: set())
+
+    output = tmp_path / "sidecar.csv"
+    fills_output = tmp_path / "fills.csv"
+    stats = module.build(output, data_dir, upstream, fills_output)
+
+    assert stats["sidecar_rows"] == 1
+    assert stats["header_fill_rows"] == 1
+    with output.open(newline="") as f:
+        assert [(r["height"], r["hash"]) for r in csv.DictReader(f)] == [
+            ("331738", new_hash)
+        ]
+    with fills_output.open(newline="") as f:
+        fills = list(csv.DictReader(f))
+    assert [(r["height"], r["hash"], r["header"]) for r in fills] == [
+        ("331737", headerless_hash, "11" * 80)
+    ]
+
+
+def test_upstream_sidecar_rejects_aliased_outputs_and_warns_on_unfillable_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_script(
+        "scripts/reports/build_upstream_stale_sidecar.py",
+        "build_upstream_stale_sidecar_fill_guards_under_test",
+    )
+    headerless_hash = "22" * 32
+    upstream = tmp_path / "stale-blocks.csv"
+    with upstream.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["height", "hash", "header"])
+        writer.writeheader()
+        writer.writerow({"height": "331737", "hash": headerless_hash, "header": ""})
+    data_dir = tmp_path / "data"
+    (data_dir / "validated-stales").mkdir(parents=True)
+    candidate_path = data_dir / "validated-stales" / "namecoin_validated_stales.csv"
+    with candidate_path.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "btc_height",
+                "btc_header_hash",
+                "btc_header_hex",
+                "classification",
+                "validation_status",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "btc_height": 331737,
+                "btc_header_hash": headerless_hash,
+                "btc_header_hex": "",
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        )
+    monkeypatch.setattr(module, "load_error_block_keys", lambda: set())
+
+    aliased = tmp_path / "sidecar.csv"
+    with pytest.raises(SystemExit, match="alias the same file"):
+        module.build(aliased, data_dir, upstream, aliased)
+
+    stats = module.build(aliased, data_dir, upstream, tmp_path / "fills.csv")
+    assert stats["sidecar_rows"] == 0
+    assert stats["header_fill_rows"] == 0
+    assert stats["warnings"] == 1
+
+
 def test_upstream_sidecar_descendants_use_canonical_parent_loader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
