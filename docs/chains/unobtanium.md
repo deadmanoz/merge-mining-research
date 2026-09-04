@@ -35,6 +35,7 @@ Unobtanium has one of the **longest continuous single-chain AuxPoW scan windows*
 
 - `scripts/extract/extract_unobtanium_auxpow.py:1` - RPC raw-hex `getblock` + binary CAuxPow parse (Bitcoin Core 0.11 RPC doesn't expose decoded `auxpow`).
 - `scripts/classify/classify_unobtanium_stales.py:1` - BTC RPC batch classifier.
+- `python scripts/classify/classify_stales.py --chain unobtanium` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/unobtanium/{Dockerfile,docker-compose.yml,justfile,README.md}` - build infrastructure.
 
 ## 2. Extraction → potential stales

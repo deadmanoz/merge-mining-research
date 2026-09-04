@@ -179,3 +179,44 @@ depends on `bitcoin-data/mining-pools` nor recomputes this table.
   stales, plus one stale descendant and 16,184 uncle-derived unknowns.
   Unsupported rounded canonical/uncle component counts are omitted.
 - **Known minor bug - RPC-retry duplicate writes**: when an `extract_range` call's phase-2 (uncle batch) errors after phase-1 (canonical batch) has already written rows, the retry re-writes the phase-1 rows. 15 such duplicate-unknown rows surfaced in this run (out of 37K unknowns, 0.04%); they were deduplicated post-classification by (classification, btc_header_hash, is_uncle, uncle_parent_height). Fix is to make `extract_range` write through a buffer that is committed only on full success. The 298 accepted direct-stale rows are unaffected.
+
+## 5. Integration history
+
+- **Historical (predecessor repo)** - original recovery on the RSKj Vetiver
+  9.0.1 archive node. Extraction traversed canonical RSK blocks and their
+  uncles across about 17.95 million observations, and the retained classifier
+  inventory holds 37,335 rows (304 stale-labelled candidates plus 37,031
+  historical `orphan` rows). Uncle traversal is the decisive design choice:
+  222 of the 304 stale-labelled candidates, and 218 of the 298 rows later
+  accepted as direct stales, come from uncles (§2). The same run surfaced 15
+  duplicate unknown rows from the phase-2 RPC-retry path; they were
+  deduplicated post-classification, and the buffered-write fix in
+  `extract_range` is still open (**Remaining work**).
+- **2026-05-18** - the private archive manifest
+  `chains/rsk/manifest/rsk-schema-exception-2026-05-18.txt` records the
+  historical single-file schema exception, later retired by the
+  `rsk_validated_stales.csv` split.
+- **2026-07-17** - public release: the committed loader input
+  `data/validated-stales/rsk_validated_stales.csv` and
+  `results/per-chain-novelty/rsk.csv` land on the shared validated-stales
+  layout plus the RSK miner-evidence and historical-label columns.
+- **2026-07-20** - current audit: all 298 accepted direct rows replayed
+  against Bitcoin Core tip 958,882 and passed every check available from RSK's
+  evidence. The scriptSig-length and BIP34-prefix checks remain untested, and
+  this was not a full-block consensus replay (§1 Holes).
+- **2026-07-22** - publication audit: RSKj Vetiver 9.0.3 recorded as the
+  current upstream release against the 9.0.1 archive node the data were
+  acquired from.
+- **2026-07-31** - the first-class consensus-invalid error-blocks dataset
+  lands, and the committed `rsk_validated_stales.csv` is regenerated under the
+  uniform child-identity contract.
+- **2026-08-31** - canonical error and ancestry modules published: the
+  exact-key error-block gate excludes five cross-chain consensus-invalid
+  parents and the parent/witness module represents the height-656,478 stale
+  descendant, leaving the 298 accepted direct rows.
+- **2026-09-04** - upstream refresh (#47): the pinned
+  `bitcoin-data/stale-blocks` baseline moves to `102ba00`, where upstream's
+  fork.observer automation had independently added the RSK-recovered rows at
+  heights 903,259 and 927,647 with byte-identical headers. The regenerated
+  novelty CSV reads 168 also in upstream, 130 novel versus upstream, and 115
+  chronologically novel (§3).

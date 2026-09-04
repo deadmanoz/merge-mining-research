@@ -81,7 +81,12 @@ see [`process-data-outcomes.md`](process-data-outcomes.md).
 Each chain contributes a historical-named
 `data/validated-stales/<chain>_validated_stales.csv` file containing publication-gate-accepted
 direct-stale header candidates
-consumed by `src/stale_blocks_analysis/stale_blocks.py`. The public repo keeps
+consumed by `src/stale_blocks_analysis/stale_blocks.py`. Those inputs come from
+shared entry points rather than one script per chain: thin AuxPoW chains
+classify through `python scripts/classify/classify_stales.py --chain <key>`,
+where a new chain is a `CHAIN_SPECS` row rather than a new sibling script, and
+thin raw-hex extraction runs through short `extract_driver`-based wrappers that
+supply only child-RPC construction and the version gate. The public repo keeps
 only canonical loader inputs and compact result outputs. The full classifier
 output is bucket-split into `<chain>_stale_blocks.csv` (stale only),
 `<chain>_unknown_blocks.csv`, and `<chain>_canonical_blocks.csv` (all sharing

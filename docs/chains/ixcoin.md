@@ -33,6 +33,7 @@ ixcoin was the fourth SHA-256d AuxPoW chain by merged-mining activation order (a
 
 - `scripts/extract/extract_ixcoin_auxpow.py:1` - raw-hex `getblock` extractor (binary CAuxPow parse, no decoded JSON path).
 - `scripts/classify/classify_ixcoin_stales.py:1` - BTC RPC batch classifier.
+- `python scripts/classify/classify_stales.py --chain ixcoin` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/ixcoin/{Dockerfile,docker-compose.yml,justfile,patches/}` - IXCore build infrastructure.
 
 ## 2. Extraction → potential stales

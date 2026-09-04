@@ -36,6 +36,7 @@ Syscoin chain 2 is one of the most direct extractions in scope: a modern Bitcoin
 
 - `scripts/extract/extract_syscoin_auxpow.py:1` - JSON-driven extractor (`getblock <hash> 1` → `auxpow.tx`, `auxpow.parentblock`).
 - `scripts/classify/classify_syscoin_stales.py:1` - BTC RPC batch classifier.
+  Syscoin is one of the thin `run_classifier` chains, so the equivalent shared invocation is `python scripts/classify/classify_stales.py --chain syscoin`.
 
 ## 2. Extraction → potential stales
 
@@ -80,7 +81,11 @@ classification == "stale" and validation_status in {
 The exact status gate is unconditional and fails closed: only `VALID` and
 `VALID (post-BCH, difficulty matches BTC)` load. The shared loader also
 applies the exact-key error-blocks exclusion gate. No accepted Syscoin loader
-row overlaps the gate. 98 entries pass.
+row overlaps the gate. 98 entries pass. Two of them, at BTC heights 783,426 and
+784,121, are externally attested body-invalid (`bad-blk-sigops`); they are
+annotated in the `data/error-blocks/body_invalid_stales.csv` overlay, retain
+their accepted statuses, and are deliberately not catalogue rows (see
+`docs/error-blocks.md` "Externally attested body-invalid stales").
 
 **Post-filter count: 98 accepted direct-stale header candidates.**
 

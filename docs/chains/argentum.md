@@ -36,6 +36,7 @@ Argentum is the **second multi-algo chain integrated into the pipeline** after M
 
 - `scripts/extract/extract_argentum_auxpow.py:1` - RPC raw-hex `getblock` + binary CAuxPow parse, with `nVersion`-bit algo filter (`(version & BLOCK_VERSION_ALGO) != BLOCK_VERSION_SHA256D` skips non-SHA-256d branches before AuxPoW deserialisation, per the explicit-encoding distinction in the file's docstring).
 - `scripts/classify/classify_argentum_stales.py:1` - BTC RPC batch classifier (self-target PoW filter + dedup + `getblockheader` lookups; canonical/stale/unknown trichotomy).
+- `python scripts/classify/classify_stales.py --chain argentum` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/argentum/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - build infrastructure with the stretch + libssl1.0 toolchain.
 
 ## 2. Extraction → potential stales

@@ -419,8 +419,13 @@ error blocks. Each re-verifies full proof of work per row and writes a dated rep
   across 45 inventories. Confirmed the single
   `coinbase_scriptsig_length_above_100` member (277,975) is real: across
   32,661 full-PoW candidates it is the only distinct above-100 block (two
-  observations of the same block, via devcoin and ixcoin), and no
-  below-2 case exists anywhere in the corpus.
+  observations of it within the swept corpus, via devcoin and ixcoin; the
+  committed observation ledger records three witnesses of 277,975, adding
+  namecoin), and no below-2 case exists anywhere in the corpus.
+
+All four committed reports predate the 30 August Namecoin refresh that added 24
+accepted direct rows, so their no-new-error-block conclusions have not been
+re-run against the refreshed population.
 
 ## Per-chain views
 
@@ -428,8 +433,19 @@ error blocks. Each re-verifies full proof of work per row and writes a dated rep
 dataset and writes per-chain observation views under
 `results/analysis/error-blocks/by-chain/` — one CSV per chain, keyed off
 `source_chains` / `source_child_observations`, so a row appears in each chain
-that witnessed it. These are generated diagnostics for readability, not
+recorded against it. These are generated diagnostics for readability, not
 committed loader inputs; regenerate them with `just error-blocks-report`.
+
+`source_chains` records the inventories a catalogue row was admitted from, not
+a complete census of every chain whose classifier encountered the block.
+Height 717,696 is the worked example: its `source_chains` is `emercoin|syscoin`
+because the 2026-07-30 rejected-rows sweep catalogued it from those two
+inventories, yet that sweep's 2026-08-04 amendment re-derived the identical
+header from Elastos's inventory, and `docs/chains/elastos.md` records the same
+rejection independently. Absence from `source_chains` is therefore not evidence
+that a chain never observed or routed the block, and neither is absence from
+`error_block_observations.csv`, which additionally requires an authenticated
+durable child identity.
 
 ## Relationship to other categories
 

@@ -39,6 +39,7 @@ Terracoin is the **only Dash-Core-derived chain** in scope (RSK, Elastos, and Ha
 
 - `scripts/extract/extract_terracoin_auxpow.py:1` - JSON-driven extractor (`getblock <hash> true` → `auxpow.tx`, `auxpow.parentblock`).
 - `scripts/classify/classify_terracoin_stales.py:1` - BTC RPC batch classifier.
+- `python scripts/classify/classify_stales.py --chain terracoin` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `scripts/compute_chain_novelty.py terracoin` - novelty vs upstream and vs chronologically earlier chains (replaces the bespoke `crossref_terracoin_stales.py` cross-reference).
 - `node-infra/terracoin/{Dockerfile,docker-compose.yml,justfile,README.md}` - build infrastructure.
 

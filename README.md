@@ -11,8 +11,9 @@ parent a miner was building on and when. Namecoin-family proofs also preserve
 the parent coinbase and related proof material; other designs, notably RSK,
 expose less. Pool identity is a later inference where the available evidence
 supports it, not a field recorded directly by every chain.
-Almost 30 chains have merge-mined with Bitcoin since Namecoin activated AuxPoW
-in 2011, leaving a large, independently hosted corpus of mining evidence.
+As of 2026, almost 30 chains have merge-mined with Bitcoin since Namecoin
+activated AuxPoW in 2011, leaving a large, independently hosted corpus of
+mining evidence.
 
 This repository collects tooling, datasets, and methodology that mine that
 corpus for questions about Bitcoin mining generally: mining pools, block
@@ -96,15 +97,10 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-On 20 July 2026, all 3,652 accepted direct observations in the committed chain
-inputs were replayed against Bitcoin Core tip 958,882 and passed every check
-available from their evidence. RSK's 298 rows lack the coinbase required for the
-scriptSig-length and BIP34-prefix checks.
-The current Elastos and Syscoin inputs include 44 additional direct-stale
-headers verified from their source data against the same available-evidence
-profile and Bitcoin Core.
-The 30 August same-generation Namecoin and Fractal refresh adds 33 more
-accepted direct observations that passed the same profile.
+The committed chain inputs hold 3,729 accepted direct observations covering
+2,137 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
+accounting, with its caveats, is in
+[`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
 
 ## Child-chain coverage
 
@@ -125,8 +121,8 @@ public relevance pass.
 The final column is limited to the most important coverage qualification or
 evidentiary significance. Detailed provenance, stage counts, validation
 rejections, and artifact availability are in the linked chain notes, or in
-[`docs/process-data-outcomes.md`](docs/process-data-outcomes.md) for the
-cross-chain accounting snapshot.
+the `docs/process-data-outcomes.md` cross-chain accounting snapshot linked
+above.
 
 | Child chain | Source and recovered scope | Accepted direct-stale candidates | Strict BTC orphans | Weak BTC orphans | Coverage limit or significance |
 |---|---|---:|---:|---:|---|
@@ -184,27 +180,17 @@ blocked and source-only outcomes separate avoids confusing "zero stales" with
 Two kinds of gap in the tables above are worth surfacing, because closing either
 one is exactly the sort of contribution this project wants.
 
-**No recovered data.** Five surveyed candidates yielded no block data at all, so
-any reachable peer, block archive, or working sync path for them would be a
-first:
+**No recovered data.** Five surveyed candidates (BLAST, Bitcoin Stash,
+Fusioncoin, Jax.Network, and Jincoin) yielded no block data at all, as the
+status table above records, so any reachable peer, block archive, or working
+sync path for them would be a first.
 
-- **BLAST** - no peer completed a handshake.
-- **Bitcoin Stash** - no reachable peer or block archive.
-- **Fusioncoin** - private source archive only, no node run.
-- **Jax.Network** - seeds, explorer, and public data routes unavailable.
-- **Jincoin** - source builds, but no reachable peers or block archive.
-
-**Partial or bounded coverage.** Several recovered or partially recovered
-sources have known holes where more history would extend or firm up the result:
-
-- **VCash** - canonical-only, with 699 of 767 archived mappings still unresolved.
-- **i0coin** - bounded by a January 2018 snapshot, so counts are provisional.
-- **Huntercoin** - recovered from an Arweave archive that ends early.
-- **Xaya** - snapshot misses the tail to its roughly 7.3M deprecation height.
-- **Syscoin** - covers only the 2019 fresh-genesis chain (the retired 2016 to
-  2019 chain was not extracted).
-- **Bitcoin Vault** - recovered from a third-party Blockbook API with no node
-  available; the post-2021 weak-share era yields no further accepted candidates.
+**Partial or bounded coverage.** VCash, i0coin, Huntercoin, Xaya, Syscoin, and
+Bitcoin Vault carry the coverage limits stated in their table rows, and more
+history would extend or firm up each result. Two limits are worth stating
+precisely: the Xaya snapshot misses the tail to that chain's roughly 7.3M
+AuxPoW deprecation height, and Bitcoin Vault's post-2021 era is weak-share
+only, so it yields no further accepted candidates.
 
 Raw block data, snapshots, node datadirs, peer addresses, or archive locations
 for any of these are welcome even without running the pipeline. See
@@ -253,14 +239,21 @@ is not an input to stale-block recovery or the committed loader datasets.
 │   ├── extract/ classify/ analysis/ reports/ prep/
 │   └── fetch-data.sh           # clones pinned bitcoin-data/stale-blocks into data/
 ├── data/                       # committed stale and error-block loader inputs
+│   ├── validated-stales/       # per-chain accepted direct-stale loader inputs
 │   ├── bitcoin-epoch-reference/# public nBits/time reference for relevance gates
+│   ├── child-identity/         # verified child hash and time records per chain
 │   ├── error-blocks/           # error catalogue, witness ledger, and context
 │   ├── stale_descendants.csv   # accepted stale-fork parent verdicts
-│   └── stale_descendant_observations.csv # authenticated witnesses
+│   ├── stale_descendant_observations.csv # authenticated witnesses
+│   ├── new_stale_blocks_for_upstream.csv # pending bitcoin-data sidecar rows
+│   └── upstream_header_fills.csv # headers for hash-only upstream rows
 ├── results/                    # committed reference CSVs and final exports
 │   ├── monitor-evidence/       #   Git LFS-backed per-chain payloads + metadata
 │   ├── analysis/               #   regenerable diagnostics grouped by question
-│   └── child-header-coverage.csv # authenticated historical refresh coverage
+│   ├── per-chain-novelty/      #   row-level upstream and chronological novelty
+│   ├── strict-weak-orphans/    #   strict/weak BTC-orphan relevance outputs
+│   ├── child-header-coverage.csv # authenticated historical refresh coverage
+│   └── rsk_pool_registry.csv   # historical RSK miner-address label snapshot
 ├── docs/                       # methodology, research directions, per-chain
 │                               #   provenance, investigations, visual artefacts
 ├── node-infra/                 # Dockerized per-chain node build/run workspaces
@@ -341,12 +334,12 @@ artifacts. The command stages the complete generated set before replacing the
 publication transactionally, and preserves unrelated files in the output
 directory if the build succeeds or fails.
 
-`just validate-error-blocks` re-derives the canonical, reviewed 39-parent
-error-block catalogue and validates exact coverage by its 86-row observation
-ledger. `just reconcile-stale-ancestry` requires the complete staged ancestry
-inventories. It validates that canonical error module first, excludes its
-known parent hashes, evaluates the complete candidate population against
-trusted stale roots, and publishes 21 accepted parent verdicts in
+`just validate-error-blocks` validates the reviewed canonical error-block
+catalogue, its median-time-past sidecar, and the exact child-observation
+ledger that covers it. `just reconcile-stale-ancestry` requires the complete
+staged ancestry inventories. It validates that canonical error module first,
+excludes its known parent hashes, evaluates the complete candidate population
+against trusted stale roots, and publishes 21 accepted parent verdicts in
 `data/stale_descendants.csv` plus 32 authenticated witnesses in
 `data/stale_descendant_observations.csv`. Any consensus-invalid candidate not
 already admitted to the canonical error catalogue fails the workflow before

@@ -13,7 +13,7 @@
 | Loader | `load_devcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/devcoin_validated_stales.csv` |
 
-Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with Daniel Kraft's AuxPoW (ported via Syscoin's fork). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (468 vs ixcoin's 465 and i0coin's 166) and a leading source of novel-vs-upstream candidates (92 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
+Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with the original Namecoin AuxPoW code (Vince Durham's design). The Kraft lineage arrives roughly a decade later: the modern Devcoin Core 22.x codebase carries Daniel Kraft's AuxPoW implementation, ported via Syscoin's fork (`devcoin/core` issue #73). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (468 vs ixcoin's 465 and i0coin's 166) and a leading source of novel-vs-upstream candidates (92 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
 
 ## 1. Chain data
 
@@ -37,6 +37,7 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 
 - `scripts/extract/extract_devcoin_auxpow.py:1` - RPC-driven extractor (raw-hex `getblock` + binary CAuxPow parse - note: despite the 22.x codebase, the `getblock` JSON in the deployed build did not expose decoded AuxPoW; binary parsing was used).
 - `scripts/classify/classify_devcoin_stales.py:1` - BTC RPC batch classifier.
+  Devcoin is one of the thin `run_classifier` chains, so the equivalent shared invocation is `python scripts/classify/classify_stales.py --chain devcoin`.
 - Historical multi-block-fork and unknown-origin analyses are retained in the
   private archive; their original one-off scripts are not part of this public
   release.

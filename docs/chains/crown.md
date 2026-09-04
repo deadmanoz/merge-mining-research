@@ -36,11 +36,12 @@ Crown is a 2014 Bitcoin/Dash-derived chain. It carries Dash's masternode and on-
 
 - `scripts/extract/extract_crown_auxpow.py` - RPC raw-hex `getblock` + binary `CAuxPow` parse. Single-algo, so the only filter is the `VERSION_AUXPOW` version-bit gate (`_gate`), which covers both pre-activation PoW blocks and the entire PoS era.
 - `scripts/classify/classify_crown_stales.py:1` - BTC RPC batch classifier (self-target PoW filter + dedup + `getblockheader` lookups; canonical/stale/unknown trichotomy).
+  Crown is one of the thin `run_classifier` chains, so the equivalent shared invocation is `python scripts/classify/classify_stales.py --chain crown`.
 - `node-infra/crown/{Dockerfile,docker-compose.yml,bootstrap.sh,justfile,peers.list,README.md}` - build infrastructure with the `ubuntu:18.04` (bionic) toolchain.
 
 ## 2. Extraction → potential stales
 
-**Method.** RPC raw-hex against the local `crownd`. For each Crown block ≥ 453,273, fetch `getblock <hash> false` (Crown's `getblock` takes a *bool* verbosity argument, 0.12-era RPC, not an int) and parse the binary block. Read `nVersion` from the first 4 bytes; if the `VERSION_AUXPOW` flag (bit 8) is clear, skip the block - this single check discards both the pre-merge-mining PoW blocks and the entire post-2,330,000 PoS era. For AuxPoW-flagged blocks, parse the binary `CAuxPow` tail using the standard Namecoin-style parser (`CMerkleTx` coinbase transaction + `vChainMerkleBranch` + `nChainIndex` + 80-byte `parentBlockHeader`), per `read_auxpow()` in `src/stale_blocks_analysis/auxpow_parse.py:147` (invoked via `extract_driver.py:165`).
+**Method.** RPC raw-hex against the local `crownd`. For each Crown block ≥ 453,273, fetch `getblock <hash> false` (Crown's `getblock` takes a *bool* verbosity argument, 0.12-era RPC, not an int) and parse the binary block. Read `nVersion` from the first 4 bytes; if the `VERSION_AUXPOW` flag (bit 8) is clear, skip the block - this single check discards both the pre-merge-mining PoW blocks and the entire post-2,330,000 PoS era. For AuxPoW-flagged blocks, parse the binary `CAuxPow` tail using the standard Namecoin-style parser (`CMerkleTx` coinbase transaction + `vChainMerkleBranch` + `nChainIndex` + 80-byte `parentBlockHeader`), per `read_auxpow()` in `src/stale_blocks_analysis/auxpow_parse.py:176` (invoked via `extract_driver.py:198`).
 
 The `CAuxPow` deserialisation order is byte-identical to ixcoin / Devcoin / Myriadcoin / Argentum, so the extractor's serialisation primitives port across verbatim - Crown is simpler than the multi-algo chains because there is **no algo filter** to apply before AuxPoW parsing.
 

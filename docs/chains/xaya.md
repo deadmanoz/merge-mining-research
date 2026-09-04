@@ -51,6 +51,7 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 
 - `scripts/extract/extract_xaya_auxpow.py:1` - parses Xaya's `PowData` block-header wrapper, keys on the `0x80` merge-mined flag, and reuses the shared AuxPoW/header helpers. The historical helper name `hash_meets_btc_difficulty` performs only the encoded self-target check described in the [validity contract](../data-validity.md). Emits the canonical `run_classifier` input schema.
 - `scripts/classify/classify_xaya_stales.py:1` - thin `run_classifier(CHAIN_SPECS["xaya"])` wrapper (self-target PoW filter + dedup + `getblockheader` lookups + the expected-`nBits` gate). Exposes `--validated-output` so all outputs can be written into the offline archive directory.
+  The equivalent shared invocation is `python scripts/classify/classify_stales.py --chain xaya`.
 - `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain for `xayad` v1.13), retained for a future tail top-up.
 
 ## 2. Extraction → potential stales
@@ -102,7 +103,11 @@ classification == "stale" and validation_status in {
 (matches the crown / myriadcoin / ixcoin format). The extractor preserves the
 parent-coinbase outputs from their own scripts so they remain
 available for later attribution research. All 40 refreshed entries pass the
-filter.
+filter. Two of them, at BTC heights 783,426 and 784,121, are externally attested
+body-invalid (`bad-blk-sigops`); they are annotated in the
+`data/error-blocks/body_invalid_stales.csv` overlay, retain their accepted
+statuses, and are deliberately not catalogue rows (see `docs/error-blocks.md`
+"Externally attested body-invalid stales").
 
 **Post-filter count: 40 accepted direct-stale header candidates (2026-06-24 refresh; the original run committed 34).**
 

@@ -150,11 +150,11 @@ the parent coinbase scriptSig, but the compact CSV does not retain the complete
 serialized coinbase transaction or its parent-merkle branch.
 
 The pinned upstream `bitcoin-data/stale-blocks` checkout currently carries a
-matching full-block blob for 319 of the 1,649 accepted Namecoin candidates. Its
+matching full-block blob for 323 of the 1,649 accepted Namecoin candidates. Its
 public sanity check confirms that each blob starts with the expected header; it
 does not perform full historical Bitcoin consensus validation, and none of the
-319 blobs has undergone a full consensus replay in this project. The remaining
-1,330 candidates have no matching full Bitcoin block body in that pinned
+323 blobs has undergone a full consensus replay in this project. The remaining
+1,326 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
 The current Namecoin source classification routes 32 consensus-invalid

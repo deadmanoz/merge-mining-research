@@ -49,6 +49,20 @@ propagation. See
 [`auxpow-recovery.md`](auxpow-recovery.md) and the per-chain provenance under
 [`chains/`](chains/).
 
+### Error blocks
+
+A distinct category recovered alongside the stale candidates. An **error block**
+is a full-proof-of-work Bitcoin block, witnessed via merge mining, that violates
+a named consensus rule and so was never a stale/orphan contender: it lost no
+race because it was never eligible to race. A header that merely fails the
+Bitcoin PoW target is a `near` row, a different and out-of-scope category.
+`error_block` sits on the primary `classification` axis alongside `canonical`,
+`stale`, and `unknown`, not on the derived `btc_stale_relevance` refinement of
+unknown rows. The catalogue under `data/error-blocks/` is simultaneously the
+evidence record and the exact-key exclusion gate that keeps consensus-invalid
+candidates out of every publication surface. See
+[`error-blocks.md`](error-blocks.md).
+
 ### Bitcoin coinbase commitment markers
 
 The public release contains definitions and decoders for known Bitcoin
