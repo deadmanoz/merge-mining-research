@@ -843,7 +843,7 @@ def test_error_block_is_a_documented_classification() -> None:
 def test_published_descendant_ledger_preserves_complete_child_identity() -> None:
     observations = load_stale_descendant_observations()
 
-    assert len(observations) == 32
+    assert len(observations) == 33
     assert all(len(observation.child_hash) == 64 for observation in observations)
     assert all(
         observation.row["child_block_time"].isdigit() for observation in observations

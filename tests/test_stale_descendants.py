@@ -45,7 +45,7 @@ def test_committed_stale_descendant_module_is_exact_and_correction_free() -> Non
     observations = load_stale_descendant_observations()
 
     assert len(parents) == 21
-    assert len(observations) == 32
+    assert len(observations) == 33
     removed_overlay = "stale_descendant" + "_corrections.csv"
     assert not (REPO / "data" / removed_overlay).exists()
     with PARENTS.open(newline="") as handle:
