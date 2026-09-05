@@ -16,10 +16,45 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from typing import Iterable
 
-from .bitcoin_binary import _bech32_decode_to_program, parse_coinbase_tx
+from .bitcoin_binary import (
+    _bech32_decode_to_program,
+    canonical_output_token,
+    parse_coinbase_tx,
+)
 
 _P2PKH_VERSIONS = frozenset({0, 52, 63})  # Bitcoin, Namecoin, Syscoin
 _P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
+
+# Chains whose legacy acquisition kept only the outputs the child node could
+# name, so a legacy address-only cell from them is an ordered filtered
+# projection rather than a complete output vector. Namecoin is the only such
+# acquisition: Terracoin, Bitcoin Vault, and Syscoin retained a placeholder
+# for every output they could not name, so their legacy cells are
+# positionally complete.
+FILTERED_ACQUISITION_CHAINS = frozenset({"namecoin"})
+
+# Chains whose legacy cells carry the child node's *decoded addresses* rather
+# than script bytes we hold. Such a decode renders a P2PK output as the same
+# address as a P2PKH paying its pubkey's hash160 (verified: the Terracoin
+# decode of BTC 00000000...67a249's output 1 collapses the P2PK script that
+# Devcoin and Unobtanium hold in raw hex to 1Kz5Qa...), so an address in a
+# legacy cell establishes only the recipient hash160 even in Bitcoin's own
+# version-0 form. Bitcoin Vault is deliberately absent: its extraction
+# binary-parses raw block hex, so its addresses render scripts it holds.
+CHILD_DECODED_ACQUISITION_CHAINS = frozenset({"namecoin", "syscoin", "terracoin"})
+# Legacy RPC producers wrote ``<scriptPubKey.type>:<value>`` placeholders for
+# addressless outputs. Template types imply a script prefix, which preserves
+# more than an amount-only claim; the rest establish only the amount. The
+# label itself survives in the archived cell either way.
+_LEGACY_TYPE_LABEL_PREFIXES = {
+    "pubkeyhash": "76a914",
+    "scripthash": "a914",
+    "nulldata": "6a",
+    "witness_v0_keyhash": "0014",
+    "witness_v0_scripthash": "0020",
+    "witness_v1_taproot": "5120",
+}
+_LEGACY_TYPE_LABELS_VALUE_ONLY = frozenset({"multisig", "witness_unknown"})
 _B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 _HEX_RE = re.compile(r"(?:[0-9a-fA-F]{2})+")
@@ -236,6 +271,21 @@ def _satoshi_value(value: str) -> int:
     return result
 
 
+def amount_to_sats(value: str) -> int:
+    """Parse an amount that may be canonical satoshis or a legacy BTC decimal.
+
+    The canonical rendering emits integer satoshis, while the legacy
+    address/BTC-value forms emitted decimals such as ``12.50000000`` or
+    ``1e-08``. A decimal point or exponent marks the BTC form; a bare integer
+    is satoshis. Reading a canonical satoshi amount as BTC would inflate it by
+    a factor of 100,000,000.
+    """
+    normalized = value.strip()
+    if "." in normalized or "e" in normalized.lower():
+        return _coin_value_to_sats(normalized)
+    return _satoshi_value(normalized)
+
+
 def _canonical_claim(position: int, script: str, value: str) -> CoinbaseOutputClaim:
     value_sats = _satoshi_value(value) if value else None
     if script.endswith("*"):
@@ -251,12 +301,29 @@ def _canonical_claim(position: int, script: str, value: str) -> CoinbaseOutputCl
 
 
 def _address_claim(
-    address: str, position: int, value_btc: str | None
+    address: str,
+    position: int,
+    value_btc: str | None,
+    *,
+    child_decoded: bool = False,
 ) -> CoinbaseOutputClaim | None:
     """Return the semantic claim carried by a supported decoded address."""
     decoded = _b58_decode_versioned(address)
-    if decoded is not None and decoded[0] in _P2PKH_VERSIONS:
-        value_sats = None if value_btc is None else _coin_value_to_sats(value_btc)
+    if (
+        decoded is not None
+        and decoded[0] in _P2PKH_VERSIONS
+        and (decoded[0] != 0 or child_decoded)
+    ):
+        # A child-chain rendering (Namecoin 52, Syscoin 63) preserves only the
+        # hash160: the acquisition decoded it through the child node, so the
+        # template behind it is unknown. Bitcoin's own version 0 normally
+        # falls through to an exact P2PKH script claim, because the canonical
+        # rendering shows P2PK as raw hex and so an address really does mean
+        # P2PKH -- unless ``child_decoded`` says the cell came from a child
+        # node whose decode collapses P2PK to the same version-0 address
+        # (Terracoin's Bitcoin-style base58). A P2SH address stays exact in
+        # both cases: only a P2SH script derives it.
+        value_sats = None if value_btc is None else amount_to_sats(value_btc)
         return CoinbaseOutputClaim(
             position,
             value_sats,
@@ -265,38 +332,56 @@ def _address_claim(
     script = address_to_script_pubkey(address)
     if script is None:
         return None
-    value_sats = None if value_btc is None else _coin_value_to_sats(value_btc)
+    value_sats = None if value_btc is None else amount_to_sats(value_btc)
     return CoinbaseOutputClaim(position, value_sats, script_hex=script.hex())
 
 
-def _parse_output_token(token: str, position: int) -> CoinbaseOutputClaim:
+def _parse_output_token(
+    token: str, position: int, *, child_decoded: bool = False
+) -> CoinbaseOutputClaim:
     if token.startswith("OP_RETURN:"):
         return CoinbaseOutputClaim(
             position,
-            _coin_value_to_sats(token.removeprefix("OP_RETURN:")),
+            amount_to_sats(token.removeprefix("OP_RETURN:")),
             script_prefix_hex="6a",
         )
 
     if token.startswith("nonstandard:"):
         payload = token.removeprefix("nonstandard:")
         if ":" not in payload:
-            return CoinbaseOutputClaim(position, _coin_value_to_sats(payload))
+            return CoinbaseOutputClaim(position, amount_to_sats(payload))
         script, value = payload.rsplit(":", 1)
         return CoinbaseOutputClaim(
             position,
-            _coin_value_to_sats(value),
+            amount_to_sats(value),
             script_hex=_normalized_hex(script, label="nonstandard scriptPubKey"),
         )
 
     if token.startswith("pubkey:"):
         return CoinbaseOutputClaim(
-            position, _coin_value_to_sats(token.removeprefix("pubkey:"))
+            position, amount_to_sats(token.removeprefix("pubkey:"))
         )
 
     if ":" not in token:
-        address_claim = _address_claim(token, position, None)
+        if token.startswith("pkh(") and token.endswith(")"):
+            # A recipient-only claim with no amount: the source established
+            # the payout hash160 but not the script behind it.
+            return CoinbaseOutputClaim(
+                position,
+                None,
+                recipient_hash160=_normalized_hex(
+                    token[4:-1], label="recipient hash160"
+                ),
+            )
+        address_claim = _address_claim(
+            token, position, None, child_decoded=child_decoded
+        )
         if address_claim is not None:
             return address_claim
+        if token.endswith("*") and _HEX_RE.fullmatch(token[:-1]):
+            # An amount-less script-prefix claim, symmetric with bare script
+            # hex: the column renderer emits it without a value delimiter.
+            return _canonical_claim(position, token, "")
         return CoinbaseOutputClaim(
             position, script_hex=_normalized_hex(token, label="scriptPubKey")
         )
@@ -312,14 +397,21 @@ def _parse_output_token(token: str, position: int) -> CoinbaseOutputClaim:
             recipient_hash160=left.removeprefix("pkh(").removesuffix(")"),
         )
 
-    address_claim = _address_claim(left, position, right)
+    if left in _LEGACY_TYPE_LABEL_PREFIXES:
+        return CoinbaseOutputClaim(
+            position,
+            amount_to_sats(right),
+            script_prefix_hex=_LEGACY_TYPE_LABEL_PREFIXES[left],
+        )
+    if left in _LEGACY_TYPE_LABELS_VALUE_ONLY:
+        return CoinbaseOutputClaim(position, amount_to_sats(right))
+
+    address_claim = _address_claim(left, position, right, child_decoded=child_decoded)
     if address_claim is not None:
         return address_claim
 
     if not left:
-        value_sats = (
-            _satoshi_value(right) if right.isdigit() else _coin_value_to_sats(right)
-        )
+        value_sats = amount_to_sats(right)
         return CoinbaseOutputClaim(position, value_sats)
     if left.endswith("*") and _HEX_RE.fullmatch(left[:-1]):
         return _canonical_claim(position, left, right)
@@ -556,7 +648,10 @@ def merge_coinbase_output_claim_sets(
 
 
 def parse_coinbase_output_claims(
-    outputs: str, full_coinbase_hex: str = ""
+    outputs: str,
+    full_coinbase_hex: str = "",
+    *,
+    child_decoded_addresses: bool = False,
 ) -> tuple[CoinbaseOutputClaim, ...]:
     """Parse and reconcile heterogeneous output text and a raw coinbase tx.
 
@@ -565,9 +660,14 @@ def parse_coinbase_output_claims(
     ``pkh(<hash160>)`` preserves an address-derived recipient claim when no
     exact script is available. A leading ``~`` marks an ordered filtered
     projection whose ordinals are not absolute transaction positions. Legacy
-    raw-script, address, and address/BTC-value forms are also accepted. A bare
-    address-only list is interpreted as a filtered projection because the
-    historical RPC representation omitted outputs without a decoded address.
+    raw-script, address, and address/BTC-value forms are also accepted;
+    ``child_decoded_addresses`` marks the text as a child node's address
+    decode, where even a version-0 address establishes only the recipient
+    hash160 because such a decode collapses P2PK to the same address.
+    Filtered projections must say so with ``~``: an acquisition that dropped
+    outputs without a decoded address is not inferable from the rendering,
+    because the canonical rendering shows every address-bearing script as an
+    address.
     """
     explicit: list[CoinbaseOutputClaim] = []
     normalized = (outputs or "").strip()
@@ -583,16 +683,18 @@ def parse_coinbase_output_claims(
         stripped_tokens = [
             token.removeprefix("~") if token else "" for token in raw_tokens
         ]
-        legacy_address_projection = bool(nonempty_tokens) and all(
-            ":" not in token and _address_claim(token, 0, None) is not None
-            for token in nonempty_tokens
-        )
-        filtered_projection = marked_filtered or legacy_address_projection
+        # A bare address list no longer implies a filtered projection: the
+        # committed rendering shows every address-bearing script as an
+        # address, so completeness is signalled explicitly with "~" rather
+        # than inferred from the rendering.
+        filtered_projection = marked_filtered
         if filtered_projection and any(not token for token in stripped_tokens):
             raise ValueError("filtered output projections cannot contain gaps")
         for position, token in enumerate(stripped_tokens):
             if token:
-                claim = _parse_output_token(token, position)
+                claim = _parse_output_token(
+                    token, position, child_decoded=child_decoded_addresses
+                )
                 if filtered_projection:
                     claim = replace(claim, position_exact=False)
                 explicit.append(claim)
@@ -611,6 +713,42 @@ def parse_coinbase_output_claims(
             for position, (value_sats, script) in enumerate(parsed["outputs"])
         )
     return merge_coinbase_output_claim_sets(explicit, raw_claims)
+
+
+def render_coinbase_outputs_column(claims: Iterable[CoinbaseOutputClaim]) -> str:
+    """Render claims in the committed ``coinbase_outputs`` column contract.
+
+    Semicolon-joined, in coinbase order, each entry ``<payout>`` or
+    ``<payout>:<value_sats>``, with the Bitcoin address for address-bearing
+    standard templates and raw scriptPubKey hex otherwise. This is the form
+    published datasets carry; ``render_coinbase_output_claims`` renders the
+    module's own reconciliation form instead, which differs only in separator
+    and in always emitting the amount field. Both carry script prefixes and
+    recipient-only claims.
+    """
+    merged = merge_coinbase_output_claim_sets(claims)
+    if not merged:
+        return ""
+    filtered_projection = not merged[0].position_exact
+    marker = "~" if filtered_projection else ""
+    by_position = {claim.position: claim for claim in merged}
+    tokens: list[str] = []
+    for position in range(merged[-1].position + 1):
+        claim = by_position.get(position)
+        if claim is None:
+            tokens.append("")
+            continue
+        if claim.script_hex:
+            payout = canonical_output_token(bytes.fromhex(claim.script_hex))
+        elif claim.recipient_hash160:
+            payout = f"pkh({claim.recipient_hash160})"
+        elif claim.script_prefix_hex:
+            payout = claim.script_prefix_hex + "*"
+        else:
+            payout = ""
+        value = "" if claim.value_sats is None else f":{claim.value_sats}"
+        tokens.append(f"{marker}{payout}{value}" if payout or value else marker + ":")
+    return ";".join(tokens)
 
 
 def render_coinbase_output_claims(
