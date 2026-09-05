@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+Normalize `coinbase_outputs` onto one rendering contract across every
+committed dataset. The column records Bitcoin parent-coinbase payouts, but each
+acquisition path rendered it differently: raw scriptPubKey hex for most chains,
+Bitcoin addresses with BTC amounts for Terracoin (satoshi integers for Bitcoin
+Vault, whose binary parse reads the uint64 directly), hex with
+satoshi amounts for Hathor and the stale-descendant module, and the *child*
+chain's base58/bech32 for Namecoin and Syscoin, which showed Bitcoin payouts as
+`N...`, `M...`, `6...`, `S...`, and `nc1...` addresses. Entries are now
+semicolon-joined `<payout>` or `<payout>:<value_sats>`, with the Bitcoin
+mainnet address for address-bearing standard templates and raw scriptPubKey hex
+for P2PK, nulldata, and nonstandard scripts. A payout known only from a child
+node's decode renders as `pkh(<hash160>)`, since that node derives the same
+address from a P2PKH and a P2PK output. The transformation is
+rendering-only: all 34,270 entries across 3,303 rows keep their exact payout
+identity, order, and amount.
+
+`scripts/prep/normalize_coinbase_outputs.py` applies and (with `--check`)
+verifies the contract, a committed-data test pins it, and every extractor now
+emits it through `format_outputs_canonical`, replacing the two divergent
+`format_outputs_pkhex` / `format_outputs_addr` conventions. JSON-RPC extraction
+now reads `scriptPubKey.hex` rather than the node's decoded `address` field,
+which is what rendered Bitcoin payouts as child-chain addresses at the source.
+Completeness is now stated rather than inferred: `coinbase_output_claims` no
+longer reads a bare address list as a filtered projection, since under one
+contract that rendering no longer implies an address-filtered source, and
+Namecoin's entries carry the `~` marker its acquisition warrants, decided per
+row: 1,476 rows came through the address-filtered path, while 24 arrived as
+complete raw-script vectors and stay position-exact. Without this the
+normalization would have relabelled 1,058 position-exact rows across ten
+chains as filtered.
+
+Generated monitor-evidence and strict/weak payloads still carry the old
+renderings and pick this up at the next full publication run. Closes #50.
+
+Provenance corrections after review: legacy-cell normalization at the archive
+and ancestry read boundaries is now keyed on acquisition provenance, owned by
+`coinbase_output_claims`. Only Namecoin's acquisition dropped outputs its
+node could not name, so only its legacy address-only cells gain the `~`
+marker (`FILTERED_ACQUISITION_CHAINS`); and a legacy cell from an
+address-decode acquisition (`CHILD_DECODED_ACQUISITION_CHAINS`: Namecoin,
+Syscoin, Terracoin) parses its addresses as recipient-only claims even in
+Bitcoin's version-0 form, because such a decode collapses P2PK to the same
+address. That collapse is proven in the data: for one shared parent block,
+Devcoin and Unobtanium hold output 1's raw P2PK script while the Terracoin
+decode rendered the P2PKH-form address of the same hash160, so promoting
+those addresses to exact scripts would make cross-chain evidence merges abort
+on conflicting scripts. `reconcile-stale-ancestry` now normalizes legacy
+inventory cells with the same provenance rather than reading filtered
+ordinals as absolute transaction positions, and the column renderer's
+amount-less script-prefix form (`6a*`) now round-trips through the parser.
+The RSK extractor's private-tier tail evidence now uses the same rendering
+(it previously wrote pipe-joined `value:script_hex`, reversed against the
+contract; already-archived raw files keep that historical form and are not
+read by the pipeline), as do the Lyncoin candidate-inventory and Vcash
+canonical-companion producers, which previously wrote raw semicolon-joined
+scripts without amounts. `format_outputs_canonical` also stops dropping an
+output whose script bytes are unavailable: the slot renders amount-only (or
+as an empty gap) so later outputs keep their transaction positions, the
+normalizer preserves a leading gap instead of renumbering past it, and the
+claims parser accepts the legacy RPC `type:value` placeholders (template
+types become script-prefix claims, `76a914*` for `pubkeyhash` and so on;
+`multisig` and `witness_unknown` establish only the amount) so archive rows
+carrying them normalize instead of aborting publication. The JSON-RPC amount
+path fails closed on a value that is not a whole number of satoshis instead
+of rounding it, matching the parse side. Committed rows from the raw-script
+acquisitions predate amount retention and stay payout-only; a regeneration
+would add amounts, a pure refinement the publication floor accepts
+(documented in data-reference.md).
+
 Hydrate `btc_header_hex` for the 228 accepted Namecoin rows whose loader
 input carried no header (their keys were already upstream, so the original
 compact input deferred to the upstream record). The bytes come from the
