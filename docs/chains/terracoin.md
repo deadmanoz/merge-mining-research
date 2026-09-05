@@ -68,14 +68,18 @@ The 99.95% AuxPoW-density figure is exact at the extraction stage: 2,368,318 Aux
 **Chain-specific quirks.**
 
 - **Dash heritage**: the only Dash-Core-derived chain in scope (RSK, Elastos, and Hathor are non-Bitcoin-Core on other lineages). AuxPoW extraction is unaffected (`getblock` JSON works as for Syscoin), and with the wallet disabled at configure time the build needs neither Berkeley DB nor source patches.
-- **`coinbase_outputs` uses the legacy `scriptPubKey.addresses` plural array**:
-  terracoind is Dash-Core-0.12.x-derived, predating Bitcoin Core 0.18.0 (Apr
-  2019), and exposes parent-coinbase addresses via the legacy plural
-  `scriptPubKey.addresses` rather than the modern singular `.address` field.
-  The normal extractor reads both shapes, so the regenerated classifier and
-  validated outputs carry actual `addr:value|...` evidence. An earlier
-  attribution pass recognised two additional `1Hash` rows from those output
-  addresses; this is a historical result, not a current pipeline stage.
+- **`coinbase_outputs` is decode-era evidence, recipient-only**: the
+  committed cells were populated by the original backfill from terracoind's
+  decoded `scriptPubKey.address`/`addresses` fields, and that decode renders
+  a P2PK output as the P2PKH-form address of its pubkey's hash160 (proven by
+  BTC `...67a249`, whose output 1 Devcoin and Unobtanium hold as a raw P2PK
+  script while the Terracoin decode shows the collapsed address). Address
+  tokens therefore establish only the recipient and are committed as
+  `pkh(<hash160>)`. The current extractor and backfill read
+  `scriptPubKey.hex`, so a regeneration from the node would strengthen these
+  to exact scripts. An earlier attribution pass recognised two additional
+  `1Hash` rows from those output addresses; this is a historical result, not
+  a current pipeline stage.
 - **Strict chain ID enforcement**: `fStrictChainId=true`, `nAuxpowChainId=0x0032`. This prevents the parent header from using Terracoin's own chain ID; it does not establish Bitcoin parent identity or a Bitcoin-valid version.
 - **Historical attribution context**: a private 2026-04-25 scriptSig-marker pass identified 28 of the 35 accepted rows (BTC.TOP 12, 1THash 8, Huobi Pool 6, WAYI.CN 2; 7 unidentified), and the coinbase-outputs backfill later added the two `1Hash` rows noted above. Mining-Dutch / Zergpool / Pool4ever (header table) are the chain's *current* SHA-256 network pools, not recovered-stale attributions. The public recovery pipeline does not reproduce any of those labels. The public result is the accepted direct-stale set and its novelty accounting.
 
@@ -90,7 +94,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The loader parses `coinbase_outputs` ("addr:value|..." with addresses sourced from the legacy plural `scriptPubKey.addresses` field - see §2 "Chain-specific quirks"). All 35 entries pass the filter.
+`coinbase_outputs` follows the shared canonical rendering with integer-satoshi amounts (see [`data-reference.md`](../data-reference.md)); the committed cells are decode-era evidence, so address-derived payouts are recipient-only `pkh(<hash160>)` claims (see §2 "Chain-specific quirks"). The current extractor and backfill read `scriptPubKey.hex`, so regenerated data would carry exact scripts instead. All 35 entries pass the filter.
 
 **Post-filter count: 35 accepted direct-stale header candidates.**
 

@@ -87,6 +87,25 @@ serialized parent coinbase transaction, its parent-merkle branch, or a
 self-contained AuxPoW proof. The hydration is reproducible from the committed
 monitor evidence alone.
 
+`coinbase_outputs` was acquired by decoding the Bitcoin parent coinbase through
+namecoind, which rendered the payouts in Namecoin's own address formats
+(base58 versions 52 and 13, `nc1...` bech32). Those entries are now normalized
+to the rendering described in
+[`data-reference.md`](../data-reference.md); the hash160 and witness program of
+every payout are unchanged. Payouts that namecoind decoded to a P2PKH-version
+address render as `pkh(<hash160>)` rather than a Bitcoin address, because
+namecoind derives the same address from a P2PKH and a P2PK output and the
+archive shows both behind these entries. 1,476 of the rows carry the `~` filtered-projection
+marker, because that acquisition kept only address-bearing outputs and an
+entry's ordinal is therefore its order in the surviving list rather than its
+transaction position. The other 24 rows reached the loader as complete
+raw-script vectors, retaining their nulldata outputs, so their ordinals are
+real transaction positions and they stay unmarked. The scale of the filtering
+is 306 accepted rows carrying an incomplete list and 149 more carrying none at
+all, where the coinbase paid solely to P2PK, nulldata, or nonstandard
+scripts. Those outputs survive in the
+private raw-script inventory and are not recoverable from the public checkout.
+
 The pinned upstream dataset carries a matching full-block blob for 319 of the
 1,649 direct candidates. The repository confirms that each blob starts with
 the expected header, but none has undergone full historical consensus replay

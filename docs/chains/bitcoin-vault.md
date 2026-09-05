@@ -37,7 +37,7 @@ The other novelty BTCV brings to the catalogue: it's the second visual-similarit
 
 **Reference scripts.**
 
-- `scripts/extract/extract_bitcoin_vault_auxpow.py:1` - stdlib-only urllib-based extractor (no third-party dependencies; the 3 NixOS VPSes don't have `requests` and root partitions are tight). BTC coinbase-output addresses are decoded via the shared `stale_blocks_analysis.bitcoin_binary.format_outputs_addr` helper (bech32 + base58check), not inlined in the extractor.
+- `scripts/extract/extract_bitcoin_vault_auxpow.py:1` - stdlib-only urllib-based extractor (no third-party dependencies; the 3 NixOS VPSes don't have `requests` and root partitions are tight). BTC coinbase outputs are rendered via the shared `stale_blocks_analysis.bitcoin_binary.format_outputs_canonical` helper (bech32 + base58check), not inlined in the extractor.
 - `scripts/classify/classify_bitcoin_vault_stales.py:1` - BTC RPC batch classifier on `<archival-host>` (`requests`-based, same shape as `classify_syscoin_stales.py`).
 - `scripts/extract/_btcv_extract_status.sh:1` - 4-host partition-map-aware status helper (the partition map was revised mid-run when worker-a hit 100% disk at h=128,495 and the remaining ~14k blocks were reassigned to worker-c as a second concurrent process).
 
@@ -75,7 +75,7 @@ Zero unknowns is unusual. Most pipeline chains have orders-of-magnitude more unk
 - **`fStrictChainId=true`, hard activation at h=58420**. No version-bit-driven implicit activation gate (unlike Jincoin) and no `nLegacyBlocksBefore` constant. Every block ≥ 58,420 has chain ID `0x0666` in the high 16 bits of `nVersion`; blocks below 58,420 don't carry AuxPoW (except 4 known pre-fork blocks special-cased via `IsFakeAuxpowPreforkBlock`).
 - **Visual-similarity chain-ID-collision-class with Emercoin**. BTCV chain ID `0x0666` (1638 dec); Emercoin chain ID `666` dec (`0x029A` hex). Different by an order of magnitude. Anywhere either chain ID is recorded - catalogue rows, cross-reference tables, pipeline constants - the convention is to write both forms with explicit `dec`/`hex` labels.
 - **Historical pool-label shift**. A private attribution pass associated the early surviving rows with KnoxPool, BTCPool, and TogetherPool and later low-target submissions with Binance Pool. The public pipeline does not recompute this attribution. After the accepted candidate at BTC height 699,616 / BTCV height 100,670, the extraction covers roughly 128,000 more AuxPoW blocks without another accepted direct-stale candidate.
-- **`coinbase_outputs` semicolon-joined addresses**: the loader transforms the `addr:value|addr:value|OP_RETURN:value` format emitted by the extractor's shared `bitcoin_binary` bech32+base58 decoders into the Syscoin-pattern `addr;addr` format. `nonstandard:<hex>` entries (very rare) are dropped alongside `OP_RETURN`.
+- **`coinbase_outputs`**: follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)), rendered by the extractor's shared `bitcoin_binary` encoders. The loader passes the cell through unchanged; the claims layer reads it directly, so the `OP_RETURN` placeholders keep their positions.
 
 ## 3. Filtering → accepted direct-stale candidates
 
