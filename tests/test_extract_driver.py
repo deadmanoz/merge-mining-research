@@ -490,7 +490,9 @@ def test_standard_auxpow_parse_row_uses_spec_height_column() -> None:
     assert row["btc_bits"] == parent["bits_hex"]
     assert row["btc_height"] == ""
     assert row["coinbase_scriptsig_hex"] == ""
-    assert row["coinbase_outputs"] == "51"
+    # Nonstandard scripts keep their hex, and the canonical rendering carries
+    # the satoshi amount the raw-hex convention used to discard.
+    assert row["coinbase_outputs"] == "51:1"
     assert row["btc_header_hex"] == parent["header_hex"]
 
 

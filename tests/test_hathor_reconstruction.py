@@ -396,4 +396,5 @@ def test_hathor_loader_requires_valid_validation_status(
     rows = stale_blocks.load_hathor_stales(min_height=0)
 
     assert [row["hash"] for row in rows] == ["validhash"]
-    assert rows[0]["_outputs_str"] == "51"
+    # The loader passes the committed rendering through, amount included.
+    assert rows[0]["_outputs_str"] == "51:1"

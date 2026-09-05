@@ -41,7 +41,7 @@ from .auxpow_parse import (
     read_auxpow,
     standard_auxpow_extraction_columns,
 )
-from .bitcoin_binary import format_outputs_pkhex
+from .bitcoin_binary import format_outputs_canonical
 from .config import PROJECT_ROOT, ChainSpec
 
 # gate(version, stats) -> True to keep parsing the block, False to skip it.
@@ -272,7 +272,7 @@ def standard_auxpow_parse_row(
         "btc_bits": parent["bits_hex"],
         "btc_height": btc_height if btc_height is not None else "",
         "coinbase_scriptsig_hex": scriptsig.hex(),
-        "coinbase_outputs": format_outputs_pkhex(tx["vout"]),
+        "coinbase_outputs": format_outputs_canonical(tx["vout"]),
         "btc_header_hex": parent["header_hex"],
     }
 

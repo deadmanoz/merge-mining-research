@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Backfill coinbase_outputs with decoded addresses for Terracoin stales.
 
-terracoind (Dash-Core-0.12.x-derived) exposes parent-coinbase output
-addresses via the legacy `scriptPubKey.addresses` plural array, not the
-`scriptPubKey.address` singular field that scripts/extract/extract_terracoin_auxpow.py
-originally checked. The extractor has since been fixed (commit history) to
-read both shapes; this script re-fetches the 35 validated-stale TRC blocks
-from a running terracoind and rewrites the coinbase_outputs
-column in:
+Re-fetches the 35 validated-stale TRC blocks from a running terracoind and
+rewrites their `coinbase_outputs` in the shared canonical rendering (see
+docs/data-reference.md), sourced from `scriptPubKey.hex`. terracoind
+(Dash-Core-0.12.x-derived) decodes addresses through Dash's base58, so its
+`scriptPubKey.address`/`addresses` fields are never used. The columns
+rewritten are:
   - data/validated-stales/terracoin_validated_stales.csv (committed; load_terracoin_stales input)
   - data/terracoin_stale_blocks.csv (intermediate; stale rows only)
 
@@ -28,6 +27,7 @@ import csv
 import os
 from pathlib import Path
 
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.child_rpc import RpcClient
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -47,32 +47,6 @@ def fetch_block(rpc: RpcClient, trc_hash: str) -> dict:
 def get_trc_hash(rpc: RpcClient, trc_height: int) -> str:
     """Resolve a Terracoin block hash for ``trc_height`` over JSON-RPC."""
     return rpc.call("getblockhash", [trc_height])
-
-
-def format_outputs(vout: list) -> str:
-    """Format decoded ``vout`` entries as ``addr_or_type:value|...``.
-
-    Prefers the singular ``scriptPubKey.address``, falls back to the first
-    entry of the legacy plural ``addresses`` array, then to ``OP_RETURN`` for
-    ``nulldata`` outputs or the raw script type otherwise.
-    """
-    parts = []
-    for out in vout:
-        spk = out.get("scriptPubKey", {})
-        addr = spk.get("address", "")
-        if not addr:
-            addrs = spk.get("addresses") or []
-            if addrs:
-                addr = addrs[0]
-        typ = spk.get("type", "")
-        val = out.get("value", 0)
-        if addr:
-            parts.append(f"{addr}:{val}")
-        elif typ == "nulldata":
-            parts.append(f"OP_RETURN:{val}")
-        else:
-            parts.append(f"{typ}:{val}")
-    return "|".join(parts)
 
 
 def main() -> int:
@@ -106,7 +80,7 @@ def main() -> int:
         vout = (auxpow.get("tx") or {}).get("vout") or []
         if not vout:
             raise RuntimeError(f"no vout in auxpow for TRC {trc_height}")
-        outputs = format_outputs(vout)
+        outputs = format_outputs_canonical(vout)
         # Sanity: parent header in JSON must match what we already recorded.
         parent_hex = auxpow.get("parentblock", "")
         if parent_hex.lower() != row["btc_header_hex"].lower():

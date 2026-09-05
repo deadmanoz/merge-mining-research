@@ -169,7 +169,10 @@ def test_hydrates_only_canonical_rows_with_explicit_provenance(tmp_path: Path) -
     assert row["btc_header_hex"] == header_hex
     assert len(row["btc_header_hex"]) == 160
     assert row["coinbase_scriptsig_hex"] == "03aabbcc"
-    assert row["coinbase_outputs"] == ("76a914" + "33" * 20 + "88ac;6a01ff")
+    # The shared canonical rendering: a P2PKH script shows as its Bitcoin
+    # address, nulldata stays raw hex, and the fixture's vout carries no
+    # amounts so no value suffix is emitted.
+    assert row["coinbase_outputs"] == "15fioDrrk36NmHdRCtGTu2TMj6rPXzG3sn;6a01ff"
     assert row["source_path"] == "<chain-archive>/vcash/wayback_scrape/results.tsv"
     assert row["source_row_number"] == "2"
     assert row["classification_source_row_number"] == "2"

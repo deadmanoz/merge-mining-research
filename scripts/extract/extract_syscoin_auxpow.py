@@ -21,7 +21,7 @@ from pathlib import Path
 # shared modules are pure-stdlib and safe to import on the archival host.
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.auxpow_parse import parse_parent_header
-from stale_blocks_analysis.bitcoin_binary import format_outputs_addr
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.coinbase_markers import parse_bip34_height
 from stale_blocks_analysis.rpc_env import load_local_rpc_env, rpc_auth_from_env
 
@@ -115,7 +115,7 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict):
             btc_height = parse_bip34_height(bytes.fromhex(scriptsig))
         except ValueError:
             btc_height = None
-        outputs = format_outputs_addr(vout)
+        outputs = format_outputs_canonical(vout)
 
         writer.writerow(
             {

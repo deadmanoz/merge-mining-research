@@ -50,7 +50,7 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     parse_parent_header,
     read_auxpow,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +418,7 @@ def process_chain(
                 scriptsig = coinbase_tx["vin"][0]["scriptsig"]
 
             bip34_height = parse_coinbase_height(scriptsig)
-            outputs = format_outputs_pkhex(coinbase_tx["vout"])
+            outputs = format_outputs_canonical(coinbase_tx["vout"])
 
             row = {
                 **provisional_child_fields(parsed),

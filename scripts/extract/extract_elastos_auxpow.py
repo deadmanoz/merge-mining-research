@@ -40,7 +40,7 @@ from stale_blocks_analysis.auxpow_parse import (
     parse_parent_header,
     read_auxpow,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 
 # Scan slightly before the observed transition so the data, rather than an
 # assumed activation boundary, determines where non-dummy parent proofs begin.
@@ -101,9 +101,9 @@ def parse_auxpow_hex(auxpow_hex: str) -> dict | None:
     scriptsig = vin[0]["scriptsig"] if vin else b""
     btc_height = parse_coinbase_height(scriptsig)
 
-    # Raw pkscript hex, semicolon-joined, matching the i0coin/ixcoin blkdat
-    # format and preserving the outputs for later attribution research.
-    outputs = format_outputs_pkhex(vouts)
+    # The shared canonical rendering (docs/data-reference.md), preserving
+    # the outputs for later attribution research.
+    outputs = format_outputs_canonical(vouts)
 
     return {
         "btc_header_hash": parent["hash"],

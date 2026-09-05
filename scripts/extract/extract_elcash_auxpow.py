@@ -39,7 +39,7 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     read_auxpow,
     standard_auxpow_extraction_columns,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical  # noqa: E402
 
 RPC_URL = os.environ.get("ELCASH_RPC_URL", "http://127.0.0.1:18432")
 
@@ -156,7 +156,7 @@ def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict) -> 
                 "btc_bits": parent["bits_hex"],
                 "btc_height": btc_height if btc_height is not None else "",
                 "coinbase_scriptsig_hex": scriptsig.hex(),
-                "coinbase_outputs": format_outputs_pkhex(tx["vout"]),
+                "coinbase_outputs": format_outputs_canonical(tx["vout"]),
                 "btc_header_hex": parent["header_hex"],
             }
         )

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from .auxpow_chainid import hash_from_header_bytes, hash_to_display_hex
+from .bitcoin_binary import format_outputs_canonical
 
 
 CHAIN = "vcash"
@@ -350,9 +351,10 @@ def _header_fields(header_hex: str, *, expected_hash: str) -> dict[str, str]:
 def _coinbase_fields(block: Mapping[str, Any], *, btc_hash: str) -> dict[str, str]:
     """Extract coinbase fields from a verbosity-2 ``getblock`` result.
 
-    Returns ``coinbase_scriptsig_hex``, ``coinbase_outputs`` (``;``-joined
-    output ``scriptPubKey`` hex strings), and ``full_coinbase_hex`` (empty
-    string if Core did not include it), all lowercase. Raises ``ValueError``
+    Returns ``coinbase_scriptsig_hex``, ``coinbase_outputs`` (the shared
+    canonical rendering via ``format_outputs_canonical``), and
+    ``full_coinbase_hex`` (empty string if Core did not include it), all
+    lowercase. Raises ``ValueError``
     if the block carries no decoded coinbase transaction, no coinbase input,
     or a malformed scriptSig/output script.
     """
@@ -384,7 +386,6 @@ def _coinbase_fields(block: Mapping[str, Any], *, btc_hash: str) -> dict[str, st
         raise ValueError(
             f"Bitcoin Core getblock returned no coinbase outputs for {btc_hash}"
         )
-    output_scripts: list[str] = []
     for output in vout:
         if not isinstance(output, Mapping):
             raise ValueError(
@@ -402,7 +403,6 @@ def _coinbase_fields(block: Mapping[str, Any], *, btc_hash: str) -> dict[str, st
             raise ValueError(
                 f"Bitcoin Core getblock returned malformed output script for {btc_hash}"
             ) from exc
-        output_scripts.append(script_hex.lower())
 
     full_coinbase = coinbase.get("hex", "")
     if full_coinbase in (None, ""):
@@ -421,7 +421,7 @@ def _coinbase_fields(block: Mapping[str, Any], *, btc_hash: str) -> dict[str, st
 
     return {
         "coinbase_scriptsig_hex": scriptsig.lower(),
-        "coinbase_outputs": ";".join(output_scripts),
+        "coinbase_outputs": format_outputs_canonical(vout),
         "full_coinbase_hex": full_coinbase.lower(),
     }
 

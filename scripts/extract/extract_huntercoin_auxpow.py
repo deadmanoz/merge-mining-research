@@ -45,7 +45,7 @@ from stale_blocks_analysis.auxpow_parse import (
     parse_parent_header,
     read_auxpow,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_BLOCKS_DIR = REPO_ROOT / "data" / "prototype" / "huntercoin" / "arweave-blocks"
@@ -185,7 +185,7 @@ def parse_huc_block(
         "btc_version": parent["version"],
         "pow_valid": "1" if pow_ok else "0",
         "coinbase_scriptsig_hex": scriptsig.hex(),
-        "coinbase_outputs": format_outputs_pkhex(tx["vout"]),
+        "coinbase_outputs": format_outputs_canonical(tx["vout"]),
         "btc_header_hex": parent["header_hex"],
     }
 
