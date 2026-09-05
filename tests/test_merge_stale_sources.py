@@ -372,16 +372,16 @@ def test_base58_checksum_is_verified():
 
 def test_duplicate_observations_union_their_outputs():
     """Chains describe the same coinbase differently: a Namecoin RPC gives
-    decoded addresses (dropping OP_RETURN and P2PK), ixcoin gives raw
-    scripts. Keeping only the first list discards evidence another chain
-    preserved, so the lists are unioned."""
+    decoded addresses (dropping OP_RETURN and P2PK, hence the "~" filtered
+    marker), ixcoin gives raw scripts. Keeping only the first list discards
+    evidence another chain preserved, so the lists are unioned."""
     primary = [
         {
             "height": 162_012,
             "hash": "aa",
             "source": "namecoin",
             "_scriptsig_hex": "aabb",
-            "_outputs_str": "NGDwrUEyBNkfxtrE7SK53f2fcTDq9YRSHC",
+            "_outputs_str": "~NGDwrUEyBNkfxtrE7SK53f2fcTDq9YRSHC",
         }
     ]
     auxpow = [
@@ -530,7 +530,10 @@ def test_outputs_alone_are_enough_to_identify(monkeypatch):
     assert out[0]["pool"] == "OutputsOnlyPool"
     assert seen["sig"] == b""
     assert seen["outputs"] is None
-    assert seen["output_claims"][0].recipient_hash160
+    # A canonical Bitcoin address parses to its exact P2PKH script, so the
+    # payout identity travels as the script rather than a bare hash160.
+    claim = seen["output_claims"][0]
+    assert claim.script_hex or claim.recipient_hash160
 
 
 def test_parse_coinbase_rejects_a_truncated_output_script():

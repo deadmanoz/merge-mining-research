@@ -220,21 +220,6 @@ def test_load_namecoin_stales_exact_validation_keeps_post_bch_rows(
     assert all(r["source"] == "namecoin" for r in recs)
 
 
-def test_parse_addr_outputs_drops_op_return_and_nonstandard():
-    from stale_blocks_analysis.stale_blocks import _parse_addr_outputs
-
-    # Pipe-delimited "addr:value" pairs collapse to a ";"-joined address list;
-    # OP_RETURN and empty tokens are always dropped. This transform preserves
-    # the established loader shape for syscoin/terracoin/bitcoin-vault rows.
-    assert _parse_addr_outputs("A:1|B:2|OP_RETURN:0") == "A;B"
-    assert _parse_addr_outputs("|A:1||") == "A"
-    # drop_nonstandard (addr_nonstandard mode) additionally removes nonstandard* outputs.
-    assert (
-        _parse_addr_outputs("A:1|nonstandard_x:0|B:2", drop_nonstandard=True) == "A;B"
-    )
-    assert _parse_addr_outputs("A:1|nonstandard_x:0|B:2") == "A;nonstandard_x;B"
-
-
 def test_load_rsk_stales_parallel_schema_ignores_historical_pool_labels(
     tmp_path, monkeypatch
 ):
@@ -353,7 +338,7 @@ def test_stale_descendant_tagging_reads_canonical_script_value_outputs() -> None
 @pytest.mark.parametrize(
     ("raw_outputs", "expected_marker", "expected_value"),
     [
-        ("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU", "~", ""),
+        ("~MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU", "~", ""),
         ("MxCo7KsbZLQbfZNdeYvnhaRRr5kvFnGUgU:1.25", "", "125000000"),
     ],
 )

@@ -20,7 +20,6 @@ UNOBTANIUM_CSV, ELCASH_CSV), coinbase_output_claims.
 
 import csv
 from dataclasses import dataclass
-from typing import Literal
 
 from .coinbase_output_claims import (
     parse_coinbase_output_claims,
@@ -89,9 +88,6 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
     return rows
 
 
-OutputsMode = Literal["raw", "addr", "addr_nonstandard"]
-
-
 @dataclass(frozen=True)
 class LoaderSpec:
     """Declarative description of one AuxPoW validated-stale loader.
@@ -110,9 +106,6 @@ class LoaderSpec:
       - every committed input row must have one of the two exact accepted
         validation statuses: ``VALID`` or
         ``VALID (post-BCH, difficulty matches BTC)``.
-      - outputs: coinbase_outputs handling — "raw" (passthrough),
-        "addr" (parse "addr:value|..." to "addr;addr", dropping OP_RETURN),
-        or "addr_nonstandard" (as "addr" but also dropping "nonstandard*").
       - skip_empty_height: skip rows whose height column is empty (Terracoin).
 
     Loader-level concerns deliberately live here rather than on
@@ -128,21 +121,7 @@ class LoaderSpec:
     height_col: str = "btc_height"
     hash_col: str = "btc_header_hash"
     require_stale: bool = True
-    outputs: OutputsMode = "raw"
     skip_empty_height: bool = False
-
-
-def _parse_addr_outputs(raw_outputs: str, *, drop_nonstandard: bool = False) -> str:
-    """Convert "addr:value|addr:value|OP_RETURN:value" to "addr;addr"."""
-    addrs = []
-    for part in raw_outputs.split("|"):
-        addr = part.split(":")[0].strip()
-        if not addr or addr == "OP_RETURN":
-            continue
-        if drop_nonstandard and addr.startswith("nonstandard"):
-            continue
-        addrs.append(addr)
-    return ";".join(addrs)
 
 
 def load_auxpow_validated_stales(
@@ -152,8 +131,8 @@ def load_auxpow_validated_stales(
 
     Reads the CSV named by ``spec.csv_attr`` (resolved against this module's
     globals at call time), applies the spec's classification/validation gates
-    and height floor, normalizes coinbase outputs per ``spec.outputs``, and
-    emits canonical records ({height, hash, source, _scriptsig_hex,
+    and height floor, passes the canonical ``coinbase_outputs`` cell through
+    unchanged, and emits canonical records ({height, hash, source, _scriptsig_hex,
     _outputs_str}) sorted by height. Returns [] if the CSV is absent.
     """
     csv_path = globals()[spec.csv_attr]
@@ -176,13 +155,10 @@ def load_auxpow_validated_stales(
             h = int(row[spec.height_col])
             if h < min_height:
                 continue
-            raw_outputs = row.get("coinbase_outputs", "")
-            if spec.outputs == "addr":
-                outputs_str = _parse_addr_outputs(raw_outputs)
-            elif spec.outputs == "addr_nonstandard":
-                outputs_str = _parse_addr_outputs(raw_outputs, drop_nonstandard=True)
-            else:
-                outputs_str = raw_outputs
+            # Every chain now commits the same rendering, which the claims
+            # parser reads directly. Rewriting it here dropped placeholder
+            # outputs (renumbering the survivors) and stripped their amounts.
+            outputs_str = row.get("coinbase_outputs", "")
             rows.append(
                 {
                     "height": h,
@@ -215,12 +191,10 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "syscoin": LoaderSpec(
         csv_attr="SYSCOIN_CSV",
         source="syscoin",
-        outputs="addr",
     ),
     "devcoin": LoaderSpec(
         csv_attr="DEVCOIN_CSV",
         source="devcoin",
-        outputs="addr",
     ),
     "i0coin": LoaderSpec(
         # Normalized to the shared schema in the data pass (legacy file used
@@ -236,7 +210,6 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "ixcoin": LoaderSpec(
         csv_attr="IXCOIN_CSV",
         source="ixcoin",
-        outputs="addr",
     ),
     "groupcoin": LoaderSpec(
         csv_attr="GROUPCOIN_CSV",
@@ -277,7 +250,6 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "terracoin": LoaderSpec(
         csv_attr="TERRACOIN_CSV",
         source="terracoin",
-        outputs="addr",
         skip_empty_height=True,
     ),
     "emercoin": LoaderSpec(
@@ -303,7 +275,6 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "hathor": LoaderSpec(
         csv_attr="HATHOR_CSV",
         source="hathor",
-        outputs="addr",
     ),
     "fractal": LoaderSpec(
         csv_attr="FRACTAL_CSV",
@@ -312,7 +283,6 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "bitcoin_vault": LoaderSpec(
         csv_attr="BITCOIN_VAULT_CSV",
         source="bitcoin-vault",
-        outputs="addr_nonstandard",
     ),
 }
 
@@ -353,9 +323,11 @@ def load_syscoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Returns records in the same shape as load_namecoin_stales() with
     source="syscoin". Only loads entries with classification "stale".
 
-    Syscoin `coinbase_outputs` use `addr:value|addr:value` format; this
-    function converts them to the established semicolon-separated bare-address
-    representation preserved by all loaders.
+    Legacy Syscoin acquisition decoded payouts through the child node
+    (version-63 base58 / `sys1` bech32), so address-derived entries survive as
+    recipient-only `pkh(<hash160>)` claims. The committed cell follows the
+    shared rendering contract (docs/data-reference.md) and the loader passes
+    it through unchanged.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["syscoin"], min_height=min_height)
 
@@ -380,7 +352,8 @@ def load_i0coin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     source="i0coin". Only loads entries with an exact accepted direct-stale
     validation status. The committed CSV uses the shared normalized
     validated-stales schema, including ``btc_height`` and
-    ``btc_header_hash``. Coinbase outputs remain raw scriptPubKey hex.
+    ``btc_header_hash``. ``coinbase_outputs`` follows the shared rendering
+    contract (docs/data-reference.md).
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["i0coin"], min_height=min_height)
 
@@ -390,9 +363,9 @@ def load_coiledcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
     Returns records in the same shape as load_devcoin_stales() with
     source="coiledcoin". Only loads entries with classification "stale".
-    CoiledCoin's `coinbase_outputs` column is the raw scriptPubKey-hex
-    semicolon-joined form (matches i0coin/ixcoin/elastos blkdat format),
-    so values are preserved unchanged for later attribution research. The CSV
+    CoiledCoin's `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is passed through unchanged for later
+    attribution research. The CSV
     also carries an `eligius_attack_window` flag column
     marking records in the Jan 2012 Eligius 51% attack window
     (BTC ~160,000-163,000); this column is preserved for diagnostic use
@@ -420,12 +393,11 @@ def load_groupcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
     Groupcoin's data was sourced from a complete `getblock`-JSON archival
     dump shared by Nicholas Stifter; the network is dead and has no surviving
-    public infrastructure. `coinbase_outputs` is raw scriptPubKey hex
-    semicolon-joined (matches i0coin/Unobtanium/Huntercoin format) and is
-    preserved for later attribution research. The dump's pre-decoded
-    `vout[*].scriptPubKey.addresses` are Groupcoin-base58-encoded (e.g.
-    `2h…`) rather than BTC mainnet and must NOT be used — the classifier
-    deliberately emits the raw pkscript hex instead.
+    public infrastructure. `coinbase_outputs` follows the shared rendering
+    contract (docs/data-reference.md), rendered from the dump's raw script
+    bytes. The dump's pre-decoded `vout[*].scriptPubKey.addresses` are
+    Groupcoin-base58-encoded (e.g. `2h…`) rather than BTC mainnet and must
+    NOT be used — the classifier renders from the script bytes instead.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["groupcoin"], min_height=min_height
@@ -442,9 +414,9 @@ def load_huntercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Huntercoin's data was sourced via Arweave from the domob1812/arblockstore
     permaweb archive — the network itself is dead. The validated CSV holds
     only the SHA-256d branch (chain ID 6, BTC parent); the Scrypt branch
-    (chain ID 2, LTC parent) is out of scope. coinbase_outputs is the raw
-    scriptPubKey hex semicolon-joined form (matches i0coin/ixcoin/Unobtanium
-    blkdat format), so it is preserved unchanged for later attribution.
+    (chain ID 2, LTC parent) is out of scope. ``coinbase_outputs`` follows the shared
+    rendering contract (docs/data-reference.md) and is preserved unchanged
+    for later attribution.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["huntercoin"], min_height=min_height
@@ -456,9 +428,9 @@ def load_unobtanium_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
     Returns records in the same shape as load_elastos_stales() with
     source="unobtanium". Only loads entries with classification "stale".
-    Unobtanium coinbase_outputs are raw pkscript hex semicolon-joined (matches
-    i0coin/ixcoin/elastos blkdat format), so they are preserved unchanged for
-    later attribution research.
+    Unobtanium `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is preserved unchanged for later attribution
+    research.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["unobtanium"], min_height=min_height
@@ -473,9 +445,8 @@ def load_myriadcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Myriadcoin's multi-algo PoW (SHA-256d / Scrypt / Groestl / Yescrypt /
     Argon2d) means only the SHA-256d branch is Bitcoin-parent merge-mined;
     the extractor filters on nVersion bits 9-11 before parsing. Myriadcoin
-    coinbase_outputs are raw pkscript hex semicolon-joined (matches the
-    i0coin/ixcoin/elastos/unobtanium blkdat format), so they are preserved for
-    later attribution research.
+    `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is preserved for later attribution research.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["myriadcoin"], min_height=min_height
@@ -504,8 +475,9 @@ def load_bitmark_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     but only the SHA-256d branch is Bitcoin-parent in this project scope.
     The extractor filters on nVersion bits 9-11 (ALGO_SHA256D = 1 on
     Bitmark) and the AuxPoW flag before parsing the Namecoin-style CAuxPow
-    payload. `coinbase_outputs` is raw pkscript hex semicolon-joined and is
-    preserved unchanged for later attribution research.
+    payload. `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is preserved unchanged for later attribution
+    research.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["bitmark"], min_height=min_height)
 
@@ -546,9 +518,9 @@ def load_crown_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     went PoS-hybrid at 2,330,000 (PoS blocks carry no AuxPoW). The
     extractor (extract_crown_auxpow.py) gates on the AuxPoW version bit
     and parses the Namecoin-style CAuxPow from raw block hex. Crown
-    coinbase_outputs are raw pkscript hex semicolon-joined (matches the
-    myriadcoin/argentum/ixcoin format), so they are preserved unchanged for
-    later attribution research.
+    `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is preserved unchanged for later attribution
+    research.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["crown"], min_height=min_height)
 
@@ -565,9 +537,9 @@ def load_xaya_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     1829; Xaya has no fStrictChainId flag). SHA256D-AuxPoW is active from genesis
     (2018-07-13). The extractor (extract_xaya_auxpow.py) parses Xaya's PowData
     block-header wrapper, keys on the 0x80 merge-mined flag, and reuses the
-    shared Namecoin-style CAuxPow parser. Xaya coinbase_outputs are raw pkscript
-    hex semicolon-joined (matches the crown/myriadcoin/ixcoin format), so they
-    are preserved unchanged for later attribution research.
+    shared Namecoin-style CAuxPow parser. Xaya `coinbase_outputs` follows the
+    shared rendering contract (docs/data-reference.md) and is preserved
+    unchanged for later attribution research.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["xaya"], min_height=min_height)
 
@@ -578,10 +550,12 @@ def load_terracoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Returns records in the same shape as load_syscoin_stales() with
     source="terracoin". Only loads entries with classification "stale".
 
-    `coinbase_outputs` is "addr:value|..." matching the other AuxPoW-derived
-    loaders. terracoind exposes addresses via the legacy `scriptPubKey.addresses`
-    plural array (pre-Bitcoin-Core-0.18 shape); the extractor reads both that
-    and the modern singular `address` field.
+    The committed `coinbase_outputs` cells are decode-era evidence: the
+    original backfill read terracoind's decoded address fields, whose
+    rendering collapses P2PK to the P2PKH-form address, so address-derived
+    payouts survive as recipient-only `pkh(<hash160>)` claims per the shared
+    contract (docs/data-reference.md). The loader passes the cell through
+    unchanged.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["terracoin"], min_height=min_height
@@ -597,9 +571,9 @@ def load_emercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Emercoin is a hybrid PoW/PoS chain (Peercoin lineage). Only PoW blocks
     carry the Namecoin-style AuxPoW commitment; the PoS branch is filtered
     at extraction time (~15.5% of post-MMHeight EMC blocks are PoW).
-    `coinbase_outputs` is raw pkscript hex semicolon-joined, matching the
-    myriadcoin/i0coin/ixcoin format, and is preserved unchanged for later
-    attribution research.
+    `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md) and is preserved unchanged for later attribution
+    research.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["emercoin"], min_height=min_height
@@ -624,8 +598,8 @@ def load_elastos_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Returns records in the same shape as load_i0coin_stales() with
     source="elastos". Only loads entries with classification "stale"
     and validation_status "VALID" — rejected (BCH/BSV contamination) and
-    unknown rows are excluded. Elastos coinbase_outputs are raw pkscript hex
-    semicolon-joined (matches i0coin/ixcoin blkdat format) and are preserved
+    unknown rows are excluded. Elastos `coinbase_outputs` follows the
+    shared rendering contract (docs/data-reference.md) and is preserved
     unchanged for later attribution research.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["elastos"], min_height=min_height)
@@ -687,9 +661,9 @@ def load_hathor_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     RPC-miss rows remain unresolved and never enter this loader. By the time
     this loader sees the data, only self-target-PoW-passing stales remain.
 
-    The classifier records each coinbase output as raw ``pkscript_hex:value``.
-    The loader removes the values and semicolon-joins the raw scripts for the
-    established attribution record shape.
+    The classifier renders each coinbase output per the shared contract
+    (docs/data-reference.md) with satoshi amounts, and the loader passes the
+    cell through unchanged.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["hathor"], min_height=min_height)
 
@@ -709,12 +683,13 @@ def load_fractal_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     parent headers that fail the available Bitcoin context checks before rows
     reach the committed loader input.
 
-    `coinbase_outputs` is the Unobtanium-pattern semicolon-joined raw
-    scriptPubKey hex emitted by the binary CAuxPow parser. Fractald's compact
+    `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md), rendered by the binary CAuxPow parser from the
+    embedded script bytes. Fractald's compact
     `getblockheader <hash> false true` response includes the CAuxPow tail but
     does not decode the embedded BTC parent coinbase into JSON, so the
-    extractor outputs raw pkscript hex rather than decoded mainnet addresses.
-    The scriptsig markers and pkscript hex are retained for a later
+    extractor renders from the raw script bytes rather than any node-decoded
+    address. The scriptsig markers and outputs are retained for a later
     attribution phase.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["fractal"], min_height=min_height)
@@ -728,11 +703,11 @@ def load_bitcoin_vault_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
     BTCV is dormant — extraction was REST-driven via Blockbook
     (`scripts/extract/extract_bitcoin_vault_auxpow.py`) rather than a live
-    node. `coinbase_outputs` uses the Syscoin-pattern "addr:value|addr:value|
-    OP_RETURN:value" format, with mainnet addresses decoded via the shared
-    `stale_blocks_analysis.bitcoin_binary` bech32+base58 helper
-    (`format_outputs_addr`; no `requests` / `bitcoinlib` dependency on the
-    4-host extraction fleet).
+    node. `coinbase_outputs` follows the shared rendering contract
+    (docs/data-reference.md): the extractor binary-parses the raw block hex
+    and renders exact scripts via `format_outputs_canonical` (no `requests` /
+    `bitcoinlib` dependency on the 4-host extraction fleet). Nulldata survives
+    only as the legacy `OP_RETURN` label.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["bitcoin_vault"], min_height=min_height
