@@ -171,7 +171,7 @@ classification == "stale" and validation_status in {
 
 The loader delegates to `load_auxpow_validated_stales(_LOADER_SPECS["bitmark"])`
 and returns the established multi-algo row shape with `source="bitmark"`;
-`coinbase_outputs` is raw pkscript hex semicolon-joined, preserved unchanged for
+`coinbase_outputs` follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)), preserved for
 later attribution research. The single validated entry passes the filter.
 
 **Post-filter count: 1 accepted direct-stale header candidate.**

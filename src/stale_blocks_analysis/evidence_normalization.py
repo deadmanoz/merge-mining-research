@@ -16,7 +16,13 @@ from .auxpow_parse import (
     validate_available_child_header_fields,
     validate_child_header_fields,
 )
-from .bitcoin_binary import format_outputs_addr, parse_coinbase_tx, sha256d
+from .bitcoin_binary import format_outputs_canonical, parse_coinbase_tx, sha256d
+from .coinbase_output_claims import (
+    CHILD_DECODED_ACQUISITION_CHAINS,
+    FILTERED_ACQUISITION_CHAINS,
+    parse_coinbase_output_claims,
+    render_coinbase_outputs_column,
+)
 from .config import CHAIN_SPECS, DATA_DIR, HISTORICAL_CHILD_HEADER_CHAINS, PROJECT_ROOT
 from .error_blocks import load_error_block_keys
 from .evidence_sources import (
@@ -352,13 +358,85 @@ def child_hash_for(
     )
 
 
-def parse_coinbase_fields(row: dict[str, str]) -> tuple[str, str, str, bool]:
+def _is_legacy_address_projection(outputs: str) -> bool:
+    """True when a legacy cell holds only decoded addresses and no placeholder.
+
+    An all-address vector identifies an address *decode*, but a decode is a
+    projection only for an acquisition that dropped what it could not name,
+    so the caller applies this test solely to ``FILTERED_ACQUISITION_CHAINS``
+    rows. Terracoin/Bitcoin Vault read exact script bytes, and Syscoin's
+    decode kept a placeholder for every unnameable output, so their
+    address-only cells are complete vectors with exact positions. The test is
+    on the source tokens rather than the parsed claims because a P2SH address
+    parses to an exact script, which would hide an all-P2SH filtered row.
+
+    Inferring this is sound at the legacy boundary precisely because it is not
+    sound for canonical data: the contract renders address-bearing scripts as
+    addresses, so only a decode yields an all-address vector. A retained
+    ``OP_RETURN`` placeholder means nothing was dropped, so those stay exact.
+    Once normalized the projection is stated with the marker instead.
+    """
+    tokens = [
+        token.strip() for token in outputs.replace("|", ";").split(";") if token.strip()
+    ]
+    if not tokens:
+        return False
+    for token in tokens:
+        payout = token.rpartition(":")[0] if ":" in token else token
+        payout = payout.strip().lstrip("~")
+        if not payout or payout.startswith("OP_RETURN") or payout.endswith("*"):
+            return False  # a retained placeholder: nothing was dropped
+        try:
+            bytes.fromhex(payout)
+        except ValueError:
+            continue  # an address
+        return False  # a raw script: the bytes are ours, not a decode
+    return True
+
+
+def normalize_outputs_cell(outputs: str, *, chain: str) -> str:
+    """Render a populated, possibly legacy, cell through the claims layer.
+
+    An archive row's cell can predate the rendering contract; publication and
+    reconciliation must still emit the contract, so the cell is re-rendered
+    from its parsed claims. ``chain`` carries the acquisition provenance,
+    applied only to a cell the contract would rewrite -- one that already
+    round-trips unchanged is canonical and states its own claims:
+
+    - a ``CHILD_DECODED_ACQUISITION_CHAINS`` legacy cell holds the child
+      node's decoded addresses, which collapse P2PK to the P2PKH form, so its
+      address tokens establish only the recipient hash160 and render as
+      ``pkh(...)`` even in Bitcoin's version-0 form;
+    - a ``FILTERED_ACQUISITION_CHAINS`` all-address legacy cell kept only the
+      outputs the decode could name, so it gains the ``~`` filtered marker.
+
+    Raises ``ValueError`` when the cell does not parse.
+    """
+    rendered = render_coinbase_outputs_column(parse_coinbase_output_claims(outputs))
+    if rendered == outputs:
+        return rendered
+    if chain in CHILD_DECODED_ACQUISITION_CHAINS:
+        rendered = render_coinbase_outputs_column(
+            parse_coinbase_output_claims(outputs, child_decoded_addresses=True)
+        )
+    if chain in FILTERED_ACQUISITION_CHAINS and _is_legacy_address_projection(outputs):
+        rendered = ";".join(
+            ("~" + token if token else token) for token in rendered.split(";")
+        )
+    return rendered
+
+
+def parse_coinbase_fields(
+    row: dict[str, str], *, chain: str
+) -> tuple[str, str, str, bool]:
     """Extract coinbase evidence, decoding ``full_coinbase_hex`` when needed.
 
     Returns ``(scriptsig_hex, outputs, full_coinbase_hex, malformed)``.
     Hathor-style rows carry only the full coinbase transaction; when the
     scriptsig or outputs columns are empty, they are filled by parsing it.
-    ``malformed`` flags a full coinbase that failed to parse.
+    ``chain`` is the source chain, carried into the legacy-cell normalization
+    so the filtered-projection inference applies only to acquisitions that
+    actually filtered. ``malformed`` flags a cell that failed to parse.
     """
     scriptsig = row.get("coinbase_scriptsig_hex", "").strip()
     outputs = row.get("coinbase_outputs", "").strip()
@@ -373,7 +451,12 @@ def parse_coinbase_fields(row: dict[str, str]) -> tuple[str, str, str, bool]:
             malformed = True
         else:
             scriptsig = scriptsig or parsed["scriptsig"].hex()
-            outputs = outputs or format_outputs_addr(parsed["outputs"])
+            outputs = outputs or format_outputs_canonical(parsed["outputs"])
+    if outputs:
+        try:
+            outputs = normalize_outputs_cell(outputs, chain=chain)
+        except ValueError:
+            malformed = True
     return scriptsig, outputs, full_coinbase, malformed
 
 
@@ -455,7 +538,9 @@ def normalize_evidence_row(
     btc_bits = parent_header_fields["btc_bits"]
     btc_nonce = parent_header_fields["btc_nonce"]
     validation_status = row.get("validation_status", "").strip()
-    scriptsig, outputs, full_coinbase, malformed_coinbase = parse_coinbase_fields(row)
+    scriptsig, outputs, full_coinbase, malformed_coinbase = parse_coinbase_fields(
+        row, chain=source.chain
+    )
     child_hash = child_hash_for(source.chain, row, fieldnames).lower()
     child_header_hex = get_value(row, fieldnames, ("child_header_hex",)).lower()
     child_time = get_value(row, fieldnames, ("child_block_time",))

@@ -13,10 +13,11 @@ header hash, then classifies each unique parent against Bitcoin Core:
   3. both miss → ``unknown``; ``btc_height`` is left blank.
 
 Quirk: ``coinbasetx.vout[*].scriptPubKey.addresses`` in the dump are
-Groupcoin-base58 encoded (e.g. ``2h…``), not BTC mainnet. The classifier
-emits raw ``scriptPubKey.hex`` semicolon-joined in ``coinbase_outputs``
-(Unobtanium / Huntercoin pattern), so downstream pool ID re-decodes the
-pkscripts correctly.
+Groupcoin-base58 encoded (e.g. ``2h…``), not BTC mainnet, and are never
+used. The classifier renders ``coinbase_outputs`` from the dump's raw
+``scriptPubKey.hex`` bytes in the shared canonical rendering
+(``format_outputs_canonical``; see docs/data-reference.md), so downstream
+pool ID reads exact-script evidence.
 
 Outputs:
 
@@ -54,6 +55,7 @@ from stale_blocks_analysis.btc_classify import (
     write_classifier_outputs,
 )
 from stale_blocks_analysis.btc_stale_validation import validate_stale_header_context
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.btc_rpc import BtcRpc
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
 from stale_blocks_analysis.config import CHAIN_SPECS
@@ -195,13 +197,9 @@ def extract_candidates(
             except (KeyError, IndexError):
                 scriptsig = ""
 
-            # Raw scriptPubKey hex semicolon-joined; addresses field is
+            # Rendered from scriptPubKey.hex; the node's addresses field is
             # Groupcoin-base58 and must not be used.
-            outputs_hex: list[str] = []
-            for vo in cb.get("vout", []) or []:
-                spk = (vo.get("scriptPubKey") or {}).get("hex", "")
-                if spk:
-                    outputs_hex.append(spk)
+            outputs = format_outputs_canonical(cb.get("vout", []) or [])
 
             candidates[btc_hash] = {
                 **child_fields,
@@ -211,7 +209,7 @@ def extract_candidates(
                 "btc_time": str(parent.get("time", "")),
                 "btc_bits": parent.get("bits", ""),
                 "coinbase_scriptsig_hex": scriptsig,
-                "coinbase_outputs": ";".join(outputs_hex),
+                "coinbase_outputs": outputs,
                 "btc_header_hex": header_hex,
                 "groupcoin_height": str(rec.get("height", "")),
                 "classification": "",

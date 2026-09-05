@@ -36,6 +36,7 @@ from stale_blocks_analysis.auxpow_chainid import (
 )
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.extract_driver import validate_append_schema
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.auxpow_parse import (
     ChildHeaderValidationError,
     parse_child_header,
@@ -114,7 +115,7 @@ def extract_one(rpc: RpcClient, height: int) -> tuple[int, dict | None, str | No
         scriptsig = bytes.fromhex(scriptsig_hex)
         btc_height = parse_coinbase_height(scriptsig)
 
-        outputs = ";".join(v["scriptPubKey"]["hex"] for v in vout)
+        outputs = format_outputs_canonical(vout)
 
         header_raw = reconstruct_btc_header(parent)
         # Sanity check: the BTC header hash from the reconstructed bytes

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import importlib.util
+import sys
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -12,38 +16,39 @@ from stale_blocks_analysis.coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
     render_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 
 PAYOUT_SCRIPT = "76a914fb37342f6275b13936799def06f2eb4c0f20151588ac"
-NAMECOIN_P2PK_ADDRESS = "MwSW8YTckP6AkvuSSm9SvaX4grKYJBRtxq"
+NAMECOIN_P2PK_ADDRESS = "~MwSW8YTckP6AkvuSSm9SvaX4grKYJBRtxq"
 NAMECOIN_P2PK_SCRIPT = (
     "4104993c2f60c28716a70abce5669f4a76f3b866e4479be7a5bc32116ba03de6"
     "4f659a60aacccb4246ea61920e9897228361c8954696b76ef039f96224332f591d74ac"
 )
 NAMECOIN_FILTERED_ADDRESSES = ";".join(
     (
-        "NFNFkYitbrBLQh3AdqpBp5bsvxTuiRpDKQ",
-        "NFSAhAtfTZx1Cge8dVaTAiNYMrRydtwWZe",
-        "N55Zkpxqjph3336oVoUxsGxY3q7WELPMHS",
-        "MyGT8f9nq3cZjiH2jhDk2k4JRCgo9ukjji",
-        "N6QyFaz46dapeEqW9gjKnsLdgo6xJjvySh",
-        "MwVtSyYLkQn9xN1Hfyj3pboE2C7rEXGtog",
-        "NF8BVd6rVZZaUZaLDA6AddkpAgBfEr88De",
-        "N5Uppu32TTPwso4eHpL3ibg3TXPb4g3A6p",
-        "NGciQtxGoV1jAKuksqAxeTZKT8AJgxzgge",
-        "N8fxQ5WnM17fWNLuue6e2MRY7BwZkbzuwr",
-        "N8qSzt5fkeG1GUyz8gkW2YP49wpKi5yT2Q",
-        "NHdyLVkB1Br3fojmPRHiPCgrhwgEDyYAs6",
-        "NGiScLNWmc84MnuUq3qs7E3WJYofqimevW",
-        "N7XYuD7RbFqWUW4px3bo33h7paZFRs5HkQ",
-        "MxQCkLt316zUwCe79cRigSmXRKENDCu3Zw",
-        "NAw8AX4PQPsZcjqkNaRqyR4AYiGhqrULdN",
-        "MvpvmxqpgjUS954SYJgVGa4vaDer6B5u7g",
-        "MzsrRRXTuUnDYjGRsTs6ACeHnLVYc8v69c",
-        "N2Y4Y7gtMtNezfVYQtcpE31hiH6pfNHRur",
-        "NHwDuM3RCGpV5F8BbciEyxdnX3SS75Ehqe",
-        "MxLYDXQ7utcjdvTEhdA2snxai71jiLQydB",
-        "NFCXBTqkYkK8mSXc3rMduX4kyjHuBgr2f9",
+        "~NFNFkYitbrBLQh3AdqpBp5bsvxTuiRpDKQ",
+        "~NFSAhAtfTZx1Cge8dVaTAiNYMrRydtwWZe",
+        "~N55Zkpxqjph3336oVoUxsGxY3q7WELPMHS",
+        "~MyGT8f9nq3cZjiH2jhDk2k4JRCgo9ukjji",
+        "~N6QyFaz46dapeEqW9gjKnsLdgo6xJjvySh",
+        "~MwVtSyYLkQn9xN1Hfyj3pboE2C7rEXGtog",
+        "~NF8BVd6rVZZaUZaLDA6AddkpAgBfEr88De",
+        "~N5Uppu32TTPwso4eHpL3ibg3TXPb4g3A6p",
+        "~NGciQtxGoV1jAKuksqAxeTZKT8AJgxzgge",
+        "~N8fxQ5WnM17fWNLuue6e2MRY7BwZkbzuwr",
+        "~N8qSzt5fkeG1GUyz8gkW2YP49wpKi5yT2Q",
+        "~NHdyLVkB1Br3fojmPRHiPCgrhwgEDyYAs6",
+        "~NGiScLNWmc84MnuUq3qs7E3WJYofqimevW",
+        "~N7XYuD7RbFqWUW4px3bo33h7paZFRs5HkQ",
+        "~MxQCkLt316zUwCe79cRigSmXRKENDCu3Zw",
+        "~NAw8AX4PQPsZcjqkNaRqyR4AYiGhqrULdN",
+        "~MvpvmxqpgjUS954SYJgVGa4vaDer6B5u7g",
+        "~MzsrRRXTuUnDYjGRsTs6ACeHnLVYc8v69c",
+        "~N2Y4Y7gtMtNezfVYQtcpE31hiH6pfNHRur",
+        "~NHwDuM3RCGpV5F8BbciEyxdnX3SS75Ehqe",
+        "~MxLYDXQ7utcjdvTEhdA2snxai71jiLQydB",
+        "~NFCXBTqkYkK8mSXc3rMduX4kyjHuBgr2f9",
     )
 )
 NAMECOIN_EXACT_SCRIPTS = ";".join(
@@ -124,12 +129,25 @@ def test_parser_accepts_legacy_and_canonical_source_forms() -> None:
     assert parse_coinbase_output_claims("51:5000000000") == (
         CoinbaseOutputClaim(0, 5_000_000_000, script_hex="51"),
     )
+    # A Bitcoin address is an exact P2PKH script: the canonical rendering
+    # shows P2PK as raw hex, so an address cannot stand for one.
     assert parse_coinbase_output_claims("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa:1e-08") == (
         CoinbaseOutputClaim(
             0,
             1,
-            recipient_hash160="62e907b15cbf27d5425399ebf6f0fb50ebb88f18",
+            script_hex="76a91462e907b15cbf27d5425399ebf6f0fb50ebb88f1888ac",
             position_exact=True,
+        ),
+    )
+    # A child-chain rendering preserves only the hash160, because the
+    # acquisition decoded it through the child node and the template behind
+    # it is unknown.
+    assert parse_coinbase_output_claims("~NFNFkYitbrBLQh3AdqpBp5bsvxTuiRpDKQ") == (
+        CoinbaseOutputClaim(
+            0,
+            None,
+            recipient_hash160="ce2003a0739a284a968e995a9fcc865799eb55ec",
+            position_exact=False,
         ),
     )
     assert parse_coinbase_output_claims("nonstandard:0.0") == (
@@ -286,3 +304,113 @@ def test_canonical_render_round_trips_positions_and_partial_claims() -> None:
     filtered_rendered = render_coinbase_output_claims(filtered)
     assert filtered_rendered == "~pkh(" + "22" * 20 + "):"
     assert parse_coinbase_output_claims(filtered_rendered) == filtered
+
+
+def _load_prep_script(name: str):
+    """Import a scripts/prep module by path (they are not a package)."""
+    path = Path(__file__).resolve().parents[1] / "scripts" / "prep" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"{name}_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_committed_coinbase_outputs_are_canonically_rendered() -> None:
+    """Every committed `coinbase_outputs` entry follows the one contract.
+
+    The column records BTC parent coinbase payouts, but each acquisition path
+    once rendered it differently (raw script hex, Bitcoin addresses, and the
+    *child* chain's base58/bech32 for Namecoin and Syscoin). The normalizer
+    collapsed those onto a single rendering; this pins it so a new extractor
+    or a hand edit cannot reintroduce the drift.
+    """
+    module = _load_prep_script("normalize_coinbase_outputs")
+    offenders: list[str] = []
+    for path in module.target_files():
+        with path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                cell = row.get("coinbase_outputs") or ""
+                offenders.extend(module.cell_problems(path, cell))
+    assert offenders[:5] == [], f"{len(offenders)} non-canonical entries"
+
+
+def test_amountless_script_prefix_round_trips() -> None:
+    """The renderer's amount-less prefix form parses back to the same claim.
+
+    ``render_coinbase_outputs_column`` emits a prefix claim without an amount
+    as ``6a*`` (no value delimiter, symmetric with bare script hex), so the
+    parser must accept that form or legitimate prefix-only evidence would
+    fail canonical validation at publication.
+    """
+    claim = CoinbaseOutputClaim(0, script_prefix_hex="6a")
+    rendered = render_coinbase_outputs_column((claim,))
+    assert rendered == "6a*"
+    [parsed] = parse_coinbase_output_claims(rendered)
+    assert parsed == claim
+    assert render_coinbase_outputs_column((parsed,)) == rendered
+
+
+def test_child_decoded_addresses_parse_recipient_only() -> None:
+    """The decode flag demotes even version-0 addresses to recipient claims.
+
+    A child node's decode renders a P2PK output as the P2PKH-form address of
+    its pubkey's hash160, so an address from such a cell cannot assert the
+    exact script; a P2SH address stays exact because only a P2SH script
+    derives it, and raw script hex is unaffected by the flag.
+    """
+    addr_cell = "134vPp664VcocqouZeuSMZaXfquFyRLfQG:15.70929643"
+    [exact] = parse_coinbase_output_claims(addr_cell)
+    assert exact.script_hex == ("76a91416ae11e7b47ba05a3e495ce47f16b9ab95c3551488ac")
+    [demoted] = parse_coinbase_output_claims(addr_cell, child_decoded_addresses=True)
+    assert demoted.script_hex == ""
+    assert demoted.recipient_hash160 == "16ae11e7b47ba05a3e495ce47f16b9ab95c35514"
+    assert demoted.value_sats == 1570929643
+    assert demoted.position_exact
+
+    p2sh = "3P14159f73E4gFr7JterCCQh9QjiTjiZrG"
+    [p2sh_claim] = parse_coinbase_output_claims(p2sh, child_decoded_addresses=True)
+    assert p2sh_claim.script_hex.startswith("a914")
+
+    script = "76a914" + "ab" * 20 + "88ac"
+    [raw_claim] = parse_coinbase_output_claims(script, child_decoded_addresses=True)
+    assert raw_claim.script_hex == script
+
+
+def test_legacy_type_labels_parse_as_prefix_or_amount_claims() -> None:
+    """Legacy RPC ``type:value`` placeholders keep their slots and evidence.
+
+    Template types imply a script prefix, which carries more than the
+    amount; ``multisig`` and ``witness_unknown`` have no fixed prefix and
+    establish only the amount. The label text itself survives in the
+    archived cell.
+    """
+    claims = parse_coinbase_output_claims(
+        "pubkeyhash:15.70929643|pubkey:1e-08|OP_RETURN:0.0"
+    )
+    assert [
+        (claim.position, claim.value_sats, claim.script_prefix_hex) for claim in claims
+    ] == [(0, 1570929643, "76a914"), (1, 1, ""), (2, 0, "6a")]
+    [scripthash] = parse_coinbase_output_claims("scripthash:0.0")
+    assert scripthash.script_prefix_hex == "a914"
+    [multisig] = parse_coinbase_output_claims("multisig:0.0")
+    assert (multisig.value_sats, multisig.script_prefix_hex) == (0, "")
+    [witness] = parse_coinbase_output_claims("witness_unknown:1e-08")
+    assert (witness.value_sats, witness.script_prefix_hex) == (1, "")
+
+
+def test_normalizer_preserves_leading_output_gaps() -> None:
+    """A leading empty slot survives the rewrite and the checker.
+
+    The column renderer emits a leading gap for a vector whose first output
+    carries no evidence, so treating it as separator noise would renumber
+    every later payout while ``--check`` stayed green.
+    """
+    module = _load_prep_script("normalize_coinbase_outputs")
+    path = Path("terracoin_validated_stales.csv")
+    assert module.split_entries(";51:8") == ["", "51:8"]
+    assert module.rewrite_cell(";51:8") == ";51:8"
+    assert module.cell_problems(path, ";51:8") == []
+    [claim] = parse_coinbase_output_claims(";51:8")
+    assert claim.position == 1

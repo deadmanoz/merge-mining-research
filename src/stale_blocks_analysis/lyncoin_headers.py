@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .auxpow_chainid import auxpow_lcg_index, fold_merkle_branch
-from .bitcoin_binary import sha256d
+from .bitcoin_binary import format_outputs_canonical, sha256d
 from .auxpow_parse import (
     VERSION_AUXPOW,
     hash_meets_btc_difficulty,
@@ -873,7 +873,9 @@ def candidate_row(
         return None
     script_sig = auxpow.coinbase.inputs[0].script_sig
     bip34_height = parse_coinbase_height(script_sig)
-    outputs = ";".join(output.script_pubkey.hex() for output in auxpow.coinbase.outputs)
+    outputs = format_outputs_canonical(
+        (output.value, output.script_pubkey) for output in auxpow.coinbase.outputs
+    )
     return {
         "child_height": summary.height,
         "child_block_hash": summary.hash_internal.hex(),

@@ -12,7 +12,11 @@ against a curated local dataset, not to validate arbitrary user input.
 
 import hashlib
 import struct
+from decimal import Decimal
 from typing import Iterable, Optional, Sequence, Tuple, Union
+
+_UINT64_MAX = (1 << 64) - 1
+_SATOSHIS_PER_BTC = Decimal(100_000_000)
 
 
 def _varint(buf: bytes, off: int) -> tuple[int, int]:
@@ -310,55 +314,91 @@ def _output_value_spk(out: _Output) -> Tuple[int, Optional[bytes]]:
     return value, spk
 
 
-def format_outputs_addr(outputs: Iterable[_Output]) -> str:
-    """Format coinbase outputs as 'addr:value | addr:value' (pipe-joined).
+def _is_p2pk(spk: bytes) -> bool:
+    """True for a bare pay-to-pubkey script (compressed or uncompressed)."""
+    return (len(spk) == 35 and spk[0] == 0x21 and spk[34] == 0xAC) or (
+        len(spk) == 67 and spk[0] == 0x41 and spk[66] == 0xAC
+    )
 
-    This is the JSON-RPC extractors' convention (e.g.
-    extract_syscoin_auxpow.py format_outputs). When an output row carries a
-    pre-decoded scriptPubKey dict (JSON-RPC shape), its 'address'/'type'
-    fields are used directly; otherwise the scriptPubKey bytes are encoded
-    with encode_btc_address(), falling back to 'OP_RETURN' for nulldata
-    scripts and the raw script hex for anything nonstandard.
+
+def canonical_output_token(spk: bytes) -> str:
+    """Render one BTC scriptPubKey in the committed `coinbase_outputs` form.
+
+    The mainnet address for the address-bearing standard templates (P2PKH,
+    P2SH, P2WPKH, P2WSH, P2TR), and raw scriptPubKey hex for every other
+    script.
+
+    Two categories stay hex deliberately. P2PK carries no address, so
+    rendering it as the base58 address of its pubkey hash would assert a
+    P2PKH template the bytes do not have and make the two script types
+    indistinguishable. Nulldata carries its payload in the script itself, so
+    an ``OP_RETURN`` label would discard the segwit witness commitment that
+    almost every modern coinbase places there.
+    """
+    if _is_p2pk(spk) or (len(spk) >= 1 and spk[0] == 0x6A):
+        return spk.hex()
+    return encode_btc_address(spk) or spk.hex()
+
+
+def _jsonrpc_value_spk(out: dict) -> Tuple[Optional[int], Optional[bytes]]:
+    """Pull ``(value_sats, spk)`` from a JSON-RPC vout entry.
+
+    JSON-RPC reports the amount in BTC and the script under
+    ``scriptPubKey.hex``. The hex is used in preference to the node's decoded
+    ``address`` field, which renders Bitcoin payouts in the *child* chain's
+    address format on merge-mined nodes.
+    """
+    spk_meta = out.get("scriptPubKey") or {}
+    script_hex = spk_meta.get("hex")
+    # "" is a valid zero-length scriptPubKey, not missing evidence: treating it
+    # as absent would drop the output and shift every later position.
+    spk = bytes.fromhex(script_hex) if script_hex is not None else None
+    raw_value = out.get("value")
+    if raw_value is None:
+        return None, spk
+    scaled = Decimal(str(raw_value)) * _SATOSHIS_PER_BTC
+    # A BTC amount that is not a whole number of satoshis cannot describe a
+    # real output; rounding it would silently publish mutated evidence, so
+    # fail closed exactly as amount_to_sats() does on the parse side.
+    if scaled < 0 or scaled != scaled.to_integral_value():
+        raise ValueError(
+            f"coinbase output amount is not a satoshi multiple: {raw_value!r}"
+        )
+    if scaled > _UINT64_MAX:
+        raise ValueError(f"coinbase output amount is outside uint64: {raw_value!r}")
+    return int(scaled), spk
+
+
+def format_outputs_canonical(outputs: Iterable[_Output]) -> str:
+    """Format coinbase outputs in the canonical committed rendering.
+
+    Semicolon-joined, in coinbase order, each entry ``<payout>`` or
+    ``<payout>:<value_sats>`` where the extraction preserved the amount.
+    Amounts are integer satoshis; ``<payout>`` follows
+    ``canonical_output_token``.
     """
     parts: list[str] = []
     for out in outputs:
         if isinstance(out, dict) and "scriptPubKey" in out:
-            spk_meta = out.get("scriptPubKey") or {}
-            value = out.get("value", 0)
-            addr = spk_meta.get("address", "")
-            typ = spk_meta.get("type", "")
-            if addr:
-                parts.append(f"{addr}:{value}")
-            elif typ == "nulldata":
-                parts.append(f"OP_RETURN:{value}")
-            else:
-                parts.append(f"{typ}:{value}")
-            continue
-        value, spk = _output_value_spk(out)
+            value, spk = _jsonrpc_value_spk(out)
+        else:
+            value, spk = _output_value_spk(out)
         if spk is None:
-            parts.append(f":{value}")
+            # An output with no script bytes still occupies its slot: emit an
+            # amount-only entry, or an empty gap when the value is unknown
+            # too, rather than silently renumbering the outputs after it.
+            parts.append("" if value is None else f":{value}")
             continue
-        addr = encode_btc_address(spk)
-        if addr is None:
-            if len(spk) >= 1 and spk[0] == 0x6A:
-                addr = "OP_RETURN"
-            else:
-                addr = f"nonstandard:{spk.hex()}"
-        parts.append(f"{addr}:{value}")
-    return "|".join(parts)
-
-
-def format_outputs_pkhex(outputs: Iterable[_Output]) -> str:
-    """Format coinbase outputs as ';'-joined raw scriptPubKey hex.
-
-    This is the raw-hex extractors' convention (e.g.
-    extract_devcoin_auxpow.py / extract_auxpow_from_blkdat.py), which preserves
-    the raw pkscript hex for later attribution research.
-    """
-    parts: list[str] = []
-    for out in outputs:
-        _, spk = _output_value_spk(out)
-        if spk is None:
-            continue
-        parts.append(spk.hex())
+        # A zero-length script renders as an empty payout, keeping the output
+        # in place rather than silently renumbering the ones after it.
+        token = canonical_output_token(spk)
+        if value is None:
+            parts.append(token if token else ":")
+        else:
+            parts.append(f"{token}:{value}")
+    # A trailing scriptless, valueless output carries no representable
+    # evidence and would break the round-trip; only leading and interior
+    # gaps protect later positions.
+    while parts and parts[-1] == "":
+        parts.pop()
     return ";".join(parts)

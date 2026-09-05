@@ -10,10 +10,12 @@ Known vectors:
 
 from __future__ import annotations
 
+import pytest
+
 from stale_blocks_analysis.bitcoin_binary import (
     encode_btc_address,
-    format_outputs_addr,
-    format_outputs_pkhex,
+    canonical_output_token,
+    format_outputs_canonical,
     parse_coinbase_tx,
 )
 
@@ -102,54 +104,46 @@ def test_p2wpkh_distinct_from_p2wsh_witver():
 
 
 # ---------------------------------------------------------------------------
-# format_outputs_addr / format_outputs_pkhex
+# format_outputs_canonical
 # ---------------------------------------------------------------------------
 
 P2PKH_SPK = _p2pkh(GENESIS_HASH160)
-OPRET_SPK = b"\x6a\x02\x00\x00"
+OPRET_SPK = bytes.fromhex("6a24aa21a9ed" + "11" * 32)
+P2PK_SPK = bytes.fromhex("41" + "04" * 65 + "ac")
 
 
-def test_format_outputs_addr_tuple_shape():
-    # parse_coinbase() returns (value, spk) tuples.
+def test_format_outputs_canonical_tuple_shape():
+    # parse_coinbase() returns (value, spk) tuples with satoshi amounts.
     outs = [(5000000000, P2PKH_SPK), (0, OPRET_SPK)]
-    assert format_outputs_addr(outs) == f"{SATOSHI_ADDR}:5000000000|OP_RETURN:0"
+    assert format_outputs_canonical(outs) == (
+        f"{SATOSHI_ADDR}:5000000000;{OPRET_SPK.hex()}:0"
+    )
 
 
-def test_format_outputs_pkhex_tuple_shape():
-    outs = [(5000000000, P2PKH_SPK), (0, OPRET_SPK)]
-    assert format_outputs_pkhex(outs) == f"{P2PKH_SPK.hex()};{OPRET_SPK.hex()}"
+def test_format_outputs_canonical_spk_dict_shape():
+    outs = [{"value": 1, "spk": P2PKH_SPK}, {"value": 2, "pkscript": OPRET_SPK}]
+    assert format_outputs_canonical(outs) == (f"{SATOSHI_ADDR}:1;{OPRET_SPK.hex()}:2")
 
 
-def test_format_outputs_addr_spk_dict_shape():
-    # extract_bitcoin_vault_auxpow.py shape: {"value", "spk"}.
-    outs = [{"value": 1, "spk": P2PKH_SPK}, {"value": 2, "spk": OPRET_SPK}]
-    assert format_outputs_addr(outs) == f"{SATOSHI_ADDR}:1|OP_RETURN:2"
-
-
-def test_format_outputs_pkhex_pkscript_dict_shape():
-    # raw-hex extractor shape: {"value", "pkscript"}.
-    outs = [{"value": 1, "pkscript": P2PKH_SPK}, {"value": 2, "pkscript": OPRET_SPK}]
-    assert format_outputs_pkhex(outs) == f"{P2PKH_SPK.hex()};{OPRET_SPK.hex()}"
-
-
-def test_format_outputs_addr_jsonrpc_shape():
-    # JSON-RPC extractor shape: pre-decoded scriptPubKey dict.
+def test_format_outputs_canonical_jsonrpc_uses_script_not_child_address():
+    # A merge-mined node decodes the BTC payout into its own address format,
+    # so the scriptPubKey hex is authoritative and the amount is BTC.
     outs = [
-        {"value": 3, "scriptPubKey": {"address": "1abc", "type": "pubkeyhash"}},
-        {"value": 0, "scriptPubKey": {"type": "nulldata"}},
-        {"value": 7, "scriptPubKey": {"type": "scripthash"}},  # no address
+        {"value": 6.25, "scriptPubKey": {"hex": P2PKH_SPK.hex(), "address": "N1abc"}},
     ]
-    assert format_outputs_addr(outs) == "1abc:3|OP_RETURN:0|scripthash:7"
+    assert format_outputs_canonical(outs) == f"{SATOSHI_ADDR}:625000000"
 
 
-def test_format_outputs_addr_nonstandard_passthrough():
-    outs = [(9, b"\x00\x01\x02")]
-    assert format_outputs_addr(outs) == "nonstandard:000102:9"
+def test_canonical_token_keeps_hex_where_no_address_exists():
+    # P2PK has no address form, and collapsing nulldata to a label would
+    # discard the segwit witness commitment it carries.
+    assert canonical_output_token(P2PK_SPK) == P2PK_SPK.hex()
+    assert canonical_output_token(OPRET_SPK) == OPRET_SPK.hex()
+    assert canonical_output_token(P2PKH_SPK) == SATOSHI_ADDR
 
 
-def test_format_outputs_empty():
-    assert format_outputs_addr([]) == ""
-    assert format_outputs_pkhex([]) == ""
+def test_format_outputs_canonical_empty():
+    assert format_outputs_canonical([]) == ""
 
 
 def test_parse_coinbase_tx_returns_scriptsig_and_outputs():
@@ -175,6 +169,31 @@ def test_parse_coinbase_tx_returns_scriptsig_and_outputs():
     assert parsed is not None
     assert parsed["scriptsig"].hex() == "aabbcc"
     assert (
-        format_outputs_addr(parsed["outputs"])
-        == f"{SATOSHI_ADDR}:5000000000|OP_RETURN:0"
+        format_outputs_canonical(parsed["outputs"])
+        == f"{SATOSHI_ADDR}:5000000000;{OPRET_SPK.hex()}:0"
     )
+
+
+def test_format_outputs_canonical_preserves_scriptless_slots():
+    # An output whose script bytes are unavailable still occupies its slot:
+    # dropping it would renumber every later claim. With a value the slot
+    # renders amount-only; with neither it renders as an empty gap.
+    assert format_outputs_canonical([(7, None), (8, bytes.fromhex("51"))]) == ":7;51:8"
+    assert format_outputs_canonical([(None, None), (8, bytes.fromhex("51"))]) == ";51:8"
+
+
+def test_format_outputs_canonical_rejects_sub_satoshi_amounts():
+    # A BTC amount that is not a whole number of satoshis cannot describe a
+    # real output; rounding would publish mutated evidence, so the JSON-RPC
+    # path fails closed exactly as amount_to_sats() does on the parse side.
+    out = {"value": 0.000000006, "scriptPubKey": {"hex": P2PKH_SPK.hex()}}
+    with pytest.raises(ValueError, match="satoshi multiple"):
+        format_outputs_canonical([out])
+
+
+def test_format_outputs_canonical_rejects_amounts_above_uint64():
+    # The claims parser bounds amounts to uint64; accepting more here would
+    # let extraction write a cell that later aborts normalization.
+    out = {"value": 184467440737.09551616, "scriptPubKey": {"hex": "51"}}
+    with pytest.raises(ValueError, match="uint64"):
+        format_outputs_canonical([out])

@@ -44,7 +44,7 @@ from stale_blocks_analysis.auxpow_parse import (
     read_auxpow,
     standard_auxpow_extraction_columns,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_addr
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.extract_driver import validate_append_schema
 
 # --- Configuration ---
@@ -210,7 +210,7 @@ def extract_one(
             "btc_bits": parent_hdr["bits"],
             "btc_height": btc_height if btc_height is not None else "",
             "coinbase_scriptsig_hex": scriptsig.hex(),
-            "coinbase_outputs": format_outputs_addr(parent_cb["vout"]),
+            "coinbase_outputs": format_outputs_canonical(parent_cb["vout"]),
             "btc_header_hex": parent_hdr["header_hex"],
         }
     )

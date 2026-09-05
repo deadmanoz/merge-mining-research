@@ -83,7 +83,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The loader delegates to the shared `load_auxpow_validated_stales()` helper and parses `coinbase_outputs` as raw pkscript hex semicolon-joined (matches i0coin/ixcoin/elastos/unobtanium blkdat format). The extractor preserves the parent-coinbase outputs verbatim without address decoding so they remain available for later attribution research. All 40 entries pass the filter (the committed CSV is VALID-only).
+The loader delegates to the shared `load_auxpow_validated_stales()` helper and parses `coinbase_outputs`, which follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)). The extractor renders it from the parent coinbase's own scripts so the payouts stay available for later attribution research. All 40 entries pass the filter (the committed CSV is VALID-only).
 
 **Post-filter count: 40 accepted direct-stale header candidates.**
 

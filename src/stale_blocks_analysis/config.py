@@ -156,9 +156,9 @@ COILEDCOIN_CSV = VALIDATED_STALES_DIR / "coiledcoin_validated_stales.csv"
 # the dump — first AuxPoW block at GPC height 17,187 with parent_block.time
 # 2012-02-16 10:56:16 UTC, matching the catalogue date).
 # Quirk: `coinbasetx.vout[*].scriptPubKey.addresses` in the dump are
-# Groupcoin-base58-encoded (e.g. `2h…`), NOT BTC mainnet; the classifier
-# emits raw `scriptPubKey.hex` semicolon-joined into `coinbase_outputs`
-# (Unobtanium / Huntercoin pattern), preserved for later attribution research.
+# Groupcoin-base58-encoded (e.g. `2h…`), NOT BTC mainnet and never used; the
+# classifier renders `coinbase_outputs` from the raw `scriptPubKey.hex` bytes
+# in the shared canonical rendering, preserved for later attribution research.
 # See docs/chains/groupcoin.md for methodology.
 GROUPCOIN_CSV = VALIDATED_STALES_DIR / "groupcoin_validated_stales.csv"
 

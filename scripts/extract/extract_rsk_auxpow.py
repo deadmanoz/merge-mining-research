@@ -34,6 +34,10 @@ from pathlib import Path
 
 import requests
 
+# Repo `src/` is on sys.path when installed via `pip install -e .`; the shared
+# module is pure-stdlib and safe to import on the extraction host.
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
+
 # --- Configuration ---
 RPC_URL = "http://127.0.0.1:4444"
 RPC_HEADERS = {"content-type": "application/json"}
@@ -55,7 +59,7 @@ CSV_COLUMNS = [
     "btc_bits",
     "merge_mining_hash",  # hashForMergedMining: 32-byte commit in BTC coinbase
     "merge_mining_merkle_proof",  # SPV proof linking RSK's commitment to the BTC merkle root
-    "coinbase_outputs",  # pipe-separated value:script_hex (parsed from tail)
+    "coinbase_outputs",  # shared canonical rendering (parsed from tail)
     "coinbase_op_return",  # semicolon-separated OP_RETURN data hex
     "coinbase_ascii_strings",  # semicolon-separated printable runs (>=4 chars)
     "coinbase_tail_hex",  # raw RSK-stored truncated tail (for re-parsing)
@@ -247,8 +251,15 @@ def extract_ascii_strings(raw: bytes, min_len: int = 4) -> list[str]:
 
 
 def format_outputs(outputs: list[dict]) -> str:
-    """Render parsed coinbase outputs as a ``|``-joined ``value:script_hex`` string."""
-    return "|".join(f"{o['value']}:{o['script_hex']}" for o in outputs)
+    """Render parsed coinbase outputs in the shared canonical rendering.
+
+    Semicolon-joined ``<payout>:<value_sats>`` per docs/data-reference.md;
+    the tail parse yields integer-satoshi values and raw script bytes, so the
+    rendering is exact-script evidence.
+    """
+    return format_outputs_canonical(
+        [(o["value"], bytes.fromhex(o["script_hex"])) for o in outputs]
+    )
 
 
 def block_to_row(

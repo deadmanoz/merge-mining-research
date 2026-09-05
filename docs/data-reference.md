@@ -56,7 +56,7 @@ columns trail that shared core:
 | `btc_time` | Header nTime (unix seconds). |
 | `btc_bits` | Header nBits, lowercase 8-char hex. |
 | `coinbase_scriptsig_hex` | Preserved coinbase evidence for later pool-attribution research. |
-| `coinbase_outputs` | Semicolon-separated `value:scriptPubKeyHex` (or address) list; empty where the extraction preserved none (RSK). |
+| `coinbase_outputs` | The BTC parent coinbase's payout list, semicolon-joined in coinbase order. Each entry is `<payout>` or `<payout>:<value_sats>`, where the amount appears only where the extraction preserved it. `<payout>` is the Bitcoin mainnet address for the address-bearing standard templates (P2PKH, P2SH, P2WPKH, P2WSH, P2TR) and raw scriptPubKey hex for every other script; see "Coinbase output rendering" below. Empty where the extraction preserved none (RSK). |
 | `btc_header_hex` | Full 80-byte header, hex (160 chars). |
 | `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. The column occupies the same position in every validated schema and remains blank when unavailable. Namecoin classifier inventory heights are historical block-file scan order, so normalization blanks them and hydrates only the exact node-verified identity height; see `docs/chains/namecoin.md`. |
 | `child_block_hash` | Authenticated child block hash for the 17 refreshed historical source families. |
@@ -74,6 +74,70 @@ is populated for all 1,649 rows; the 228 historically header-less rows were
 back-filled from the committed monitor evidence, byte-verified against each
 row's committed hash and decoded fields), and
 coiledcoin's `eligius_attack_window`.
+
+### Coinbase output rendering
+
+`coinbase_outputs` describes Bitcoin payouts, so it is rendered as Bitcoin
+regardless of which child chain witnessed the block. Two script categories
+deliberately stay as raw scriptPubKey hex rather than becoming an address:
+
+- **P2PK**, because it has no address. Rendering it as the base58 address of
+  its pubkey hash would assert a P2PKH template the bytes do not carry and
+  make the two script types indistinguishable in the committed evidence.
+  For the same reason a payout that reached us only as a *child node's*
+  decoded address renders as `pkh(<hash160>)`: that node derives the same
+  address from a P2PKH and a P2PK output, so the recipient hash is
+  established but the script behind it is not. Namecoin, Syscoin, and
+  Terracoin carry that form; a P2SH address is unambiguous and stays an
+  address.
+- **Nulldata**, because the payload is the point. Almost every modern coinbase
+  puts the segwit witness commitment there, and an `OP_RETURN` label would
+  discard it.
+
+A leading `~` on every entry marks the list as an ordered *filtered*
+projection, meaning the acquisition kept only some outputs so an entry's
+ordinal is its order in the surviving list rather than its transaction
+position. Namecoin carries it on the 1,476 rows whose acquisition decoded
+through the child node's RPC and dropped every output without an address; its
+other 24 rows arrived as complete raw-script vectors and stay exact, so the
+marker is decided per row rather than per chain. Terracoin and Syscoin also
+decoded through the child node but kept a placeholder for every output the
+decode could not name, so their positions stay exact even where a payout
+survives only as `pkh(...)`. Terracoin's committed cells predate its
+hex-reading backfill, and the decode provably collapses P2PK: for BTC
+`...67a249`, Devcoin and Unobtanium hold output 1's raw P2PK script while the
+Terracoin decode rendered it as the P2PKH-form address of the same hash160.
+Bitcoin Vault binary-parses raw block hex, so its entries are exact scripts. Completeness is stated with this
+marker rather than inferred from the rendering, because under one contract an
+address-only list no longer implies an address-filtered source.
+
+`scripts/prep/normalize_coinbase_outputs.py` applies this contract and
+`--check` verifies it; a committed-data test pins the invariant. The
+transformation is rendering-only and preserves every payout identity, order,
+and amount.
+
+Committed rows from the raw-script acquisitions (devcoin, ixcoin, groupcoin,
+and their blkdat-format peers) predate amount retention, so they are
+payout-only; the current producers emit `<payout>:<value_sats>` where the
+source preserves the value, so a regeneration would add amounts to those
+rows. That is a pure refinement (positions and payout identities unchanged,
+amounts only gained), which the publication floor accepts.
+
+A zero-length scriptPubKey renders as an amount-only entry, which holds the
+output's position but reads downstream as an unknown script rather than an
+exact empty one. Distinguishing the two would need a new token in this
+vocabulary, which `upstreaming.md` makes a lockstep contract with the
+merge-mining-monitor importer; no committed row carries such an output.
+
+Two limitations remain from acquisition and are not repairable by rendering:
+
+- Terracoin, Bitcoin Vault, and Syscoin recorded a bare `OP_RETURN` label
+  instead of the nulldata script, so those witness-commitment payloads were
+  discarded before commit. The checker tolerates the label as a legacy value.
+- Namecoin's acquisition kept only address-bearing outputs, so rows whose
+  coinbase also paid to P2PK, nulldata, or nonstandard scripts carry an
+  incomplete list. Restoring them needs the private raw-script inventory
+  rather than a re-rendering.
 
 ## Error blocks: `data/error-blocks/error_blocks.csv`
 

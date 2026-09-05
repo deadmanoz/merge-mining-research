@@ -86,7 +86,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The loader follows the established multi-algo pattern: semicolon-joined raw pkscript hex in `coinbase_outputs`, with no address decoding at extract time. This preserves the outputs for later attribution research. Both validated entries pass the filter.
+`coinbase_outputs` follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)); the loader passes it through. The extractor renders it from the parent coinbase's own scripts, preserving the payouts for later attribution research. Both validated entries pass the filter.
 
 **Post-filter count: 2 accepted direct-stale header candidates.**
 

@@ -25,7 +25,7 @@ from .auxpow_parse import (
     nbits_to_target,
     parse_parent_header,
 )
-from .bitcoin_binary import parse_coinbase_tx, sha256d
+from .bitcoin_binary import format_outputs_canonical, parse_coinbase_tx, sha256d
 from .btc_classify import (
     RULES_VIOLATED_COLUMN,
     classify_candidates,
@@ -241,8 +241,8 @@ def _base_output_row(
 
 
 def _format_outputs(outputs: Iterable[tuple[int, bytes]]) -> str:
-    """Preserve Hathor's established raw-script-and-value convention."""
-    return "|".join(f"{script.hex()}:{value}" for value, script in outputs)
+    """Render outputs in the shared canonical coinbase-output form."""
+    return format_outputs_canonical(outputs)
 
 
 def _meets_self_target(row: dict[str, Any]) -> bool:

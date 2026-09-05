@@ -30,7 +30,7 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 - **Publication gate**: the committed CSV persists expected `nBits`, median-time-past, historical minimum-version, coinbase scriptSig length, and BIP34 verdicts. Sixteen historical candidates are excluded: 13 for BIP34 height, two post-BIP66 version 2 headers, and one 103-byte coinbase scriptSig, leaving 468 public rows. Passing this gate is not full Bitcoin block validation; see the [data validity contract](../data-validity.md).
 - **Current audit**: on 20 July 2026, all 468 accepted direct rows were replayed against Bitcoin Core tip 958,882 and passed every available header-context check. This was not a full-block consensus replay.
 - **Coinbase output noise**: `coinbase_outputs` is a `|`-delimited list of
-  `addr:value` pairs; the loader preserves them in semicolon form for future
+  payout entries; the loader preserves them in recipient form for future
   attribution work. The current public loader does not identify a pool.
 
 **Reference scripts.**
@@ -83,7 +83,7 @@ consensus-invalid candidates.
   Devcoin unknown rows. This is a much smaller yield than Namecoin's 18
   candidate reconstructions, but the chains' overlapping windows provide
   corroborating provenance.
-- **`coinbase_outputs` semicolon-joined**: the loader transforms the `|`-delimited `addr:value|addr:value` form into `;`-joined `addr;addr` (drops `OP_RETURN` entries), preserving the established loader schema for later attribution research.
+- **`coinbase_outputs`**: follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)). The loader passes the cell through unchanged; the claims layer reads it directly.
 
 ## 3. Filtering → accepted direct-stale candidates
 

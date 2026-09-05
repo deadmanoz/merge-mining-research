@@ -94,3 +94,7 @@ results/analysis/error-blocks/by-chain/
 # Upstream public datasets fetched via scripts/fetch-data.sh
 data/stale-blocks/
 data/mining-pools/
+
+# Local planning notes; deliberately untracked (they carry operator infra
+# coordinates). Removed from tracking in 3a7caaa; keep them out for good.
+docs/superpowers/

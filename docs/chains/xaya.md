@@ -98,9 +98,9 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The loader parses `coinbase_outputs` as raw pkscript hex, semicolon-joined
+`coinbase_outputs` follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)); the loader passes it through, semicolon-joined
 (matches the crown / myriadcoin / ixcoin format). The extractor preserves the
-parent-coinbase outputs verbatim without address decoding so they remain
+parent-coinbase outputs from their own scripts so they remain
 available for later attribution research. All 40 refreshed entries pass the
 filter.
 

@@ -80,7 +80,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The loader parses `coinbase_outputs` as raw pkscript hex, semicolon-joined (matches the myriadcoin / argentum / ixcoin format). The extractor preserves the parent-coinbase outputs verbatim without address decoding so they remain available for later attribution research. All 23 entries pass the filter.
+`coinbase_outputs` follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)); the loader passes it through. The extractor renders it from the parent coinbase's own scripts so the payouts stay available for later attribution research. All 23 entries pass the filter.
 
 **Post-filter count: 23 accepted direct-stale header candidates.**
 

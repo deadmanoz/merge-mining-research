@@ -59,7 +59,7 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     read_transaction,
     validate_child_header_fields,
 )
-from stale_blocks_analysis.bitcoin_binary import format_outputs_pkhex  # noqa: E402
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical  # noqa: E402
 
 # Xaya mainnet message-start bytes (src/kernel/chainparams.cpp). Verify against
 # the first 4 bytes of blk00000.dat before trusting a zero-block run.
@@ -302,7 +302,7 @@ def main() -> None:
                         "btc_bip34_height": bip34 if bip34 is not None else "",
                         "btc_nonce": parent["nonce"],
                         "coinbase_scriptsig_hex": scriptsig.hex(),
-                        "coinbase_outputs": format_outputs_pkhex(cb["vout"]),
+                        "coinbase_outputs": format_outputs_canonical(cb["vout"]),
                         "btc_header_hex": parent["header_hex"],
                     }
                 )

@@ -31,7 +31,7 @@ from stale_blocks_analysis.config import (
 from stale_blocks_analysis.coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
-    render_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 from stale_blocks_analysis.full_evidence import (
     int_or_none,
@@ -569,7 +569,10 @@ def select_parent_evidence(
             bytes.fromhex(scriptsig_hex)
         except ValueError as exc:
             raise ValueError("coinbase scriptSig is not valid hex") from exc
-    coinbase_outputs = render_coinbase_output_claims(
+    # The published column follows the committed rendering contract, not the
+    # module's internal reconciliation form, so a rerun of the ancestry
+    # publisher reproduces the committed dataset rather than replacing it.
+    coinbase_outputs = render_coinbase_outputs_column(
         merge_coinbase_output_claim_sets(*claim_sets)
     )
     return (

@@ -27,6 +27,7 @@ from stale_blocks_analysis.auxpow_parse import (
     serialize_block_header,
     standard_auxpow_extraction_columns,
 )
+from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
 from stale_blocks_analysis.coinbase_markers import parse_bip34_height
 from stale_blocks_analysis.child_rpc import RpcClient
 from stale_blocks_analysis.extract_driver import validate_append_schema
@@ -75,33 +76,6 @@ def parse_header(hex_str: str) -> dict:
         "version": parsed["version"],
         "nonce": parsed["nonce"],
     }
-
-
-def format_outputs(vout: list) -> str:
-    """Render RPC-decoded coinbase outputs as a ``|``-joined ``addr:value``
-    string, falling back to ``OP_RETURN:value`` or ``type:value`` when no
-    address is present.
-    """
-    parts = []
-    for out in vout:
-        spk = out.get("scriptPubKey", {})
-        # terracoind is Dash-Core-0.12.x-derived (pre-Bitcoin-Core 0.18) and
-        # exposes the legacy `addresses` plural array, not the singular
-        # `address` field added upstream in 0.18.
-        addr = spk.get("address", "")
-        if not addr:
-            addrs = spk.get("addresses") or []
-            if addrs:
-                addr = addrs[0]
-        typ = spk.get("type", "")
-        val = out.get("value", 0)
-        if addr:
-            parts.append(f"{addr}:{val}")
-        elif typ == "nulldata":
-            parts.append(f"OP_RETURN:{val}")
-        else:
-            parts.append(f"{typ}:{val}")
-    return "|".join(parts)
 
 
 def extract_range(
@@ -170,7 +144,7 @@ def extract_range(
             )
         except ValueError:
             btc_height = None
-        outputs = format_outputs(vout)
+        outputs = format_outputs_canonical(vout)
 
         writer.writerow(
             {

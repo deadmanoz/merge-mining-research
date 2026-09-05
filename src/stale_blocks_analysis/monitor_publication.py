@@ -34,7 +34,7 @@ from .coinbase_output_claims import (
     coinbase_output_claims_refine,
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
-    render_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 from .config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
@@ -830,7 +830,7 @@ def validate_error_observation_publication(
                 raise ValueError(
                     f"{path}:{row_number}: malformed coinbase output evidence: {exc}"
                 ) from exc
-            if outputs != render_coinbase_output_claims(output_claims):
+            if outputs != render_coinbase_outputs_column(output_claims):
                 raise ValueError(
                     f"{path}:{row_number}: coinbase output evidence is not canonical"
                 )
@@ -1053,7 +1053,7 @@ def _published_observation(
         row_number=row_number,
         fields=fields,
         child_height=raw_child_height,
-        coinbase_outputs=render_coinbase_output_claims(output_claims),
+        coinbase_outputs=render_coinbase_outputs_column(output_claims),
     )
 
 
@@ -1169,7 +1169,7 @@ def _load_published_observation_groups(
                 row_number=observation.row_number,
                 fields=tuple(parent_fields),
                 child_height="",
-                coinbase_outputs=render_coinbase_output_claims(merged_output_claims),
+                coinbase_outputs=render_coinbase_outputs_column(merged_output_claims),
             )
         )
 
