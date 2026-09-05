@@ -14,6 +14,7 @@ from typing import Iterable
 from stale_blocks_analysis.btc_rpc import BtcRpc
 from stale_blocks_analysis.config import ACCEPTED_STALE_VALIDATION_STATUSES
 from stale_blocks_analysis.error_blocks import load_error_block_keys
+from stale_blocks_analysis.evidence_normalization import normalize_outputs_cell
 from stale_blocks_analysis.evidence_sources import (
     CHILD_HEIGHT_AUTHENTICATED,
     child_height_semantics_for_source,
@@ -736,6 +737,20 @@ def load_observations(
                     and is_hash(block_hash)
                     and is_hash(prev_hash)
                 ):
+                    raw_outputs = row.get("coinbase_outputs", "").strip()
+                    if raw_outputs:
+                        # A legacy inventory cell predates the rendering
+                        # contract; normalize it with acquisition provenance
+                        # so a filtered projection is not read as absolute
+                        # transaction positions. An unparseable cell stays
+                        # verbatim and fails in parent-evidence selection
+                        # exactly as before, only if its hash is exercised.
+                        try:
+                            raw_outputs = normalize_outputs_cell(
+                                raw_outputs, chain=chain
+                            )
+                        except ValueError:
+                            pass
                     obs = UnknownObservation(
                         chain=chain,
                         source_path=rel(inv_path),
@@ -747,7 +762,7 @@ def load_observations(
                         btc_time=btc_time,
                         bits=bits,
                         scriptsig_hex=row.get("coinbase_scriptsig_hex", "").strip(),
-                        outputs=row.get("coinbase_outputs", "").strip(),
+                        outputs=raw_outputs,
                         header_hex=row.get(header_col, "").strip()
                         if header_col
                         else "",

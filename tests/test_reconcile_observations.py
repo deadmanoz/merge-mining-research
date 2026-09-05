@@ -462,3 +462,131 @@ def test_active_893766_through_893769_headers_are_not_published() -> None:
             published.update(row[hash_field] for row in csv.DictReader(handle))
 
     assert ACTIVE_CANONICAL_DESCENDANTS.isdisjoint(published)
+
+
+def test_unknown_observation_normalizes_filtered_legacy_outputs(
+    tmp_path: Path,
+) -> None:
+    """A legacy Namecoin address-only cell loads as a filtered projection.
+
+    The inventory predates the rendering contract, and Namecoin's acquisition
+    kept only outputs the child node could name, so parent-evidence selection
+    must not read the surviving ordinals as absolute transaction positions.
+    """
+    block_hash = f"{1:064x}"
+    inventory = tmp_path / "namecoin_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "100",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{2:064x}",
+                "classification": "unknown",
+                "coinbase_outputs": "NF3a1m3MzdUh2FgTyVCZezT7BPynKnT7HD",
+            }
+        ],
+    )
+
+    state = _load(tmp_path, chain="namecoin", unknown_files={"namecoin": inventory})
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+
+    assert observation.outputs == "~pkh(ca975b00a8c203b8692f5a18d92dc5c2d2ebc57b)"
+
+
+def test_unknown_observation_demotes_decoded_addresses_but_keeps_positions(
+    tmp_path: Path,
+) -> None:
+    """A legacy Terracoin address demotes to recipient-only at exact position.
+
+    Terracoin's decode collapses P2PK to the P2PKH-form address, so a legacy
+    address token establishes only the recipient hash160; but the acquisition
+    retained placeholders for unnameable outputs, so positions stay absolute
+    and no filtered marker is inferred.
+    """
+    block_hash = f"{3:064x}"
+    inventory = tmp_path / "terracoin_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "100",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{4:064x}",
+                "classification": "unknown",
+                "coinbase_outputs": "134vPp664VcocqouZeuSMZaXfquFyRLfQG:15.70929643",
+            }
+        ],
+    )
+
+    state = _load(tmp_path, chain="terracoin", unknown_files={"terracoin": inventory})
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+
+    assert observation.outputs == (
+        "pkh(16ae11e7b47ba05a3e495ce47f16b9ab95c35514):1570929643"
+    )
+
+
+def test_unknown_observation_keeps_raw_script_evidence_exact(
+    tmp_path: Path,
+) -> None:
+    """A legacy raw-script cell keeps exact scripts even on a decoded chain.
+
+    Namecoin's blkdat-derived rows carry script bytes we hold, so the
+    child-decode demotion must not touch them: only address tokens are
+    decode-derived. The legacy pipe separator marks the cell non-canonical,
+    and the scripts still normalize to exact claims with no marker.
+    """
+    block_hash = f"{7:064x}"
+    script = "76a914" + "ab" * 20 + "88ac"
+    inventory = tmp_path / "namecoin_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "100",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{8:064x}",
+                "classification": "unknown",
+                "coinbase_outputs": f"{script}|6a24aa21a9ed{'00' * 32}",
+            }
+        ],
+    )
+
+    state = _load(tmp_path, chain="namecoin", unknown_files={"namecoin": inventory})
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+
+    assert observation.outputs.startswith("1")  # exact P2PKH renders as address
+    assert ";" in observation.outputs
+    assert "~" not in observation.outputs
+    assert "pkh(" not in observation.outputs
+
+
+def test_unknown_observation_preserves_unparseable_outputs(tmp_path: Path) -> None:
+    """An unparseable legacy cell is preserved verbatim at load time.
+
+    Failing the whole reconciliation for a row whose ancestry is never
+    exercised would be a regression; the cell still fails in parent-evidence
+    selection exactly as before if its hash is reached. (The recognized RPC
+    type labels such as ``pubkeyhash:`` now parse, so the specimen is a
+    label the contract does not know.)
+    """
+    block_hash = f"{5:064x}"
+    inventory = tmp_path / "terracoin_stale_blocks.csv"
+    _write_inventory(
+        inventory,
+        [
+            {
+                "btc_height": "100",
+                "btc_header_hash": block_hash,
+                "btc_prev_hash": f"{6:064x}",
+                "classification": "unknown",
+                "coinbase_outputs": "notatemplate:34.5",
+            }
+        ],
+    )
+
+    state = _load(tmp_path, chain="terracoin", unknown_files={"terracoin": inventory})
+    [observation] = state["unknown_observations_by_hash"][block_hash]
+
+    assert observation.outputs == "notatemplate:34.5"

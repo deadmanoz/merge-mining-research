@@ -754,6 +754,8 @@ def test_descendant_ledger_rejects_source_child_hash_disagreement(
 
 def test_parent_evidence_reconciles_compatible_sources_independent_of_order() -> None:
     payout = "76a914fb37342f6275b13936799def06f2eb4c0f20151588ac"
+    # The published column renders an address-bearing script as its address.
+    payout_rendered = "1PuJjnF476W3zXfVYmJfGnouzFDAXakkL4"
     op_return = "6a124558534154011508000113021b1a1f120013"
     common = {
         "block_hash": BASELINE_HASH,
@@ -791,7 +793,7 @@ def test_parent_evidence_reconciles_compatible_sources_independent_of_order() ->
         "1",
         "1d00ffff",
         "03aabb",
-        f"{payout}:313110129|{op_return}:0",
+        f"{payout_rendered}:313110129;{op_return}:0",
     )
     assert select_parent_evidence(list(reversed(observations))) == selected
 

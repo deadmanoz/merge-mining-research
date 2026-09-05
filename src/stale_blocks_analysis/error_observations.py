@@ -23,7 +23,7 @@ from .config import CHAIN_SPECS, DATA_DIR
 from .coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
-    render_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 from .evidence_hydration import (
     RSK_SIDECAR_EXPORT_FIELDS,
@@ -632,7 +632,8 @@ def build_error_observation_rows(
                 raise ValueError(
                     f"error source coordinates disagree on full coinbase for {key}"
                 )
-            row["coinbase_outputs"] = render_coinbase_output_claims(
+            # Published column, so it follows the committed rendering contract.
+            row["coinbase_outputs"] = render_coinbase_outputs_column(
                 merge_coinbase_output_claim_sets(*claim_sets)
             )
             row["full_coinbase_hex"] = next(iter(full_coinbases), "")

@@ -17,7 +17,7 @@ from .auxpow_parse import CHILD_HEADER_FIELDS, validate_child_header_fields
 from .coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
-    render_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 from .config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
@@ -575,7 +575,8 @@ def _merge_authenticated_child_event_rows(
                 )
             if not winner_value and loser_value:
                 winner[field] = loser_value
-        winner["coinbase_outputs"] = render_coinbase_output_claims(
+        # Published column, so it follows the committed rendering contract.
+        winner["coinbase_outputs"] = render_coinbase_outputs_column(
             merge_coinbase_output_claim_sets(
                 parse_coinbase_output_claims(
                     previous.get("coinbase_outputs") or "",
