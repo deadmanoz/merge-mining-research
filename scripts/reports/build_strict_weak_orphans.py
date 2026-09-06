@@ -124,7 +124,9 @@ def build_strict_weak_exports(
                 "strict/weak verdict — the export is inconsistent"
             )
         with path.open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer = csv.DictWriter(
+                f, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n"
+            )
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
@@ -136,7 +138,7 @@ def build_strict_weak_exports(
 
     counts_path = output_dir / "strict-weak-orphans-counts.csv"
     with counts_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COUNTS_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=COUNTS_FIELDS, lineterminator="\n")
         writer.writeheader()
         for chain in sorted(counts):
             writer.writerow({"chain": chain, **counts[chain]})

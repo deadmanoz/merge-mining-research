@@ -46,9 +46,9 @@ Groupcoin (GPC) was a ~2011-launched Namecoin-family merge-mined chain (a Devcoi
 3. **Self-target PoW filter**: compute `SHA256d` of the reconstructed parent header bytes and compare it with the target derived from `auxpow.parent_block.bits`. This does not establish Bitcoin's contemporaneous target. A spot-verification pass against 10 sampled records confirmed `auxpow.parent_block.hash` is byte-for-byte reproducible from the JSON fields, so the pre-computed hash is trusted for the dedup step.
 4. **Dedup** on `auxpow.parent_block.hash`. Combined with the self-target PoW filter, the 218,494 AuxPoW records reduce to 4,868 unique PoW-valid parents.
 5. **BTC RPC classify** against `<archival-host>`:
-   - `bitcoin-cli getblockheader <hash>` hit → `canonical` (2,123 rows; not part of the unknown inventory).
-   - miss → `bitcoin-cli getblockheader <prev>` hit → `stale`; height = `prev.height + 1` (32 rows before the publication gate, 30 committed).
-   - miss + miss → `unknown`; `btc_height` blank (2,713 rows).
+   - `bitcoin-cli getblockheader <hash>` with positive confirmations → `canonical` (2,123 rows; not part of the unknown inventory).
+   - otherwise (not found, or known only as a side-chain block) → `bitcoin-cli getblockheader <prev>` with positive confirmations → `stale`; height = `prev.height + 1` (32 rows before the publication gate, 30 committed).
+   - neither the header nor its predecessor active → `unknown`; `btc_height` blank (2,713 rows).
 
 **Counts.**
 

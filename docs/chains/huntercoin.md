@@ -62,7 +62,7 @@ python scripts/extract/extract_huntercoin_auxpow.py \
    account exactly for every indexed height without a block binary.
 2. **Parse**: walk every HUC block in the archive; require the accompanying source index to authenticate each filename height against the computed child-header hash, then extract the parent header + coinbase tx + Merkle branch from the SHA-256d branch (chain ID 6). Drop the Scrypt branch (chain ID 2).
 3. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in the parent header. This filter is separate from the raw extractor's `pow_valid` flag, which refers to Huntercoin's child-chain target.
-4. **BTC RPC classify** (against the existing Bitcoin Core node on `<archival-host>`): `getblockheader <hash>`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither canonical → `unknown`.
+4. **BTC RPC classify** (against the existing Bitcoin Core node on `<archival-host>`): `getblockheader <hash>`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 
 A missing source-index entry or hash contradiction terminates extraction. It is
 not counted as a recoverable mismatch in the final statistics because no

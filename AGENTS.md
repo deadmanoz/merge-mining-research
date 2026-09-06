@@ -121,7 +121,7 @@ diagnostic destination.
 MTP sidecar, and exact child-observation ledger. `just reconcile-stale-ancestry`
 is the complete stale-ancestry publication workflow. It validates that error
 module first, then rebuilds the 21 accepted parent verdicts in
-`data/stale_descendants.csv` and their 32 authenticated witnesses in
+`data/stale_descendants.csv` and their 33 authenticated witnesses in
 `data/stale_descendant_observations.csv`. Any uncatalogued consensus-invalid
 candidate aborts before installation. Do not substitute a partial ancestry
 run or hand-edit either published stale-ancestry CSV.

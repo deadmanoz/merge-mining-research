@@ -293,13 +293,13 @@
       "canonical_evidence_status": "no_canonical_rows_in_discovered_artifact",
       "chain": "rsk",
       "error_block": 0,
-      "monitor_rows": 303,
-      "notes": "merged_duplicate_authenticated_child_events=1; publication_exclusions=5; child_identity_hydration=hydrated:303",
+      "monitor_rows": 343,
+      "notes": "merged_duplicate_authenticated_child_events=3; publication_exclusions=1; child_identity_hydration=hydrated:343",
       "source_kind": "full_inventory",
       "source_path": "data/rsk_stale_blocks.csv",
-      "source_rows": 37330,
-      "stale": 298,
-      "stale_descendant": 2,
+      "source_rows": 37385,
+      "stale": 337,
+      "stale_descendant": 3,
       "strict_btc_orphan": 3,
       "weak_btc_orphan": 0
     },
@@ -548,7 +548,7 @@
       "fractal": 1,
       "ixcoin": 3,
       "namecoin": 20,
-      "rsk": 2,
+      "rsk": 3,
       "syscoin": 1
     }
   },

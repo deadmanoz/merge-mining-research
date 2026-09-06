@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Reclassify RSK's archived raw extraction with the side-chain-aware
+active-chain test. The original bespoke classifier treated any
+`getblockheader` hit as canonical, silently filing 39 side-chain parent
+headers (real recovered stales, all already in the upstream census) as
+canonical; RSK was missed by the fleet-wide June 2026 remediation because its
+classifier does not use the shared driver. The committed loader input grows
+from 298 to 337 accepted direct stales with zero regressions, the
+stale-descendant witness ledger gains RSK's observation of the BTC 941,882
+descendant (32 to 33 witnesses, that parent's fifth chain), and the rebuilt
+monitor publication carries 343 RSK rows (was 303). Along the way, fix the
+classifier to emit the four child-identity contract columns and explicit LF
+terminators, fix RSK child-identity recovery after a reclassification (uncle
+metadata for error-observation parents now resolves through the
+`rsk_error_blocks.csv` sibling, and freshly surfaced descendant witnesses can
+be nominated as identity targets), and enrich the i0coin error-observation row
+with its recovered coinbase outputs in the rebuilt error-observation export.
+
 Normalize `coinbase_outputs` onto one rendering contract across every
 committed dataset. The column records Bitcoin parent-coinbase payouts, but each
 acquisition path rendered it differently: raw scriptPubKey hex for most chains,
@@ -217,6 +234,24 @@ child hashes in forward node order. Ordinary publication excludes those
 five RSK error parents; identity recovery includes them in the RSK work list
 and tries canonical `eth_getBlockByNumber` when classified uncle metadata is
 absent.
+
+Collapse the duplicated per-chain and per-sweep scaffolding onto shared entry
+points. Thin AuxPoW classification is now
+`scripts/classify/classify_stales.py --chain <key>` over a `CHAIN_SPECS` row,
+and the thirteen per-chain classify scripts retain only a delegation to that
+shared `classifier_cli` command. The six standard raw-hex AuxPoW extractors move
+their argument parsing, resume handling, and row building into the shared
+`extract_driver` lifecycle and keep only child-RPC construction and the version
+gate; importing `config.py` no longer creates output directories, so `--help`
+can read `CHAIN_SPECS` on a read-only host. The unknown-ancestry recovery
+pipeline splits out of `scripts/analysis/reconcile_unknown_stale_ancestry.py`
+into `reconcile_observations.py` for observation loading, `ancestry_walk.py` for
+ancestry traversal, and `reconcile_publication.py` for report publication,
+leaving the script as the coordinating entry point and emitting its run summary
+once. The four error-block sweeps take their repeated flags, reader choice,
+coverage preflight, and report writing from `scripts/analysis/_sweep_common.py`
+and their inventory fixtures from the shared test helper, with the four rule
+implementations and the fail-closed time-rule order unchanged.
 
 Catalogue Bitcoin height 957780 (`time_below_mtp`) from merge-mining-monitor
 live capture, with recovered Namecoin, Syscoin, Fractal, and Elastos witnesses.

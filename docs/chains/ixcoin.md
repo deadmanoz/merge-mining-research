@@ -33,6 +33,7 @@ ixcoin was the fourth SHA-256d AuxPoW chain by merged-mining activation order (a
 
 - `scripts/extract/extract_ixcoin_auxpow.py:1` - raw-hex `getblock` extractor (binary CAuxPow parse, no decoded JSON path).
 - `scripts/classify/classify_ixcoin_stales.py:1` - BTC RPC batch classifier.
+- `python scripts/classify/classify_stales.py --chain ixcoin` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/ixcoin/{Dockerfile,docker-compose.yml,justfile,patches/}` - IXCore build infrastructure.
 
 ## 2. Extraction → potential stales
@@ -44,7 +45,7 @@ ixcoin was the fourth SHA-256d AuxPoW chain by merged-mining activation order (a
 1. **Parse**: walk all IXC blocks ≥ 45,001 via raw hex; for each block carrying CAuxPow, extract the parent header (80 bytes), coinbase tx, and Merkle branch.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. This is not the later comparison against Bitcoin's contemporaneous target.
 3. **Dedup** on `btc_header_hash` (the same BTC parent can be referenced by multiple IXC blocks before a new BTC tip is mined).
-4. **BTC RPC classify** (`classify_ixcoin_stales.py`): batch `bitcoin-cli getblockheader <hash>` per candidate. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither canonical → `unknown`.
+4. **BTC RPC classify** (`classify_ixcoin_stales.py`): batch `bitcoin-cli getblockheader <hash>` per candidate. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 5. **Header-context publication gate**: require expected `nBits`, median-time-past, Bitcoin's historical minimum block versions, the coinbase scriptSig length bound, and BIP34's version-sensitive height rule. This leaves 465 public rows and excludes 13 historical candidates.
 
 **Counts in the private full classifier output** (301,260 rows total):

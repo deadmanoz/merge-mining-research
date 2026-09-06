@@ -670,8 +670,17 @@ def test_error_observation_rsk_targets_merge_into_identity_work_list(
     )
     assert same_parent == [("22" * 32, 2, ""), ("22" * 32, 3, "")]
 
-    with pytest.raises(SystemExit, match="duplicate child-identity target"):
-        mod.merge_identity_targets([("22" * 32, 2, "")], [("22" * 32, 2, "")])
+    # An exact cross-list repeat deduplicates: a complete supplemental ledger
+    # legitimately repeats events the ordinary work list already carries.
+    deduped = mod.merge_identity_targets(
+        [("22" * 32, 2, ""), ("aa" * 32, 789982, f"{1:064x}")],
+        [("aa" * 32, 789982, f"{1:064x}")],
+    )
+    assert deduped == [("22" * 32, 2, ""), ("aa" * 32, 789982, f"{1:064x}")]
+
+    # A non-identical same-slot overlap is still ambiguous and still fails.
+    with pytest.raises(SystemExit, match="ambiguous child-identity targets"):
+        mod.merge_identity_targets([("22" * 32, 2, "")], [("22" * 32, 2, f"{9:064x}")])
 
 
 def test_error_observation_rsk_targets_refuse_missing_or_empty_ledger(

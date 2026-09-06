@@ -19,7 +19,7 @@ Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-Po
 
 ## 1. Chain data
 
-**Source.** Local `myriadcoind` node on `<archival-host>`, built from `myriadcoin/myriadcoin` master (last upstream commit 2021-12-10) inside a Docker container with `ubuntu:20.04` base. Myriadcoin Core is a **Bitcoin Core 0.18.1-lineage fork** (`configure.ac` declares 0.18.1.0 and the `v0.18.1.0` tag is master's ancestor; autotools build, `ADD_SERIALIZE_METHODS`-era serialisation - newer than ixcoin/Unobtanium's 0.11 ancestry, older than xaya's 29.x line). No vintage patches were needed on focal - the standard `--disable-wallet --disable-tests --disable-bench --disable-zmq` configure flags produced a clean build.
+**Source.** Local `myriadcoind` node on `<archival-host>`, built from `myriadcoin/myriadcoin` master (upstream repository last touched 2021-12-10; repository dormancy, not network dormancy) inside a Docker container with `ubuntu:20.04` base. Myriadcoin Core is a **Bitcoin Core 0.18.1-lineage fork** (`configure.ac` declares 0.18.1.0 and the `v0.18.1.0` tag is master's ancestor; autotools build, `ADD_SERIALIZE_METHODS`-era serialisation - newer than ixcoin/Unobtanium's 0.11 ancestry, older than xaya's 29.x line). No vintage patches were needed on focal - the standard `--disable-wallet --disable-tests --disable-bench --disable-zmq` configure flags produced a clean build.
 
 **Provenance.** Docker scaffold at `node-infra/myriadcoin/`. P2P sync via the chain's 10 DNS seeds (8x `*.myriadcoin.org`, `myriadseed1.cryptapus.org`, `xmy-seed1.coinid.org`); IBD reached the tip in about six hours (~5 GB datadir), with `peers.list` as an `addnode=` fallback and no recorded recourse to it. Bitcoin Core on `<archival-host>` provided the BTC RPC for classification.
 
@@ -36,6 +36,7 @@ Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-Po
 
 - `scripts/extract/extract_myriadcoin_auxpow.py:1` - RPC raw-hex `getblock` + binary CAuxPow parse, with `nVersion`-bit algo filter (skip if `(version & BLOCK_VERSION_ALGO) >> 9 != 0`).
 - `scripts/classify/classify_myriadcoin_stales.py:1` - BTC RPC batch classifier (PoW filter + `getblockheader` lookups).
+- `python scripts/classify/classify_stales.py --chain myriadcoin` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/myriadcoin/{Dockerfile,docker-compose.yml,init.sh,justfile,README.md}` - build infrastructure.
 
 ## 2. Extraction → potential stales
@@ -49,7 +50,7 @@ The block header is `class CBlockHeader : public CPureBlockHeader { shared_ptr<C
 1. **Parse with algo filter**: walk all XMY blocks ≥ 1,402,000 via raw hex; decode `nVersion` first; discard blocks where algo bits indicate Scrypt/Groestl/Yescrypt/Argon2d (or pre-2019 Skein/Qubit). Only SHA-256d-flagged blocks proceed to AuxPoW parsing.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. This does not establish Bitcoin's contemporaneous target.
 3. **Dedup**: do *not* dedup at extraction time - multiple consecutive XMY blocks reference the same BTC `prevhash` but each contains a different parent header. Downstream cross-source publication views deduplicate only exact `(height, hash)` identities.
-4. **BTC RPC classify** (`classify_myriadcoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_myriadcoin_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 
 **Counts:**
 
@@ -129,7 +130,7 @@ The 38 earlier-chain-claimed stales are the same SHA-256d miner substrate that D
 **External references.**
 
 - `docs/auxpow-recovery.md` - cross-chain summary table (Myriadcoin row).
-- Myriadcoin upstream: `github.com/myriadcoin/myriadcoin` (last commit 2021-12-10).
+- Myriadcoin upstream: `github.com/myriadcoin/myriadcoin` (`master` last touched 2021-12-10; latest release tag `v0.18.1.0`, published 2020-03-02). Those dates describe the code base; the Network status row and §1's tip observation describe the chain.
 - Public explorer: `chainz.cryptoid.info/xmy/` - tip-height sanity check and peer harvest source at recovery time (2026-05); the site no longer hosts XMY as of 2026-07.
 - `chains.csv` row (deadmanoz.xyz catalogue): "Myriadcoin (SHA-256d branch)" - catalogue confirmation.
 

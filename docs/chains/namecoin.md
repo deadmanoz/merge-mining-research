@@ -5,6 +5,7 @@
 | Ticker | NMC |
 | AuxPoW activation | NMC height 19,200 on 2011-10-11 |
 | Associated Bitcoin parent | BTC height 148,553, dated 2011-10-08 |
+| Network status | Active (still merge-mining Bitcoin; accepted parent timestamps run through 2026-04-13). Recovered from an archival Namecoin Core `blk*.dat` snapshot, with every published height re-verified against a Namecoin node. |
 | AuxPoW chain ID | 1, with strict chain-ID checking |
 | Chronological position | 1 of 26 (first production AuxPoW witness) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1, and the paper's canonical first AuxPoW chain) |
@@ -106,10 +107,10 @@ all, where the coinbase paid solely to P2PK, nulldata, or nonstandard
 scripts. Those outputs survive in the
 private raw-script inventory and are not recoverable from the public checkout.
 
-The pinned upstream dataset carries a matching full-block blob for 319 of the
+The pinned upstream dataset carries a matching full-block blob for 323 of the
 1,649 direct candidates. The repository confirms that each blob starts with
 the expected header, but none has undergone full historical consensus replay
-here. The other 1,330 direct candidates have no matching full block body in the
+here. The other 1,326 direct candidates have no matching full block body in the
 pinned dataset.
 
 Either exact accepted direct-stale status means that the row passed the
@@ -199,6 +200,11 @@ rejection reasons.
 The current raw source also records height 941,882 as unknown; its authenticated
 Namecoin child observation is published against the shared accepted descendant
 parent verdict.
+Separately, Namecoin's accepted rows at Bitcoin heights 783,426 and 784,121 are
+externally attested body-invalid (`bad-blk-sigops`); they are annotated in the
+`data/error-blocks/body_invalid_stales.csv` overlay, retain their accepted
+statuses, and are deliberately not catalogue rows. See
+`docs/error-blocks.md` "Externally attested body-invalid stales".
 
 The historical Namecoin contribution therefore contains **1,061 accepted direct
 additions**, not 1,089. The historical upstream commit still records the

@@ -22,7 +22,7 @@ by the main analysis package:
   predecessor gate, and consensus-invalid candidates take error-block
   precedence. Loaders admit only `classification=stale_descendant` and
   `validation_status=VALID_STALE_DESCENDANT` rows.
-- `stale_descendant_observations.csv` - 32 authenticated child-chain witnesses
+- `stale_descendant_observations.csv` - 33 authenticated child-chain witnesses
   for the accepted parents. Source coordinates, hashes, and child headers bind
   each witness to its archive row. `source_classification` records the source
   bucket for audit; it does not determine the parent verdict.
@@ -135,11 +135,12 @@ columns trail them after the gate columns (for example coiledcoin's
 
 The 20 July 2026 audit replayed all 3,652 accepted direct observations against
 Bitcoin Core tip 958,882. All passed their available checks; this was not a
-full-block consensus replay. RSK's 298 rows still lack evidence for the two
+full-block consensus replay. RSK's 337 rows still lack evidence for the two
 coinbase-dependent checks.
 The 3 August Elastos/Syscoin refresh added 44 accepted direct observations, and
 the 30 August same-generation Namecoin/Fractal refresh added another 33. Each
-passed the same available-evidence profile.
+passed the same available-evidence profile. The 5 September RSK side-chain
+reclassification added another 39 under RSK's available-evidence profile.
 
 Many extractor/classifier scripts keep their defaults under `data/` so an
 operator can run them from the repo root without a long path. Those outputs are

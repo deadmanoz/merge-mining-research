@@ -188,7 +188,7 @@ VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "lyncoin": 0,
     "myriadcoin": 40,
     "namecoin": 1_649,
-    "rsk": 298,
+    "rsk": 337,
     "sixeleven": 0,
     "syscoin": 98,
     "terracoin": 35,

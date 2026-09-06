@@ -52,7 +52,7 @@ the available child identity evidence.
 1. **Parse**: walk all CLC blocks ≥ 1 in `blk*.dat`; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header.
 3. **Dedup** on `btc_header_hash`.
-4. **BTC RPC classify** (`classify_coiledcoin_stales.py`): batch `bitcoin-cli getblockheader`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_coiledcoin_stales.py`): batch `bitcoin-cli getblockheader`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 5. **Eligius-attack flag**: rows whose parent-block timestamp falls in the Eligius attack window (2012-01-05 to 2012-01-15 UTC) get `eligius_attack_window=true`. This is the highest-value subset on this chain, AuxPoW-layer evidence associated with the documented Eligius majority-hashrate attack.
 
 **Counts.** The offline parse scanned 1,379,338 CLC blocks (881,821 AuxPoW-flagged; 497,517 non-AuxPoW skipped) and, after the self-target PoW filter, yielded **13,943** unique parent headers (all unique; dedup removed none). Classifying each against Bitcoin Core:

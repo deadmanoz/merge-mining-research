@@ -88,14 +88,15 @@ where the coinbase was available.
 On 3 August, source-driven Elastos and Syscoin reclassification added 44
 direct observations, each of which passed the same available-evidence profile
 against Bitcoin Core. The 30 August same-generation Namecoin and Fractal
-refresh added another 33 accepted direct observations under that profile. The
-current committed direct set therefore contains 3,729 observations and 2,137
-unique header hashes.
+refresh added another 33 accepted direct observations under that profile, and
+the 5 September RSK side-chain reclassification added another 39 under RSK's
+available-evidence profile. The current committed direct set therefore
+contains 3,768 observations and 2,145 unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,
 back-filled from the committed monitor evidence and byte-verified against each
-row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 298
+row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 337
 accepted rows, so its scriptSig-length and BIP34 checks remain untested. The
 audit found no remaining failure in the committed direct sets, but it was not a
 full-block consensus replay.
@@ -150,11 +151,11 @@ the parent coinbase scriptSig, but the compact CSV does not retain the complete
 serialized coinbase transaction or its parent-merkle branch.
 
 The pinned upstream `bitcoin-data/stale-blocks` checkout currently carries a
-matching full-block blob for 319 of the 1,649 accepted Namecoin candidates. Its
+matching full-block blob for 323 of the 1,649 accepted Namecoin candidates. Its
 public sanity check confirms that each blob starts with the expected header; it
 does not perform full historical Bitcoin consensus validation, and none of the
-319 blobs has undergone a full consensus replay in this project. The remaining
-1,330 candidates have no matching full Bitcoin block body in that pinned
+323 blobs has undergone a full consensus replay in this project. The remaining
+1,326 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
 The current Namecoin source classification routes 32 consensus-invalid

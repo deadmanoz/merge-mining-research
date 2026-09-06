@@ -54,7 +54,7 @@ counter. The full child header, authenticated child hash, timestamp, and
 1. **Parse**: walk all I0C blocks in `blk*.dat`; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch.
 2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. Bitcoin's contemporaneous target is checked later for stale-labelled candidates.
 3. **Dedup** on `btc_header_hash` (with 6.67× block density, many consecutive I0C blocks can reference the same BTC parent - especially from the same miner running the same hashing job across multiple I0C blocks).
-4. **BTC RPC classify** (`classify_auxpow_candidates.py`): batch `bitcoin-cli getblockheader <hash>`. Hit → `canonical`. Miss → look up `prev_hash`. Prev canonical → `stale`. Neither → `unknown`.
+4. **BTC RPC classify** (`classify_auxpow_candidates.py`): batch `bitcoin-cli getblockheader <hash>`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
 5. **Validation**: like Namecoin, candidates are checked against BTC's actual
    difficulty, historical minimum block version, and applicable BIP34 height
    rule. Rows are tagged `VALID`, `VALID (post-BCH, difficulty matches BTC)`,

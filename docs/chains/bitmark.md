@@ -94,10 +94,12 @@ unknown). Anything before Fork 1 carries no AuxPoW proof and is out of scope.
 - `scripts/classify/classify_bitmark_stales.py` - BTC RPC batch classifier
   (self-target PoW filter, dedup, nBits-by-epoch contamination filter, and
   canonical/stale/unknown classification).
+- `python scripts/classify/classify_stales.py --chain bitmark` - the shared
+  thin-classifier entry point; the wrapper above delegates to it.
 - `node-infra/bitmark/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}`
   - build and run infrastructure (default P2P port 9265, loopback RPC 9266).
 
-## 2. Extraction to potential stales
+## 2. Extraction → potential stales
 
 **Method.** RPC raw-hex against the local Bitmark node. For each BTMK block
 >= 450,947, decode `nVersion` first: read the 3-bit algo field at bits 9-11
@@ -158,7 +160,7 @@ resolved by the public pipeline.
   rather than a fixed constant, the 450,947 activation height is an observed,
   boundary-walked value rather than a value read out of the source.
 
-## 3. Filtering to accepted direct-stale candidates
+## 3. Filtering → accepted direct-stale candidates
 
 **Loader filter** (`load_bitmark_stales()` in `stale_blocks.py`):
 
@@ -218,7 +220,7 @@ row is cross-confirmation, not a novel stale.
 > simplifying convention for reproducible attribution, **not** a claim about
 > which chain literally observed the stale first in real-world block time.
 
-## 4. Outputs and references
+## 4. Outputs & references
 
 **In-repo artifacts.**
 

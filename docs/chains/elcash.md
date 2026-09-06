@@ -80,6 +80,8 @@ canonical rows and 3 accepted stale rows.
 - `scripts/classify/classify_elcash_stales.py` - thin `run_classifier`
   wrapper that reproduces the committed schema (the committed values predate
   the wrapper - see §5).
+- `python scripts/classify/classify_stales.py --chain elcash` - the shared
+  thin-classifier entry point; the wrapper above delegates to it.
 
 ## 2. Extraction → classification
 

@@ -43,6 +43,7 @@ from pathlib import Path
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import (
+    CHILD_HEADER_FIELDS,
     hash_meets_btc_difficulty,
     parse_parent_header,
 )
@@ -111,6 +112,11 @@ VALIDATED_COLS = [
     "coinbase_outputs",
     "btc_header_hex",
     "rsk_height",
+    # RSK's child block is Ethereum-native, so these stay explicitly blank here
+    # and are hydrated separately into data/child-identity/. They must still be
+    # emitted: every chain's loader input carries the same child-identity
+    # contract, and omitting them silently narrows a committed schema.
+    *CHILD_HEADER_FIELDS,
     "classification",
     "validation_status",
     "expected_nbits",
@@ -303,6 +309,7 @@ def validated_row(row: dict[str, str], height: int, pool_labels: dict[str, str])
         "coinbase_outputs": "",
         "btc_header_hex": row["btc_header_hex"],
         "rsk_height": row["rsk_height"],
+        **{field: "" for field in CHILD_HEADER_FIELDS},
         "classification": "stale",
         "validation_status": "VALID",
         "expected_nbits": row["expected_nbits"],
@@ -662,7 +669,7 @@ def main():
     print("\n=== Writing outputs ===", file=sys.stderr)
     ensure_parent(args.stales_out)
     with open(args.stales_out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=OUT_COLS)
+        w = csv.DictWriter(f, fieldnames=OUT_COLS, lineterminator="\n")
         w.writeheader()
         for h, row in sorted(stale_rows, key=lambda x: x[0]):
             w.writerow(
@@ -685,7 +692,7 @@ def main():
 
     ensure_parent(error_blocks_out)
     with open(error_blocks_out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=ERROR_BLOCK_COLS)
+        w = csv.DictWriter(f, fieldnames=ERROR_BLOCK_COLS, lineterminator="\n")
         w.writeheader()
         for h, row in sorted(error_blocks, key=lambda x: x[0]):
             w.writerow(
@@ -706,7 +713,7 @@ def main():
 
     ensure_parent(args.validated_out)
     with open(args.validated_out, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=VALIDATED_COLS)
+        writer = csv.DictWriter(f, fieldnames=VALIDATED_COLS, lineterminator="\n")
         writer.writeheader()
         writer.writerows(public_rows)
 
