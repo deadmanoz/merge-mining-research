@@ -1,6 +1,6 @@
 # Stale recovery process, data volumes, and outcomes
 
-Published state: 2026-09-05.
+Published state: 2026-09-07.
 
 This document is the cross-chain accounting view for the stale-block recovery
 work. It is deliberately more operational than the per-chain writeups: it
@@ -62,15 +62,15 @@ committed.
 
 | Layer | Current volume | Notes |
 |---|---:|---|
-| Effective upstream `bitcoin-data/stale-blocks` rows | 3,114 | The pinned CSV contains 3,139 data rows. `data/error-blocks/error_blocks.csv` removes 25 consensus-invalid rows (upstream removed six catalogued rows plus the height-74,638 row in September 2026). No effective row sits below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. |
+| Effective upstream `bitcoin-data/stale-blocks` rows | 3,116 | The pinned CSV contains 3,141 data rows. `data/error-blocks/error_blocks.csv` removes 25 consensus-invalid rows (upstream removed six catalogued rows plus the height-74,638 row in September 2026). No effective row sits below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. |
 | Per-chain accepted direct-stale candidate observations at height >= 0 | 3,768 | Sum of all integrated direct-stale loader functions, including Namecoin's 1,649, Elastos's 177, Syscoin's 98, RSK's 337, Emercoin's 96, Xaya's 40, Electric Cash's 3, Fractal Bitcoin's 40, and Bitcoin Vault's 9. Cross-chain observations of the same header count once per chain here. |
 | Accepted stale-descendant parent verdicts | 21 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. Xaya's full unknown inventory is not yet folded into reconciliation (see note below). |
 | Merge-mining/derived parent candidates before dedup | 3,789 | Per-chain direct-stale observations plus accepted stale-descendant parent verdicts. |
 | Authenticated historical child-header observations | 2,933,154 | All rows across the 17 regenerated historical sources. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. |
-| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,440 | Dedup key is `(height, hash)`. The total is unchanged at the epoch-aligned analysis floor of 147,168 because no effective upstream row remains below the floor. |
-| Unique events in post-compact base window | 917 | At `MIN_HEIGHT=421344` with every integrated loader included. |
-| Upstream-novel direct rows across novelty CSVs | 559 | `results/per-chain-novelty/*.csv`, `in_upstream=no`; row-level across chains, so cross-chain duplicates count once per chain. 309 unique events are chronologically first-claimed. Excludes stale descendants. |
-| Pending-upstream sidecar rows | 326 | `data/new_stale_blocks_for_upstream.csv`: 309 first-claimed direct upstream-new rows plus 17 upstream-new stale descendants. |
+| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,441 | Dedup key is `(height, hash)`. The total is unchanged at the epoch-aligned analysis floor of 147,168 because no effective upstream row remains below the floor. |
+| Unique events in post-compact base window | 918 | At `MIN_HEIGHT=421344` with every integrated loader included. |
+| Upstream-novel direct rows across novelty CSVs | 557 | `results/per-chain-novelty/*.csv`, `in_upstream=no`; row-level across chains, so cross-chain duplicates count once per chain. 308 unique events are chronologically first-claimed. Excludes stale descendants. |
+| Pending-upstream sidecar rows | 325 | `data/new_stale_blocks_for_upstream.csv`: 308 first-claimed direct upstream-new rows plus 17 upstream-new stale descendants. |
 | Pending-upstream header fills | 264 | `data/upstream_header_fills.csv`: committed headers for upstream rows recorded hash-only (heights 179,641 through 472,549). |
 
 Important implementation boundary: downstream cross-source publication views
@@ -208,7 +208,7 @@ upstream and not first claimed by any earlier-born integrated chain.
 | Myriadcoin | Local `myriadcoind`; multi-algo raw-hex parse, SHA-256d branch only. | 2,310,366 blocks scanned; 513,722 SHA-256d AuxPoW-flagged; 181,589 self-target-PoW-valid unique headers; 14,705 canonical + 40 accepted direct-stale candidates + 166,844 unknown. | `data/validated-stales/myriadcoin_validated_stales.csv` (40 rows), `results/per-chain-novelty/myriadcoin.csv`. | 2 | First multi-algo integration. Demonstrates nVersion algo filtering before AuxPoW parsing. |
 | Argentum | Local `argentumd`; multi-algo SHA-256d branch. | 1,290,127 raw SHA-256d-AuxPoW rows; 634,306 self-target-PoW-valid unique headers; 27 canonical + 2 accepted direct-stale candidates + 634,277 unknown. | `data/validated-stales/argentum_validated_stales.csv` (2 rows), `results/per-chain-novelty/argentum.csv`. | 0 | Sparse Bitcoin-parent evidence: 29 canonical or accepted observations against 634,277 unknowns. This ratio is not a hashrate estimate. |
 | Terracoin | Local `terracoind`; Dash-derived JSON AuxPoW. | 2,368,318 AuxPoW-bearing blocks of 2,369,590 scanned; 534,607 self-target-PoW-valid intermediate rows; 11,257 canonical + 35 accepted direct-stale candidates + 523,315 unknown. | `data/validated-stales/terracoin_validated_stales.csv` (35 rows), `results/per-chain-novelty/terracoin.csv`; unknown-origin diagnostics remain private. | 0 | 99.95% AuxPoW density, second only to Bitcoin Vault's. Historical H1/H2 analysis rejected broad lost-BTC-deep-reorg interpretation; 22/22 Namecoin cross-confirmed unknown roots do not match Bitcoin's expected target epoch. |
-| Emercoin | Local `emercoind`; hybrid PoW/PoS; RPC JSON exposes AuxPoW. | 570,365 post-MMHeight blocks scanned; 482,164 PoS/no-AuxPoW filtered out; 88,201 raw AuxPoW rows; 62,237 self-target-PoW-valid unique headers; 96 VALID direct-stale candidates after the 2026-06-24 canonical-refresh re-run (refresh split: 45,595 canonical + 97 stale-labelled + 16,545 unknown; the original 2026-05 run recorded 45,599 canonical + 93 stale-labelled + 16,545 unknown - the refresh reclassified 4 side-chain headers canonical to stale); canonical-at-height `nBits` validation filters stale candidates before commit. | `data/validated-stales/emercoin_validated_stales.csv` (96 rows), `results/per-chain-novelty/emercoin.csv`. | 29 | First hybrid PoW/PoS chain. |
+| Emercoin | Local `emercoind`; hybrid PoW/PoS; RPC JSON exposes AuxPoW. | 570,365 post-MMHeight blocks scanned; 482,164 PoS/no-AuxPoW filtered out; 88,201 raw AuxPoW rows; 62,237 self-target-PoW-valid unique headers; 96 VALID direct-stale candidates after the 2026-06-24 canonical-refresh re-run (refresh split: 45,595 canonical + 97 stale-labelled + 16,545 unknown; the original 2026-05 run recorded 45,599 canonical + 93 stale-labelled + 16,545 unknown - the refresh reclassified 4 side-chain headers canonical to stale); canonical-at-height `nBits` validation filters stale candidates before commit. | `data/validated-stales/emercoin_validated_stales.csv` (96 rows), `results/per-chain-novelty/emercoin.csv`. | 28 | First hybrid PoW/PoS chain. |
 | RSK | RSKj Vetiver 9.0.1 archive node; Ethereum-style JSON-RPC; canonical blocks plus uncles. | The 2026-09-05 side-chain-aware reclassification of the archived extraction has 37,386 rows: 338 stale-labelled candidates plus 37,048 unknown rows, with four consensus-invalid candidates routed to the error-block sibling output. The exact-key gate excludes the stale-labelled BTC 789,038 and the stale-descendant module represents the height-656,478 parent from the unknowns, leaving 337 publication-gate-accepted direct-stale header candidates: 96 from canonical RSK blocks plus 241 from uncles/ommers. RSK cannot independently apply the coinbase scriptSig length or BIP34-prefix checks. | `data/validated-stales/rsk_validated_stales.csv` (337 rows; shared validated-stales layout plus RSK evidence columns), `results/per-chain-novelty/rsk.csv`. | 115 | Extraction starts at child height 139,999 even though earlier full-header proofs exist. No consolidated canonical export is available. Three strict observations inherit globally strongest verdicts from matching coinbase-bearing chains. |
 | Bitmark | Synced Bitmark node/private raw archive; multi-algo SHA-256d subset. | 1,926,463 blocks scanned; 255,538 SHA-256d AuxPoW blocks; 82,819 self-target-PoW-valid unique headers; 897 canonical, 1 accepted direct-stale candidate, 81,921 unknown. | `data/validated-stales/bitmark_validated_stales.csv` (1 row), `results/per-chain-novelty/bitmark.csv`. | 0 | Cross-confirmation only; the accepted row is already present in Unobtanium/Myriadcoin/RSK. The integrated loader includes Bitmark; unique-count impact is zero. |
 | Xaya | Offline `blocks.zip` snapshot (2024-11-15) from Xaya's open CDN; legacy P2P network dead, so no live node. Custom extractor parses the `PowData` block-header wrapper; CAuxPow tail is standard Namecoin. | 6,344,114 blocks scanned; 1,695,912 SHA256D merge-mined; 38,483 self-target-PoW-valid unique parents; 40 VALID direct-stale candidates after the 2026-06-24 canonical-refresh re-run (the original run recorded 34 stale-labelled candidates + 17,642 unknown + 20,807 canonical); canonical-at-height `nBits` validation filters stale candidates before commit (0 rejected). | `data/validated-stales/xaya_validated_stales.csv` (40 rows), `results/per-chain-novelty/xaya.csv`. | 0 | A historical private attribution pass was F2Pool-dominated; the public pipeline does not reproduce that result. 0 chronologically novel: every accepted row is first-claimed by upstream or an earlier chain. Full unknown inventory not yet folded into reconciliation; the snapshot tail to Xaya's ~7.3M deprecation height is a documented coverage gap. |
@@ -298,11 +298,15 @@ Generated monitor evidence:
    was regenerated from current committed inputs against the bumped upstream
    pin (which already includes the project's earlier 1,089-row Namecoin
    addition).
-   It now has 326 rows: 309 first-claimed direct upstream-new stale rows and
+   It now has 325 rows: 308 first-claimed direct upstream-new stale rows and
    17 upstream-new stale descendants. The September 2026 pin bump to upstream
    `102ba00` removed two RSK-recovered rows (heights 903,259 and 927,647) that
    upstream's fork.observer automation had independently added with
-   byte-identical headers.
+   byte-identical headers. The follow-up bump to upstream `d15c8e9` removed a
+   third, the Emercoin/RSK-recovered row at height 589,477, again with a
+   byte-identical header. That same upstream commit adds height 544,959, which
+   no integrated merge-mined chain witnessed, so it only grows the effective
+   baseline.
 
 5. **Bitmark integration.** Bitmark is wired into the recovery loader and
    novelty paths. Its single stale remains an exact

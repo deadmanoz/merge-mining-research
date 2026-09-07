@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `d15c8e9` and
+rebuild every surface that reads it. Upstream added two stale blocks on top of
+`102ba00`. The first, height 589,477, is a stale this project recovered from
+Emercoin and RSK, and upstream recorded it with a byte-identical header, so the
+contribution sidecar drops to 325 rows (308 first-claimed direct stales plus 17
+stale descendants). The second, height 544,959, is witnessed by no integrated
+merge-mined chain and only grows the effective baseline to 3,116 rows. The
+header-fill sidecar is unaffected at 264 rows, since upstream recorded both new
+rows with headers and neither is a hash-only row this project could fill.
+
+Regenerate the Emercoin and RSK novelty CSVs, the only two that carry 589,477,
+and recompute the baseline-dependent counts in `docs/process-data-outcomes.md`,
+`docs/auxpow-recovery.md`, and the two chain docs. Emercoin moves to 57
+also-in-upstream and 39 novel, which drops its chronological novelty from 29 to
+28. RSK moves to 208 also-in-upstream and 129 novel, computed against the
+337-row set the side-chain reclassification below produced rather than the 298
+rows that preceded it; its chronological novelty stays at 115 because Emercoin
+already first-claims 589,477.
+
 Reclassify RSK's archived raw extraction with the side-chain-aware
 active-chain test. The original bespoke classifier treated any
 `getblockheader` hit as canonical, silently filing 39 side-chain parent
