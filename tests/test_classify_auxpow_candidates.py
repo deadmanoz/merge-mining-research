@@ -901,3 +901,41 @@ def test_classifier_preserves_exact_outputs_and_amounts_without_a_repair_pass(
         row["coinbase_outputs"]
         == "12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH:5000000000;6a02abcd:0"
     )
+
+
+def test_cli_rejects_partial_outputs_before_connecting(tmp_path, monkeypatch):
+    mod = _load_classifier()
+    candidate = _candidate("10" * 32, "207fffff", 10)
+    candidate["coinbase_outputs"] = "~pkh(" + "11" * 20 + ")"
+    input_path = tmp_path / "candidate.csv"
+    with input_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(candidate))
+        writer.writeheader()
+        writer.writerow(candidate)
+    output, rejected = tmp_path / "validated.csv", tmp_path / "rejected.csv"
+    output.write_text("existing publication\n")
+    rejected.write_text("existing rejections\n")
+    monkeypatch.setattr(
+        mod.sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output),
+            "--rejected",
+            str(rejected),
+        ],
+    )
+    monkeypatch.setattr(
+        mod,
+        "rpc_from_args",
+        lambda _args: _DispatchRpc(
+            lambda call: pytest.fail(f"unexpected RPC call: {call}")
+        ),
+    )
+    with pytest.raises(ValueError, match="candidate row 2 coinbase_outputs"):
+        mod.main()
+    assert output.read_text() == "existing publication\n"
+    assert rejected.read_text() == "existing rejections\n"

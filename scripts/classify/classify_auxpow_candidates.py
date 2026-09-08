@@ -1312,14 +1312,6 @@ def main():
 
     btc = RpcClient(rpc=rpc_from_args(args))
 
-    # Quick connection test
-    try:
-        info = btc.call("getblockchaininfo")
-        print(f"Bitcoin Core: chain={info['chain']}, blocks={info['blocks']:,}")
-    except Exception as e:
-        print(f"ERROR: cannot connect to Bitcoin Core RPC: {e}")
-        sys.exit(1)
-
     classify_and_validate(
         args.input,
         args.output,
