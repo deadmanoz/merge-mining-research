@@ -30,6 +30,9 @@ Recheck raw extraction and skip-ledger bytes when consuming classifier manifests
 Bind the Bitcoin epoch-reference table used by rejection routing, require
 canonical companions beside their manifest, and allow distinct RSK witnesses in
 the publication dataset invariant while preserving compact parent uniqueness.
+Recheck non-canonical headers and placements above the starting Bitcoin tip
+before sealing classification. Require unchanged decisions and a stable final
+tip so concurrent chain growth cannot silently turn a canonical row into a stale.
 
 Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
 Document a settled extraction endpoint and distinguish retried RPC failures

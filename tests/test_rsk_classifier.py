@@ -1147,7 +1147,76 @@ def test_classifier_rejects_core_reorg_through_start_tip() -> None:
         "version": 280000,
     }
     with pytest.raises(ValueError, match="changed through the pinned start tip"):
-        rsk.verify_bitcoin_core_context(ReorgedRPC(), start)
+        rsk.verify_bitcoin_core_context(ReorgedRPC(), start, {})
+
+
+@pytest.mark.parametrize(
+    ("placement", "current", "moves_during_check", "error"),
+    [
+        (None, None, False, None),
+        (None, 900_001, False, "header placement changed"),
+        (900_001, None, False, "header placement changed"),
+        (900_001, 900_001, False, None),
+        (None, None, True, "tip changed during final verification"),
+    ],
+)
+def test_classifier_rechecks_decisions_under_tip_growth(
+    placement, current, moves_during_check, error
+) -> None:
+    start = {"height": 900_000, "hash": "22" * 32}
+
+    class GrowingRPC:
+        def __init__(self):
+            self.context_reads = 0
+            self.checked_hashes = []
+
+        def batch(self, calls):
+            responses = []
+            for call in calls:
+                method = call["method"]
+                if method == "getblockchaininfo":
+                    self.context_reads += 1
+                    moved = moves_during_check and self.context_reads > 1
+                    result = {
+                        "chain": "main",
+                        "blocks": 900_002 if moved else 900_001,
+                        "headers": 900_002 if moved else 900_001,
+                        "bestblockhash": ("55" if moved else "44") * 32,
+                        "initialblockdownload": False,
+                    }
+                elif method == "getnetworkinfo":
+                    result = {"version": 280000}
+                elif method == "getblockhash":
+                    assert call["params"] == [start["height"]]
+                    result = start["hash"]
+                elif method == "getblockheader":
+                    self.checked_hashes.append(call["params"][0])
+                    result = {
+                        "hash": BLOCK_HASH,
+                        "height": current if current is not None else 900_001,
+                        "confirmations": 1 if current is not None else -1,
+                    }
+                else:
+                    raise AssertionError(method)
+                responses.append({"id": call["id"], "result": result, "error": None})
+            return responses
+
+    rpc = GrowingRPC()
+    decisions = {BLOCK_HASH: placement, start["hash"]: start["height"]}
+    if error:
+        with pytest.raises(ValueError, match=error):
+            rsk.verify_bitcoin_core_context(rpc, start, decisions)
+    else:
+        context = rsk.verify_bitcoin_core_context(rpc, start, decisions)
+        assert context["end"]["height"] == 900_001
+    assert rpc.checked_hashes == [BLOCK_HASH]
+
+
+def test_classifier_rejects_conflicting_repeated_header_decisions() -> None:
+    decisions = {}
+    rsk.record_header_decision(decisions, BLOCK_HASH, None)
+    with pytest.raises(ValueError, match="header placement changed"):
+        rsk.record_header_decision(decisions, BLOCK_HASH, {"height": 900_001})
 
 
 def test_rsk_sidecar_rejects_unicode_decimal_cells() -> None:

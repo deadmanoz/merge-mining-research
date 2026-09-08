@@ -551,8 +551,18 @@ def bitcoin_core_tip_context(bitcoin_rpc, *, label: str) -> dict[str, object]:
     }
 
 
-def verify_bitcoin_core_context(bitcoin_rpc, start: dict) -> dict[str, dict]:
-    """Allow normal tip growth while rejecting a reorg through the start tip."""
+def record_header_decision(decisions: dict[str, int | None], block_hash, header):
+    """Keep the active-chain placement used by each classification decision."""
+    height = None if header is None else header["height"]
+    if block_hash in decisions and decisions[block_hash] != height:
+        raise ValueError(f"Bitcoin Core header placement changed for {block_hash}")
+    decisions[block_hash] = height
+
+
+def verify_bitcoin_core_context(
+    bitcoin_rpc, start: dict, header_decisions: dict[str, int | None]
+) -> dict[str, dict]:
+    """Seal unchanged decisions against a stable final active-chain context."""
     end = bitcoin_core_tip_context(bitcoin_rpc, label="end")
     height = int(start["height"])
     responses = _ordered_batch_responses(
@@ -573,6 +583,46 @@ def verify_bitcoin_core_context(bitcoin_rpc, start: dict) -> dict[str, dict]:
     if end["height"] < height or still_active != start["hash"]:
         raise ValueError(
             "Bitcoin Core active chain changed through the pinned start tip"
+        )
+    # Placements at/below the still-active start tip cannot change under normal
+    # growth. Absent/side-chain headers can become canonical, including parents
+    # used to label candidates unknown. Placements above that tip can reorg.
+    pending = [
+        (block_hash, placement)
+        for block_hash, placement in header_decisions.items()
+        if placement is None or placement > height
+    ]
+    if end["hash"] != start["hash"] or any(
+        placement is not None for _, placement in pending
+    ):
+        for offset in range(0, len(pending), BATCH):
+            batch = pending[offset : offset + BATCH]
+            calls = [
+                {
+                    "jsonrpc": "1.0",
+                    "id": index,
+                    "method": "getblockheader",
+                    "params": [block_hash],
+                }
+                for index, (block_hash, _) in enumerate(batch)
+            ]
+            responses = _ordered_batch_responses(
+                bitcoin_rpc.batch(calls),
+                expected_count=len(calls),
+                method="RSK final header placement",
+            )
+            for (block_hash, placement), response in zip(batch, responses):
+                header = active_header(response, block_hash, require_height=True)
+                current = None if header is None else header["height"]
+                if current != placement:
+                    raise ValueError(
+                        f"Bitcoin Core header placement changed for {block_hash}; "
+                        "rerun classification"
+                    )
+    final = bitcoin_core_tip_context(bitcoin_rpc, label="final")
+    if (final["height"], final["hash"]) != (end["height"], end["hash"]):
+        raise ValueError(
+            "Bitcoin Core tip changed during final verification; rerun classification"
         )
     return {"start": start, "end": end}
 
@@ -771,6 +821,7 @@ def main():
         file=sys.stderr,
     )
     core_start = bitcoin_core_tip_context(bitcoin_rpc, label="start")
+    header_decisions: dict[str, int | None] = {}
 
     # Pass 2: canonical check
     print("\n=== Pass 2: canonical check ===", file=sys.stderr, flush=True)
@@ -796,6 +847,7 @@ def main():
         for j, rr in enumerate(res):
             block_hash = batch[j]["btc_header_hash"]
             canonical = active_header(rr, block_hash, require_height=True)
+            record_header_decision(header_decisions, block_hash, canonical)
             if canonical is not None:
                 canonical_rows.append((canonical["height"], batch[j]))
             else:
@@ -839,6 +891,9 @@ def main():
             parent_hash = candidates[candidate_idx]["btc_prev_hash"]
             parent_results[candidate_idx] = active_header(
                 rr, parent_hash, require_height=True
+            )
+            record_header_decision(
+                header_decisions, parent_hash, parent_results[candidate_idx]
             )
     for idx, parent in enumerate(parent_results):
         if parent:
@@ -896,6 +951,7 @@ def main():
                 raise ValueError(
                     f"getblockhash returned non-active header {canonical_block_hash}"
                 )
+            record_header_decision(header_decisions, canonical_block_hash, header)
             if header["height"] != sub_hashes[j][0]:
                 raise ValueError(
                     f"canonical header height mismatch for {canonical_block_hash}: "
@@ -927,7 +983,9 @@ def main():
         f"  re-routed to unknown (contamination/placement): {len(rerouted_unknowns):,}",
         file=sys.stderr,
     )
-    core_context = verify_bitcoin_core_context(bitcoin_rpc, core_start)
+    core_context = verify_bitcoin_core_context(
+        bitcoin_rpc, core_start, header_decisions
+    )
 
     # Resolve every committed dependency before opening any output, so a
     # missing exclusion overlay or historical registry cannot leave a newly

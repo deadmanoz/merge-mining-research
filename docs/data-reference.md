@@ -391,8 +391,12 @@ match can replace the source bundle; every populated source cell must then
 agree, so a field-by-field hybrid is never published. The raw CSV, exact
 fallback ledger, completed extraction checkpoint, and classifier-family hash
 manifest remain private. Publication verifies the manifest and every staged
-output before a fresh RSK inventory is read. Repository dependencies in the
-version-3 classifier manifest resolve relative to the consuming research
+output before a fresh RSK inventory is read. Classification permits Bitcoin
+tip growth only when header and parent placements remain unchanged after a
+final recheck. A changed placement, reorg through the starting tip, or tip
+movement during that final check requires classification to be rerun.
+Repository dependencies in the
+version-4 classifier manifest resolve relative to the consuming research
 checkout and must retain their recorded byte digests. Custom dependencies
 outside the checkout remain relative to the manifest and must travel with the
 run in the same relative layout. The compact `rsk_validated_stales.csv` keeps
