@@ -107,3 +107,38 @@ def test_committed_namecoin_vectors_are_all_exact_and_complete():
         assert claims, row["btc_header_hash"]
         assert all(c.position_exact and c.script_hex for c in claims)
         assert [c.position for c in claims] == list(range(len(claims)))
+
+
+@pytest.mark.dataset
+def test_restored_outputs_refine_every_published_namecoin_stale():
+    from stale_blocks_analysis.monitor_publication import (
+        _observation_refinement,
+        _published_observation,
+    )
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "data/validated-stales/namecoin_validated_stales.csv").open(
+        newline=""
+    ) as handle:
+        restored = {
+            r["btc_header_hash"]: r["coinbase_outputs"] for r in csv.DictReader(handle)
+        }
+    path = root / "results/monitor-evidence/namecoin_monitor_evidence.csv"
+    seen = set()
+    with path.open(newline="") as handle:
+        for number, row in enumerate(csv.DictReader(handle), start=2):
+            key = row["btc_header_hash"]
+            if row["classification"] != "stale" or key not in restored:
+                continue
+            before = _published_observation(
+                row, chain="namecoin", path=path, row_number=number
+            )
+            after = _published_observation(
+                {**row, "coinbase_outputs": restored[key]},
+                chain="namecoin",
+                path=path,
+                row_number=number,
+            )
+            assert _observation_refinement(before, after) == (True, ""), key
+            seen.add(key)
+    assert seen == restored.keys()

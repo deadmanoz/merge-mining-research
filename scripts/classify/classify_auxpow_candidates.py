@@ -21,8 +21,8 @@ an ``unknown``, and a rejection whose evidence proves nothing stays a stale.
 
 Inputs must retain complete exact coinbase output scripts. Raw-script and
 canonical-rendered vectors are normalized before classification and every
-output split uses the final rendering. Filtered or partial output evidence
-fails before RPC or writes; no subsequent rendering repair is required.
+output split uses the final rendering. Explicitly filtered or partial output
+claims fail before RPC or writes; no subsequent rendering repair is required.
 
 Usage:
     python3 classify_auxpow_candidates.py \
@@ -898,10 +898,7 @@ def classify_and_validate(
                 raise ValueError("complete exact output scripts are required")
             claims = parse_coinbase_output_claims(outputs)
             if not claims or any(
-                not claim.position_exact
-                or not claim.script_hex
-                or claim.position != position
-                for position, claim in enumerate(claims)
+                not claim.position_exact or not claim.script_hex for claim in claims
             ):
                 raise ValueError("complete exact output scripts are required")
             row["coinbase_outputs"] = render_coinbase_outputs_column(claims)

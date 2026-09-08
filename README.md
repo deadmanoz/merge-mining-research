@@ -386,7 +386,7 @@ Schemas for committed datasets are documented in the
 Namecoin's accepted loader now includes complete coinbase output script vectors
 recovered from its private classified inventory. The normal blkdat extractor
 and classifier retain the full vector and emit its final rendering directly;
-classification rejects incomplete output evidence before RPC or writes. See the
+classification rejects partial output claims before RPC or writes. See the
 [Namecoin recovery receipt](docs/chains/namecoin.md) for counts, fingerprints,
 attribution impact and the generated snapshots still awaiting a complete rebuild.
 

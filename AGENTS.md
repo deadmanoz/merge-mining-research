@@ -396,6 +396,8 @@ compatibility branches. Preserve weaker evidence semantics only where actual
 retained inputs still require them; never upgrade missing evidence by relabelling it.
 The blkdat classifier requires complete exact output scripts and emits the
 canonical rendering in every split directly, including P2PK and nulldata.
+Monitor baseline comparisons use the same chain-aware output normalization as
+source ingestion; retained projections cannot establish exact output positions.
 
 - Keep shared paths, protocol constants, the relevance vocabulary, and chain
   chronology in `src/stale_blocks_analysis/config.py`. Importing that

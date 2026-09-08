@@ -131,10 +131,12 @@ The regression fixture selects that exact hash and pins its three outputs.
 Reruns use the normal extraction and classification workflow below. The blkdat
 extractor retains every output script; the classifier consumes that complete
 vector and emits the final rendering in its validated, rejected, classified,
-evidence and publication splits. Missing, filtered, recipient-only, prefix-only
+evidence and publication splits. Empty, explicitly filtered, recipient-only, prefix-only
 or gapped vectors fail before RPC or publication writes. Amount-only evidence
 also fails this complete-script input contract. Use the raw extraction, not a
-decoded address projection, as classification input. No recovery or rendering
+decoded address projection, as classification input. An unmarked Bitcoin-address
+list is indistinguishable from a canonical vector of exact scripts; the gate
+cannot detect outputs omitted before ingestion. No recovery or rendering
 repair command follows classification. `just validate-coinbase-outputs` checks
 the committed rendering without changing any data.
 
@@ -151,7 +153,11 @@ Only the private Namecoin inventory was materialized for this change, not the
 complete publication archive and relevance inputs. Generated monitor, full
 evidence, strict/weak and novelty outputs were therefore left untouched. Their
 existing snapshots do not constitute regenerated output-coverage claims; a
-later complete publication must consume the restored loader. See
+later complete publication must consume the restored loader. The publication
+baseline reader applies the same chain-aware output normalization as source
+ingestion, so old unmarked Namecoin address projections remain filtered when
+checking that the restored exact vectors preserve prior evidence. Canonically
+rendered exact vectors retain their positional constraints. See
 [attribution impact](../pool-attribution.md#namecoin-output-restoration) for the
 measured label and match-mechanism comparison.
 

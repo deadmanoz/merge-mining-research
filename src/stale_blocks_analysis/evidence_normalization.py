@@ -378,9 +378,9 @@ def _is_legacy_address_projection(outputs: str) -> bool:
     on the source tokens rather than the parsed claims because a P2SH address
     parses to an exact script, which would hide an all-P2SH filtered row.
 
-    Inferring this is sound at the legacy boundary precisely because it is not
-    sound for canonical data: the contract also renders complete vectors of
-    address-bearing scripts as addresses. A retained
+    Canonical vectors can also contain only addresses. The caller's
+    ``rendered == outputs`` guard keeps those cells out of this inference;
+    only a cell requiring legacy normalization reaches it. A retained
     ``OP_RETURN`` placeholder means nothing was dropped, so those stay exact.
     Once normalized the projection is stated with the marker instead.
     """
