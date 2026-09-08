@@ -1,0 +1,22 @@
+default:
+    @just --list
+
+# Validate interpolation and the Compose schema without starting a service.
+config:
+    docker compose config
+
+build:
+    docker compose build research-worker
+
+shell:
+    docker compose run --rm research-worker bash
+
+# Remove only this workspace's stopped/one-off containers and image.
+clean:
+    docker compose rm --force research-worker
+    docker image rm merge-mining-research/research-worker:local
+
+# Run any existing repository command explicitly. Put generated output under
+# /work and pass archive roots through the command's normal flags.
+run +args:
+    docker compose run --rm research-worker {{args}}

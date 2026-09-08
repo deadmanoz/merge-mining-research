@@ -256,7 +256,7 @@ is not an input to stale-block recovery or the committed loader datasets.
 │   └── rsk_pool_registry.csv   # historical RSK miner-address label snapshot
 ├── docs/                       # methodology, research directions, per-chain
 │                               #   provenance, investigations, visual artefacts
-├── node-infra/                 # Dockerized per-chain node build/run workspaces
+├── node-infra/                 # Chain nodes and the one-off research worker
 ├── tests/                      # pytest suite
 ├── justfile                    # common commands (just test / full-evidence / ...)
 ├── AGENTS.md                   # repo conventions (CLAUDE.md is a symlink to it)

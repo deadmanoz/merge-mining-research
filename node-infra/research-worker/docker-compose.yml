@@ -1,0 +1,45 @@
+services:
+  research-worker:
+    build:
+      # This must be an explicit checkout on the target VM. It is deliberately
+      # not defaulted to a path that Compose could create or misinterpret.
+      context: ${MMR_REPO_DIR:?set MMR_REPO_DIR to the local MMR checkout}
+      dockerfile: node-infra/research-worker/Dockerfile
+      args:
+        MMR_SOURCE_REVISION: ${MMR_SOURCE_REVISION:-working-tree}
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
+    image: merge-mining-research/research-worker:local
+    restart: "no"
+    init: true
+    read_only: true
+    working_dir: /repo
+    command: ["python", "--version"]
+    environment:
+      # Keep the package's existing PROJECT_ROOT/data path semantics rooted at
+      # the mounted checkout, while dependencies come from the image venv.
+      PYTHONPATH: /repo/src
+      # Git status verifies LFS payloads without writing into the source bind.
+      GIT_OPTIONAL_LOCKS: "0"
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: lfs.storage
+      GIT_CONFIG_VALUE_0: /work/.git-lfs
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ${MMR_REPO_DIR:?set MMR_REPO_DIR to the local MMR checkout}
+        target: /repo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MMR_ARCHIVE_ROOT:?set MMR_ARCHIVE_ROOT to the selected archive root}
+        target: /archive
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MMR_WORK_DIR:?set MMR_WORK_DIR to a disposable output directory}
+        target: /work
+        bind:
+          create_host_path: false

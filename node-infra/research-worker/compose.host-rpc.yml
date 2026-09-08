@@ -1,0 +1,7 @@
+# Linux-only overlay for a one-off worker that must reach a daemon bound to
+# host loopback (for example the offline Devcoin pilot on 127.0.0.1:52332).
+# Select this file explicitly; the default Compose service keeps ordinary
+# bridge networking.
+services:
+  research-worker:
+    network_mode: host

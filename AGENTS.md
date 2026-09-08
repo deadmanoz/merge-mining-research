@@ -430,6 +430,18 @@ Always state which commands were run and which were skipped.
 
 ## Node Infrastructure
 
+`node-infra/research-worker/` defines the one-off research container. It installs
+Python dependencies in a venv and includes Git/Git LFS for classifier provenance
+checks. `just build` uses the explicit selected checkout; `just run` mounts that
+checkout and the private archive read-only at `/repo` and `/archive`, with
+disposable output under `/work`. Use a clean standalone clone owned by UID 1000
+for provenance-checked classification. Git LFS scratch objects belong under
+`/work/.git-lfs`; the source bind
+must remain read-only. Rebuild when the checkout or dependencies
+change. Never start extraction or publication automatically, and keep private
+inputs out of the Docker build context. Read the workspace README for RPC
+environment forwarding and the optional Linux host-network overlay.
+
 Each `node-infra/<chain>/` directory is its own operational workspace with a
 README and usually a local `justfile`. Read the chain README before building or
 starting a node.
