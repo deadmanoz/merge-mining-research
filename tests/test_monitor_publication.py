@@ -2375,3 +2375,66 @@ def test_monitor_artifact_validates_distinct_rsk_child_observations(
         writer.writerows(rows)
     with pytest.raises(ValueError, match="invalid RSK sidecar"):
         module._load_monitor_artifact_counts(artifact, "rsk")
+
+
+@pytest.mark.parametrize(
+    ("chain", "old", "new", "accepts"),
+    [
+        (
+            "namecoin",
+            "NBD4QBwgxf2YRkk64wigXMzWd4mTXt3w97;Mvc4mhaeu7abxubXuGum5ArNXKkHQWUC8q",
+            "51;76a914a0824ac2c44bb2291357f37fc2a3fc5fc3d047a088ac;6a00;"
+            "76a91400524830b4872bd3db02ac17cf97242ee12909fa88ac",
+            True,
+        ),
+        (
+            "namecoin",
+            "NBD4QBwgxf2YRkk64wigXMzWd4mTXt3w97;Mvc4mhaeu7abxubXuGum5ArNXKkHQWUC8q",
+            "76a91400524830b4872bd3db02ac17cf97242ee12909fa88ac;"
+            "76a914a0824ac2c44bb2291357f37fc2a3fc5fc3d047a088ac",
+            False,
+        ),
+        (
+            "namecoin",
+            "NBD4QBwgxf2YRkk64wigXMzWd4mTXt3w97;NBD4QBwgxf2YRkk64wigXMzWd4mTXt3w97",
+            "51;76a914a0824ac2c44bb2291357f37fc2a3fc5fc3d047a088ac",
+            False,
+        ),
+        (
+            "namecoin",
+            "12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH",
+            "51;12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH",
+            False,
+        ),
+        (
+            "syscoin",
+            "12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH:1.0|OP_RETURN:0.0",
+            "51;12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH:100000000;6a:0",
+            False,
+        ),
+    ],
+    ids=[
+        "recover-before-and-between",
+        "reordered",
+        "lost-duplicate",
+        "exact-namecoin",
+        "exact-syscoin",
+    ],
+)
+def test_semantic_floor_respects_output_acquisition_positions(
+    tmp_path: Path, chain: str, old: str, new: str, accepts: bool
+) -> None:
+    committed_dir, staged_dir = tmp_path / "committed", tmp_path / "staged"
+    committed_dir.mkdir()
+    staged_dir.mkdir()
+    committed = committed_dir / f"{chain}_monitor_evidence.csv"
+    staged = staged_dir / committed.name
+    _write_ordinary_artifact(committed)
+    _rewrite_first_row(committed, chain=chain, coinbase_outputs=old)
+    shutil.copy2(committed, staged)
+    _rewrite_first_row(staged, coinbase_outputs=new)
+    if accepts:
+        _validate_semantic_floor(committed_dir, staged_dir)
+    else:
+        with pytest.raises(ValueError, match="coinbase_outputs"):
+            _validate_semantic_floor(committed_dir, staged_dir)

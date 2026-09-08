@@ -72,9 +72,9 @@ def merge_stale_sources(
                 pri["_scriptsig_hex"] = b["_scriptsig_hex"]
                 filled = True
             # Outputs are unioned, not just filled. Chains describe the
-            # same coinbase differently: a Namecoin RPC yields decoded
-            # payout addresses (dropping OP_RETURN and P2PK), while ixcoin
-            # and i0coin yield complete raw scripts. Keeping only the first
+            # same coinbase differently: some retained sources carry decoded
+            # payout claims, while others retain complete raw scripts.
+            # Keeping only the first
             # observation's list discards a tag another chain preserved.
             if b.get("_outputs_str"):
                 existing = parse_coinbase_output_claims(pri.get("_outputs_str") or "")

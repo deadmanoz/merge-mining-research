@@ -63,6 +63,7 @@ from .evidence_normalization import (
     int_or_none,
     is_hash,
     normalize_hash,
+    normalize_outputs_cell,
     parse_header_fields,
 )
 from .evidence_sources import (
@@ -1039,8 +1040,12 @@ def _published_observation(
     if raw_child_height and (child_height is None or child_height < 0):
         raise ValueError(f"{path}:{row_number}: final row has an invalid child height")
     try:
+        # Retained snapshots can predate canonical rendering. Use the same
+        # acquisition semantics as source ingestion, so an old Namecoin
+        # address projection does not become a false exact-position floor.
+        outputs = normalize_outputs_cell(row.get("coinbase_outputs") or "", chain=chain)
         output_claims = parse_coinbase_output_claims(
-            row.get("coinbase_outputs") or "",
+            outputs,
             row.get("full_coinbase_hex") or "",
         )
     except ValueError as exc:

@@ -62,6 +62,44 @@ stale observation and whose coinbase evidence produced no attribution
 receives the label, regardless of which source's row survived the merge, so
 coinbase evidence always wins over the historical registry. The `has_bin` column records which coinbase path a row took, so a binary that was present but rejected reads as `false`: the label came from the weaker AuxPoW evidence, and a partial run should not look like a complete one.
 
+## Namecoin output restoration
+
+Issue #52 restores 784 previously omitted scripts to the accepted Namecoin
+loader. The comparison on 8 September 2026 used the clean pinned pool registry
+`75d54404acc21656dcf6bd79d5b393e8c5ca97c9` and stale-block archive
+`d15c8e9dc4836ae3cad6b707f6dda29463f8cc7a`, at `min_height=0` with no partial
+fallback, on the `fa292c5` code baseline. The same registry and archive were
+used before and after recovery.
+
+Across the 1,649 Namecoin rows using only their carried coinbase evidence,
+**no pool label changes**. At heights 468,427, 474,294 and 477,115, the matching
+mechanism changes from `address` to `op_return` for 1Hash: recovered payloads
+now provide a tag before the payout-address fallback runs. Across the 2,166
+merged recovered stales (458 authenticated block binaries), only height
+468,427 changes its internal `_pool_match` from `address` to `op_return`.
+The other two already had stronger evidence in the merged path. All exported
+`pool`, `template_producer`, `attribution_basis` and `has_bin` values remain
+unchanged. Attribution remains `coinbase`; `_pool_match` records the more
+specific mechanism and is not an export column.
+
+This is a result for the recorded registry, not a claim that missing outputs
+are irrelevant to attribution. Restored P2PK payouts and nulldata payloads
+become available to future registry matches. The attribution algorithm and
+its precedence do not change. Generated attribution and publication exports
+were not replaced; the comparison used disposable diagnostic artifacts.
+
+The other address-rendered acquisitions do not show Namecoin's positional
+drop in their retained producer code. At repository revision `e1e72d4`,
+Syscoin calls `format_outputs_addr`, which appends an address, `OP_RETURN`,
+or type/value placeholder for every RPC output. Terracoin's formatter does
+the same; Bitcoin Vault parses raw scripts. Thus Syscoin and Terracoin retain
+exact positions but may still have only recipient, prefix or amount claims.
+Syscoin's decoded inventory cannot independently restore its missing script
+bytes, and its retained placeholders are not evidence of recovered witness
+commitments. Current producers use `format_outputs_canonical` and preserve
+available raw bytes. This producer audit does not establish raw-script
+completeness for the historical decoded datasets.
+
 ## RSK: historical labels only
 
 RSK's merge-mining proof does not expose the Bitcoin parent coinbase, so RSK

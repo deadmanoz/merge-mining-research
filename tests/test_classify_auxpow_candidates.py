@@ -118,7 +118,7 @@ def _candidate(prev_hash, bits, child_seed, *, nonce_seed=0, bip34_height=478_55
         "btc_bip34_height": str(bip34_height),
         "btc_nonce": str(nonce),
         "coinbase_scriptsig_hex": _bip34_scriptsig(bip34_height),
-        "coinbase_outputs": "[]",
+        "coinbase_outputs": "51",
         "btc_header_hex": header.hex(),
         "child_height": "",
         "child_block_hash": child_hash.hex(),
@@ -151,6 +151,21 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
             bip34_height=500_001,
         ),
     ]
+    # Raw-script inventory input must reach every classifier output in the
+    # final contract, with P2PK, nulldata and nonstandard outputs retained.
+    raw_outputs = (
+        "76a914" + "11" * 20 + "88ac;" + "21" + "02" + "55" * 32 + "ac;" + "6a02abcd;51"
+    )
+    from stale_blocks_analysis.coinbase_output_claims import (
+        parse_coinbase_output_claims,
+        render_coinbase_outputs_column,
+    )
+
+    expected_outputs = render_coinbase_outputs_column(
+        parse_coinbase_output_claims(raw_outputs)
+    )
+    for row in rows:
+        row["coinbase_outputs"] = raw_outputs
     canonical, stale_valid, unknown, stale_rejected = (row["btc_hash"] for row in rows)
 
     header_results = {
@@ -234,6 +249,10 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         ]
         classified = list(classified_reader)
 
+    for output_rows in (validated, rejected, evidence, classified):
+        assert output_rows
+        assert all(row["coinbase_outputs"] == expected_outputs for row in output_rows)
+
     assert [row["btc_header_hash"] for row in validated] == [stale_valid]
     assert validated[0]["btc_prev_hash"] == canonical_parent
     assert validated[0]["btc_height"] == "478559"
@@ -306,6 +325,8 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         publication_unknown = list(csv.DictReader(f))
     with (tmp_path / "i0coin_error_blocks.csv").open(newline="") as f:
         publication_error_blocks = list(csv.DictReader(f))
+    for output_rows in (publication_stales, publication_canonical, publication_unknown):
+        assert all(row["coinbase_outputs"] == expected_outputs for row in output_rows)
     assert [row["btc_header_hash"] for row in publication_canonical] == [canonical]
     assert [row["btc_header_hash"] for row in publication_stales] == [stale_valid]
     # The Phase 2 unknown (no height) sorts ahead of the re-routed nBits row,
@@ -797,3 +818,124 @@ def test_classifier_rejects_aliased_output_paths(tmp_path):
             output_path,
             client,
         )
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        "",
+        "[]",
+        "~pkh(" + "11" * 20 + ")",
+        "pkh(" + "11" * 20 + ")",
+        "6a*",
+        "51;;52",
+        "51;",
+        ";51",
+        ":100",
+        "not-a-script",
+    ],
+)
+def test_classifier_rejects_incomplete_outputs_before_rpc_or_writes(tmp_path, outputs):
+    mod = _load_classifier()
+    candidate = _candidate("10" * 32, "207fffff", 10)
+    candidate["coinbase_outputs"] = outputs
+    input_path = tmp_path / "candidate.csv"
+    with input_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(candidate))
+        writer.writeheader()
+        writer.writerow(candidate)
+    output, rejected = tmp_path / "validated.csv", tmp_path / "rejected.csv"
+    output.write_text("existing publication\n")
+    rejected.write_text("existing rejections\n")
+    client = mod.RpcClient(
+        rpc=_DispatchRpc(lambda call: pytest.fail(f"unexpected RPC call: {call}"))
+    )
+    with pytest.raises(ValueError, match="candidate row 2 coinbase_outputs"):
+        mod.classify_and_validate(input_path, output, rejected, client)
+    assert output.read_text() == "existing publication\n"
+    assert rejected.read_text() == "existing rejections\n"
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        "76a914" + "11" * 20 + "88ac:5000000000;6a02abcd:0",
+        "12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH:5000000000;6a02abcd:0",
+    ],
+)
+def test_classifier_preserves_exact_outputs_and_amounts_without_a_repair_pass(
+    tmp_path, outputs
+):
+    mod = _load_classifier()
+    candidate = _candidate("10" * 32, "207fffff", 10)
+    candidate["coinbase_outputs"] = outputs
+    input_path = tmp_path / "candidate.csv"
+    with input_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(candidate))
+        writer.writeheader()
+        writer.writerow(candidate)
+    client = mod.RpcClient(
+        rpc=_DispatchRpc(
+            lambda call: _success(
+                call,
+                _header(
+                    candidate["btc_hash"],
+                    height=400000,
+                    confirmations=1,
+                    bits="207fffff",
+                ),
+            )
+        )
+    )
+    classified = tmp_path / "classified.csv"
+    mod.classify_and_validate(
+        input_path,
+        tmp_path / "validated.csv",
+        tmp_path / "rejected.csv",
+        client,
+        classified_csv=classified,
+    )
+    with classified.open(newline="") as f:
+        [row] = list(csv.DictReader(f))
+    assert (
+        row["coinbase_outputs"]
+        == "12ZEw5Hcv1hTb6YUQJ69y1V7uhcoDz92PH:5000000000;6a02abcd:0"
+    )
+
+
+def test_cli_rejects_partial_outputs_before_connecting(tmp_path, monkeypatch):
+    mod = _load_classifier()
+    candidate = _candidate("10" * 32, "207fffff", 10)
+    candidate["coinbase_outputs"] = "~pkh(" + "11" * 20 + ")"
+    input_path = tmp_path / "candidate.csv"
+    with input_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(candidate))
+        writer.writeheader()
+        writer.writerow(candidate)
+    output, rejected = tmp_path / "validated.csv", tmp_path / "rejected.csv"
+    output.write_text("existing publication\n")
+    rejected.write_text("existing rejections\n")
+    monkeypatch.setattr(
+        mod.sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output),
+            "--rejected",
+            str(rejected),
+        ],
+    )
+    monkeypatch.setattr(
+        mod,
+        "rpc_from_args",
+        lambda _args: _DispatchRpc(
+            lambda call: pytest.fail(f"unexpected RPC call: {call}")
+        ),
+    )
+    with pytest.raises(ValueError, match="candidate row 2 coinbase_outputs"):
+        mod.main()
+    assert output.read_text() == "existing publication\n"
+    assert rejected.read_text() == "existing rejections\n"

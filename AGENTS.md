@@ -84,6 +84,7 @@ just test
 just test-unit
 just test-dataset
 just test-markers
+just validate-coinbase-outputs
 just full-evidence
 just child-header-coverage
 just strict-weak-orphans
@@ -387,6 +388,16 @@ Preserve these distinctions:
   claim.
 
 ## Code Conventions
+
+Build toward the final rerunnable workflow. Put the complete desired behavior
+in the normal producers, rather than requiring operators to replay successive
+repair or migration scripts. Remove completed one-off repair code and obsolete
+compatibility branches. Preserve weaker evidence semantics only where actual
+retained inputs still require them; never upgrade missing evidence by relabelling it.
+The blkdat classifier requires complete exact output scripts and emits the
+canonical rendering in every split directly, including P2PK and nulldata.
+Monitor baseline comparisons use the same chain-aware output normalization as
+source ingestion; retained projections cannot establish exact output positions.
 
 - Keep shared paths, protocol constants, the relevance vocabulary, and chain
   chronology in `src/stale_blocks_analysis/config.py`. Importing that

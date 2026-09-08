@@ -34,6 +34,10 @@ upstream-sidecar:
 
 # ── AuxPoW evidence exports ─────────────────────────────────────────────
 
+# Validate final coinbase output rendering without rewriting loader datasets.
+validate-coinbase-outputs:
+    {{python}} scripts/analysis/validate_coinbase_outputs.py
+
 # Generate per-chain error-block observation views under
 # results/analysis/error-blocks/by-chain/ (generated diagnostics, gitignored;
 # the consolidated data/error-blocks/error_blocks.csv is the source of truth).
