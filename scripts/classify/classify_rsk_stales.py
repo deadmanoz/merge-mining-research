@@ -73,6 +73,7 @@ from stale_blocks_analysis.rsk_classifier_artifacts import (
 )
 from stale_blocks_analysis.rsk_extraction import (
     default_checkpoint_path,
+    is_lower_hex,
     load_complete_extraction,
     sha256_file,
 )
@@ -292,17 +293,6 @@ def validate_candidate_header(row: dict[str, str], row_number: int) -> dict:
     return {**parsed, "meets_pow": True}
 
 
-def _exact_hash(value: str, *, field: str, row_number: int) -> None:
-    """Validate one unprefixed lowercase 32-byte source identity."""
-    if value != value.strip().lower() or value.startswith("0x") or len(value) != 64:
-        raise ValueError(f"RSK row {row_number}: {field} is not canonical hex")
-    try:
-        if bytes.fromhex(value).hex() != value:
-            raise ValueError("non-canonical hex")
-    except ValueError as exc:
-        raise ValueError(f"RSK row {row_number}: {field} is malformed hex") from exc
-
-
 def validate_source_bundle(row: dict[str, str], row_number: int) -> None:
     """Validate the complete RSK child identity and publication-sidecar bundle."""
     for field in ("rsk_height", "rsk_timestamp"):
@@ -311,7 +301,8 @@ def validate_source_bundle(row: dict[str, str], row_number: int) -> None:
             raise ValueError(f"RSK row {row_number}: {field} is malformed")
     if int(row["rsk_timestamp"]) <= 0:
         raise ValueError(f"RSK row {row_number}: rsk_timestamp must be positive")
-    _exact_hash(row.get("rsk_hash", ""), field="rsk_hash", row_number=row_number)
+    if not is_lower_hex(row.get("rsk_hash")):
+        raise ValueError(f"RSK row {row_number}: rsk_hash is not canonical hex")
     validate_rsk_sidecar_cells(
         {
             "rsk_miner": row.get("rsk_miner", ""),

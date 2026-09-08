@@ -170,8 +170,9 @@ def _append_durable(
     return end_offset, hashlib.sha256(payload).hexdigest()
 
 
-def _valid_hash(value: object) -> bool:
-    if not isinstance(value, str) or len(value) != 64:
+def is_lower_hex(value: object, *, lengths: tuple[int, ...] = (64,)) -> bool:
+    """Accept an exact unprefixed lowercase hex identity or digest."""
+    if not isinstance(value, str) or len(value) not in lengths:
         return False
     try:
         decoded = bytes.fromhex(value)
@@ -185,8 +186,8 @@ def _valid_endpoint(value: object, expected_height: int) -> bool:
         isinstance(value, dict)
         and type(value.get("height")) is int
         and value["height"] == expected_height
-        and _valid_hash(value.get("hash"))
-        and _valid_hash(value.get("parent_hash"))
+        and is_lower_hex(value.get("hash"))
+        and is_lower_hex(value.get("parent_hash"))
         and type(value.get("timestamp")) is int
         and value["timestamp"] >= 0
     )
@@ -257,8 +258,8 @@ def _validate_commit_ledger(state: dict) -> None:
             or commit["output_rows"] < 0
             or commit["skip_rows"] < 0
             or commit["advertised_uncles"] < 0
-            or not _valid_hash(commit.get("output_segment_sha256"))
-            or not _valid_hash(commit.get("skip_segment_sha256"))
+            or not is_lower_hex(commit.get("output_segment_sha256"))
+            or not is_lower_hex(commit.get("skip_segment_sha256"))
             or not _valid_endpoint(
                 commit.get("first_canonical_identity"), commit["start_height"]
             )
@@ -365,8 +366,8 @@ def validate_checkpoint(
     ):
         raise ValueError(f"cannot resume {output_path}: unsealed content digest")
     if state["complete"] and (
-        not _valid_hash(state.get("content_sha256"))
-        or not _valid_hash(state.get("skip_ledger_sha256"))
+        not is_lower_hex(state.get("content_sha256"))
+        or not is_lower_hex(state.get("skip_ledger_sha256"))
     ):
         raise ValueError(f"cannot resume {output_path}: missing completed digest")
     _validate_commit_ledger(state)
@@ -561,7 +562,7 @@ def _validate_raw_row(row: dict) -> None:
         raise ValueError("RSK raw row is missing fields: " + ", ".join(sorted(missing)))
     rsk_height = _as_int(row.get("rsk_height"), field="rsk_height")
     rsk_timestamp = _as_int(row.get("rsk_timestamp"), field="rsk_timestamp")
-    if rsk_height < 0 or rsk_timestamp <= 0 or not _valid_hash(row.get("rsk_hash")):
+    if rsk_height < 0 or rsk_timestamp <= 0 or not is_lower_hex(row.get("rsk_hash")):
         raise ValueError("RSK raw row has malformed child identity")
 
     difficulty = row.get("rsk_difficulty")
@@ -683,7 +684,7 @@ def _validate_interval_partition(
         row_timestamp = _as_int(row.get("rsk_timestamp"), field="rsk_timestamp")
         row_hash = row.get("rsk_hash")
         is_uncle = _as_int(row.get("is_uncle"), field="is_uncle")
-        if row_height < 0 or row_timestamp < 0 or not _valid_hash(row_hash):
+        if row_height < 0 or row_timestamp < 0 or not is_lower_hex(row_hash):
             raise ValueError("RSK interval outcome has malformed block identity")
         if is_uncle == 0:
             if row.get("uncle_index") not in (None, "") or row.get(

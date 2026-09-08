@@ -21,6 +21,15 @@ RSK is methodologically distinct from the Namecoin-family `CAuxPow` chains. Its 
 
 **Provenance.** Configuration at `/etc/rsk/`. Data directory grows ~100 GB (archive sync). Sync took ~2 days from initial PPA install. Bitcoin Core on `<archival-host>` provided the BTC RPC for stale-block classification.
 
+For a new long extraction, choose an endpoint at least 100 blocks below the
+observed RSK tip and record both identities. This operational margin reduces
+the chance of pinning a transient tip sibling; it does not replace the final
+endpoint check. Set `RSK_RPC_URL` when the research worker reaches RSKj through
+a remote endpoint or tunnel. The default remains `http://127.0.0.1:4444`.
+Transport and RPC errors retry within the affected batch. Missing or malformed
+evidence, identity mismatches and broken continuity stop the interval without
+advancing its checkpoint, so the source can be diagnosed before resuming.
+
 **Coverage.** Accepted direct-stale candidates span BTC heights **514,235 to 949,203** (Mar 2018 to 13 May 2026) and reach RSK height 8,832,910. This is a point-in-time accepted-candidate window, not lifetime coverage. The retained private mirror has no consolidated RSK canonical export. The classifier now emits the standard private `rsk_canonical_blocks.csv` companion, but populating it still requires the external archive-node re-run recorded as `needs-infrastructure` in the canonical-coverage metadata.
 
 **Holes.**

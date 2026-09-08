@@ -27,6 +27,7 @@ header fields and the available miner and truncated-coinbase evidence.
 
 import argparse
 import hashlib
+import os
 import struct
 import sys
 import time
@@ -70,7 +71,12 @@ def rpc_batch(calls: list[dict]) -> list:
     over-50 batch size), it returns a *dict* with an "error" key. We surface
     that as a RequestException so the caller's retry loop kicks in.
     """
-    resp = requests.post(RPC_URL, json=calls, headers=RPC_HEADERS, timeout=60)
+    resp = requests.post(
+        os.environ.get("RSK_RPC_URL", RPC_URL),
+        json=calls,
+        headers=RPC_HEADERS,
+        timeout=60,
+    )
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, list):
@@ -483,7 +489,8 @@ def extract_range(
     height and every advertised uncle has exactly one raw-row or skip-ledger
     outcome. Transient RPC failures retry the affected batch. Null responses,
     unadvertised identities, broken continuity and unsupported proof shapes
-    stop the interval without advancing its durable checkpoint.
+    fail immediately without advancing the checkpoint; diagnose the source
+    before resuming those integrity failures.
     """
     if not 1 <= rpc_batch_size <= BATCH_SIZE:
         raise ValueError(f"rpc_batch_size must be between 1 and {BATCH_SIZE}")

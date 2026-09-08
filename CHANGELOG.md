@@ -22,6 +22,10 @@ verification in both cases. Retry transient RPC failures per batch while keeping
 each durable interval atomic. Preserve the compact validated-stale schema and
 its separate child-identity hydration requirement.
 
+Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
+Document a settled extraction endpoint and distinguish retried RPC failures
+from integrity failures that require diagnosis before resume.
+
 Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `d15c8e9` and
 rebuild every surface that reads it. Upstream added two stale blocks on top of
 `102ba00`. The first, height 589,477, is a stale this project recovered from

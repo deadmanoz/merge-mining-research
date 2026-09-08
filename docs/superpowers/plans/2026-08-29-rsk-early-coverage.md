@@ -35,8 +35,8 @@ production database into research:
    canonical blocks and advertised uncles associated with the fixed parent
    range 0 through 139998.
 2. Research contains one complete, resumable, independently acquired RSK
-   corpus from height 0 to a pinned tip, including canonical blocks and
-   advertised uncles.
+   corpus from height 0 to a pinned settled endpoint, including canonical
+   blocks and advertised uncles.
 3. Research publication contains every resulting valid stale observation and
    every Bitcoin Core-confirmed canonical observation available from that
    corpus.
@@ -134,7 +134,7 @@ that the live RSK poll cursor remained present and moved only forward.
 
 ### Research track
 
-Run one explicit half-open extraction `[0, pinned_tip + 1)` against the private
+Run one explicit half-open extraction `[0, settled_height + 1)` against the private
 RSKj archive. The extractor writes two append-only CSVs as one durable unit:
 the 80-byte parent-header inventory and an exact skip ledger for the known
 fallback shapes. Each durable interval is assembled fully in memory, including
@@ -144,9 +144,12 @@ fsynced, hashed, and recorded before the checkpoint advances atomically.
 The checkpoint binds the explicit range, source-chain endpoint identities,
 schemas, byte offsets, segment digests, canonical continuity, partition counts,
 and final whole-file digests. Resume verifies every committed segment and
-truncates only an uncheckpointed tail. Null blocks, missing advertised uncles,
-identity mismatches, continuity breaks, and unknown proof shapes retry and then
-fail. Completion is sealed only after re-reading the pinned end identity.
+truncates only an uncheckpointed tail. Transport and RPC error responses retry
+the affected batch. Null blocks,
+missing advertised uncles, identity mismatches, continuity breaks, and unknown
+proof shapes fail immediately without advancing the checkpoint; diagnose the
+source before resuming. Completion is sealed only after re-reading the pinned
+end identity.
 
 Classification accepts only the matching completed checkpoint. It preserves
 the RSK node-order child hash, child timestamp, miner, merge-mining hash, uncle
@@ -305,10 +308,12 @@ and documentation outputs required by the existing publication contract.
      both the retained source host and destination VM. Resolve any existing run
      before starting; never create a competing extraction or edit a checkpoint
      to conceal a path or identity mismatch.
-   - Coordinate with `merge-mining-research-9ec` and pin one explicit current
-     archive tip.
-   - Run the extractor from height 0 to that pinned tip's exclusive successor,
-     resuming only with the exact matching checkpoint.
+   - Coordinate with `merge-mining-research-9ec` and pin one explicit settled
+     endpoint at least 100 blocks below the observed archive tip. Record both
+     heights and hashes. This is an operational reorg margin, not a finality
+     guarantee; the endpoint identity is still checked when sealing.
+   - Run the extractor from height 0 to that settled endpoint's exclusive
+     successor, resuming only with the exact matching checkpoint.
    - Classify the sealed raw inventory against the synchronized Bitcoin Core
      node into the staged private output family.
    - Validate the extraction checkpoint, skip ledger, classifier manifest,

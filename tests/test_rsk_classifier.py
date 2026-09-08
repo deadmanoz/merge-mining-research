@@ -1170,15 +1170,3 @@ def test_manifest_repository_dependencies_survive_different_archive_layout(
         ValueError, match="dependency pool_registry failed content verification"
     ):
         validate_classifier_manifest_for_artifact(canonical)
-
-
-@pytest.mark.parametrize("length", [40, 64])
-def test_manifest_identifiers_reject_embedded_hex_whitespace(length: int) -> None:
-    value = "00" * (length // 2 - 2) + "  " + "00"
-    assert len(value) == length
-    assert not artifacts._is_git_oid(value)
-    if length == 64:
-        assert not artifacts._is_sha256(value)
-        assert not extraction._valid_hash(value)
-        with pytest.raises(ValueError, match="malformed hex"):
-            rsk._exact_hash(value, field="rsk_hash", row_number=2)

@@ -105,6 +105,42 @@ def _paths(tmp_path: Path) -> tuple[Path, Path, Path]:
     )
 
 
+@pytest.mark.parametrize(
+    "value", [None, "", "0x" + "00" * 32, "AB" * 32, "00" * 30 + "  " + "00", "00" * 20]
+)
+def test_digest_identity_rejects_noncanonical_hex(value) -> None:
+    assert not contract.is_lower_hex(value)
+
+
+@pytest.mark.parametrize("length", [40, 64])
+def test_hex_identity_accepts_git_digest_lengths(length: int) -> None:
+    assert contract.is_lower_hex("a1" * (length // 2), lengths=(40, 64))
+    assert not contract.is_lower_hex(
+        "00" * (length // 2 - 2) + "  " + "00", lengths=(40, 64)
+    )
+
+
+def test_rpc_batch_uses_configured_archive_endpoint(monkeypatch) -> None:
+    calls = [{"id": 0, "method": "eth_blockNumber", "params": []}]
+    observed = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"id": 0, "result": "0x1"}]
+
+    def post(url, **kwargs):
+        observed.append((url, kwargs["json"]))
+        return Response()
+
+    monkeypatch.setenv("RSK_RPC_URL", "http://archive-rpc.example:4444")
+    monkeypatch.setattr(rsk.requests, "post", post)
+    assert rsk.rpc_batch(calls) == [{"id": 0, "result": "0x1"}]
+    assert observed == [("http://archive-rpc.example:4444", calls)]
+
+
 def test_ordered_rpc_results_require_exact_integer_ids() -> None:
     assert rsk.ordered_rpc_results(
         [{"id": 1, "result": "b"}, {"id": 0, "result": "a"}], 2, "test"

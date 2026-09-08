@@ -73,6 +73,10 @@ clone that is on a branch or has local edits untouched.
 
 ## Common Commands
 
+RSK extraction accepts `RSK_RPC_URL` for a remote archive endpoint; the default
+is loopback port 4444. Long runs pin a settled endpoint as documented in
+`docs/chains/rsk.md`.
+
 Prefer the `justfile` recipes when they cover the task:
 
 ```bash

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .config import PROJECT_ROOT
-from .rsk_extraction import fsync_directory_best_effort, sha256_file
+from .rsk_extraction import fsync_directory_best_effort, is_lower_hex, sha256_file
 
 MANIFEST_VERSION = 3
 DEFAULT_MANIFEST_NAME = "rsk_classification_manifest.json"
@@ -154,7 +154,7 @@ def _validate_dependency_fingerprints(
             or len(fingerprint) != 2
             or type(fingerprint[0]) is not int
             or fingerprint[0] < 0
-            or not _is_sha256(fingerprint[1])
+            or not is_lower_hex(fingerprint[1])
         ):
             raise ValueError(
                 f"RSK classifier dependency fingerprint is malformed: {label}"
@@ -198,7 +198,7 @@ def _validate_bound_extraction(checkpoint_state: dict) -> None:
         if (
             type(expected_bytes) is not int
             or expected_bytes < 0
-            or not _is_sha256(expected_digest)
+            or not is_lower_hex(expected_digest)
             or not path.is_file()
             or path.stat().st_size != expected_bytes
         ):
@@ -426,30 +426,6 @@ def _csv_metadata(path: Path) -> tuple[list[str], int]:
         return list(reader.fieldnames or ()), rows
 
 
-def _is_sha256(value: object) -> bool:
-    if not isinstance(value, str) or len(value) != 64 or value != value.lower():
-        return False
-    try:
-        decoded = bytes.fromhex(value)
-    except ValueError:
-        return False
-    return decoded.hex() == value
-
-
-def _is_git_oid(value: object) -> bool:
-    if (
-        not isinstance(value, str)
-        or len(value) not in (40, 64)
-        or value != value.lower()
-    ):
-        return False
-    try:
-        decoded = bytes.fromhex(value)
-    except ValueError:
-        return False
-    return decoded.hex() == value
-
-
 def _validate_classification_context(value: object, manifest_path: Path) -> None:
     if not isinstance(value, dict) or set(value) != {"bitcoin_core", "code"}:
         raise ValueError(f"{manifest_path}: malformed classification context")
@@ -462,7 +438,7 @@ def _validate_classification_context(value: object, manifest_path: Path) -> None
             not isinstance(identity, dict)
             or type(identity.get("height")) is not int
             or identity["height"] < 0
-            or not _is_sha256(identity.get("hash"))
+            or not is_lower_hex(identity.get("hash"))
             or identity.get("chain") != "main"
             or type(identity.get("headers")) is not int
             or identity["headers"] < identity["height"]
@@ -475,7 +451,7 @@ def _validate_classification_context(value: object, manifest_path: Path) -> None
     code = value["code"]
     if (
         not isinstance(code, dict)
-        or not _is_git_oid(code.get("git_commit"))
+        or not is_lower_hex(code.get("git_commit"), lengths=(40, 64))
         or code.get("dirty") is not False
     ):
         raise ValueError(f"{manifest_path}: malformed classifier code context")
@@ -510,7 +486,7 @@ def _validate_manifest(manifest_name: str) -> dict:
             or expected_bytes < 0
             or not path.is_file()
             or path.stat().st_size != expected_bytes
-            or not _is_sha256(expected_digest)
+            or not is_lower_hex(expected_digest)
             or sha256_file(path) != expected_digest
         ):
             raise ValueError(
@@ -542,7 +518,7 @@ def _validate_manifest(manifest_name: str) -> dict:
         if (
             type(expected_bytes) is not int
             or expected_bytes < 0
-            or not _is_sha256(expected_digest)
+            or not is_lower_hex(expected_digest)
             or not path.is_file()
             or path.stat().st_size != expected_bytes
             or sha256_file(path) != expected_digest
@@ -572,7 +548,7 @@ def _validate_manifest(manifest_name: str) -> dict:
         raise ValueError(f"{manifest_path}: manifest aliases its checkpoint")
     if (
         not checkpoint_path.is_file()
-        or not _is_sha256(checkpoint_digest)
+        or not is_lower_hex(checkpoint_digest)
         or sha256_file(checkpoint_path) != checkpoint_digest
     ):
         raise ValueError(f"{manifest_path}: input checkpoint digest mismatch")
