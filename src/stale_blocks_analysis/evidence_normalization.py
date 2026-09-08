@@ -32,6 +32,14 @@ from .evidence_sources import (
     EvidenceSource,
 )
 
+from .rsk_classifier_artifacts import (
+    FRESH_RSK_ARTIFACT_FIELDS,
+    classifier_manifest_present,
+    is_fresh_rsk_classifier_artifact,
+    validate_classifier_manifest_for_artifact,
+)
+from .rsk_sidecar import RSK_SIDECAR_EXPORT_FIELDS, RSK_SOURCE_BUNDLE_MARKER
+
 EVIDENCE_FIELDS = [
     "chain",
     "source_kind",
@@ -650,6 +658,26 @@ def normalize_evidence_row(
         "expected_nbits": expected_nbits,
         "rejection_reason": normalized_rejection_reason,
     }
+    if source.chain == "rsk":
+        # Fresh RSK classifier families carry the complete monitor sidecar
+        # bundle themselves. Preserve it through normalization so a matching
+        # historical child-identity row can validate and replace the bundle as
+        # one unit instead of creating a field-by-field hybrid.
+        for field in RSK_SIDECAR_EXPORT_FIELDS:
+            if field == "rsk_merkle_proof":
+                value = row.get(field, "") or row.get("merge_mining_merkle_proof", "")
+            elif field == "rsk_coinbase_tail":
+                value = row.get(field, "") or row.get("coinbase_tail_hex", "")
+            else:
+                value = row.get(field, "")
+            normalized[field] = value.strip()
+        source_fields = set(fieldnames or ())
+        if source.source_kind in {
+            "full_inventory",
+            "canonical_blocks",
+            "validated_stales",
+        } and FRESH_RSK_ARTIFACT_FIELDS.issubset(source_fields):
+            normalized[RSK_SOURCE_BUNDLE_MARKER] = "1"
     return normalized, errors
 
 
@@ -734,6 +762,16 @@ def iter_source_rows(
                 parent.row_number,
             )
         return
+    if source.chain == "rsk" and source.source_kind in {
+        "full_inventory",
+        "canonical_blocks",
+    }:
+        if (
+            source.source_kind == "canonical_blocks"
+            or is_fresh_rsk_classifier_artifact(source.path)
+            or classifier_manifest_present(source.path)
+        ):
+            validate_classifier_manifest_for_artifact(source.path)
     with source.path.open(newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []

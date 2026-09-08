@@ -380,9 +380,20 @@ in its provenance: VCash, for example, is a 68-row partial canonical subset
 rather than a complete chain recovery, so no stale, strict, or weak total may
 be inferred from it.
 
-RSK keeps its miner-address parallel schema in one private inventory. Hathor's
-unified classifier writes the standard terminal category files for canonical,
-stale, unknown, near, and error-block rows.
+RSK keeps its miner-address parallel schema in a private stale/unknown inventory
+plus the separately discovered `rsk_canonical_blocks.csv` companion. Fresh
+classifier rows retain the source RSK height, block hash, timestamp, miner,
+merge-mining hash, uncle placement, mapped merkle proof, and compressed
+coinbase tail. That source bundle normalizes without a historical sidecar. A
+verified sidecar row for another RSK child observation of the same Bitcoin
+parent is unrelated and is not applied. Only an exact height, hash, and time
+match can replace the source bundle; every populated source cell must then
+agree, so a field-by-field hybrid is never published. The raw CSV, exact
+fallback ledger, completed extraction checkpoint, and classifier-family hash
+manifest remain private. Publication verifies the manifest and every staged
+output before a fresh RSK inventory is read. Hathor's unified classifier
+writes the standard terminal category files for canonical, stale, unknown,
+near, and error-block rows.
 
 ## Child identity: `data/child-identity/`
 

@@ -150,7 +150,11 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
   `evidence_sources.py` owns source discovery, `evidence_normalization.py`
   owns the shared row contract, and `evidence_hydration.py` owns Namecoin
-  and child-identity hydration. `full_evidence.py` assembles full-evidence
+  and child-identity hydration. `rsk_extraction.py` owns RSK's durable raw
+  CSV, fallback-ledger, checkpoint, digest, and classifier-input contract;
+  `rsk_classifier_artifacts.py` stages and verifies the private classifier
+  family; `rsk_sidecar.py` owns its Monitor-sidecar cell contract.
+  `full_evidence.py` assembles full-evidence
   generation and re-exports the established helper surface.
   `monitor_exports.py` owns the final-category monitor projection and its
   publication constants; `monitor_publication.py` owns fail-closed
@@ -183,7 +187,15 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   `main()`. Hathor uses
   a range-neutral metadata ledger plus one sealed acquisition dataset, which
   `scripts/classify/classify_hathor.py` classifies directly without persisted
-  classifier phases. Scripts import the installed package and many default to
+  classifier phases. RSK uses an explicit half-open extraction range, a
+  coupled private fallback ledger, and an atomic checkpoint that content-binds
+  each committed byte segment and both pinned chain endpoints. Its classifier
+  accepts only a completed content-addressed checkpoint from a clean Git
+  worktree, records that exact HEAD and the original dependency fingerprints,
+  rechecks them immediately before promotion, stages the complete output
+  family, emits a hash manifest last, and keeps the private
+  `rsk_canonical_blocks.csv` companion alongside the stale/unknown inventory.
+  Scripts import the installed package and many default to
   `data/` paths for operator convenience.
 - `data/`: committed compact loader inputs plus gitignored fetched/scratch data.
 - `results/`: committed reference CSVs and recovery diagnostics.
@@ -220,6 +232,10 @@ Be strict about what belongs in git:
   outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
   marker SQLite/Parquet outputs, or node data directories unless a doc
   explicitly says that exact artifact is public.
+- RSK raw checkpoints, fallback ledgers, classifier-family manifests, and
+  staged temporary files are private run artifacts. Keep the checkpoint and
+  its two content-bound CSVs together; the classifier intentionally refuses a
+  raw CSV without its complete matching checkpoint.
 - VCash's partial explorer recovery follows the same canonical-companion
   contract: `scripts/prep/hydrate_vcash_canonical.py` writes the gitignored
   `data/vcash_canonical_blocks.csv` by default, and monitor publication

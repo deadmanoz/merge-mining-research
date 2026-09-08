@@ -2030,6 +2030,59 @@ def test_monitor_export_hydrates_child_identity_and_rsk_sidecar_columns(
         assert row["notes"] == "child_identity_hydration=hydrated:1"
 
 
+def test_monitor_export_keeps_fresh_validated_rsk_bundle_without_sidecar(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    output_dir = tmp_path / "monitor"
+    header_hex, header_hash = _header(prev_hash="91" * 32)
+    child_hash = bytes(range(32)).hex()
+    _write_csv(
+        data_dir / "validated-stales" / "rsk_validated_stales.csv",
+        [
+            {
+                "btc_height": "660000",
+                "btc_header_hash": header_hash,
+                "btc_header_hex": header_hex,
+                "rsk_height": "200",
+                "classification": "stale",
+                "validation_status": "VALID",
+                "expected_nbits": "1d00ffff",
+                "rsk_timestamp": "1700000001",
+                "rsk_block_hash": child_hash,
+                "child_block_time": "1700000001",
+                "rsk_miner": "bb" * 20,
+                "pool_label": "",
+                "merge_mining_hash": "cc" * 32,
+                "rsk_merkle_proof": "0405",
+                "rsk_coinbase_tail": "aabb",
+                "coinbase_op_return": "",
+                "coinbase_ascii_strings": "",
+                "is_uncle": "1",
+                "uncle_index": "0",
+                "uncle_parent_height": "202",
+            }
+        ],
+    )
+
+    build_monitor_evidence_exports(
+        data_dir=data_dir, output_dir=output_dir, relevance_inventory=None
+    )
+
+    rows = _read_csv(output_dir / "rsk_monitor_evidence.csv")
+    assert len(rows) == 1
+    assert rows[0]["child_block_hash"] == child_hash
+    assert rows[0]["child_block_hash"] != bytes.fromhex(child_hash)[::-1].hex()
+    assert rows[0]["child_block_time"] == "1700000001"
+    assert rows[0]["rsk_miner"] == "bb" * 20
+    assert rows[0]["merge_mining_hash"] == "cc" * 32
+    assert rows[0]["rsk_merkle_proof"] == "0405"
+    assert rows[0]["rsk_coinbase_tail"] == "aabb"
+    counts = _read_csv(output_dir / "monitor-evidence-counts.csv")
+    rsk_count = next(row for row in counts if row["chain"] == "rsk")
+    assert "missing_identity" not in rsk_count["notes"]
+
+
 def test_monitor_export_refuses_unverified_or_mismatched_child_identity(
     tmp_path: Path,
 ) -> None:

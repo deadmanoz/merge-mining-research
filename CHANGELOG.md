@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Make RSK archive extraction retry-safe and resumable over an explicit pinned
+range. Separate RPC batching from durable checkpoint intervals, validate
+canonical continuity and advertised uncle identities, and record only the
+known 69/70-byte fallbacks plus the height-zero genesis sentinel in a coupled
+private skip ledger. Content-bind every committed byte segment, recheck the
+end identity before sealing final content digests, and require that completed
+checkpoint before classification. Stage the classifier output family, publish
+its hash manifest last, require a clean classifier worktree, preserve and
+recheck the original code and data fingerprints immediately before promotion,
+verify the manifest during fresh RSK publication, and retain Bitcoin
+Core-confirmed canonical observations with the complete source RSK sidecar
+bundle.
+
 Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `d15c8e9` and
 rebuild every surface that reads it. Upstream added two stale blocks on top of
 `102ba00`. The first, height 589,477, is a stale this project recovered from

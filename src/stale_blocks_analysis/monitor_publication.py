@@ -57,7 +57,6 @@ from .error_observations import (
 )
 from .evidence_hydration import (
     CHILD_IDENTITY_REQUIRED_CHAINS,
-    RSK_SIDECAR_EXPORT_FIELDS,
     verified_header_hex,
 )
 from .evidence_normalization import (
@@ -84,6 +83,7 @@ from .monitor_exports import (
     build_monitor_evidence_exports,
     load_orphan_relevance_verdicts,
 )
+from .rsk_sidecar import RSK_SIDECAR_EXPORT_FIELDS
 from .stale_descendants import (
     load_stale_descendant_observations,
     load_stale_descendant_parents,
@@ -461,9 +461,8 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: one authenticated child event {detail}"
                     )
                 event_categories[event_identity] = event_category
-            if (
-                contract_chain in CHILD_IDENTITY_REQUIRED_CHAINS
-                and classification != "canonical"
+            if contract_chain in CHILD_IDENTITY_REQUIRED_CHAINS and (
+                classification != "canonical" or contract_chain == "rsk"
             ):
                 child_hash = (row.get("child_block_hash") or "").strip().lower()
                 child_time = (row.get("child_block_time") or "").strip()
@@ -471,6 +470,7 @@ def _load_monitor_artifact_counts(
                     child_height is None
                     or child_height < 0
                     or not is_hash(child_hash)
+                    or not child_time.isascii()
                     or not child_time.isdigit()
                     or int(child_time) <= 0
                 ):
@@ -478,6 +478,13 @@ def _load_monitor_artifact_counts(
                         f"{path}:{row_number}: live-chain row lacks a verified "
                         "child identity"
                     )
+            if chain == "rsk":
+                try:
+                    validate_rsk_sidecar_cells(row, row_id=f"{path}:{row_number}")
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{path}:{row_number}: invalid RSK sidecar ({exc})"
+                    ) from exc
             if classification in {"stale", "stale_descendant"}:
                 if btc_height is None or btc_height < 0:
                     raise ValueError(
@@ -487,9 +494,8 @@ def _load_monitor_artifact_counts(
                 # Ordinary descendant artifacts are one row per authenticated
                 # child event; ``event_categories`` enforces that identity above.
                 if (
-                    classification == "stale"
-                    or contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN
-                ):
+                    classification == "stale" and contract_chain != "rsk"
+                ) or contract_chain == _DESCENDANT_PARENT_VERDICTS_CHAIN:
                     stale_identity = (btc_height, parent_hash)
                     if stale_identity in stale_identities:
                         raise ValueError(
