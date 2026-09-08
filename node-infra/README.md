@@ -38,6 +38,12 @@ each recovery took and the resulting stage counts.
 
 ## Reaching Bitcoin Core
 
+The [research worker](research-worker/README.md) runs extraction and
+classification commands in a container with an explicit read-only checkout and
+archive. Generated output goes to a separate writable directory. It includes
+Git and Git LFS so classification can verify its code revision, and it starts
+no research job automatically.
+
 The classification and recovery scripts speak JSON-RPC to Bitcoin Core over
 HTTP. They take a `--rpc-url` (default `http://127.0.0.1:8332`, overridable via
 `BTC_RPC_URL`) and resolve auth from `--rpc-user`/`--rpc-pass`, the

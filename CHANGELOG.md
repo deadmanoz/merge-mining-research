@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Provide the research worker container with read-only checkout and archive
+mounts, a separate writable work directory, and Git/LFS tooling for verified
+RSK classification provenance. Keep jobs explicit and output private.
+
 Make RSK archive extraction retry-safe and resumable over an explicit pinned
 range. Separate RPC batching from durable checkpoint intervals, validate
 canonical continuity and advertised uncle identities, and record only the
