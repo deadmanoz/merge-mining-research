@@ -493,6 +493,34 @@ def test_complete_checkpoint_binds_bytes_and_endpoint_recheck(
     assert sealed["complete"]
     assert contract.load_complete_extraction(output, checkpoint) == sealed
 
+    # Relocate the whole sealed bundle and leave a corrupt old ledger behind.
+    moved = tmp_path / "moved"
+    moved.mkdir()
+    old_skips = skips
+    output = output.rename(moved / output.name)
+    checkpoint = checkpoint.rename(moved / checkpoint.name)
+    skips = skips.rename(moved / skips.name)
+    old_skips.write_text("obsolete ledger must never be read")
+    assert contract.load_complete_extraction(output, checkpoint) == sealed
+    assert (
+        contract.prepare_extraction(
+            output,
+            checkpoint,
+            skips,
+            start=0,
+            end=1,
+            start_identity=identity,
+            end_identity=identity,
+            resume=True,
+        )
+        == sealed
+    )
+    skip_content = skips.read_bytes()
+    skips.write_bytes(skip_content + b"tampered")
+    with pytest.raises(ValueError, match="byte length mismatch"):
+        contract.load_complete_extraction(output, checkpoint)
+    skips.write_bytes(skip_content)
+
     content = bytearray(output.read_bytes())
     content[-2] = ord("9") if content[-2] != ord("9") else ord("8")
     output.write_bytes(content)

@@ -783,6 +783,7 @@ def collect_source_rows(
     *,
     data_dir: Path = DATA_DIR,
     exclude_classifications: frozenset[str] = frozenset(),
+    rsk_stale_verdicts: dict[tuple[int | None, str], dict[str, str]] | None = None,
     error_blocks_path: Path | None = None,
     excluded_error_rows: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
@@ -832,7 +833,17 @@ def collect_source_rows(
             excluded_count += 1
             continue
         if classification in exclude_classifications:
-            continue
+            verdict = (rsk_stale_verdicts or {}).get(
+                (int_or_none(normalized["btc_height"]), parent_hash)
+            )
+            if normalized.get(RSK_SOURCE_BUNDLE_MARKER) != "1" or verdict is None:
+                continue
+            if errors:
+                raise ValueError(f"{source.path}: malformed accepted RSK observation")
+            # The compact file owns the parent verdict; the sealed inventory
+            # owns each distinct child observation and its complete sidecar.
+            for field in ("validation_status", "expected_nbits", "rejection_reason"):
+                normalized[field] = verdict[field]
         rows.append(normalized)
         stats.source_rows += 1
         stats.classifications[classification] += 1

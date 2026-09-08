@@ -22,7 +22,7 @@ from typing import Iterable
 
 from .rsk_sidecar import validate_rsk_sidecar_cells
 
-CHECKPOINT_VERSION = 2
+CHECKPOINT_VERSION = 3
 
 RAW_COLUMNS = [
     "rsk_height",
@@ -74,6 +74,13 @@ def default_checkpoint_path(output_path: Path) -> Path:
 def default_skip_ledger_path(output_path: Path) -> Path:
     """Return the private fallback ledger for one raw extraction CSV."""
     return output_path.with_name(f"{output_path.name}.skips.csv")
+
+
+def checkpoint_artifact_path(checkpoint_path: Path, value: object) -> Path:
+    """Resolve a portable artifact reference from its actual checkpoint."""
+    if not isinstance(value, str) or not value or Path(value).is_absolute():
+        raise ValueError("RSK checkpoint artifact path must be relative")
+    return (checkpoint_path.resolve().parent / value).resolve()
 
 
 def empty_stats() -> dict[str, int]:
@@ -317,8 +324,12 @@ def validate_checkpoint(
     state = _load_checkpoint(checkpoint_path)
     expected = {
         "version": CHECKPOINT_VERSION,
-        "output_path": str(output_path.resolve()),
-        "skip_ledger_path": str(skip_path.resolve()),
+        "output_path": os.path.relpath(
+            output_path.resolve(), checkpoint_path.resolve().parent
+        ),
+        "skip_ledger_path": os.path.relpath(
+            skip_path.resolve(), checkpoint_path.resolve().parent
+        ),
         "start_height": start,
         "end_height": end,
         "start_identity": start_identity,
@@ -487,8 +498,12 @@ def prepare_extraction(
             fsync_directory_best_effort(path.parent)
         state = {
             "version": CHECKPOINT_VERSION,
-            "output_path": str(output_path.resolve()),
-            "skip_ledger_path": str(skip_path.resolve()),
+            "output_path": os.path.relpath(
+                output_path.resolve(), checkpoint_path.resolve().parent
+            ),
+            "skip_ledger_path": os.path.relpath(
+                skip_path.resolve(), checkpoint_path.resolve().parent
+            ),
             "start_height": start,
             "end_height": end,
             "start_identity": start_identity,
@@ -849,7 +864,7 @@ def load_complete_extraction(input_path: Path, checkpoint_path: Path) -> dict:
     """Require a sealed checkpoint that verifies the classifier input bytes."""
     state = _load_checkpoint(checkpoint_path)
     try:
-        skip_path = Path(state["skip_ledger_path"])
+        skip_path = checkpoint_artifact_path(checkpoint_path, state["skip_ledger_path"])
         start_identity = state["start_identity"]
         end_identity = state["end_identity"]
         start = state["start_height"]

@@ -20,7 +20,10 @@ path so moving a sealed run between archive hosts does not change its provenance
 Keep custom external dependencies relative to the manifest, and retain digest
 verification in both cases. Retry transient RPC failures per batch while keeping
 each durable interval atomic. Preserve the compact validated-stale schema and
-its separate child-identity hydration requirement.
+its separate child-identity hydration requirement for historical inputs. Join
+authoritative compact stale verdicts onto every matching fresh RSK observation
+without collapsing distinct child witnesses. Resolve raw and skip-ledger paths
+relative to their checkpoint so sealed bundles remain verifiable after relocation.
 
 Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
 Document a settled extraction endpoint and distinguish retried RPC failures

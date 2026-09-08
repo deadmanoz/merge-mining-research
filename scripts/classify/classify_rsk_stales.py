@@ -72,6 +72,7 @@ from stale_blocks_analysis.rsk_classifier_artifacts import (
     validate_manifest_output_path,
 )
 from stale_blocks_analysis.rsk_extraction import (
+    checkpoint_artifact_path,
     default_checkpoint_path,
     is_lower_hex,
     load_complete_extraction,
@@ -698,7 +699,9 @@ def main():
         error_blocks_out,
         manifest_out,
         checkpoint_path,
-        skip_ledger_path=Path(extraction["skip_ledger_path"]),
+        skip_ledger_path=checkpoint_artifact_path(
+            checkpoint_path, extraction["skip_ledger_path"]
+        ),
     )
     dependency_paths = {
         "classifier_script": CLASSIFIER_PATH,

@@ -915,8 +915,17 @@ def _publication_dependencies(tmp_path: Path) -> dict[str, Path]:
     }
 
 
-def _publish_one_canonical_family(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
+def _publish_one_canonical_family(
+    tmp_path: Path, *, stale_observations: bool = False
+) -> tuple[Path, dict[str, Path]]:
     _raw, checkpoint, row, checkpoint_state = _sealed_one_row_extraction(tmp_path)
+    relocated = tmp_path / "retained-inputs"
+    checkpoint.parent.rename(relocated)
+    checkpoint = relocated / checkpoint.name
+    assert (
+        extraction.load_complete_extraction(relocated / _raw.name, checkpoint)
+        == checkpoint_state
+    )
     classified = tmp_path / "archive" / "chains" / "rsk" / "classified"
     paths = {
         "canonical": classified / "rsk_canonical_blocks.csv",
@@ -933,9 +942,24 @@ def _publish_one_canonical_family(tmp_path: Path) -> tuple[Path, dict[str, Path]
                 "canonical",
                 paths["canonical"],
                 rsk.OUT_COLS,
-                rsk.build_canonical_output_rows([(700_000, row)]),
+                rsk.build_canonical_output_rows(
+                    [] if stale_observations else [(700_000, row)]
+                ),
             ),
-            ("stale_unknown", paths["stale_unknown"], rsk.OUT_COLS, []),
+            (
+                "stale_unknown",
+                paths["stale_unknown"],
+                rsk.OUT_COLS,
+                [
+                    rsk.row_to_out(observation, "stale", btc_stale_height=700_000)
+                    for observation in (
+                        row,
+                        {**row, "rsk_hash": "ab" * 32, "rsk_height": "1"},
+                    )
+                ]
+                if stale_observations
+                else [],
+            ),
             ("error_blocks", paths["error_blocks"], rsk.ERROR_BLOCK_COLS, []),
             (
                 "validated_stales",
@@ -1170,3 +1194,55 @@ def test_manifest_repository_dependencies_survive_different_archive_layout(
         ValueError, match="dependency pool_registry failed content verification"
     ):
         validate_classifier_manifest_for_artifact(canonical)
+
+
+def test_fresh_stale_witnesses_survive_compact_verdict_join(tmp_path: Path) -> None:
+    from test_monitor_exports import _write_stale_descendant_module
+
+    data = tmp_path / "data"
+    _write_stale_descendant_module(data, chain="ixcoin")
+    archive, paths = _publish_one_canonical_family(tmp_path, stale_observations=True)
+    with paths["stale_unknown"].open(newline="") as handle:
+        observations = list(csv.DictReader(handle))
+    compact = data / "validated-stales" / "rsk_validated_stales.csv"
+    compact.parent.mkdir(parents=True, exist_ok=True)
+    # Use the actual compact schema, with no child hash or sidecar ledger.
+    verdict = rsk.validated_row(observations[0], 700_000, {})
+    with compact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=rsk.VALIDATED_COLS)
+        writer.writeheader()
+        writer.writerow(verdict)
+    output = tmp_path / "monitor"
+    build_monitor_evidence_exports(
+        data_dir=data,
+        output_dir=output,
+        chain_archive_dirs=[archive],
+        relevance_inventory=None,
+        fail_on_missing_child_identity=True,
+    )
+    with (output / "rsk_monitor_evidence.csv").open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 2
+    assert {row["child_block_hash"] for row in rows} == {RSK_CHILD_HASH, "ab" * 32}
+    assert all(row["classification"] == "stale" for row in rows)
+    assert all(row["validation_status"] == "VALID" for row in rows)
+    assert all(row["rsk_coinbase_tail"] == "aabb" for row in rows)
+    # An absent or rejecting compact verdict must never promote source stales.
+    for replacement in (
+        None,
+        {**verdict, "validation_status": "REJECTED"},
+        {**verdict, "btc_height": "700001", "validation_status": "REJECTED"},
+    ):
+        with compact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=rsk.VALIDATED_COLS)
+            writer.writeheader()
+            if replacement is not None:
+                writer.writerow(replacement)
+        build_monitor_evidence_exports(
+            data_dir=data,
+            output_dir=output,
+            chain_archive_dirs=[archive],
+            relevance_inventory=None,
+        )
+        with (output / "rsk_monitor_evidence.csv").open(newline="") as handle:
+            assert list(csv.DictReader(handle)) == []

@@ -9,7 +9,12 @@ import tempfile
 from pathlib import Path
 
 from .config import PROJECT_ROOT
-from .rsk_extraction import fsync_directory_best_effort, is_lower_hex, sha256_file
+from .rsk_extraction import (
+    checkpoint_artifact_path,
+    fsync_directory_best_effort,
+    is_lower_hex,
+    sha256_file,
+)
 
 MANIFEST_VERSION = 3
 DEFAULT_MANIFEST_NAME = "rsk_classification_manifest.json"
@@ -176,7 +181,7 @@ def _validate_checkpoint_state(checkpoint_path: Path, checkpoint_state: dict) ->
         raise ValueError("RSK extraction checkpoint changed during classification")
 
 
-def _validate_bound_extraction(checkpoint_state: dict) -> None:
+def _validate_bound_extraction(checkpoint_path: Path, checkpoint_state: dict) -> None:
     bindings = (
         (
             "raw extraction",
@@ -194,7 +199,7 @@ def _validate_bound_extraction(checkpoint_state: dict) -> None:
     for label, path_value, expected_bytes, expected_digest in bindings:
         if not isinstance(path_value, str) or not path_value:
             raise ValueError(f"RSK checkpoint has malformed {label} path")
-        path = Path(path_value)
+        path = checkpoint_artifact_path(checkpoint_path, path_value)
         if (
             type(expected_bytes) is not int
             or expected_bytes < 0
@@ -231,7 +236,7 @@ def _validate_publication_paths(
         value = checkpoint_state.get(field)
         if not isinstance(value, str) or not value:
             raise ValueError(f"RSK checkpoint has malformed {field}")
-        labelled.append((label, Path(value)))
+        labelled.append((label, checkpoint_artifact_path(checkpoint_path, value)))
     seen: dict[Path, str] = {}
     for label, path in labelled:
         resolved = path.resolve()
@@ -339,7 +344,7 @@ def publish_output_family(
         # Recheck the original classifier inputs inside the publisher, after
         # staging and immediately before any existing family is replaced.
         # This leaves only the unavoidable rename-sized race window.
-        _validate_bound_extraction(checkpoint_state)
+        _validate_bound_extraction(checkpoint_path, checkpoint_state)
         _validate_checkpoint_state(checkpoint_path, checkpoint_state)
         if _file_fingerprint(checkpoint_path) != checkpoint_fingerprint:
             raise ValueError("RSK extraction checkpoint changed during publication")
@@ -579,7 +584,7 @@ def _validate_manifest(manifest_name: str) -> dict:
         value = checkpoint.get(field)
         if not isinstance(value, str) or not value:
             raise ValueError(f"{manifest_path}: checkpoint has malformed {field}")
-        extraction_paths.add(Path(value).resolve())
+        extraction_paths.add(checkpoint_artifact_path(resolved_checkpoint_path, value))
     if len(extraction_paths) != 2 or extraction_paths & (
         resolved_output_paths | resolved_dependencies | {resolved_checkpoint_path}
     ):
