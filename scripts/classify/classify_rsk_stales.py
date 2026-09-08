@@ -64,7 +64,12 @@ from stale_blocks_analysis.btc_stale_validation import (
     median_time_past_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
-from stale_blocks_analysis.config import ERROR_BLOCKS_CSV, PROJECT_ROOT
+from stale_blocks_analysis.config import (
+    BITCOIN_EPOCH_REFERENCE_DIR,
+    ERROR_BLOCKS_CSV,
+    PROJECT_ROOT,
+)
+from stale_blocks_analysis.bitcoin_epoch_reference import NBITS_FILENAME
 from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.rsk_classifier_artifacts import (
     default_manifest_path,
@@ -243,6 +248,7 @@ def validate_distinct_paths(
         "input checkpoint": checkpoint_path.resolve(),
         "pool registry": Path(args.pool_registry).resolve(),
         "error-block exclusion input": Path(args.error_blocks).resolve(),
+        "epoch reference": (BITCOIN_EPOCH_REFERENCE_DIR / NBITS_FILENAME).resolve(),
         "canonical inventory output": Path(canonical_out).resolve(),
         "stale/unknown inventory output": Path(args.stales_out).resolve(),
         "validated-stale output": Path(args.validated_out).resolve(),
@@ -698,6 +704,7 @@ def main():
     error_blocks_out = args.error_blocks_out or derived_error_blocks
     manifest_out = args.manifest_out or default_manifest_path(args.stales_out)
     validate_manifest_output_path(args.stales_out, manifest_out)
+    validate_manifest_output_path(canonical_out, manifest_out)
     input_path = Path(args.input)
     checkpoint_path = (
         Path(args.checkpoint)
@@ -722,6 +729,7 @@ def main():
         "classifier_script": CLASSIFIER_PATH,
         "error_blocks": Path(args.error_blocks),
         "pool_registry": Path(args.pool_registry),
+        "epoch_reference": BITCOIN_EPOCH_REFERENCE_DIR / NBITS_FILENAME,
     }
     initial_dependencies = dependency_fingerprints(dependency_paths)
     code_context = repository_code_context()

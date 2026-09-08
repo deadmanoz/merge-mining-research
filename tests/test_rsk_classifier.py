@@ -727,6 +727,7 @@ def test_empty_complete_input_stages_a_hash_bound_output_family(
         "classifier_script",
         "error_blocks",
         "pool_registry",
+        "epoch_reference",
     }
     assert manifest["classification"]["bitcoin_core"]["start"]["hash"] == tip_hash
     assert manifest["classification"]["bitcoin_core"]["end"]["hash"] == tip_hash
@@ -921,10 +922,13 @@ def _publication_dependencies(tmp_path: Path) -> dict[str, Path]:
     error_blocks.parent.mkdir(parents=True, exist_ok=True)
     error_blocks.write_text("height,hash,classification\n")
     pool_registry.write_text("rsk_miner,pool_label\n")
+    epoch_reference = tmp_path / "dependencies" / "btc_nbits_by_epoch.json"
+    epoch_reference.write_text("{}\n")
     return {
         "classifier_script": SCRIPT,
         "error_blocks": error_blocks,
         "pool_registry": pool_registry,
+        "epoch_reference": epoch_reference,
     }
 
 
@@ -1038,8 +1042,9 @@ def test_nonempty_manifested_classifier_family_reaches_monitor_publication(
     assert validate_classifier_manifest_for_artifact(paths["canonical"])
 
 
+@pytest.mark.parametrize("changed_dependency", ["pool_registry", "epoch_reference"])
 def test_publisher_rejects_cross_alias_and_late_dependency_change(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, changed_dependency: str
 ) -> None:
     _raw, checkpoint, _row, checkpoint_state = _sealed_one_row_extraction(tmp_path)
     classified = tmp_path / "classified"
@@ -1088,7 +1093,7 @@ def test_publisher_rejects_cross_alias_and_late_dependency_change(
 
     def stage_then_mutate(path: Path, value: str):
         staged = real_stage_text(path, value)
-        dependencies["pool_registry"].write_text("rsk_miner,pool_label\n00,changed\n")
+        dependencies[changed_dependency].write_text("changed dependency\n")
         return staged
 
     monkeypatch.setattr(artifacts, "_stage_text", stage_then_mutate)
@@ -1170,6 +1175,10 @@ def test_manifest_repository_dependencies_survive_different_archive_layout(
         / "classify_rsk_stales.py",
         "error_blocks": source_repo / "data" / "error-blocks" / "error_blocks.csv",
         "pool_registry": source_repo / "results" / "rsk_pool_registry.csv",
+        "epoch_reference": source_repo
+        / "data"
+        / "bitcoin-epoch-reference"
+        / "btc_nbits_by_epoch.json",
     }
     for label, path in dependency_paths.items():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1281,4 +1290,32 @@ def test_manifest_rechecks_retained_extraction_bytes(
     else:
         source.write_bytes(bytes([content[0] ^ 1]) + content[1:])
     with pytest.raises(ValueError, match="changed before classifier publication"):
+        validate_classifier_manifest_for_artifact(paths["canonical"])
+
+
+def test_classifier_rejects_remote_canonical_path_before_rpc(
+    monkeypatch, tmp_path: Path
+) -> None:
+    raw, checkpoint = _sealed_empty_extraction(tmp_path)
+    args = _classifier_args(tmp_path, raw, checkpoint)
+    args.canonical_out = str(tmp_path / "elsewhere" / "rsk_canonical_blocks.csv")
+    monkeypatch.setattr(rsk, "parse_args", lambda: args)
+
+    def forbidden_rpc(_args):
+        raise AssertionError("RPC must not run for an undiscoverable family")
+
+    monkeypatch.setattr(rsk, "rpc_from_args", forbidden_rpc)
+    with pytest.raises(ValueError, match="colocated"):
+        rsk.main()
+
+
+def test_manifest_rejects_changed_epoch_reference(tmp_path: Path) -> None:
+    _archive, paths = _publish_one_canonical_family(tmp_path)
+    assert validate_classifier_manifest_for_artifact(paths["canonical"])
+    (tmp_path / "dependencies" / "btc_nbits_by_epoch.json").write_text(
+        '{"0":"1d00ffff"}\n'
+    )
+    with pytest.raises(
+        ValueError, match="dependency epoch_reference failed content verification"
+    ):
         validate_classifier_manifest_for_artifact(paths["canonical"])

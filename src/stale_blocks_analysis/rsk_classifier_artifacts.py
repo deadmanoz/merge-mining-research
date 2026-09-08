@@ -16,12 +16,14 @@ from .rsk_extraction import (
     sha256_file,
 )
 
-MANIFEST_VERSION = 3
+MANIFEST_VERSION = 4
 DEFAULT_MANIFEST_NAME = "rsk_classification_manifest.json"
 OUTPUT_LABELS = frozenset(
     {"canonical", "stale_unknown", "error_blocks", "validated_stales", "summary"}
 )
-DEPENDENCY_LABELS = frozenset({"classifier_script", "error_blocks", "pool_registry"})
+DEPENDENCY_LABELS = frozenset(
+    {"classifier_script", "error_blocks", "pool_registry", "epoch_reference"}
+)
 FRESH_RSK_ARTIFACT_FIELDS = frozenset(
     {"rsk_block_hash", "child_block_time", "rsk_merkle_proof", "rsk_coinbase_tail"}
 )
@@ -46,7 +48,7 @@ def validate_manifest_output_path(
         "*classification_manifest*.json"
     ):
         raise ValueError(
-            "RSK classification manifest must be colocated with --stales-out "
+            "RSK classification manifest must be colocated with its stale and canonical inventories "
             "and match *classification_manifest*.json"
         )
 
@@ -270,6 +272,10 @@ def publish_output_family(
         if label == "stale_unknown"
     )
     validate_manifest_output_path(stale_unknown_path, manifest_path)
+    canonical_path = next(
+        path for label, path, _columns, _rows in csv_artifacts if label == "canonical"
+    )
+    validate_manifest_output_path(canonical_path, manifest_path)
     _validate_classification_context(classification_context, manifest_path)
     _validate_publication_paths(
         csv_artifacts=csv_artifacts,

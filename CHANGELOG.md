@@ -27,6 +27,9 @@ relative to their checkpoint so sealed bundles remain verifiable after relocatio
 Deduplicate compact RSK parent verdicts by Bitcoin height and hash, selecting the
 earliest child witness deterministically while retaining all full observations.
 Recheck raw extraction and skip-ledger bytes when consuming classifier manifests.
+Bind the Bitcoin epoch-reference table used by rejection routing, require
+canonical companions beside their manifest, and allow distinct RSK witnesses in
+the publication dataset invariant while preserving compact parent uniqueness.
 
 Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
 Document a settled extraction endpoint and distinguish retried RPC failures

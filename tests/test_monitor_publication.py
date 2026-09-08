@@ -2241,8 +2241,8 @@ def test_publication_runner_dispatches_only_the_full_writer(
 def test_committed_validated_stales_match_published_stale_rows() -> None:
     """Every chain's loader input must agree with its published stale rows.
 
-    The monitor projection emits one `classification=stale` row per accepted
-    direct stale, so the two surfaces are the same set counted twice. Nothing
+    The monitor projection has the same parent set as the compact input,
+    with distinct RSK child witnesses allowed for each parent. Nothing
     else cross-checks them, which is how a regeneration can rewrite a chain's
     validated CSV and leave the publication behind: the artifacts move
     independently and every other check still passes. A mismatch here means a
@@ -2274,12 +2274,13 @@ def test_committed_validated_stales_match_published_stale_rows() -> None:
                 published_rows += 1
                 published_keys.add((row["btc_height"], row["btc_header_hash"].lower()))
         # Set equality catches a swapped identity that equal counts would
-        # hide; the row-vs-key comparisons catch duplicated (height, hash)
-        # events, which dedup-by-key semantics forbid on either surface.
+        # hide. Compact verdicts must be unique; RSK monitor rows may carry
+        # distinct witnesses, whose exact event uniqueness is checked by the
+        # artifact validator above.
         if (
             validated_keys != published_keys
             or validated_rows != len(validated_keys)
-            or published_rows != len(published_keys)
+            or (chain != "rsk" and published_rows != len(published_keys))
         ):
             mismatches[chain] = {
                 "validated_only": sorted(validated_keys - published_keys)[:5],
