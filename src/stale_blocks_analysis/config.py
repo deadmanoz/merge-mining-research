@@ -262,6 +262,12 @@ TERRACOIN_CSV = VALIDATED_STALES_DIR / "terracoin_validated_stales.csv"
 # the full stale/unknown inventory stays in the private chain archive.
 RSK_CSV = VALIDATED_STALES_DIR / "rsk_validated_stales.csv"
 
+# RSKj fallback signatures encode [v, r, s] as RLP, with signed-positive Java
+# BigInteger byte arrays for the scalars. Their widths are variable.
+SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+RSK_FALLBACK_MIN_PROOF_BYTES = 4
+RSK_FALLBACK_MAX_PROOF_BYTES = 70
+
 # Recovered stale blocks from Hathor's merge-mining side channel.
 # Hathor uses an RFC-0006 split-header proof with a "Hath" coinbase tag,
 # distinct from Namecoin-family CAuxPow. The tag can appear in scriptSig or an

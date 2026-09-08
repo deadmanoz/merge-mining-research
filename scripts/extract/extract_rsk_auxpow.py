@@ -17,7 +17,7 @@ directly on each block via Ethereum-style JSON-RPC:
 
 The retained historical extraction starts at RSK block 139,999. This is an
 acquisition lower bound, not a consensus activation: earlier blocks interleave
-full 80-byte merge-mining headers with 69/70-byte fallback signatures. Current
+full 80-byte merge-mining headers with variable-width RLP fallback signatures. Current
 runs require explicit bounds and retain the full headers while accounting for
 those fallback shapes and the exact height-zero ``0x00`` sentinel as skips.
 
@@ -38,6 +38,7 @@ import requests
 # Repo `src/` is on sys.path when installed via `pip install -e .`; the shared
 # module is pure-stdlib and safe to import on the extraction host.
 from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
+from stale_blocks_analysis.rsk_fallback import is_fallback_signature
 from stale_blocks_analysis.rsk_extraction import (
     commit_interval,
     default_checkpoint_path,
@@ -383,10 +384,14 @@ def block_to_record(
         is_genesis_sentinel = (
             not is_uncle and identity["height"] == 0 and hdr_bytes == b"\x00"
         )
-        is_fallback = len(hdr_bytes) in (69, 70)
+        is_fallback = (
+            is_fallback_signature(hdr_bytes)
+            and block.get("bitcoinMergedMiningCoinbaseTransaction") in (None, "", "0x")
+            and block.get("bitcoinMergedMiningMerkleProof") in (None, "", "0x")
+        )
         if not (is_genesis_sentinel or is_fallback):
             raise requests.RequestException(
-                f"{context} has unsupported merge-mining proof length "
+                f"{context} has unsupported merge-mining proof shape: "
                 f"{len(hdr_bytes)} bytes"
             )
         return None, {

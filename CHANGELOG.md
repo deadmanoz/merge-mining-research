@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Recognize RSK fallback proofs by their variable-width RLP signature structure,
+including the 68-byte mainnet proof at height 653. Reject malformed encodings,
+invalid scalar values and short proofs with Bitcoin coinbase or merkle material.
+Keep the existing checkpoint and skip-ledger schema so interrupted acquisitions
+can resume their pinned range. Signer and chain-rule validation remain with the
+trusted RSKj source.
+
 Provide the research worker container with read-only checkout and archive
 mounts, a separate writable work directory, and Git/LFS tooling for verified
 RSK classification provenance. Keep jobs explicit and output private.
@@ -9,7 +16,7 @@ RSK classification provenance. Keep jobs explicit and output private.
 Make RSK archive extraction retry-safe and resumable over an explicit pinned
 range. Separate RPC batching from durable checkpoint intervals, validate
 canonical continuity and advertised uncle identities, and record only the
-known 69/70-byte fallbacks plus the height-zero genesis sentinel in a coupled
+recognized RLP fallbacks plus the height-zero genesis sentinel in a coupled
 private skip ledger. Content-bind every committed byte segment, recheck the
 end identity before sealing final content digests, and require that completed
 checkpoint before classification. Stage the classifier output family, publish

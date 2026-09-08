@@ -13,6 +13,17 @@ import pytest
 import requests
 
 from stale_blocks_analysis import rsk_extraction as contract
+from stale_blocks_analysis.config import SECP256K1_ORDER
+from stale_blocks_analysis.rsk_fallback import is_fallback_signature
+
+# Mainnet eth_getBlockByNumber proof bytes, captured 2026-09-08. Height 653
+# carries a 31-byte s; 654 carries a sign-padded 33-byte r. These are public
+# representation fixtures, not an independent fallback-signer verification.
+FALLBACK_PROOFS = {
+    653: "f8421ca03af67b20fa62f47efb77b920cb60867361007f7783be88c8fb99a7a0eae82e189f05119e7a5b99acdc5dda9eebcf931cf077d356ed39e34c72a8af125d57c71c",
+    652: "f8431ba0360ad1a381b089a7530dd4a8b236d3866ff2dd34a20b255070ec1354cdbb3c38a022d71e1cebe00aa73c39d1d690a9e798f34e90f183f63806c63448b578c0b0a3",
+    654: "f8441ba100d103b1608cde01899b1ecdde25357e8b1839dbfa7441ea0bfdd89ee470ed7f00a02892a8cf328afdf01ff7c0c0b45dd2917db6bb566f64c92e0b6ebef1b14aadc4",
+}
 
 
 SCRIPT = (
@@ -183,17 +194,132 @@ def test_parse_header_uses_explicit_asymmetric_wire_order() -> None:
     )
 
 
-@pytest.mark.parametrize("length", [69, 70])
-def test_only_known_fallback_lengths_are_ledgered(length: int) -> None:
-    block = _block(10, 1, proof_hex="ab" * length)
-    identity = _identity(10, _hash(110), _hash(109))
+@pytest.mark.parametrize("height,length", [(653, 68), (652, 69), (654, 70)])
+@pytest.mark.parametrize("is_uncle", [False, True])
+def test_mainnet_fallback_representations_are_ledgered(
+    height, length, is_uncle
+) -> None:
+    block = _block(height, 1, proof_hex=FALLBACK_PROOFS[height])
+    block["bitcoinMergedMiningMerkleProof"] = "0x"
+    identity = _identity(height, _hash(height + 100), _hash(height + 99))
 
-    row, skip = rsk.block_to_record(block, identity)
+    row, skip = rsk.block_to_record(
+        block,
+        identity,
+        is_uncle=is_uncle,
+        uncle_index=0 if is_uncle else None,
+        uncle_parent_height=1000 if is_uncle else None,
+    )
 
     assert row is None
     assert skip["proof_bytes"] == length
     assert skip["reason"] == "fallback_signature"
     assert skip["rsk_hash"] == identity["hash"]
+    assert skip["is_uncle"] == int(is_uncle)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["bitcoinMergedMiningCoinbaseTransaction", "bitcoinMergedMiningMerkleProof"],
+)
+def test_fallback_signature_with_bitcoin_proof_material_fails(field) -> None:
+    block = _block(653, 1, proof_hex=FALLBACK_PROOFS[653])
+    block["bitcoinMergedMiningMerkleProof"] = "0x"
+    block[field] = "0xab"
+    with pytest.raises(requests.RequestException, match="unsupported"):
+        rsk.block_to_record(block, _identity(653, _hash(753), _hash(752)))
+
+
+def _signature(v, r, s):
+    def encode(value):
+        raw = value.to_bytes(max(1, (value.bit_length() + 8) // 8), "big")
+        return (
+            raw if len(raw) == 1 and raw[0] < 0x80 else bytes([0x80 + len(raw)]) + raw
+        )
+
+    payload = b"".join(encode(value) for value in (v, r, s))
+    return (
+        bytes([0xC0 + len(payload)])
+        if len(payload) <= 55
+        else bytes([0xF8, len(payload)])
+    ) + payload
+
+
+@pytest.mark.parametrize(
+    "r,s",
+    [
+        (1, 1),
+        (0x80, 0x80),
+        (1 << 240, 1 << 240),
+        (SECP256K1_ORDER - 1, SECP256K1_ORDER // 2 - 1),
+    ],
+)
+def test_fallback_scalar_width_is_variable(r, s) -> None:
+    assert is_fallback_signature(_signature(27, r, s))
+
+
+@pytest.mark.parametrize(
+    "proof",
+    [
+        b"",
+        b"\xab" * 68,
+        b"\xab" * 69,
+        b"\xab" * 70,
+        bytes.fromhex("f8031b0101"),  # non-minimal list length
+        bytes.fromhex("c41b810101"),  # non-minimal scalar RLP
+        bytes.fromhex("c51b82000101"),  # redundant signed-integer zero
+        bytes.fromhex("c41b818001"),  # missing signed-integer sign padding
+        bytes.fromhex("c31bc0c0"),  # nested list
+        bytes.fromhex("c31b010100"),  # trailing data
+        bytes.fromhex("c31b0100"),  # zero s
+        _signature(26, 1, 1),
+        _signature(32, 1, 1),
+        _signature(27, SECP256K1_ORDER, 1),
+        _signature(27, 1, SECP256K1_ORDER // 2),
+        bytes.fromhex(FALLBACK_PROOFS[653])[:-1],
+    ],
+)
+def test_fallback_rejects_malformed_encoding_and_invalid_scalars(proof) -> None:
+    assert not is_fallback_signature(proof)
+
+
+def test_short_fallback_survives_checkpoint_seal_and_consumption(tmp_path) -> None:
+    output, checkpoint, skips = _paths(tmp_path)
+    identity = _identity(653, _hash(753), _hash(752))
+    block = _block(653, 1, proof_hex=FALLBACK_PROOFS[653])
+    block["bitcoinMergedMiningMerkleProof"] = "0x"
+    _, skip = rsk.block_to_record(block, identity)
+    state = contract.prepare_extraction(
+        output,
+        checkpoint,
+        skips,
+        start=653,
+        end=654,
+        start_identity=identity,
+        end_identity=identity,
+        resume=False,
+    )
+    stats = contract.empty_stats()
+    stats["skipped_pre_auxpow"] = 1
+    state = contract.commit_interval(
+        output,
+        checkpoint,
+        skips,
+        state,
+        rows=[],
+        skips=[skip],
+        stats_delta=stats,
+        next_height=654,
+        first_identity=identity,
+        last_identity=identity,
+        advertised_uncles=0,
+    )
+    contract.seal_extraction(
+        output, checkpoint, skips, state, rechecked_end_identity=identity
+    )
+    complete = contract.load_complete_extraction(output, checkpoint)
+    assert complete["output_rows"] == 0
+    assert complete["skip_rows"] == 1
 
 
 def test_height_zero_one_byte_genesis_sentinel_is_the_only_extra_skip() -> None:
