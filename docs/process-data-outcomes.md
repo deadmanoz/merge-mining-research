@@ -80,6 +80,15 @@ Merge-mining coinbase fields remain available as fallback evidence for later
 attribution work. RSK carries miner-address evidence rather than the real
 parent coinbase.
 
+The Namecoin output restoration for #52 adds 784 scripts across 455 accepted
+rows without changing any event count, row identity or validation verdict.
+All 1,649 Namecoin loader rows now carry exact output vectors (16,610 outputs).
+Pool labels remain unchanged under the pinned registry; some 1Hash matches
+gain recovered `OP_RETURN` tag evidence. See the [recovery receipt](chains/namecoin.md)
+and [attribution comparison](pool-attribution.md#namecoin-output-restoration).
+Generated publication snapshots were left untouched because the complete
+private publication inputs were not materialized for this recovery.
+
 ## Direct Stales vs Stale Descendants
 
 The project has two different stale concepts that must not be conflated.

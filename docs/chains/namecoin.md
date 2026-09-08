@@ -83,29 +83,77 @@ against the row's committed hash, `btc_prev_hash`, `btc_time`, and
 row also carries the node-verified Namecoin child block hash and timestamp
 hydrated from `data/child-identity/` (internal byte order, per the
 `child_block_hash` contract). Every row retains the detached parent coinbase
-scriptSig, and 1,500 retain decoded output data. No row retains the complete
-serialized parent coinbase transaction, its parent-merkle branch, or a
-self-contained AuxPoW proof. The hydration is reproducible from the committed
-monitor evidence alone.
+scriptSig, and all 1,649 retain complete output script vectors. No row retains
+the complete serialized parent coinbase transaction, its parent-merkle branch,
+or a self-contained AuxPoW proof. The header hydration is reproducible from the
+committed monitor evidence alone; output recovery uses the private inventory.
 
-`coinbase_outputs` was acquired by decoding the Bitcoin parent coinbase through
-namecoind, which rendered the payouts in Namecoin's own address formats
-(base58 versions 52 and 13, `nc1...` bech32). Those entries are now normalized
-to the rendering described in
-[`data-reference.md`](../data-reference.md); the hash160 and witness program of
-every payout are unchanged. Payouts that namecoind decoded to a P2PKH-version
-address render as `pkh(<hash160>)` rather than a Bitcoin address, because
-namecoind derives the same address from a P2PKH and a P2PK output and the
-archive shows both behind these entries. 1,476 of the rows carry the `~` filtered-projection
-marker, because that acquisition kept only address-bearing outputs and an
-entry's ordinal is therefore its order in the surviving list rather than its
-transaction position. The other 24 rows reached the loader as complete
-raw-script vectors, retaining their nulldata outputs, so their ordinals are
-real transaction positions and they stay unmarked. The scale of the filtering
-is 306 accepted rows carrying an incomplete list and 149 more carrying none at
-all, where the coinbase paid solely to P2PK, nulldata, or nonstandard
-scripts. Those outputs survive in the
-private raw-script inventory and are not recoverable from the public checkout.
+The original `coinbase_outputs` acquisition decoded the parent coinbase through
+namecoind and kept only address-bearing outputs in Namecoin address form.
+The rendering normalization preserved those claims as ordered filtered lists
+(`~`), with `pkh(<hash160>)` for recipient-only P2PKH-family decodes.
+
+Issue #52 restores the complete raw-script vectors from the private
+`namecoin/classified/namecoin_blkdat_classified.csv` inventory. All 1,649
+accepted hashes occur exactly once. The matched historical labels are 1,625
+`stale` and 24 `canonical`; those labels are acquisition metadata, and the
+existing accepted loader verdicts determine membership. Neither historical
+classification nor child block-file scan order is used to infer acceptance or
+Bitcoin height.
+
+The recovery checked identical serialized parent headers, their hashes and
+decoded predecessor/time/`nBits`, and identical detached scriptSigs. For every
+filtered list, the **entire address-bearing subset** of the recovered scripts
+had to match the committed recipients hash160-for-hash160, or the exact P2SH or
+witness script, in order and with the same multiplicity. A generic subsequence
+match is insufficient because it could overlook an extra address-bearing
+output. Blank cells required an empty address-bearing subset. Already-exact
+vectors had to agree in length and at every position. No amount was lost or
+invented. These checks established consistency with the retained inventory, not
+authentication of the detached outputs against the header's merkle root.
+
+The restoration adds **784 outputs across 455 rows**: 306 previously populated
+but incomplete lists and 149 empty lists. There are now **16,610 outputs**.
+All 1,476 filtered lists become exact, including 1,170 whose output counts were
+already correct. The 1,416 lists carrying recipient-only claims also gain exact
+script evidence. The 24 already-exact rows are unchanged. In total, 1,625 cells change;
+every other loader field and the row order remain unchanged. P2PK, nulldata
+(including witness commitments), and nonstandard scripts retain raw hex under
+the [output rendering contract](../data-reference.md#coinbase-output-rendering).
+Amounts remain unavailable, and this does not change stale counts or validation
+statuses.
+
+The issue's example hash
+`000000000000001003e4edee91fb4c919489d9941f702366938c16870f1a4ffa`
+is at accepted Bitcoin height **183,088**, not the issue's stated 153,211.
+The regression fixture selects that exact hash and pins its three outputs.
+
+Reruns use the normal extraction and classification workflow below. The blkdat
+extractor retains every output script; the classifier consumes that complete
+vector and emits the final rendering in its validated, rejected, classified,
+evidence and publication splits. Missing, filtered, recipient-only, prefix-only
+or gapped vectors fail before RPC or publication writes. Amount-only evidence
+also fails this complete-script input contract. Use the raw extraction, not a
+decoded address projection, as classification input. No recovery or rendering
+repair command follows classification. `just validate-coinbase-outputs` checks
+the committed rendering without changing any data.
+
+The completed restoration was checked against the following SHA256 receipt
+on 8 September 2026; its one-off repair code is not part of the runtime:
+
+| Input or result | SHA256 |
+|---|---|
+| Private classified inventory | `0de20097f61a43be684cf3f4c0fe26241eccd8053752b93f6805421b626836d7` |
+| Loader before recovery | `dd0421a2eecdd4f579f570b085591504354da6ed9745069e2787cbd2b747ec38` |
+| Restored loader | `2eb154ff1346b087c61b3155bad2f9ba08b387500a0bb139178933e41d0b012e` |
+
+Only the private Namecoin inventory was materialized for this change, not the
+complete publication archive and relevance inputs. Generated monitor, full
+evidence, strict/weak and novelty outputs were therefore left untouched. Their
+existing snapshots do not constitute regenerated output-coverage claims; a
+later complete publication must consume the restored loader. See
+[attribution impact](../pool-attribution.md#namecoin-output-restoration) for the
+measured label and match-mechanism comparison.
 
 The pinned upstream dataset carries a matching full-block blob for 323 of the
 1,649 direct candidates. The repository confirms that each blob starts with
@@ -140,7 +188,9 @@ The public workflow is:
    direct stale candidate at `parent_height + 1`. Pass
    `--classified-output <chain-archive>/namecoin/classified/namecoin_blkdat_classified.csv`
    to preserve every canonical, stale, rejected-stale, and unknown candidate
-   for later hydration and ancestry reconciliation.
+   for later hydration and ancestry reconciliation. Before querying Core, it
+   requires complete exact output scripts and renders every output in the final
+   contract, preserving P2PK, nulldata, nonstandard scripts and known amounts.
 4. The candidate timestamp must be greater than the active parent's Bitcoin
    median-time-past.
 5. The classifier compares the candidate `nBits` with the canonical Bitcoin

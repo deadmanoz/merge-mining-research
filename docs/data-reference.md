@@ -87,8 +87,8 @@ deliberately stay as raw scriptPubKey hex rather than becoming an address:
   For the same reason a payout that reached us only as a *child node's*
   decoded address renders as `pkh(<hash160>)`: that node derives the same
   address from a P2PKH and a P2PK output, so the recipient hash is
-  established but the script behind it is not. Namecoin, Syscoin, and
-  Terracoin carry that form; a P2SH address is unambiguous and stays an
+  established but the script behind it is not. Historical Namecoin projections,
+  Syscoin, and Terracoin carry that form; a P2SH address is unambiguous and stays an
   address.
 - **Nulldata**, because the payload is the point. Almost every modern coinbase
   puts the segwit witness commitment there, and an `OP_RETURN` label would
@@ -97,10 +97,12 @@ deliberately stay as raw scriptPubKey hex rather than becoming an address:
 A leading `~` on every entry marks the list as an ordered *filtered*
 projection, meaning the acquisition kept only some outputs so an entry's
 ordinal is its order in the surviving list rather than its transaction
-position. Namecoin carries it on the 1,476 rows whose acquisition decoded
-through the child node's RPC and dropped every output without an address; its
-other 24 rows arrived as complete raw-script vectors and stay exact, so the
-marker is decided per row rather than per chain. Terracoin and Syscoin also
+position. Namecoin's original acquisition produced 1,476 such lists; issue #52
+recovered complete raw-script vectors for all 1,649 accepted loader rows, so
+none of those loader cells now carries `~` or recipient-only `pkh(...)` claims.
+Historical inventories and unchanged generated snapshots may still carry the
+weaker forms. Keep their filtered semantics: the marker is decided per row
+rather than removed for the entire chain. Terracoin and Syscoin also
 decoded through the child node but kept a placeholder for every output the
 decode could not name, so their positions stay exact even where a payout
 survives only as `pkh(...)`. Terracoin's committed cells predate its
@@ -111,10 +113,12 @@ Bitcoin Vault binary-parses raw block hex, so its entries are exact scripts. Com
 marker rather than inferred from the rendering, because under one contract an
 address-only list no longer implies an address-filtered source.
 
-`scripts/prep/normalize_coinbase_outputs.py` applies this contract and
-`--check` verifies it; a committed-data test pins the invariant. The
-transformation is rendering-only and preserves every payout identity, order,
-and amount.
+Producers emit this contract directly. The blkdat classifier requires complete
+exact output scripts before RPC or writes and normalizes every output split,
+so raw-script inventories need no subsequent rendering or recovery pass.
+`just validate-coinbase-outputs` verifies committed cells without rewriting them;
+a committed-data test also pins the invariant. Rendering preserves payout
+identity, order and amount.
 
 Committed rows from the raw-script acquisitions (devcoin, ixcoin, groupcoin,
 and their blkdat-format peers) predate amount retention, so they are
@@ -129,15 +133,16 @@ exact empty one. Distinguishing the two would need a new token in this
 vocabulary, which `upstreaming.md` makes a lockstep contract with the
 merge-mining-monitor importer; no committed row carries such an output.
 
-Two limitations remain from acquisition and are not repairable by rendering:
+Acquisition limitations are not repairable by rendering alone:
 
 - Terracoin, Bitcoin Vault, and Syscoin recorded a bare `OP_RETURN` label
   instead of the nulldata script, so those witness-commitment payloads were
   discarded before commit. The checker tolerates the label as a legacy value.
-- Namecoin's acquisition kept only address-bearing outputs, so rows whose
-  coinbase also paid to P2PK, nulldata, or nonstandard scripts carry an
-  incomplete list. Restoring them needs the private raw-script inventory
-  rather than a re-rendering.
+- Namecoin's former address-only projection omitted 784 outputs across 455
+  accepted rows. The recorded [raw-script recovery](chains/namecoin.md)
+  restored them with an exact ordered-subset consistency check. Normal reruns
+  consume complete extracted scripts directly. Generated publication snapshots
+  were not rebuilt with this loader change.
 
 ## Error blocks: `data/error-blocks/error_blocks.csv`
 

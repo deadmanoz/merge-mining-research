@@ -19,6 +19,11 @@ each row's own bytes: a proven consensus violation becomes an ``error_block``
 written to its own sibling artifact, a contamination (nBits) rejection becomes
 an ``unknown``, and a rejection whose evidence proves nothing stays a stale.
 
+Inputs must retain complete exact coinbase output scripts. Raw-script and
+canonical-rendered vectors are normalized before classification and every
+output split uses the final rendering. Filtered or partial output evidence
+fails before RPC or writes; no subsequent rendering repair is required.
+
 Usage:
     python3 classify_auxpow_candidates.py \
         --input ~/i0coin-snapshot/i0coin_auxpow_test.csv \
@@ -61,6 +66,10 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args  # noqa: E402
 from stale_blocks_analysis.config import (  # noqa: E402
     ACCEPTED_STALE_VALIDATION_STATUSES,
+)
+from stale_blocks_analysis.coinbase_output_claims import (  # noqa: E402
+    parse_coinbase_output_claims,
+    render_coinbase_outputs_column,
 )
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
@@ -880,6 +889,26 @@ def classify_and_validate(
 
     for row_number, row in enumerate(rows, start=2):
         _validate_candidate_parent_header(row, row_number=row_number)
+        # This producer consumes complete extracted coinbases. Final output
+        # rendering belongs here, before every split, not in a later repair
+        # pass. A historical decoded projection cannot recover missing bytes.
+        try:
+            outputs = row.get("coinbase_outputs", "")
+            if any(not token.strip() for token in outputs.replace("|", ";").split(";")):
+                raise ValueError("complete exact output scripts are required")
+            claims = parse_coinbase_output_claims(outputs)
+            if not claims or any(
+                not claim.position_exact
+                or not claim.script_hex
+                or claim.position != position
+                for position, claim in enumerate(claims)
+            ):
+                raise ValueError("complete exact output scripts are required")
+            row["coinbase_outputs"] = render_coinbase_outputs_column(claims)
+        except ValueError as exc:
+            raise ValueError(
+                f"candidate row {row_number} coinbase_outputs: {exc}"
+            ) from exc
         if evidence_csv is not None or publication_csv is not None:
             _require_authenticated_child_header_with_context(row, row_number=row_number)
         else:

@@ -306,10 +306,15 @@ def test_canonical_render_round_trips_positions_and_partial_claims() -> None:
     assert parse_coinbase_output_claims(filtered_rendered) == filtered
 
 
-def _load_prep_script(name: str):
-    """Import a scripts/prep module by path (they are not a package)."""
-    path = Path(__file__).resolve().parents[1] / "scripts" / "prep" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(f"{name}_under_test", path)
+def _load_output_validator():
+    """Import the read-only dataset validator."""
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts/analysis/validate_coinbase_outputs.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "validate_coinbase_outputs_under_test", path
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     assert spec.loader is not None
@@ -326,7 +331,7 @@ def test_committed_coinbase_outputs_are_canonically_rendered() -> None:
     collapsed those onto a single rendering; this pins it so a new extractor
     or a hand edit cannot reintroduce the drift.
     """
-    module = _load_prep_script("normalize_coinbase_outputs")
+    module = _load_output_validator()
     offenders: list[str] = []
     for path in module.target_files():
         with path.open(newline="") as handle:
@@ -400,17 +405,23 @@ def test_legacy_type_labels_parse_as_prefix_or_amount_claims() -> None:
     assert (witness.value_sats, witness.script_prefix_hex) == (1, "")
 
 
-def test_normalizer_preserves_leading_output_gaps() -> None:
-    """A leading empty slot survives the rewrite and the checker.
+def test_validator_preserves_leading_output_gaps() -> None:
+    """A leading empty slot is valid evidence of an unknown output position.
 
     The column renderer emits a leading gap for a vector whose first output
     carries no evidence, so treating it as separator noise would renumber
-    every later payout while ``--check`` stayed green.
+    every later payout while validation stayed green.
     """
-    module = _load_prep_script("normalize_coinbase_outputs")
+    module = _load_output_validator()
     path = Path("terracoin_validated_stales.csv")
     assert module.split_entries(";51:8") == ["", "51:8"]
-    assert module.rewrite_cell(";51:8") == ";51:8"
     assert module.cell_problems(path, ";51:8") == []
     [claim] = parse_coinbase_output_claims(";51:8")
     assert claim.position == 1
+
+
+def test_validator_rejects_reintroduced_filtered_loader_outputs() -> None:
+    module = _load_output_validator()
+    assert module.cell_problems(
+        Path("namecoin_validated_stales.csv"), "~pkh(" + "11" * 20 + ")"
+    ) == ["namecoin_validated_stales.csv: filtered output projection in loader data"]

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Restore complete Namecoin coinbase output vectors from the private classified
+inventory (#52), adding 784 scripts across 455 accepted rows. Require complete
+coverage, matching parent evidence and exact ordered address-subset agreement
+before replacing the loader. Make the normal blkdat classifier emit complete
+output vectors in the final rendering and reject incomplete projections before
+RPC or writes, without a follow-up repair command. Refine filtered and
+recipient-only claims to exact scripts, document the unchanged pool labels and
+stronger tag matches, and retain generated publication snapshots pending a
+complete private-input rebuild. Replace the completed rendering migration with
+a read-only output validator.
+
 Recognize RSK fallback proofs by their variable-width RLP signature structure,
 including the 68-byte mainnet proof at height 653. Reject malformed encodings,
 invalid scalar values and short proofs with Bitcoin coinbase or merkle material.
@@ -101,8 +112,8 @@ address from a P2PKH and a P2PK output. The transformation is
 rendering-only: all 34,270 entries across 3,303 rows keep their exact payout
 identity, order, and amount.
 
-`scripts/prep/normalize_coinbase_outputs.py` applies and (with `--check`)
-verifies the contract, a committed-data test pins it, and every extractor now
+`just validate-coinbase-outputs` verifies the contract without rewriting data,
+a committed-data test pins it, and every extractor now
 emits it through `format_outputs_canonical`, replacing the two divergent
 `format_outputs_pkhex` / `format_outputs_addr` conventions. JSON-RPC extraction
 now reads `scriptPubKey.hex` rather than the node's decoded `address` field,
