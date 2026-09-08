@@ -8,7 +8,8 @@ scripts/extract/extract_rsk_auxpow.py. Four passes:
      rows whose computed hash meets the target encoded in that header. This is
      not yet a comparison with Bitcoin's contemporaneous target.
   2. Canonical check: for each self-target-PoW-valid row, ask Bitcoin Core if the header is
-     on the active chain. Discard those because they are not stales.
+     on the active chain. Preserve those in the private
+     ``rsk_canonical_blocks.csv`` companion consumed by evidence publication.
   3. Parent check: for the non-canonical candidates, look up btc_prev_hash.
      If found, the row is a `stale` (canonical-parent → known stale height).
      If not, the row is an `unknown` (no canonical ancestor in our Core).
@@ -37,6 +38,7 @@ historical registry snapshot.
 
 import argparse
 import csv
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -62,7 +64,26 @@ from stale_blocks_analysis.btc_stale_validation import (
     median_time_past_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args
+from stale_blocks_analysis.config import (
+    BITCOIN_EPOCH_REFERENCE_DIR,
+    ERROR_BLOCKS_CSV,
+    PROJECT_ROOT,
+)
+from stale_blocks_analysis.bitcoin_epoch_reference import NBITS_FILENAME
 from stale_blocks_analysis.error_blocks import load_error_block_keys
+from stale_blocks_analysis.rsk_classifier_artifacts import (
+    default_manifest_path,
+    publish_output_family,
+    validate_manifest_output_path,
+)
+from stale_blocks_analysis.rsk_extraction import (
+    checkpoint_artifact_path,
+    default_checkpoint_path,
+    is_lower_hex,
+    load_complete_extraction,
+    sha256_file,
+)
+from stale_blocks_analysis.rsk_sidecar import validate_rsk_sidecar_cells
 
 BATCH = 100
 
@@ -71,6 +92,7 @@ DEFAULT_STALES_OUT = "data/rsk_stale_blocks.csv"
 DEFAULT_VALIDATED_OUT = "data/validated-stales/rsk_validated_stales.csv"
 DEFAULT_SUMMARY_OUT = "results/rsk_classification_summary.txt"
 DEFAULT_POOL_REGISTRY = "results/rsk_pool_registry.csv"
+CLASSIFIER_PATH = Path(__file__).resolve()
 
 # Full classified-output columns. Uncle fields pass through from the raw
 # extractor's uncle traversal and remain empty in canonical-only extracts.
@@ -82,8 +104,12 @@ OUT_COLS = [
     "btc_bits",
     "rsk_height",
     "rsk_timestamp",
+    "rsk_block_hash",
+    "child_block_time",
     "rsk_miner",
     "merge_mining_hash",
+    "rsk_merkle_proof",
+    "rsk_coinbase_tail",
     "btc_header_hex",
     "coinbase_op_return",
     "coinbase_ascii_strings",
@@ -139,9 +165,22 @@ def parse_args(argv: list[str] | None = None):
         "--input", default=DEFAULT_INPUT, help="raw RSK merge-mining CSV"
     )
     parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="completed extractor checkpoint (default: <input>.checkpoint.json)",
+    )
+    parser.add_argument(
         "--stales-out",
         default=DEFAULT_STALES_OUT,
         help="classified stale/unknown output CSV",
+    )
+    parser.add_argument(
+        "--canonical-out",
+        default=None,
+        help=(
+            "classified canonical output CSV "
+            "(default: the _canonical_blocks sibling of --stales-out)"
+        ),
     )
     parser.add_argument(
         "--validated-out",
@@ -162,26 +201,42 @@ def parse_args(argv: list[str] | None = None):
         help="committed historical RSK miner-label snapshot",
     )
     parser.add_argument(
+        "--error-blocks",
+        default=str(ERROR_BLOCKS_CSV),
+        help="committed exact-key consensus-invalid exclusion dataset",
+    )
+    parser.add_argument(
         "--summary-out",
         default=DEFAULT_SUMMARY_OUT,
         help="classification summary text output",
+    )
+    parser.add_argument(
+        "--manifest-out",
+        default=None,
+        help=(
+            "hash manifest for the staged output family "
+            "(default: the _classification_manifest sibling of --stales-out)"
+        ),
     )
     add_rpc_args(parser)
     return parser.parse_args(argv)
 
 
-def ensure_parent(path: str) -> None:
-    """Create the parent directory of ``path`` if it does not already exist."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-
-def validate_distinct_paths(args, error_blocks_out: str) -> None:
+def validate_distinct_paths(
+    args,
+    canonical_out: str,
+    error_blocks_out: str,
+    manifest_out: str,
+    checkpoint_path: Path,
+    *,
+    skip_ledger_path: Path | None = None,
+) -> None:
     """Refuse to run when any two input/output paths resolve to the same file.
 
-    The four outputs are written in sequence, so an aliased pair fails silently
-    and destructively: the later writer truncates an artifact the run has just
-    finished. Pointing ``--error-blocks-out`` at ``--stales-out`` would leave
-    only the error blocks; pointing it at ``--validated-out`` would erase it.
+    The staged family still promotes each final path in sequence, so an aliased
+    pair would silently replace an earlier member during promotion. Pointing
+    ``--error-blocks-out`` at ``--stales-out`` would leave only the error
+    blocks; pointing it at ``--validated-out`` would erase that member.
 
     This mirrors ``_validate_distinct_paths`` in
     ``classify_auxpow_candidates.py``. That one is not reused: its parameters
@@ -190,35 +245,26 @@ def validate_distinct_paths(args, error_blocks_out: str) -> None:
     """
     labelled = {
         "input": Path(args.input).resolve(),
+        "input checkpoint": checkpoint_path.resolve(),
         "pool registry": Path(args.pool_registry).resolve(),
+        "error-block exclusion input": Path(args.error_blocks).resolve(),
+        "epoch reference": (BITCOIN_EPOCH_REFERENCE_DIR / NBITS_FILENAME).resolve(),
+        "canonical inventory output": Path(canonical_out).resolve(),
         "stale/unknown inventory output": Path(args.stales_out).resolve(),
         "validated-stale output": Path(args.validated_out).resolve(),
         "error-block output": Path(error_blocks_out).resolve(),
         "summary output": Path(args.summary_out).resolve(),
+        "classification manifest": Path(manifest_out).resolve(),
+        "classifier script": CLASSIFIER_PATH,
     }
+    if skip_ledger_path is not None:
+        labelled["input skip ledger"] = skip_ledger_path.resolve()
     seen: dict[Path, str] = {}
     for label, path in labelled.items():
         previous = seen.get(path)
         if previous is not None:
             raise ValueError(f"{label} aliases {previous}: {path}")
         seen[path] = label
-
-
-def bits_to_target(bits_hex: str) -> int:
-    """Expand a compact ``nBits`` hex string into the full target integer."""
-    n = int(bits_hex, 16)
-    e, m = n >> 24, n & 0xFFFFFF
-    return m >> (8 * (3 - e)) if e <= 3 else m << (8 * (e - 3))
-
-
-def meets_pow(h, b):
-    """Return True if header hash ``h`` satisfies target ``b`` (compact hex).
-
-    ``h`` is display-order (RPC-order) hex. Parsing it directly with
-    ``int(h, 16)`` yields the same magnitude as the internal little-endian
-    interpretation, so no byte-order conversion is needed here.
-    """
-    return int(h, 16) <= bits_to_target(b)
 
 
 def validate_candidate_header(row: dict[str, str], row_number: int) -> dict:
@@ -254,6 +300,30 @@ def validate_candidate_header(row: dict[str, str], row_number: int) -> dict:
     return {**parsed, "meets_pow": True}
 
 
+def validate_source_bundle(row: dict[str, str], row_number: int) -> None:
+    """Validate the complete RSK child identity and publication-sidecar bundle."""
+    for field in ("rsk_height", "rsk_timestamp"):
+        value = row.get(field, "")
+        if not value.isascii() or not value.isdigit() or int(value) < 0:
+            raise ValueError(f"RSK row {row_number}: {field} is malformed")
+    if int(row["rsk_timestamp"]) <= 0:
+        raise ValueError(f"RSK row {row_number}: rsk_timestamp must be positive")
+    if not is_lower_hex(row.get("rsk_hash")):
+        raise ValueError(f"RSK row {row_number}: rsk_hash is not canonical hex")
+    validate_rsk_sidecar_cells(
+        {
+            "rsk_miner": row.get("rsk_miner", ""),
+            "merge_mining_hash": row.get("merge_mining_hash", ""),
+            "is_uncle": row.get("is_uncle", ""),
+            "uncle_index": row.get("uncle_index", ""),
+            "uncle_parent_height": row.get("uncle_parent_height", ""),
+            "rsk_merkle_proof": row.get("merge_mining_merkle_proof", ""),
+            "rsk_coinbase_tail": row.get("coinbase_tail_hex", ""),
+        },
+        row_id=f"RSK row {row_number}",
+    )
+
+
 def load_pool_labels(path: str) -> dict[str, str]:
     """Load the committed historical miner-address label snapshot."""
     labels: dict[str, str] = {}
@@ -282,8 +352,15 @@ def row_to_out(
         "btc_bits": row["btc_bits"],
         "rsk_height": row["rsk_height"],
         "rsk_timestamp": row["rsk_timestamp"],
+        "rsk_block_hash": row.get("rsk_hash", "") or row.get("rsk_block_hash", ""),
+        "child_block_time": row.get("rsk_timestamp", "")
+        or row.get("child_block_time", ""),
         "rsk_miner": row["rsk_miner"],
         "merge_mining_hash": row["merge_mining_hash"],
+        "rsk_merkle_proof": row.get("merge_mining_merkle_proof", "")
+        or row.get("rsk_merkle_proof", ""),
+        "rsk_coinbase_tail": row.get("coinbase_tail_hex", "")
+        or row.get("rsk_coinbase_tail", ""),
         "btc_header_hex": row["btc_header_hex"],
         "coinbase_op_return": row["coinbase_op_return"],
         "coinbase_ascii_strings": row["coinbase_ascii_strings"],
@@ -336,8 +413,42 @@ def build_validated_rows(
         for height, row in verified
         if (height, row["btc_header_hash"].lower()) not in excluded
     ]
-    rows.sort(key=lambda row: (int(row["btc_height"]), row["btc_header_hash"]))
-    return rows
+    # The compact artifact contains parent verdicts. Choose the earliest
+    # child witness deterministically; the full inventory keeps every witness.
+    rows.sort(
+        key=lambda row: (
+            int(row["btc_height"]),
+            row["btc_header_hash"].lower(),
+            int(row["rsk_height"]),
+            int(row.get("is_uncle") or 0),
+            tuple(str(row.get(field, "")) for field in VALIDATED_COLS),
+        )
+    )
+    parents: dict[tuple[int, str], dict[str, str]] = {}
+    for row in rows:
+        parents.setdefault(
+            (int(row["btc_height"]), row["btc_header_hash"].lower()), row
+        )
+    return list(parents.values())
+
+
+def build_canonical_output_rows(
+    canonical_rows: list[tuple[int, dict[str, str]]],
+) -> list[dict[str, object]]:
+    """Map active-chain observations to the deterministic private companion."""
+    return [
+        row_to_out(row, "canonical", btc_stale_height=height)
+        for height, row in sorted(
+            canonical_rows,
+            key=lambda item: (
+                item[0],
+                int(item[1]["rsk_height"]),
+                int(item[1].get("is_uncle") or 0),
+                int(item[1].get("uncle_index") or 0),
+                item[1]["btc_header_hash"],
+            ),
+        )
+    ]
 
 
 def active_header(response: object, block_hash: str, *, require_height: bool = False):
@@ -373,6 +484,176 @@ def canonical_hash(response: object, height: int) -> str:
             f"getblockhash returned malformed hash at height {height}"
         ) from exc
     return block_hash.lower()
+
+
+def _rpc_result(response: object, *, method: str) -> dict:
+    if not isinstance(response, dict) or response.get("error") is not None:
+        raise RuntimeError(f"{method} failed: {response!r}")
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise ValueError(f"{method} returned a non-object result")
+    return result
+
+
+def bitcoin_core_tip_context(bitcoin_rpc, *, label: str) -> dict[str, object]:
+    """Capture one synchronized Bitcoin mainnet tip and node-version identity."""
+    responses = _ordered_batch_responses(
+        bitcoin_rpc.batch(
+            [
+                {
+                    "jsonrpc": "1.0",
+                    "id": 0,
+                    "method": "getblockchaininfo",
+                    "params": [],
+                },
+                {
+                    "jsonrpc": "1.0",
+                    "id": 1,
+                    "method": "getnetworkinfo",
+                    "params": [],
+                },
+            ]
+        ),
+        expected_count=2,
+        method=f"RSK {label} Core context",
+    )
+    chain = _rpc_result(responses[0], method="getblockchaininfo")
+    network = _rpc_result(responses[1], method="getnetworkinfo")
+    height = chain.get("blocks")
+    headers = chain.get("headers")
+    best_hash = chain.get("bestblockhash")
+    version = network.get("version")
+    if (
+        chain.get("chain") != "main"
+        or type(height) is not int
+        or height < 0
+        or type(headers) is not int
+        or headers < height
+        or chain.get("initialblockdownload") is not False
+        or type(version) is not int
+        or version < 0
+        or not isinstance(best_hash, str)
+        or best_hash != best_hash.lower()
+        or len(best_hash) != 64
+    ):
+        raise ValueError(f"Bitcoin Core {label} context is malformed or unsynced")
+    try:
+        bytes.fromhex(best_hash)
+    except ValueError as exc:
+        raise ValueError(f"Bitcoin Core {label} best hash is malformed") from exc
+    return {
+        "chain": "main",
+        "height": height,
+        "headers": headers,
+        "hash": best_hash,
+        "initial_block_download": False,
+        "version": version,
+    }
+
+
+def record_header_decision(decisions: dict[str, int | None], block_hash, header):
+    """Keep the active-chain placement used by each classification decision."""
+    height = None if header is None else header["height"]
+    if block_hash in decisions and decisions[block_hash] != height:
+        raise ValueError(f"Bitcoin Core header placement changed for {block_hash}")
+    decisions[block_hash] = height
+
+
+def verify_bitcoin_core_context(
+    bitcoin_rpc, start: dict, header_decisions: dict[str, int | None]
+) -> dict[str, dict]:
+    """Seal unchanged decisions against a stable final active-chain context."""
+    end = bitcoin_core_tip_context(bitcoin_rpc, label="end")
+    height = int(start["height"])
+    responses = _ordered_batch_responses(
+        bitcoin_rpc.batch(
+            [
+                {
+                    "jsonrpc": "1.0",
+                    "id": 0,
+                    "method": "getblockhash",
+                    "params": [height],
+                }
+            ]
+        ),
+        expected_count=1,
+        method="RSK Core start-tip continuity",
+    )
+    still_active = canonical_hash(responses[0], height)
+    if end["height"] < height or still_active != start["hash"]:
+        raise ValueError(
+            "Bitcoin Core active chain changed through the pinned start tip"
+        )
+    # Placements at/below the still-active start tip cannot change under normal
+    # growth. Absent/side-chain headers can become canonical, including parents
+    # used to label candidates unknown. Placements above that tip can reorg.
+    pending = [
+        (block_hash, placement)
+        for block_hash, placement in header_decisions.items()
+        if placement is None or placement > height
+    ]
+    if end["hash"] != start["hash"] or any(
+        placement is not None for _, placement in pending
+    ):
+        for offset in range(0, len(pending), BATCH):
+            batch = pending[offset : offset + BATCH]
+            calls = [
+                {
+                    "jsonrpc": "1.0",
+                    "id": index,
+                    "method": "getblockheader",
+                    "params": [block_hash],
+                }
+                for index, (block_hash, _) in enumerate(batch)
+            ]
+            responses = _ordered_batch_responses(
+                bitcoin_rpc.batch(calls),
+                expected_count=len(calls),
+                method="RSK final header placement",
+            )
+            for (block_hash, placement), response in zip(batch, responses):
+                header = active_header(response, block_hash, require_height=True)
+                current = None if header is None else header["height"]
+                if current != placement:
+                    raise ValueError(
+                        f"Bitcoin Core header placement changed for {block_hash}; "
+                        "rerun classification"
+                    )
+    final = bitcoin_core_tip_context(bitcoin_rpc, label="final")
+    if (final["height"], final["hash"]) != (end["height"], end["hash"]):
+        raise ValueError(
+            "Bitcoin Core tip changed during final verification; rerun classification"
+        )
+    return {"start": start, "end": end}
+
+
+def repository_code_context() -> dict[str, object]:
+    """Record the repository revision and whether classification code is dirty."""
+
+    def git(*args: str) -> str:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip()
+
+    return {
+        "git_commit": git("rev-parse", "HEAD").lower(),
+        "dirty": bool(git("status", "--porcelain", "--untracked-files=all")),
+    }
+
+
+def dependency_fingerprints(paths: dict[str, Path]) -> dict[str, tuple[int, str]]:
+    """Snapshot byte lengths and digests for every classification dependency."""
+    fingerprints: dict[str, tuple[int, str]] = {}
+    for label, path in paths.items():
+        if not path.is_file():
+            raise ValueError(f"RSK classifier dependency is missing: {path}")
+        fingerprints[label] = (path.stat().st_size, sha256_file(path))
+    return fingerprints
 
 
 def stale_validation_error(
@@ -468,18 +749,53 @@ def main():
     args = parse_args()
     # Resolve the derived error-block path and check every path for aliasing
     # before any RPC work happens or any output is opened.
-    error_blocks_out = args.error_blocks_out or derive_split_paths(args.stales_out)[2]
-    validate_distinct_paths(args, error_blocks_out)
+    derived_canonical, _, derived_error_blocks = derive_split_paths(args.stales_out)
+    canonical_out = args.canonical_out or derived_canonical
+    error_blocks_out = args.error_blocks_out or derived_error_blocks
+    manifest_out = args.manifest_out or default_manifest_path(args.stales_out)
+    validate_manifest_output_path(args.stales_out, manifest_out)
+    validate_manifest_output_path(canonical_out, manifest_out)
+    input_path = Path(args.input)
+    checkpoint_path = (
+        Path(args.checkpoint)
+        if args.checkpoint is not None
+        else default_checkpoint_path(input_path)
+    )
+    validate_distinct_paths(
+        args, canonical_out, error_blocks_out, manifest_out, checkpoint_path
+    )
+    extraction = load_complete_extraction(input_path, checkpoint_path)
+    validate_distinct_paths(
+        args,
+        canonical_out,
+        error_blocks_out,
+        manifest_out,
+        checkpoint_path,
+        skip_ledger_path=checkpoint_artifact_path(
+            checkpoint_path, extraction["skip_ledger_path"]
+        ),
+    )
+    dependency_paths = {
+        "classifier_script": CLASSIFIER_PATH,
+        "error_blocks": Path(args.error_blocks),
+        "pool_registry": Path(args.pool_registry),
+        "epoch_reference": BITCOIN_EPOCH_REFERENCE_DIR / NBITS_FILENAME,
+    }
+    initial_dependencies = dependency_fingerprints(dependency_paths)
+    code_context = repository_code_context()
+    if code_context["dirty"]:
+        raise ValueError("RSK classifier requires a clean repository worktree")
     bitcoin_rpc = rpc_from_args(args)
     real_pow_rows = []
     total = 0
     t0 = time.time()
 
     print("=== Pass 1: scanning all rows ===", file=sys.stderr, flush=True)
-    with open(args.input) as f:
+    with input_path.open(newline="") as f:
         reader = csv.DictReader(f)
         for row_number, row in enumerate(reader, start=2):
             total += 1
+            validate_source_bundle(row, row_number)
             parsed = validate_candidate_header(row, row_number)
             if parsed["meets_pow"]:
                 real_pow_rows.append(row)
@@ -491,19 +807,26 @@ def main():
                     file=sys.stderr,
                     flush=True,
                 )
+    if total != extraction["output_rows"]:
+        raise ValueError(
+            f"RSK classifier read {total} raw rows, checkpoint declares "
+            f"{extraction['output_rows']}"
+        )
     pass1_time = time.time() - t0
+    pow_percent = 100 * len(real_pow_rows) / total if total else 0.0
     print(f"\nPass 1 done in {pass1_time:.0f}s", file=sys.stderr)
     print(f"  Total rows: {total:,}", file=sys.stderr)
     print(
-        f"  Self-target PoW valid: {len(real_pow_rows):,} "
-        f"({100 * len(real_pow_rows) / total:.3f}%)",
+        f"  Self-target PoW valid: {len(real_pow_rows):,} ({pow_percent:.3f}%)",
         file=sys.stderr,
     )
+    core_start = bitcoin_core_tip_context(bitcoin_rpc, label="start")
+    header_decisions: dict[str, int | None] = {}
 
     # Pass 2: canonical check
     print("\n=== Pass 2: canonical check ===", file=sys.stderr, flush=True)
     candidates = []
-    canonical_count = 0
+    canonical_rows: list[tuple[int, dict[str, str]]] = []
     t0 = time.time()
     for i in range(0, len(real_pow_rows), BATCH):
         batch = real_pow_rows[i : i + BATCH]
@@ -523,8 +846,10 @@ def main():
         )
         for j, rr in enumerate(res):
             block_hash = batch[j]["btc_header_hash"]
-            if active_header(rr, block_hash) is not None:
-                canonical_count += 1
+            canonical = active_header(rr, block_hash, require_height=True)
+            record_header_decision(header_decisions, block_hash, canonical)
+            if canonical is not None:
+                canonical_rows.append((canonical["height"], batch[j]))
             else:
                 candidates.append(batch[j])
         if (i // BATCH) % 100 == 0:
@@ -532,10 +857,11 @@ def main():
             rate = done / (time.time() - t0 + 0.001)
             print(
                 f"  {done:,}/{len(real_pow_rows):,} ({rate:.0f}/s) | "
-                f"canonical={canonical_count:,}, candidates={len(candidates):,}",
+                f"canonical={len(canonical_rows):,}, candidates={len(candidates):,}",
                 file=sys.stderr,
                 flush=True,
             )
+    canonical_count = len(canonical_rows)
     print(f"  canonical: {canonical_count:,}", file=sys.stderr)
     print(f"  candidates (non-canonical): {len(candidates):,}", file=sys.stderr)
 
@@ -565,6 +891,9 @@ def main():
             parent_hash = candidates[candidate_idx]["btc_prev_hash"]
             parent_results[candidate_idx] = active_header(
                 rr, parent_hash, require_height=True
+            )
+            record_header_decision(
+                header_decisions, parent_hash, parent_results[candidate_idx]
             )
     for idx, parent in enumerate(parent_results):
         if parent:
@@ -622,6 +951,7 @@ def main():
                 raise ValueError(
                     f"getblockhash returned non-active header {canonical_block_hash}"
                 )
+            record_header_decision(header_decisions, canonical_block_hash, header)
             if header["height"] != sub_hashes[j][0]:
                 raise ValueError(
                     f"canonical header height mismatch for {canonical_block_hash}: "
@@ -653,98 +983,154 @@ def main():
         f"  re-routed to unknown (contamination/placement): {len(rerouted_unknowns):,}",
         file=sys.stderr,
     )
+    core_context = verify_bitcoin_core_context(
+        bitcoin_rpc, core_start, header_decisions
+    )
 
-    # Resolve every committed dependency before opening either output, so a
-    # missing error-block exclusion input or historical registry cannot leave
-    # a newly written full inventory beside a stale validated artifact.
-    excluded = load_error_block_keys()
+    # Resolve every committed dependency before opening any output, so a
+    # missing exclusion overlay or historical registry cannot leave a newly
+    # written full inventory beside a stale validated artifact.
+    excluded = load_error_block_keys(Path(args.error_blocks))
     pool_labels = load_pool_labels(args.pool_registry)
     public_rows = build_validated_rows(verified, pool_labels, excluded)
 
-    # Full classified output retains every row that is still a stale, including
+    if len(real_pow_rows) != canonical_count + len(candidates):
+        raise ValueError("RSK canonical/candidate classification partition mismatch")
+    if len(candidates) != len(stales_with_height) + len(unknowns):
+        raise ValueError("RSK parent classification partition mismatch")
+    if len(stales_with_height) != (
+        len(stale_rows) + len(error_blocks) + len(rerouted_unknowns)
+    ):
+        raise ValueError("RSK publication-gate routing partition mismatch")
+
+    # The canonical companion retains active-chain observations. The full
+    # classified output retains every row that is still a stale, including
     # gate rejections whose evidence proved nothing, plus the unknown inventory
     # (Phase 3 unknowns and rows the routing moved there). Error blocks go to
     # their own sibling file. The normalized public loader input contains only
-    # VALID direct stales after the exact-key error-block exclusion gate.
-    print("\n=== Writing outputs ===", file=sys.stderr)
-    ensure_parent(args.stales_out)
-    with open(args.stales_out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=OUT_COLS, lineterminator="\n")
-        w.writeheader()
-        for h, row in sorted(stale_rows, key=lambda x: x[0]):
-            w.writerow(
-                row_to_out(
-                    row,
-                    "stale",
-                    btc_stale_height=h,
-                    validation_status=row["validation_status"],
-                    expected_nbits=row["expected_nbits"],
-                )
-            )
-        # Re-routed rows keep their inferred height but drop the stale-gate
-        # annotations, matching the shared writer: their state is final on the
-        # primary axis, so a stale verdict would be misleading.
-        unknown_out: list[tuple[dict[str, str], int | str]] = [
-            (row, "") for row in unknowns
-        ] + [(row, h) for h, row in rerouted_unknowns]
-        for row, h in sorted(unknown_out, key=lambda x: int(x[0]["rsk_height"])):
-            w.writerow(row_to_out(row, "unknown", btc_stale_height=h))
-
-    ensure_parent(error_blocks_out)
-    with open(error_blocks_out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=ERROR_BLOCK_COLS, lineterminator="\n")
-        w.writeheader()
-        for h, row in sorted(error_blocks, key=lambda x: x[0]):
-            w.writerow(
-                {
-                    **row_to_out(
-                        row,
-                        "error_block",
-                        btc_stale_height=h,
-                        validation_status=row["validation_status"],
-                        expected_nbits=row["expected_nbits"],
-                    ),
-                    # The router stashes this on every row it routes here, so
-                    # a KeyError would mean the contract broke -- better than
-                    # publishing the claim with its evidence blank.
-                    RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN],
-                }
-            )
-
-    ensure_parent(args.validated_out)
-    with open(args.validated_out, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=VALIDATED_COLS, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(public_rows)
-
+    # VALID direct stales after the exact-key exclusion overlay.
+    print("\n=== Staging output family ===", file=sys.stderr)
+    canonical_output_rows = build_canonical_output_rows(canonical_rows)
+    stale_output_rows = [
+        row_to_out(
+            row,
+            "stale",
+            btc_stale_height=height,
+            validation_status=row["validation_status"],
+            expected_nbits=row["expected_nbits"],
+        )
+        for height, row in sorted(
+            stale_rows,
+            key=lambda item: (
+                item[0],
+                int(item[1]["rsk_height"]),
+                item[1]["btc_header_hash"],
+            ),
+        )
+    ]
+    unknown_out: list[tuple[dict[str, str], int | str]] = [
+        (row, "") for row in unknowns
+    ] + [(row, height) for height, row in rerouted_unknowns]
+    unknown_output_rows = [
+        row_to_out(row, "unknown", btc_stale_height=height)
+        for row, height in sorted(
+            unknown_out,
+            key=lambda item: (
+                int(item[0]["rsk_height"]),
+                int(item[0].get("is_uncle") or 0),
+                int(item[0].get("uncle_index") or 0),
+                item[0]["btc_header_hash"],
+            ),
+        )
+    ]
+    stale_unknown_output_rows = [*stale_output_rows, *unknown_output_rows]
+    error_output_rows = [
+        {
+            **row_to_out(
+                row,
+                "error_block",
+                btc_stale_height=height,
+                validation_status=row["validation_status"],
+                expected_nbits=row["expected_nbits"],
+            ),
+            RULES_VIOLATED_COLUMN: row[RULES_VIOLATED_COLUMN],
+        }
+        for height, row in sorted(
+            error_blocks,
+            key=lambda item: (
+                item[0],
+                int(item[1]["rsk_height"]),
+                item[1]["btc_header_hash"],
+            ),
+        )
+    ]
     total_unknown_rows = len(unknowns) + len(rerouted_unknowns)
-    ensure_parent(args.summary_out)
-    with open(args.summary_out, "w") as f:
-        f.write("RSK merge-mining classification summary\n")
-        f.write("=" * 60 + "\n")
-        f.write(f"Total RSK merge-mining rows:     {total:>12,}\n")
-        f.write(
-            f"Self-target-PoW-valid headers:   {len(real_pow_rows):>12,}  "
-            f"({100 * len(real_pow_rows) / total:.3f}%)\n"
-        )
-        f.write(f"  Canonical (in BTC chain):      {canonical_count:>12,}\n")
-        f.write(f"  Stale candidates:              {len(candidates):>12,}\n")
-        f.write(f"    With canonical parent:       {len(stales_with_height):>12,}\n")
-        f.write(f"      Gate-accepted candidates:  {len(verified):>12,}\n")
-        f.write(f"      Rejected, still stale:     {rejected_stales:>12,}\n")
-        f.write(f"      Error blocks:              {len(error_blocks):>12,}\n")
-        f.write(f"      Re-routed to unknown:      {len(rerouted_unknowns):>12,}\n")
-        f.write(f"    Unknowns (no canonical parent): {len(unknowns):>10,}\n")
-        f.write(
-            f"\nOutput rows in rsk_stale_blocks.csv: "
-            f"{len(stale_rows) + total_unknown_rows:,} "
-            f"({len(stale_rows):,} stale + {total_unknown_rows:,} unknown)\n"
-        )
-        f.write(f"Error-block rows in rsk_error_blocks.csv: {len(error_blocks):,}\n")
-        f.write(
-            f"VALID direct-stale rows after error-block exclusion: {len(public_rows):,}\n"
-        )
+    summary_text = (
+        "RSK merge-mining classification summary\n"
+        + "=" * 60
+        + "\n"
+        + f"Input checkpoint SHA-256:       {sha256_file(checkpoint_path)}\n"
+        + f"Input range:                    [{extraction['start_height']}, {extraction['end_height']})\n"
+        + f"Input content SHA-256:          {extraction['content_sha256']}\n"
+        + f"Bitcoin Core start tip:         {core_context['start']['height']} {core_context['start']['hash']}\n"
+        + f"Bitcoin Core end tip:           {core_context['end']['height']} {core_context['end']['hash']}\n"
+        + f"Pool registry SHA-256:          {initial_dependencies['pool_registry'][1]}\n"
+        + f"Error-block overlay SHA-256:    {initial_dependencies['error_blocks'][1]}\n"
+        + f"Classifier git revision:        {code_context['git_commit']} dirty={str(code_context['dirty']).lower()}\n"
+        + f"Total RSK merge-mining rows:     {total:>12,}\n"
+        + f"Self-target-PoW-valid headers:   {len(real_pow_rows):>12,}  ({pow_percent:.3f}%)\n"
+        + f"  Canonical (in BTC chain):      {canonical_count:>12,}\n"
+        + f"  Stale candidates:              {len(candidates):>12,}\n"
+        + f"    With canonical parent:       {len(stales_with_height):>12,}\n"
+        + f"      Gate-accepted candidates:  {len(verified):>12,}\n"
+        + f"      Rejected, still stale:     {rejected_stales:>12,}\n"
+        + f"      Error blocks:              {len(error_blocks):>12,}\n"
+        + f"      Re-routed to unknown:      {len(rerouted_unknowns):>12,}\n"
+        + f"    Unknowns (no canonical parent): {len(unknowns):>10,}\n"
+        + f"\nOutput rows in rsk_stale_blocks.csv: {len(stale_rows) + total_unknown_rows:,} "
+        + f"({len(stale_rows):,} stale + {total_unknown_rows:,} unknown)\n"
+        + f"Canonical rows in rsk_canonical_blocks.csv: {canonical_count:,}\n"
+        + f"Error-block rows in rsk_error_blocks.csv: {len(error_blocks):,}\n"
+        + f"VALID direct-stale rows after exclusion overlay: {len(public_rows):,}\n"
+    )
+    if dependency_fingerprints(dependency_paths) != initial_dependencies:
+        raise ValueError("RSK classification dependency changed during the run")
+    if repository_code_context() != code_context:
+        raise ValueError("RSK classifier repository state changed during the run")
+    publish_output_family(
+        csv_artifacts=[
+            ("canonical", Path(canonical_out), OUT_COLS, canonical_output_rows),
+            (
+                "stale_unknown",
+                Path(args.stales_out),
+                OUT_COLS,
+                stale_unknown_output_rows,
+            ),
+            (
+                "error_blocks",
+                Path(error_blocks_out),
+                ERROR_BLOCK_COLS,
+                error_output_rows,
+            ),
+            ("validated_stales", Path(args.validated_out), VALIDATED_COLS, public_rows),
+        ],
+        summary_path=Path(args.summary_out),
+        summary_text=summary_text,
+        manifest_path=Path(manifest_out),
+        checkpoint_path=checkpoint_path,
+        checkpoint_state=extraction,
+        dependency_paths=dependency_paths,
+        expected_dependency_fingerprints=initial_dependencies,
+        classification_context={
+            "bitcoin_core": core_context,
+            "code": code_context,
+        },
+    )
     print("\n✓ Outputs:", file=sys.stderr)
+    print(
+        f"  {canonical_out}  ({canonical_count:,} canonical)",
+        file=sys.stderr,
+    )
     print(
         f"  {args.stales_out}  ({len(stale_rows) + total_unknown_rows:,} rows: "
         f"{len(stale_rows):,} stale + {total_unknown_rows:,} unknown)",
@@ -759,6 +1145,9 @@ def main():
         file=sys.stderr,
     )
     print(f"  {args.summary_out}", file=sys.stderr)
+    print(
+        f"  {manifest_out}  (published last; binds the output family)", file=sys.stderr
+    )
 
 
 if __name__ == "__main__":

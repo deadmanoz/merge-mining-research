@@ -15,18 +15,19 @@ directly on each block via Ethereum-style JSON-RPC:
       hashForMergedMining                    — 32-byte hash committed in coinbase
       miner                                  - RBTC miner address retained for analysis
 
-The historical extraction starts at RSK block 139,999. This is an acquisition
-lower bound, not a consensus activation: earlier blocks interleave full 80-byte
-merge-mining headers with 69/70-byte fallback signatures and require a
-format-aware backfill.
+The retained historical extraction starts at RSK block 139,999. This is an
+acquisition lower bound, not a consensus activation: earlier blocks interleave
+full 80-byte merge-mining headers with 69/70-byte fallback signatures. Current
+runs require explicit bounds and retain the full headers while accounting for
+those fallback shapes and the exact height-zero ``0x00`` sentinel as skips.
 
 Output: CSV with one row per extracted RSK merge-mining proof containing the Bitcoin parent
 header fields and the available miner and truncated-coinbase evidence.
 """
 
 import argparse
-import csv
 import hashlib
+import os
 import struct
 import sys
 import time
@@ -37,37 +38,23 @@ import requests
 # Repo `src/` is on sys.path when installed via `pip install -e .`; the shared
 # module is pure-stdlib and safe to import on the extraction host.
 from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical
+from stale_blocks_analysis.rsk_extraction import (
+    commit_interval,
+    default_checkpoint_path,
+    default_skip_ledger_path,
+    empty_stats,
+    prepare_extraction,
+    seal_extraction,
+)
 
 # --- Configuration ---
 RPC_URL = "http://127.0.0.1:4444"
 RPC_HEADERS = {"content-type": "application/json"}
 
-DEFAULT_EXTRACTION_START_HEIGHT = 139_999
 BATCH_SIZE = 50  # RSKj caps batched JSON-RPC at 50 calls; bigger gets HTTP 400.
+CHECKPOINT_INTERVAL = 10_000
 PROGRESS_INTERVAL = 10_000
 MAX_RETRIES = 5
-
-CSV_COLUMNS = [
-    "rsk_height",
-    "rsk_timestamp",
-    "rsk_hash",  # RSK block hash, for explorer correlation
-    "rsk_miner",  # RBTC miner address retained for later attribution research
-    "rsk_difficulty",  # RSK difficulty at this block (hex)
-    "btc_header_hash",
-    "btc_prev_hash",
-    "btc_time",
-    "btc_bits",
-    "merge_mining_hash",  # hashForMergedMining: 32-byte commit in BTC coinbase
-    "merge_mining_merkle_proof",  # SPV proof linking RSK's commitment to the BTC merkle root
-    "coinbase_outputs",  # shared canonical rendering (parsed from tail)
-    "coinbase_op_return",  # semicolon-separated OP_RETURN data hex
-    "coinbase_ascii_strings",  # semicolon-separated printable runs (>=4 chars)
-    "coinbase_tail_hex",  # raw RSK-stored truncated tail (for re-parsing)
-    "btc_header_hex",
-    "is_uncle",  # 0 if canonical, 1 if uncle/ommer
-    "uncle_index",  # uncle index within the canonical parent (empty for canonical)
-    "uncle_parent_height",  # canonical RSK height that referenced this uncle (empty for canonical)
-]
 
 # Bitcoin coinbase output sanity bounds. RSK's truncated tail lacks the input
 # section, so we have to find where outputs start by sliding offsets and
@@ -84,31 +71,148 @@ def rpc_batch(calls: list[dict]) -> list:
     over-50 batch size), it returns a *dict* with an "error" key. We surface
     that as a RequestException so the caller's retry loop kicks in.
     """
-    resp = requests.post(RPC_URL, json=calls, headers=RPC_HEADERS, timeout=60)
+    resp = requests.post(
+        os.environ.get("RSK_RPC_URL", RPC_URL),
+        json=calls,
+        headers=RPC_HEADERS,
+        timeout=60,
+    )
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, list):
         err = data.get("error") if isinstance(data, dict) else None
         msg = (
-            (err or {}).get("message")
-            if err
-            else f"unexpected response: {str(data)[:200]}"
+            err.get("message")
+            if isinstance(err, dict)
+            else repr(err)
+            if err is not None
+            else f"unexpected response: {data!r}"
         )
         raise requests.RequestException(f"RSKj batch error: {msg}")
     # Per-call errors within an otherwise-200 batch — also retry whole batch.
     for r in data:
         if isinstance(r, dict) and "error" in r:
-            err = r["error"] or {}
+            err = r["error"]
+            message = err.get("message") if isinstance(err, dict) else repr(err)
             raise requests.RequestException(
-                f"per-call error in batch: id={r.get('id')} msg={err.get('message')}"
+                f"per-call error in batch: id={r.get('id')} msg={message}"
             )
     return data
+
+
+def ordered_rpc_results(results: list, expected_count: int, method: str) -> list[dict]:
+    """Validate and order one RSKj batch by its exact integer IDs."""
+    if len(results) != expected_count or any(
+        not isinstance(row, dict) for row in results
+    ):
+        raise requests.RequestException(
+            f"{method} returned {len(results)} responses for {expected_count} calls"
+        )
+    ids = [row.get("id") for row in results]
+    if any(type(response_id) is not int for response_id in ids):
+        raise requests.RequestException(
+            f"{method} returned a non-integer JSON-RPC response ID"
+        )
+    by_id = {row["id"]: row for row in results}
+    expected_ids = set(range(expected_count))
+    if len(by_id) != expected_count or set(by_id) != expected_ids:
+        raise requests.RequestException(
+            f"{method} returned duplicate, missing, or unexpected response IDs"
+        )
+    return [by_id[index] for index in range(expected_count)]
 
 
 def get_chain_tip() -> int:
     """Get the current RSK chain tip height (decimal)."""
     call = [{"jsonrpc": "2.0", "id": 0, "method": "eth_blockNumber", "params": []}]
-    return int(rpc_batch(call)[0]["result"], 16)
+    result = ordered_rpc_results(rpc_batch(call), 1, "eth_blockNumber")[0].get("result")
+    try:
+        tip = int(result, 16)
+    except (TypeError, ValueError) as exc:
+        raise requests.RequestException(
+            f"eth_blockNumber returned malformed result {result!r}"
+        ) from exc
+    if tip < 0:
+        raise requests.RequestException("eth_blockNumber returned a negative height")
+    return tip
+
+
+def _hex_bytes(value: object, *, field: str, expected_bytes: int | None = None) -> str:
+    """Normalize one 0x-prefixed or plain hex value, failing on bad shape."""
+    if not isinstance(value, str):
+        raise requests.RequestException(f"RSK {field} is not a hex string")
+    normalized = value.removeprefix("0x").lower()
+    if len(normalized) % 2 or (
+        expected_bytes is not None and len(normalized) != 2 * expected_bytes
+    ):
+        raise requests.RequestException(f"RSK {field} has malformed length")
+    try:
+        bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise requests.RequestException(f"RSK {field} is malformed hex") from exc
+    return normalized
+
+
+def _quantity(value: object, *, field: str) -> int:
+    """Parse one non-negative Ethereum JSON-RPC quantity."""
+    if not isinstance(value, str) or not value.startswith("0x"):
+        raise requests.RequestException(f"RSK {field} is not an RPC quantity")
+    try:
+        parsed = int(value, 16)
+    except ValueError as exc:
+        raise requests.RequestException(f"RSK {field} is malformed") from exc
+    if parsed < 0:
+        raise requests.RequestException(f"RSK {field} is negative")
+    return parsed
+
+
+def canonical_identity(block: object, expected_height: int, *, context: str) -> dict:
+    """Validate and return one canonical RSK block's continuity identity."""
+    if not isinstance(block, dict):
+        raise requests.RequestException(f"{context} returned a null/non-object block")
+    height = _quantity(block.get("number"), field=f"{context} number")
+    if height != expected_height:
+        raise requests.RequestException(
+            f"{context} returned height {height}, expected {expected_height}"
+        )
+    uncles = block.get("uncles")
+    if not isinstance(uncles, list):
+        raise requests.RequestException(f"{context} has a malformed uncles list")
+    advertised_uncles = [
+        _hex_bytes(value, field=f"{context} uncle hash", expected_bytes=32)
+        for value in uncles
+    ]
+    if len(advertised_uncles) != len(set(advertised_uncles)):
+        raise requests.RequestException(f"{context} advertises duplicate uncle hashes")
+    return {
+        "height": height,
+        "hash": _hex_bytes(
+            block.get("hash"), field=f"{context} hash", expected_bytes=32
+        ),
+        "parent_hash": _hex_bytes(
+            block.get("parentHash"), field=f"{context} parentHash", expected_bytes=32
+        ),
+        "timestamp": _quantity(block.get("timestamp"), field=f"{context} timestamp"),
+        "advertised_uncles": advertised_uncles,
+    }
+
+
+def get_block_identity(height: int) -> dict:
+    """Return one fully validated canonical RSK endpoint identity."""
+    call = [
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "eth_getBlockByNumber",
+            "params": [hex(height), False],
+        }
+    ]
+    result = ordered_rpc_results(rpc_batch(call), 1, "endpoint pin")[0].get("result")
+    identity = canonical_identity(result, height, context=f"RSK block {height}")
+    return {
+        field: identity[field]
+        for field in ("height", "hash", "parent_hash", "timestamp")
+    }
 
 
 def sha256d(data: bytes) -> bytes:
@@ -133,18 +237,6 @@ def parse_header(raw: bytes) -> dict:
         "version": version,
         "nonce": nonce,
     }
-
-
-def read_varint(data: bytes, offset: int) -> tuple[int, int]:
-    """Bitcoin CompactSize varint. Returns (value, bytes_consumed)."""
-    n = data[offset]
-    if n < 0xFD:
-        return n, 1
-    if n == 0xFD:
-        return struct.unpack_from("<H", data, offset + 1)[0], 3
-    if n == 0xFE:
-        return struct.unpack_from("<I", data, offset + 1)[0], 5
-    return struct.unpack_from("<Q", data, offset + 1)[0], 9
 
 
 def _try_parse_outputs(body: bytes) -> list[dict] | None:
@@ -262,42 +354,85 @@ def format_outputs(outputs: list[dict]) -> str:
     )
 
 
-def block_to_row(
+def _optional_hex(value: object, *, field: str) -> str:
+    """Normalize an optional even-length hexadecimal proof component."""
+    if value in (None, "", "0x"):
+        return ""
+    return _hex_bytes(value, field=field)
+
+
+def block_to_record(
     block: dict,
-    rsk_height: int,
+    identity: dict,
     *,
     is_uncle: bool = False,
     uncle_index: int | None = None,
     uncle_parent_height: int | None = None,
-) -> dict | None:
-    """Render an RSK block (canonical or uncle) into the output CSV row.
-
-    Returns None if the block doesn't have a valid 80-byte merge-mining header
-    (for example, a fallback signature or malformed value). The caller increments
-    skip statistics in that case.
-    """
-    hdr_hex = block.get("bitcoinMergedMiningHeader") or ""
-    hdr_bytes = bytes.fromhex(hdr_hex.removeprefix("0x")) if hdr_hex else b""
+) -> tuple[dict | None, dict | None]:
+    """Return exactly one raw row or intentional-skip ledger row for a block."""
+    context = (
+        f"RSK uncle {identity['hash']}"
+        if is_uncle
+        else f"RSK canonical block {identity['height']}"
+    )
+    hdr_hex = _hex_bytes(
+        block.get("bitcoinMergedMiningHeader"), field=f"{context} merge-mining header"
+    )
+    hdr_bytes = bytes.fromhex(hdr_hex)
     if len(hdr_bytes) != 80:
-        return None
+        is_genesis_sentinel = (
+            not is_uncle and identity["height"] == 0 and hdr_bytes == b"\x00"
+        )
+        is_fallback = len(hdr_bytes) in (69, 70)
+        if not (is_genesis_sentinel or is_fallback):
+            raise requests.RequestException(
+                f"{context} has unsupported merge-mining proof length "
+                f"{len(hdr_bytes)} bytes"
+            )
+        return None, {
+            "rsk_height": identity["height"],
+            "rsk_timestamp": identity["timestamp"],
+            "rsk_hash": identity["hash"],
+            "is_uncle": 1 if is_uncle else 0,
+            "uncle_index": uncle_index if uncle_index is not None else "",
+            "uncle_parent_height": (
+                uncle_parent_height if uncle_parent_height is not None else ""
+            ),
+            "advertised_uncle_hash": identity["hash"] if is_uncle else "",
+            "proof_bytes": len(hdr_bytes),
+            "reason": "genesis_sentinel"
+            if is_genesis_sentinel
+            else "fallback_signature",
+        }
 
     header = parse_header(hdr_bytes)
 
-    cb_hex = block.get("bitcoinMergedMiningCoinbaseTransaction") or ""
-    cb_clean = cb_hex.removeprefix("0x") if cb_hex else ""
+    cb_clean = _optional_hex(
+        block.get("bitcoinMergedMiningCoinbaseTransaction"),
+        field=f"{context} coinbase tail",
+    )
     outputs = parse_coinbase_tail(cb_clean) if cb_clean else None
     op_returns = extract_op_returns(outputs) if outputs else []
     ascii_runs = extract_ascii_strings(bytes.fromhex(cb_clean)) if cb_clean else []
 
-    mm_proof = (block.get("bitcoinMergedMiningMerkleProof") or "").removeprefix("0x")
-    mm_hash = (block.get("hashForMergedMining") or "").removeprefix("0x")
+    mm_proof = _optional_hex(
+        block.get("bitcoinMergedMiningMerkleProof"),
+        field=f"{context} merge-mining merkle proof",
+    )
+    mm_hash = _hex_bytes(
+        block.get("hashForMergedMining"),
+        field=f"{context} merge-mining hash",
+        expected_bytes=32,
+    )
+    miner = _hex_bytes(block.get("miner"), field=f"{context} miner", expected_bytes=20)
+    difficulty = _quantity(block.get("difficulty"), field=f"{context} difficulty")
 
     return {
-        "rsk_height": rsk_height,
-        "rsk_timestamp": int(block["timestamp"], 16),
-        "rsk_hash": (block.get("hash") or "").removeprefix("0x"),
-        "rsk_miner": (block.get("miner") or "").removeprefix("0x"),
-        "rsk_difficulty": (block.get("difficulty") or "").removeprefix("0x"),
+        "rsk_height": identity["height"],
+        "rsk_timestamp": identity["timestamp"],
+        "rsk_hash": identity["hash"],
+        "rsk_miner": miner,
+        "rsk_difficulty": f"{difficulty:x}",
         "btc_header_hash": header["hash"],
         "btc_prev_hash": header["prev_hash"],
         "btc_time": header["timestamp"],
@@ -314,206 +449,358 @@ def block_to_row(
         "uncle_parent_height": uncle_parent_height
         if uncle_parent_height is not None
         else "",
+    }, None
+
+
+def _uncle_identity(block: object, advertised_hash: str, *, context: str) -> dict:
+    """Validate one listed uncle and bind the RPC result to its advertised hash."""
+    if not isinstance(block, dict):
+        raise requests.RequestException(f"{context} returned a null/non-object uncle")
+    identity = {
+        "height": _quantity(block.get("number"), field=f"{context} number"),
+        "hash": _hex_bytes(
+            block.get("hash"), field=f"{context} hash", expected_bytes=32
+        ),
+        "parent_hash": _hex_bytes(
+            block.get("parentHash"), field=f"{context} parentHash", expected_bytes=32
+        ),
+        "timestamp": _quantity(block.get("timestamp"), field=f"{context} timestamp"),
     }
+    if identity["hash"] != advertised_hash:
+        raise requests.RequestException(
+            f"{context} returned {identity['hash']}, advertised {advertised_hash}"
+        )
+    return identity
 
 
-def extract_range(start: int, end: int, writer: csv.DictWriter, stats: dict):
-    """Extract merge-mining data for [start, end) RSK heights.
+def extract_range(
+    start: int,
+    end: int,
+    *,
+    rpc_batch_size: int = BATCH_SIZE,
+    previous_hash: str = "",
+    expected_start_identity: dict | None = None,
+) -> tuple[list[dict], list[dict], dict[str, int], dict, dict, int]:
+    """Extract and validate one durable interval of canonical heights.
 
     Walks both canonical RSK blocks and any uncle/ommer blocks they reference.
-    RSK uncles carry their own 80-byte BTC parent header (each uncle is a
-    separate merge-mining attempt), confirmed via `eth_getUncleByBlockNumberAndIndex`.
-    Skipping them loses candidates the self-target PoW filter would otherwise
-    surface.
+    RPC batches are independently capped by ``rpc_batch_size`` while the whole
+    interval remains in memory as one durable checkpoint unit.  Every canonical
+    height and every advertised uncle has exactly one raw-row or skip-ledger
+    outcome. Transient RPC failures retry the affected batch. Null responses,
+    unadvertised identities, broken continuity and unsupported proof shapes
+    fail immediately without advancing the checkpoint; diagnose the source
+    before resuming those integrity failures.
     """
-    calls = [
-        {
-            "jsonrpc": "2.0",
-            "id": i,
-            "method": "eth_getBlockByNumber",
-            "params": [hex(h), False],
-        }
-        for i, h in enumerate(range(start, end))
-    ]
-    results = rpc_batch(calls)
-    results.sort(key=lambda x: x["id"])
+    if not 1 <= rpc_batch_size <= BATCH_SIZE:
+        raise ValueError(f"rpc_batch_size must be between 1 and {BATCH_SIZE}")
+    rows: list[dict] = []
+    skips: list[dict] = []
+    stats = empty_stats()
+    first_identity: dict | None = None
+    last_identity: dict | None = None
+    expected_parent_hash = previous_hash
+    advertised_uncle_count = 0
 
-    # Two-phase: canonical first, then any uncle calls batched together. The
-    # uncle index list comes from the canonical response's `uncles` array, so
-    # the uncle batch shape depends on phase 1's output.
-    uncle_calls: list[dict] = []
-    uncle_lookup: list[tuple[int, int]] = []  # (parent_height, uncle_index)
-    next_id = 0
-
-    for i, r in enumerate(results):
-        height = start + i
-        block = r.get("result")
-        if not block:
-            stats["skipped_no_block"] += 1
-            continue
-
-        row = block_to_row(block, height)
-        if row is None:
-            stats["skipped_pre_auxpow"] += 1
-        else:
-            stats["auxpow_blocks"] += 1
-            writer.writerow(row)
-
-        # Queue uncle RPCs for phase 2. RSK uncles can have their own full
-        # merge-mining header even if the canonical block at this height has a
-        # fallback signature (and vice versa). Emit every uncle regardless of
-        # the canonical block's proof format.
-        for ui in range(len(block.get("uncles") or [])):
-            uncle_calls.append(
-                {
-                    "jsonrpc": "2.0",
-                    "id": next_id,
-                    "method": "eth_getUncleByBlockNumberAndIndex",
-                    "params": [hex(height), hex(ui)],
-                }
+    for chunk_start in range(start, end, rpc_batch_size):
+        chunk_end = min(chunk_start + rpc_batch_size, end)
+        calls = [
+            {
+                "jsonrpc": "2.0",
+                "id": index,
+                "method": "eth_getBlockByNumber",
+                "params": [hex(height), False],
+            }
+            for index, height in enumerate(range(chunk_start, chunk_end))
+        ]
+        results = ordered_rpc_results(
+            retry_rpc("canonical block batch", lambda: rpc_batch(calls)),
+            len(calls),
+            "canonical block batch",
+        )
+        uncle_calls: list[dict] = []
+        uncle_lookup: list[tuple[int, int, str]] = []
+        for offset, response in enumerate(results):
+            height = chunk_start + offset
+            block = response.get("result")
+            identity_with_uncles = canonical_identity(
+                block, height, context=f"RSK canonical block {height}"
             )
-            uncle_lookup.append((height, ui))
-            next_id += 1
+            identity = {
+                field: identity_with_uncles[field]
+                for field in ("height", "hash", "parent_hash", "timestamp")
+            }
+            if first_identity is None:
+                first_identity = identity
+                if (
+                    expected_start_identity is not None
+                    and identity != expected_start_identity
+                ):
+                    raise requests.RequestException(
+                        "canonical extraction does not match the pinned start identity"
+                    )
+            if expected_parent_hash and identity["parent_hash"] != expected_parent_hash:
+                raise requests.RequestException(
+                    f"canonical continuity break at RSK height {height}: "
+                    f"{identity['parent_hash']} != {expected_parent_hash}"
+                )
+            expected_parent_hash = identity["hash"]
+            last_identity = identity
 
-    # Phase 2: fetch and emit uncles. Chunk by BATCH_SIZE to respect RSKj's
-    # batched-RPC cap.
-    for chunk_start in range(0, len(uncle_calls), BATCH_SIZE):
-        chunk = uncle_calls[chunk_start : chunk_start + BATCH_SIZE]
-        # Re-id within the chunk because RSKj caps batches at 50 — the global
-        # next_id values would still work, but using a 0..N-1 sequence per chunk
-        # makes the response sort straightforward.
-        for j, call in enumerate(chunk):
-            call["id"] = j
-        chunk_results = rpc_batch(chunk)
-        chunk_results.sort(key=lambda x: x["id"])
-        for j, rr in enumerate(chunk_results):
-            parent_height, ui = uncle_lookup[chunk_start + j]
-            u = rr.get("result")
-            if not u:
-                stats["uncle_skipped_null"] += 1
-                continue
-            uncle_height = int(u["number"], 16)
-            row = block_to_row(
-                u,
-                uncle_height,
-                is_uncle=True,
-                uncle_index=ui,
-                uncle_parent_height=parent_height,
-            )
-            if row is None:
-                stats["uncle_skipped_pre_auxpow"] += 1
+            row, skip = block_to_record(block, identity)
+            if row is not None:
+                stats["auxpow_blocks"] += 1
+                rows.append(row)
             else:
-                stats["uncle_auxpow_blocks"] += 1
-                writer.writerow(row)
+                stats["skipped_pre_auxpow"] += 1
+                skips.append(skip)
+
+            for uncle_index, advertised_hash in enumerate(
+                identity_with_uncles["advertised_uncles"]
+            ):
+                uncle_calls.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": len(uncle_calls),
+                        "method": "eth_getUncleByBlockNumberAndIndex",
+                        "params": [hex(height), hex(uncle_index)],
+                    }
+                )
+                uncle_lookup.append((height, uncle_index, advertised_hash))
+        advertised_uncle_count += len(uncle_calls)
+
+        for uncle_chunk_start in range(0, len(uncle_calls), rpc_batch_size):
+            uncle_chunk = uncle_calls[
+                uncle_chunk_start : uncle_chunk_start + rpc_batch_size
+            ]
+            for response_id, call in enumerate(uncle_chunk):
+                call["id"] = response_id
+            uncle_results = ordered_rpc_results(
+                retry_rpc("uncle block batch", lambda: rpc_batch(uncle_chunk)),
+                len(uncle_chunk),
+                "uncle block batch",
+            )
+            for offset, response in enumerate(uncle_results):
+                parent_height, uncle_index, advertised_hash = uncle_lookup[
+                    uncle_chunk_start + offset
+                ]
+                context = f"RSK uncle {parent_height}:{uncle_index}"
+                block = response.get("result")
+                identity = _uncle_identity(block, advertised_hash, context=context)
+                row, skip = block_to_record(
+                    block,
+                    identity,
+                    is_uncle=True,
+                    uncle_index=uncle_index,
+                    uncle_parent_height=parent_height,
+                )
+                if row is not None:
+                    stats["uncle_auxpow_blocks"] += 1
+                    rows.append(row)
+                else:
+                    stats["uncle_skipped_pre_auxpow"] += 1
+                    skips.append(skip)
+
+    if first_identity is None or last_identity is None:
+        raise ValueError("RSK extraction interval is empty")
+    return (
+        rows,
+        skips,
+        stats,
+        first_identity,
+        last_identity,
+        advertised_uncle_count,
+    )
+
+
+def parse_args(argv: list[str] | None = None):
+    """Parse the explicit, resumable RSK extraction contract."""
+    parser = argparse.ArgumentParser(
+        description="Extract Bitcoin merge-mining proofs from RSK"
+    )
+    parser.add_argument("--start", type=int, required=True, help="Start RSK height")
+    parser.add_argument(
+        "--end", type=int, required=True, help="End RSK height, exclusive"
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Private raw output CSV path"
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="Checkpoint sidecar (default: <output>.checkpoint.json)",
+    )
+    parser.add_argument(
+        "--skip-ledger",
+        type=Path,
+        default=None,
+        help="Private fallback ledger (default: <output>.skips.csv)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=BATCH_SIZE,
+        help="RPC batch size (1-50 blocks per HTTP request)",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=CHECKPOINT_INTERVAL,
+        help="Canonical heights per durable commit (independent of RPC batch size)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume the exact start/end/output contract from its checkpoint",
+    )
+    args = parser.parse_args(argv)
+    if args.start < 0 or args.end <= args.start:
+        parser.error("require 0 <= --start < --end")
+    if not 1 <= args.batch_size <= BATCH_SIZE:
+        parser.error(f"--batch-size must be between 1 and {BATCH_SIZE}")
+    if args.checkpoint_interval < 1:
+        parser.error("--checkpoint-interval must be positive")
+    return args
+
+
+def retry_rpc(label: str, operation):
+    """Retry one fail-closed RSK RPC acquisition unit."""
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except requests.RequestException as exc:
+            attempt += 1
+            if attempt > MAX_RETRIES:
+                raise RuntimeError(
+                    f"{label} failed after {MAX_RETRIES} retries: {exc}"
+                ) from exc
+            backoff = min(2**attempt, 30)
+            print(
+                f"  {label} error (attempt {attempt}/{MAX_RETRIES}): "
+                f"{exc}; retry in {backoff}s",
+                file=sys.stderr,
+            )
+            time.sleep(backoff)
 
 
 def main():
     """Parse CLI args, extract RSK's merge-mining range (canonical blocks plus
     uncles) in batches, and write the output CSV.
 
-    Resolves ``--end`` to the current chain tip when omitted. Each batch
-    is retried with exponential backoff (up to ``MAX_RETRIES``) on
-    ``requests.RequestException``, exiting with status 1 if retries are
-    exhausted. Flushes the output file after every batch (long runs can
-    span millions of blocks) and prints periodic progress/ETA plus a
-    final per-``stats``-key summary.
+    Requires an explicit half-open range and pins both source-chain endpoints.
+    RPC batches remain capped independently from the durable commit interval.
+    Each interval holds canonical rows, uncles, and intentional fallback skips
+    in memory until every RPC and invariant succeeds, then fsyncs both CSVs
+    before advancing the checkpoint. The end identity is fetched again before
+    the completed content digests are sealed.
     """
-    p = argparse.ArgumentParser(
-        description="Extract Bitcoin merge-mining proofs from RSK"
-    )
-    p.add_argument(
-        "--start",
-        type=int,
-        default=DEFAULT_EXTRACTION_START_HEIGHT,
-        help="Start RSK height (default: historical acquisition floor 139999)",
-    )
-    p.add_argument(
-        "--end",
-        type=int,
-        default=None,
-        help="End RSK height, exclusive (default: chain tip)",
-    )
-    p.add_argument(
-        "--output", type=str, default="data/rsk_auxpow_raw.csv", help="Output CSV path"
-    )
-    p.add_argument(
-        "--batch-size",
-        type=int,
-        default=BATCH_SIZE,
-        help="RPC batch size (blocks per HTTP request)",
-    )
-    args = p.parse_args()
+    args = parse_args()
 
-    tip = get_chain_tip()
-    end = args.end if args.end is not None else tip + 1
+    tip = retry_rpc("RSK tip pin", get_chain_tip)
+    if args.end > tip + 1:
+        raise ValueError(
+            f"requested end {args.end:,} is beyond current RSK tip {tip:,}"
+        )
+    start_identity = retry_rpc("RSK start pin", lambda: get_block_identity(args.start))
+    end_identity = retry_rpc("RSK end pin", lambda: get_block_identity(args.end - 1))
     print(f"RSK chain tip: {tip:,}", file=sys.stderr)
     print(
-        f"Extracting blocks [{args.start:,}, {end:,}) = {end - args.start:,} blocks",
+        f"Extracting blocks [{args.start:,}, {args.end:,}) = "
+        f"{args.end - args.start:,} blocks "
+        f"(start {start_identity['hash']}, end {end_identity['hash']})",
         file=sys.stderr,
     )
 
-    out_path = Path(args.output)
-    stats = {
-        "auxpow_blocks": 0,
-        "skipped_pre_auxpow": 0,
-        "skipped_no_block": 0,
-        "uncle_auxpow_blocks": 0,
-        "uncle_skipped_pre_auxpow": 0,
-        "uncle_skipped_null": 0,
-    }
+    out_path = args.output
+    checkpoint_path = args.checkpoint or default_checkpoint_path(out_path)
+    skip_path = args.skip_ledger or default_skip_ledger_path(out_path)
+    state = prepare_extraction(
+        out_path,
+        checkpoint_path,
+        skip_path,
+        start=args.start,
+        end=args.end,
+        start_identity=start_identity,
+        end_identity=end_identity,
+        resume=args.resume,
+    )
+    if args.resume:
+        print(
+            f"Resuming from RSK height {state['next_height']:,} "
+            f"using {checkpoint_path}",
+            file=sys.stderr,
+        )
+
     t0 = time.time()
-    last_progress = args.start
+    run_start = state["next_height"]
+    last_progress = run_start
 
-    with out_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
-        writer.writeheader()
+    h = state["next_height"]
+    while h < args.end:
+        batch_end = min(h + args.checkpoint_interval, args.end)
+        (
+            rows,
+            skips,
+            stats_delta,
+            first_identity,
+            last_identity,
+            advertised_uncles,
+        ) = extract_range(
+            h,
+            batch_end,
+            rpc_batch_size=args.batch_size,
+            previous_hash=(state["last_canonical_identity"] or {}).get("hash", ""),
+            expected_start_identity=(start_identity if h == args.start else None),
+        )
+        state = commit_interval(
+            out_path,
+            checkpoint_path,
+            skip_path,
+            state,
+            rows=rows,
+            skips=skips,
+            stats_delta=stats_delta,
+            next_height=batch_end,
+            first_identity=first_identity,
+            last_identity=last_identity,
+            advertised_uncles=advertised_uncles,
+        )
+        h = batch_end
+        if h - last_progress >= PROGRESS_INTERVAL:
+            elapsed = time.time() - t0
+            rate = (h - run_start) / elapsed if elapsed > 0 else 0
+            eta_sec = (args.end - h) / rate if rate > 0 else 0
+            stats = state["stats"]
+            print(
+                f"  h={h:,} canon={stats['auxpow_blocks']:,} "
+                f"uncle={stats['uncle_auxpow_blocks']:,} "
+                f"pre={stats['skipped_pre_auxpow']:,} "
+                f"rate={rate:,.0f} bps eta={eta_sec / 60:.0f}m",
+                file=sys.stderr,
+            )
+            last_progress = h
 
-        h = args.start
-        while h < end:
-            batch_end = min(h + args.batch_size, end)
-            attempt = 0
-            while True:
-                try:
-                    extract_range(h, batch_end, writer, stats)
-                    break
-                except requests.RequestException as e:
-                    attempt += 1
-                    if attempt > MAX_RETRIES:
-                        print(
-                            f"\nFATAL: RPC error at h={h} after "
-                            f"{MAX_RETRIES} retries: {e}",
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                    backoff = min(2**attempt, 30)
-                    print(
-                        f"  RPC error at h={h} (attempt {attempt}/"
-                        f"{MAX_RETRIES}): {e}; retry in {backoff}s",
-                        file=sys.stderr,
-                    )
-                    time.sleep(backoff)
-            h = batch_end
-            f.flush()  # 8.65M-block run: don't lose progress on crash
-            if h - last_progress >= PROGRESS_INTERVAL:
-                elapsed = time.time() - t0
-                rate = (h - args.start) / elapsed if elapsed > 0 else 0
-                eta_sec = (end - h) / rate if rate > 0 else 0
-                print(
-                    f"  h={h:,} canon={stats['auxpow_blocks']:,} "
-                    f"uncle={stats['uncle_auxpow_blocks']:,} "
-                    f"pre={stats['skipped_pre_auxpow']:,} "
-                    f"rate={rate:,.0f} bps eta={eta_sec / 60:.0f}m",
-                    file=sys.stderr,
-                )
-                last_progress = h
+    if not state["complete"]:
+        rechecked_end = retry_rpc(
+            "RSK final end recheck", lambda: get_block_identity(args.end - 1)
+        )
+        state = seal_extraction(
+            out_path,
+            checkpoint_path,
+            skip_path,
+            state,
+            rechecked_end_identity=rechecked_end,
+        )
 
     elapsed = time.time() - t0
+    stats = state["stats"]
     print(f"\nDone in {elapsed / 60:.1f} min", file=sys.stderr)
     print(f"  auxpow_blocks:           {stats['auxpow_blocks']:,}", file=sys.stderr)
     print(
         f"  skipped_pre_auxpow:      {stats['skipped_pre_auxpow']:,}", file=sys.stderr
     )
-    print(f"  skipped_no_block:        {stats['skipped_no_block']:,}", file=sys.stderr)
     print(
         f"  uncle_auxpow_blocks:     {stats['uncle_auxpow_blocks']:,}", file=sys.stderr
     )
@@ -521,10 +808,10 @@ def main():
         f"  uncle_skipped_pre_auxpow:{stats['uncle_skipped_pre_auxpow']:,}",
         file=sys.stderr,
     )
-    print(
-        f"  uncle_skipped_null:      {stats['uncle_skipped_null']:,}", file=sys.stderr
-    )
     print(f"  output:                  {out_path}", file=sys.stderr)
+    print(f"  fallback ledger:         {skip_path}", file=sys.stderr)
+    print(f"  checkpoint:              {checkpoint_path}", file=sys.stderr)
+    print(f"  content sha256:          {state['content_sha256']}", file=sys.stderr)
 
 
 if __name__ == "__main__":

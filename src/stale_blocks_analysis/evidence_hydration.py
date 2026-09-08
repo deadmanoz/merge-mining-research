@@ -17,6 +17,11 @@ from .evidence_normalization import (
     reconcile_parent_header_fields,
 )
 from .evidence_sources import normalize_chain_archive_dirs
+from .rsk_sidecar import (
+    RSK_SIDECAR_EXPORT_FIELDS,
+    RSK_SOURCE_BUNDLE_MARKER,
+    validate_rsk_sidecar_cells,
+)
 
 NAMECOIN_CHAIN = "namecoin"
 
@@ -213,8 +218,8 @@ CHILD_IDENTITY_CORE_FIELDS = [
 ]
 
 # The five active child chains whose evidence rows REQUIRE a separate recovered
-# child identity: merge-mining-monitor keys their live-captured events by
-# (source, child_height, child_block_hash), and its importer skips rows
+# child identity: merge-mining-monitor enforces
+# ``UNIQUE (source_id, child_block_hash)``, and its importer skips rows
 # without exact identity. Hydration targets these chains unconditionally --
 # a missing or empty identity file must surface as missing_identity, never
 # silently narrow the target set.
@@ -227,15 +232,36 @@ CHILD_IDENTITY_HYDRATION_CHAINS = frozenset(
 # that identity, so it is checked here but is not a sidecar-hydration target.
 CHILD_IDENTITY_REQUIRED_CHAINS = frozenset({*CHILD_IDENTITY_HYDRATION_CHAINS, "hathor"})
 
-RSK_SIDECAR_EXPORT_FIELDS = [
-    "rsk_miner",
-    "merge_mining_hash",
-    "is_uncle",
-    "uncle_index",
-    "uncle_parent_height",
-    "rsk_merkle_proof",
-    "rsk_coinbase_tail",
-]
+
+def _validate_rsk_sidecar_bundle(row: dict[str, str], *, row_id: str) -> None:
+    """Require one complete, monitor-importable RSK sidecar bundle."""
+    try:
+        validate_rsk_sidecar_cells(row, row_id=row_id)
+    except ValueError as exc:
+        raise ChildHeaderValidationError(str(exc)) from exc
+
+
+def _apply_rsk_sidecar_bundle(
+    row: dict[str, str], candidate: dict[str, str], block_hash: str
+) -> None:
+    """Check agreement before replacing an exact RSK event's whole bundle."""
+    _validate_rsk_sidecar_bundle(
+        candidate, row_id=f"rsk child-identity BTC header {block_hash}"
+    )
+    for field in RSK_SIDECAR_EXPORT_FIELDS:
+        source_value = (row.get(field) or "").strip()
+        candidate_value = (candidate.get(field) or "").strip()
+        if source_value and source_value != candidate_value:
+            raise ChildHeaderValidationError(
+                f"rsk {field} disagrees with source bundle for BTC header {block_hash}"
+            )
+    for field in (
+        "child_height",
+        "child_block_hash",
+        "child_block_time",
+        *RSK_SIDECAR_EXPORT_FIELDS,
+    ):
+        row[field] = (candidate.get(field) or "").strip()
 
 
 ChildIdentityParentKey = tuple[str, str]
@@ -352,7 +378,9 @@ def load_child_identity(data_dir: Path) -> ChildIdentityIndex:
                     child_height is None
                     or child_height < 0
                     or not is_hash(child_hash)
+                    or not child_time.isascii()
                     or not child_time.isdigit()
+                    or int(child_time) <= 0
                 ):
                     continue
                 block_hash = normalize_hash(row.get("btc_header_hash"))
@@ -420,22 +448,27 @@ def hydrate_child_identity(
     """Fill empty child identity fields from verified recovery rows, in place.
 
     Targets every row for a chain in the separate hydration set
-    (``CHILD_IDENTITY_HYDRATION_CHAINS``) regardless of whether the source
-    prepopulated ``child_block_hash``. A populated normalized source hash is
+    (``CHILD_IDENTITY_HYDRATION_CHAINS``), except complete fresh RSK bundles,
+    regardless of whether the source prepopulated ``child_block_hash``.
+    A populated normalized source hash is
     an exact-event selector and must match the node-verified sidecar (internal
     wire order for Bitcoin-family chains, forward order for RSK); a missing
-    identity still counts as a shortfall. Other chains are targeted when their
-    source hash is empty and identity data was loaded for them. The hydration
-    set is targeted unconditionally so a missing, empty, or verification-less
+    identity still counts as a shortfall. Fresh RSK rows with a complete source
+    bundle need no identity sidecar and are not counted as hydration targets
+    unless an exact matching sidecar is available. Other chains are targeted
+    when their source hash is empty and identity data was loaded for them.
+    For rows requiring hydration, a missing, empty, or verification-less
     identity file surfaces as
     ``missing_identity`` instead of silently narrowing the target set. The
     identity row fills an explicitly unavailable source ``child_height`` but
     must agree with every populated source height. Multiple identities for one
     parent are selected only by a matching source child height or hash; an
     unresolved choice fails rather than substituting an arbitrary event. A
-    disagreement leaves the row untouched and is counted, so a stale identity
-    file can never mislabel authenticated evidence. RSK sidecar fields ride
-    along on the row dict and only reach output when the caller includes them
+    Bitcoin-family disagreement leaves the row untouched and is counted.
+    RSK height, hash, timestamp or populated sidecar disagreements raise
+    ``ChildHeaderValidationError`` rather than returning a partial bundle.
+    RSK sidecar fields ride along on the row dict and only reach output when
+    the caller includes them
     in the export's field list.
     """
     stats = ChildIdentityStats()
@@ -473,9 +506,52 @@ def hydrate_child_identity(
         block_hash = normalize_hash(row.get("btc_header_hash", ""))
         if not is_hash(block_hash):
             continue
-        stats.targets += 1
         is_canonical_row = (row.get("classification") or "") == "canonical"
         candidates = child_identity_candidates(identity, chain, block_hash)
+        source_child_height = int_or_none(row.get("child_height"))
+        source_rsk_bundle = chain == "rsk" and row.get(RSK_SOURCE_BUNDLE_MARKER) == "1"
+        source_rsk_identity_complete = (
+            source_rsk_bundle
+            and source_child_height is not None
+            and source_child_height >= 0
+            and is_hash(normalize_hash(row.get("child_block_hash")))
+            and (row.get("child_block_time") or "").strip().isascii()
+            and (row.get("child_block_time") or "").strip().isdigit()
+            and int((row.get("child_block_time") or "0").strip()) > 0
+        )
+        if source_rsk_bundle:
+            if not source_rsk_identity_complete:
+                raise ChildHeaderValidationError(
+                    f"rsk source bundle lacks complete child identity for "
+                    f"BTC header {block_hash}"
+                )
+            _validate_rsk_sidecar_bundle(
+                row, row_id=f"rsk source bundle BTC header {block_hash}"
+            )
+            exact_candidates = tuple(
+                candidate
+                for candidate in candidates
+                if int_or_none(candidate.get("child_height")) == source_child_height
+                and normalize_hash(candidate.get("child_block_hash"))
+                == normalize_hash(row.get("child_block_hash"))
+            )
+            if not exact_candidates:
+                continue
+            candidate = exact_candidates[0]
+            candidate_time = (candidate.get("child_block_time") or "").strip()
+            source_time = (row.get("child_block_time") or "").strip()
+            # Exact height and hash select one child event. A different
+            # timestamp for that event is conflicting evidence.
+            if candidate_time != source_time:
+                raise ChildHeaderValidationError(
+                    f"rsk child time disagrees with source bundle for BTC header {block_hash}"
+                )
+            _apply_rsk_sidecar_bundle(row, candidate, block_hash)
+            stats.targets += 1
+            stats.hydrated += 1
+            continue
+
+        stats.targets += 1
         if not candidates:
             if is_canonical_row:
                 stats.canonical_unhydrated += 1
@@ -531,6 +607,27 @@ def hydrate_child_identity(
                 and candidate_height == row_height
             )
         )
+        if chain == "rsk":
+            candidate_hash = normalize_hash(candidate.get("child_block_hash"))
+            source_hash = normalize_hash(row.get("child_block_hash"))
+            candidate_time = (candidate.get("child_block_time") or "").strip()
+            source_time = (row.get("child_block_time") or "").strip()
+            if (
+                not heights_agree
+                or not is_hash(candidate_hash)
+                or not candidate_time.isascii()
+                or not candidate_time.isdigit()
+                or int(candidate_time) <= 0
+                or (source_hash and candidate_hash != source_hash)
+                or (source_time and candidate_time != source_time)
+            ):
+                raise ChildHeaderValidationError(
+                    f"rsk child identity disagrees with source bundle "
+                    f"for BTC header {block_hash}"
+                )
+            _apply_rsk_sidecar_bundle(row, candidate, block_hash)
+            stats.hydrated += 1
+            continue
         if not heights_agree:
             if is_canonical_row:
                 stats.canonical_unhydrated += 1
@@ -563,21 +660,12 @@ def hydrate_child_identity(
         # The node-verified identity is authoritative for live chains. Its hash
         # fills a blank or repeats the exact source selector established above;
         # its timestamp replaces the source value. An authenticated source
-        # header is retained when the identity source genuinely has no
-        # Bitcoin-shaped header (for example RSK).
+        # header is retained when the identity source has no serialized header.
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
         for field in ("child_header_hex", "child_nbits"):
             candidate_value = (candidate.get(field) or "").strip()
             if candidate_value:
                 row[field] = candidate_value
-        if chain == "rsk":
-            # Sidecar fields are an RSK-only extension; the explicit gate keeps
-            # a stray sidecar-named column in another chain's identity file
-            # from ever leaking into a non-RSK row.
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                value = (candidate.get(field) or "").strip()
-                if value:
-                    row[field] = value
         stats.hydrated += 1
     return stats

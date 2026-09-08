@@ -2241,8 +2241,8 @@ def test_publication_runner_dispatches_only_the_full_writer(
 def test_committed_validated_stales_match_published_stale_rows() -> None:
     """Every chain's loader input must agree with its published stale rows.
 
-    The monitor projection emits one `classification=stale` row per accepted
-    direct stale, so the two surfaces are the same set counted twice. Nothing
+    The monitor projection has the same parent set as the compact input,
+    with distinct RSK child witnesses allowed for each parent. Nothing
     else cross-checks them, which is how a regeneration can rewrite a chain's
     validated CSV and leave the publication behind: the artifacts move
     independently and every other check still passes. A mismatch here means a
@@ -2274,12 +2274,13 @@ def test_committed_validated_stales_match_published_stale_rows() -> None:
                 published_rows += 1
                 published_keys.add((row["btc_height"], row["btc_header_hash"].lower()))
         # Set equality catches a swapped identity that equal counts would
-        # hide; the row-vs-key comparisons catch duplicated (height, hash)
-        # events, which dedup-by-key semantics forbid on either surface.
+        # hide. Compact verdicts must be unique; RSK monitor rows may carry
+        # distinct witnesses, whose exact event uniqueness is checked by the
+        # artifact validator above.
         if (
             validated_keys != published_keys
             or validated_rows != len(validated_keys)
-            or published_rows != len(published_keys)
+            or (chain != "rsk" and published_rows != len(published_keys))
         ):
             mismatches[chain] = {
                 "validated_only": sorted(validated_keys - published_keys)[:5],
@@ -2291,3 +2292,86 @@ def test_committed_validated_stales_match_published_stale_rows() -> None:
         "validated-stales and monitor-evidence disagree on stale identities: "
         f"{mismatches}"
     )
+
+
+def test_monitor_artifact_validates_distinct_rsk_child_observations(
+    tmp_path: Path,
+) -> None:
+    module = monitor_publication
+    artifact = tmp_path / "rsk_monitor_evidence.csv"
+    fieldnames = MONITOR_EVIDENCE_FIELDS + module.RSK_SIDECAR_EXPORT_FIELDS
+    parent = parse_header_fields(TEST_PARENT_HEADER)
+
+    def row(child_height: int, child_hash: str, classification: str) -> dict[str, str]:
+        value = {field: "" for field in fieldnames}
+        value.update(
+            {
+                "chain": "rsk",
+                "source_kind": (
+                    "canonical_blocks"
+                    if classification == "canonical"
+                    else "full_inventory"
+                ),
+                "source_path": (
+                    "<chain-archive>/rsk/classified/rsk_canonical_blocks.csv"
+                    if classification == "canonical"
+                    else "<chain-archive>/rsk/classified/rsk_stale_blocks.csv"
+                ),
+                "source_row_number": str(child_height),
+                "provenance": "archive",
+                "artifact_scope": (
+                    "canonical_blocks"
+                    if classification == "canonical"
+                    else "full_classifier_inventory"
+                ),
+                "btc_height": "700000",
+                "btc_header_hash": TEST_PARENT_HASH,
+                "btc_prev_hash": parent["prev_hash"],
+                "btc_time": parent["time"],
+                "btc_bits": parent["bits"],
+                "btc_nonce": parent["nonce"],
+                "btc_header_hex": TEST_PARENT_HEADER,
+                "child_height": str(child_height),
+                "child_block_hash": child_hash,
+                "child_block_time": "1700000001",
+                "classification": classification,
+                "validation_status": "" if classification == "canonical" else "VALID",
+                "expected_nbits": (
+                    "" if classification == "canonical" else parent["bits"]
+                ),
+                "relevance_reason": (
+                    "" if classification == "canonical" else "valid_direct_stale"
+                ),
+                "rsk_miner": "33" * 20,
+                "merge_mining_hash": "44" * 32,
+                "is_uncle": "0",
+                "rsk_merkle_proof": "0405",
+                "rsk_coinbase_tail": "aabb",
+            }
+        )
+        return value
+
+    for classification in ("canonical", "stale"):
+        rows = [
+            row(100, bytes(range(32)).hex(), classification),
+            row(101, bytes(range(32, 64)).hex(), classification),
+        ]
+        with artifact.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        counts = module._load_monitor_artifact_counts(artifact, "rsk")
+        assert counts[classification] == 2
+
+    rows = [
+        row(100, bytes(range(32)).hex(), "canonical"),
+        row(101, bytes(range(32, 64)).hex(), "canonical"),
+    ]
+    rows[1]["rsk_miner"] = "unicode-invalid"
+    with artifact.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError, match="invalid RSK sidecar"):
+        module._load_monitor_artifact_counts(artifact, "rsk")

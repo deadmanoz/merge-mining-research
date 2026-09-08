@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+Make RSK archive extraction retry-safe and resumable over an explicit pinned
+range. Separate RPC batching from durable checkpoint intervals, validate
+canonical continuity and advertised uncle identities, and record only the
+known 69/70-byte fallbacks plus the height-zero genesis sentinel in a coupled
+private skip ledger. Content-bind every committed byte segment, recheck the
+end identity before sealing final content digests, and require that completed
+checkpoint before classification. Stage the classifier output family, publish
+its hash manifest last, require a clean classifier worktree, preserve and
+recheck the original code and data fingerprints immediately before promotion,
+verify the manifest during fresh RSK publication, and retain Bitcoin
+Core-confirmed canonical observations with the complete source RSK sidecar
+bundle.
+
+Resolve classifier dependencies inside the research checkout by repository-relative
+path so moving a sealed run between archive hosts does not change its provenance.
+Keep custom external dependencies relative to the manifest, and retain digest
+verification in both cases. Retry transient RPC failures per batch while keeping
+each durable interval atomic. Preserve the compact validated-stale schema and
+its separate child-identity hydration requirement for historical inputs. Join
+authoritative compact stale verdicts onto every matching fresh RSK observation
+without collapsing distinct child witnesses. Resolve raw and skip-ledger paths
+relative to their checkpoint so sealed bundles remain verifiable after relocation.
+Deduplicate compact RSK parent verdicts by Bitcoin height and hash, selecting the
+earliest child witness deterministically while retaining all full observations.
+Recheck raw extraction and skip-ledger bytes when consuming classifier manifests.
+Bind the Bitcoin epoch-reference table used by rejection routing, require
+canonical companions beside their manifest, and allow distinct RSK witnesses in
+the publication dataset invariant while preserving compact parent uniqueness.
+Recheck non-canonical headers and placements above the starting Bitcoin tip
+before sealing classification. Require unchanged decisions and a stable final
+tip so concurrent chain growth cannot silently turn a canonical row into a stale.
+
+Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
+Document a settled extraction endpoint and distinguish retried RPC failures
+from integrity failures that require diagnosis before resume.
+
 Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `d15c8e9` and
 rebuild every surface that reads it. Upstream added two stale blocks on top of
 `102ba00`. The first, height 589,477, is a stale this project recovered from

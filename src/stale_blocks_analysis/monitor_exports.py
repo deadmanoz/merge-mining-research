@@ -665,8 +665,9 @@ def build_monitor_evidence_exports(
     ) -> None:
         """Write one chain's monitor-evidence CSV and record its counts.
 
-        ``validated`` replaces the full inventory's stale rows with the
-        committed validated file (the arbiter of gate verdicts); ``companion``
+        ``validated`` supplies authoritative stale verdicts. Fresh sealed RSK
+        observations retain each child witness for an accepted parent; other
+        stale rows are replaced by the compact validated file; ``companion``
         merges a canonical-parent companion file; ``unknown_companion`` merges
         the split-out ``_unknown_blocks.csv`` and is applied UNCONDITIONALLY --
         after the split the stale inventory has no unknown rows, so a
@@ -679,20 +680,40 @@ def build_monitor_evidence_exports(
             # non-stale rows, including unknowns for the strict/weak join and
             # any canonical rows retained in-file. Other classifications stay
             # in source accounting but are omitted from monitor output.
-            rows, stats = collect_source_rows(
-                source,
-                data_dir=data_dir,
-                exclude_classifications=frozenset({"stale"}),
-                error_blocks_path=error_blocks_path,
-                excluded_error_rows=excluded_error_rows,
-            )
             validated_rows, validated_stats = collect_source_rows(
                 validated,
                 data_dir=data_dir,
                 error_blocks_path=error_blocks_path,
                 excluded_error_rows=excluded_error_rows,
             )
-            rows.extend(validated_rows)
+            verdicts = {
+                (int_or_none(row["btc_height"]), row["btc_header_hash"]): row
+                for row in validated_rows
+                if source.chain == "rsk"
+                and row["classification"] == "stale"
+                and row["validation_status"] in ACCEPTED_STALE_VALIDATION_STATUSES
+            }
+            rows, stats = collect_source_rows(
+                source,
+                data_dir=data_dir,
+                exclude_classifications=frozenset({"stale"}),
+                rsk_stale_verdicts=verdicts,
+                error_blocks_path=error_blocks_path,
+                excluded_error_rows=excluded_error_rows,
+            )
+            observed_stales = {
+                (int_or_none(row["btc_height"]), row["btc_header_hash"])
+                for row in rows
+                if row["classification"] == "stale"
+            }
+            for row in validated_rows:
+                if (
+                    int_or_none(row["btc_height"]),
+                    row["btc_header_hash"],
+                ) in observed_stales:
+                    _decrement_stats_for_merged_row(validated_stats, row)
+                else:
+                    rows.append(row)
             stats = merge_stats(stats, validated_stats)
         else:
             rows, stats = collect_source_rows(

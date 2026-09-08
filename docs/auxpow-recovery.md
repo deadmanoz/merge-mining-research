@@ -95,9 +95,12 @@ one schema); these, raw extracts, and other bulky intermediates are preserved
 in the private per-chain archive. RSK's committed
 loader input is `data/validated-stales/rsk_validated_stales.csv` like every other chain
 (shared validated-stales layout plus RSK miner-evidence and historical-label
-columns); the historical
-single-file exception is retired, and its full stale/unknown inventory lives
-in the private archive.
+columns); the historical single-file exception is retired. Its full
+stale/unknown inventory and the separately emitted
+`rsk_canonical_blocks.csv` companion live in the private archive. A fresh RSK
+run also keeps its raw CSV, exact fallback ledger, completed checkpoint, and
+classifier-family hash manifest private; publication verifies the manifest,
+and the classifier refuses an unsealed or content-mismatched acquisition.
 
 Strict and weak BTC-orphan relevance checks use the committed
 `data/bitcoin-epoch-reference/` inputs. They are regenerated from

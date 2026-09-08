@@ -44,8 +44,12 @@ logs/
 # input for each completed chain is the stale-only validated CSV named after the
 # chain's source tag, e.g. data/validated-stales/namecoin_validated_stales.csv
 # or data/validated-stales/bitcoin-vault_validated_stales.csv.
-data/*_auxpow_raw.csv
-data/*_auxpow_raw.*.csv
+data/**/*_auxpow_raw*.csv
+data/**/*_auxpow_raw*.checkpoint*.json
+data/**/*_auxpow_raw*.skips*.csv
+data/**/*.checkpoint.json
+data/**/*.checkpoint.*.json
+data/**/.*.tmp
 data/*_btc_valid.csv
 data/*_rejected.csv
 data/*_rejected_stales.csv
@@ -54,6 +58,20 @@ data/*_canonical_blocks.csv
 data/*_unknown_blocks.csv
 data/*_near_blocks.csv
 data/*_error_blocks.csv
+data/**/*_btc_valid*.csv
+data/**/*_rejected*.csv
+data/**/*_rejected_stales*.csv
+data/**/*_stale_blocks.csv
+data/**/*_stale_blocks.*.csv
+data/**/*_canonical_blocks*.csv
+data/**/*_unknown_blocks*.csv
+data/**/*_near_blocks*.csv
+data/**/*_error_blocks*.csv
+data/**/*_classification_manifest*.json
+data/**/*_classification_summary*.txt
+results/**/*_classification_manifest*.json
+results/**/*_classification_summary*.txt
+results/**/.*.tmp
 data/*_auxpow_chainid_sidecar.csv
 data/coinbase_mergemining_v1.db*
 data/coinbase_mergemining_v1.parquet
