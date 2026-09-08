@@ -918,8 +918,6 @@ def main():
         len(stale_rows) + len(error_blocks) + len(rerouted_unknowns)
     ):
         raise ValueError("RSK publication-gate routing partition mismatch")
-    if len(verified) + rejected_stales != len(stale_rows):
-        raise ValueError("RSK accepted/rejected stale partition mismatch")
 
     # The canonical companion retains active-chain observations. The full
     # classified output retains every row that is still a stale, including

@@ -448,22 +448,27 @@ def hydrate_child_identity(
     """Fill empty child identity fields from verified recovery rows, in place.
 
     Targets every row for a chain in the separate hydration set
-    (``CHILD_IDENTITY_HYDRATION_CHAINS``) regardless of whether the source
-    prepopulated ``child_block_hash``. A populated normalized source hash is
+    (``CHILD_IDENTITY_HYDRATION_CHAINS``), except complete fresh RSK bundles,
+    regardless of whether the source prepopulated ``child_block_hash``.
+    A populated normalized source hash is
     an exact-event selector and must match the node-verified sidecar (internal
     wire order for Bitcoin-family chains, forward order for RSK); a missing
-    identity still counts as a shortfall. Other chains are targeted when their
-    source hash is empty and identity data was loaded for them. The hydration
-    set is targeted unconditionally so a missing, empty, or verification-less
+    identity still counts as a shortfall. Fresh RSK rows with a complete source
+    bundle need no identity sidecar and are not counted as hydration targets
+    unless an exact matching sidecar is available. Other chains are targeted
+    when their source hash is empty and identity data was loaded for them.
+    For rows requiring hydration, a missing, empty, or verification-less
     identity file surfaces as
     ``missing_identity`` instead of silently narrowing the target set. The
     identity row fills an explicitly unavailable source ``child_height`` but
     must agree with every populated source height. Multiple identities for one
     parent are selected only by a matching source child height or hash; an
     unresolved choice fails rather than substituting an arbitrary event. A
-    disagreement leaves the row untouched and is counted, so a stale identity
-    file can never mislabel authenticated evidence. RSK sidecar fields ride
-    along on the row dict and only reach output when the caller includes them
+    Bitcoin-family disagreement leaves the row untouched and is counted.
+    RSK height, hash, timestamp or populated sidecar disagreements raise
+    ``ChildHeaderValidationError`` rather than returning a partial bundle.
+    RSK sidecar fields ride along on the row dict and only reach output when
+    the caller includes them
     in the export's field list.
     """
     stats = ChildIdentityStats()
