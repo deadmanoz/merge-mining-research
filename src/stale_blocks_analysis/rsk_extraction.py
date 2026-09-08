@@ -174,10 +174,10 @@ def _valid_hash(value: object) -> bool:
     if not isinstance(value, str) or len(value) != 64:
         return False
     try:
-        bytes.fromhex(value)
+        decoded = bytes.fromhex(value)
     except ValueError:
         return False
-    return value == value.lower()
+    return decoded.hex() == value
 
 
 def _valid_endpoint(value: object, expected_height: int) -> bool:

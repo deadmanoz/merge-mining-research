@@ -319,6 +319,9 @@ and documentation outputs required by the existing publication contract.
 
     - Copy only reviewed publication inputs from private staging into the
       research worktree. Do not copy production database rows or raw extracts.
+    - Refresh the RSK child-identity ledger for newly accepted compact loader
+      rows. The full private classifier inventory carries source identity,
+      but the compact public CSV retains its existing separate-ledger contract.
     - Regenerate `data/validated-stales/rsk_validated_stales.csv`, descendant
       corrections if any, `results/monitor-evidence/rsk_monitor_evidence.csv`,
       publication counts and manifest, novelty, and every document whose RSK

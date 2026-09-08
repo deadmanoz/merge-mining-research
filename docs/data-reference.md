@@ -382,7 +382,7 @@ be inferred from it.
 
 RSK keeps its miner-address parallel schema in a private stale/unknown inventory
 plus the separately discovered `rsk_canonical_blocks.csv` companion. Fresh
-classifier rows retain the source RSK height, block hash, timestamp, miner,
+full-inventory and canonical-companion rows retain the source RSK height, block hash, timestamp, miner,
 merge-mining hash, uncle placement, mapped merkle proof, and compressed
 coinbase tail. That source bundle normalizes without a historical sidecar. A
 verified sidecar row for another RSK child observation of the same Bitcoin
@@ -391,7 +391,13 @@ match can replace the source bundle; every populated source cell must then
 agree, so a field-by-field hybrid is never published. The raw CSV, exact
 fallback ledger, completed extraction checkpoint, and classifier-family hash
 manifest remain private. Publication verifies the manifest and every staged
-output before a fresh RSK inventory is read. Hathor's unified classifier
+output before a fresh RSK inventory is read. Repository dependencies in the
+version-3 classifier manifest resolve relative to the consuming research
+checkout and must retain their recorded byte digests. Custom dependencies
+outside the checkout remain relative to the manifest and must travel with the
+run in the same relative layout. The compact `rsk_validated_stales.csv` keeps
+its established schema and still requires the separate child-identity ledger
+when used without the full private inventory. Hathor's unified classifier
 writes the standard terminal category files for canonical, stale, unknown,
 near, and error-block rows.
 

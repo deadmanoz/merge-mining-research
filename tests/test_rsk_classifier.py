@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -1119,3 +1120,65 @@ def test_rsk_sidecar_rejects_unicode_decimal_cells() -> None:
     }
     with pytest.raises(ValueError, match="non-negative signed 32-bit int"):
         validate_rsk_sidecar_cells(row, row_id="unicode-numeric")
+
+
+def test_manifest_repository_dependencies_survive_different_archive_layout(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source_repo = tmp_path / "checkout-a"
+    dependency_paths = {
+        "classifier_script": source_repo
+        / "scripts"
+        / "classify"
+        / "classify_rsk_stales.py",
+        "error_blocks": source_repo / "data" / "error-blocks" / "error_blocks.csv",
+        "pool_registry": source_repo / "results" / "rsk_pool_registry.csv",
+    }
+    for label, path in dependency_paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(label + "\n")
+    monkeypatch.setattr(artifacts, "PROJECT_ROOT", source_repo)
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_publication_dependencies",
+        lambda _path: dependency_paths,
+    )
+    source_run = tmp_path / "source-run"
+    source_run.mkdir()
+    _archive, paths = _publish_one_canonical_family(source_run)
+    manifest = json.loads(paths["manifest"].read_text())
+    assert all(
+        record["path_base"] == "repository"
+        for record in manifest["dependencies"].values()
+    )
+    assert (
+        manifest["dependencies"]["pool_registry"]["path"]
+        == "results/rsk_pool_registry.csv"
+    )
+
+    destination_repo = tmp_path / "vm" / "repos" / "research"
+    destination_run = tmp_path / "vm" / "archives" / "rsk-run"
+    destination_repo.parent.mkdir(parents=True)
+    destination_run.parent.mkdir(parents=True)
+    shutil.move(source_repo, destination_repo)
+    shutil.move(source_run, destination_run)
+    monkeypatch.setattr(artifacts, "PROJECT_ROOT", destination_repo)
+    canonical = destination_run / paths["canonical"].relative_to(source_run)
+    assert validate_classifier_manifest_for_artifact(canonical) == manifest
+    (destination_repo / "results" / "rsk_pool_registry.csv").write_text("changed\n")
+    with pytest.raises(
+        ValueError, match="dependency pool_registry failed content verification"
+    ):
+        validate_classifier_manifest_for_artifact(canonical)
+
+
+@pytest.mark.parametrize("length", [40, 64])
+def test_manifest_identifiers_reject_embedded_hex_whitespace(length: int) -> None:
+    value = "00" * (length // 2 - 2) + "  " + "00"
+    assert len(value) == length
+    assert not artifacts._is_git_oid(value)
+    if length == 64:
+        assert not artifacts._is_sha256(value)
+        assert not extraction._valid_hash(value)
+        with pytest.raises(ValueError, match="malformed hex"):
+            rsk._exact_hash(value, field="rsk_hash", row_number=2)

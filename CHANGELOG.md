@@ -15,6 +15,13 @@ verify the manifest during fresh RSK publication, and retain Bitcoin
 Core-confirmed canonical observations with the complete source RSK sidecar
 bundle.
 
+Resolve classifier dependencies inside the research checkout by repository-relative
+path so moving a sealed run between archive hosts does not change its provenance.
+Keep custom external dependencies relative to the manifest, and retain digest
+verification in both cases. Retry transient RPC failures per batch while keeping
+each durable interval atomic. Preserve the compact validated-stale schema and
+its separate child-identity hydration requirement.
+
 Bump the pinned `bitcoin-data/stale-blocks` baseline to upstream `d15c8e9` and
 rebuild every surface that reads it. Upstream added two stale blocks on top of
 `102ba00`. The first, height 589,477, is a stale this project recovered from

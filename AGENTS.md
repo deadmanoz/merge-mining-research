@@ -153,7 +153,9 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   and child-identity hydration. `rsk_extraction.py` owns RSK's durable raw
   CSV, fallback-ledger, checkpoint, digest, and classifier-input contract;
   `rsk_classifier_artifacts.py` stages and verifies the private classifier
-  family; `rsk_sidecar.py` owns its Monitor-sidecar cell contract.
+  family, binding repository dependencies by checkout-relative path and digest;
+  custom external dependencies remain manifest-relative. `rsk_sidecar.py` owns
+  its Monitor-sidecar cell contract.
   `full_evidence.py` assembles full-evidence
   generation and re-exports the established helper surface.
   `monitor_exports.py` owns the final-category monitor projection and its

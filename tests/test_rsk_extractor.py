@@ -344,27 +344,34 @@ def test_resume_truncates_uncheckpointed_tails_in_both_artifacts(
     assert skips.read_bytes() == skip_header
 
 
-def test_retry_to_success_commits_each_height_once(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "failed_method", ["eth_getBlockByNumber", "eth_getUncleByBlockNumberAndIndex"]
+)
+def test_retry_to_success_commits_each_height_once(
+    monkeypatch, tmp_path: Path, failed_method: str
+) -> None:
     output, checkpoint, skips = _paths(tmp_path)
     start_identity = _identity(0, _hash(100), _hash(99))
     end_identity = _identity(1, _hash(101), _hash(100))
-    attempts = 0
+    calls_seen: list[tuple[str, int]] = []
+    failed_once = False
 
-    def retrying_interval(*_args, **_kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
+    def retrying_batch(calls):
+        nonlocal failed_once
+        assert len(calls) == 1
+        call = calls[0]
+        method = call["method"]
+        height = int(call["params"][0], 16)
+        calls_seen.append((method, height))
+        if method == failed_method and height == 1 and not failed_once:
+            failed_once = True
             raise requests.RequestException("transient archive read")
-        stats = contract.empty_stats()
-        stats["auxpow_blocks"] = 2
-        return (
-            [_raw_row(0), _raw_row(1)],
-            [],
-            stats,
-            start_identity,
-            end_identity,
-            0,
+        block = (
+            _block(height, height, uncles=[_hash(999)] if height == 1 else [])
+            if method == "eth_getBlockByNumber"
+            else _block(0, 9, block_hash=_hash(999))
         )
+        return [{"id": 0, "result": block}]
 
     args = SimpleNamespace(
         start=0,
@@ -383,7 +390,7 @@ def test_retry_to_success_commits_each_height_once(monkeypatch, tmp_path: Path) 
         "get_block_identity",
         lambda height: start_identity if height == 0 else end_identity,
     )
-    monkeypatch.setattr(rsk, "extract_range", retrying_interval)
+    monkeypatch.setattr(rsk, "rpc_batch", retrying_batch)
     monkeypatch.setattr(rsk.time, "sleep", lambda _seconds: None)
 
     rsk.main()
@@ -391,10 +398,12 @@ def test_retry_to_success_commits_each_height_once(monkeypatch, tmp_path: Path) 
     with output.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     state = json.loads(checkpoint.read_text())
-    assert attempts == 2
-    assert [row["rsk_height"] for row in rows] == ["0", "1"]
-    assert len({row["rsk_hash"] for row in rows}) == 2
-    assert state["output_rows"] == 2
+    assert calls_seen.count(("eth_getBlockByNumber", 0)) == 1
+    assert calls_seen.count((failed_method, 1)) == 2
+    assert len(calls_seen) == 4
+    assert [row["rsk_height"] for row in rows] == ["0", "1", "0"]
+    assert len({row["rsk_hash"] for row in rows}) == 3
+    assert state["output_rows"] == 3
     assert len(state["commits"]) == 1
     assert state["complete"] is True
     assert skips.is_file()

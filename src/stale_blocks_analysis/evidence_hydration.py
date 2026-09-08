@@ -241,6 +241,29 @@ def _validate_rsk_sidecar_bundle(row: dict[str, str], *, row_id: str) -> None:
         raise ChildHeaderValidationError(str(exc)) from exc
 
 
+def _apply_rsk_sidecar_bundle(
+    row: dict[str, str], candidate: dict[str, str], block_hash: str
+) -> None:
+    """Check agreement before replacing an exact RSK event's whole bundle."""
+    _validate_rsk_sidecar_bundle(
+        candidate, row_id=f"rsk child-identity BTC header {block_hash}"
+    )
+    for field in RSK_SIDECAR_EXPORT_FIELDS:
+        source_value = (row.get(field) or "").strip()
+        candidate_value = (candidate.get(field) or "").strip()
+        if source_value and source_value != candidate_value:
+            raise ChildHeaderValidationError(
+                f"rsk {field} disagrees with source bundle for BTC header {block_hash}"
+            )
+    for field in (
+        "child_height",
+        "child_block_hash",
+        "child_block_time",
+        *RSK_SIDECAR_EXPORT_FIELDS,
+    ):
+        row[field] = (candidate.get(field) or "").strip()
+
+
 ChildIdentityParentKey = tuple[str, str]
 ChildIdentityRow = dict[str, str]
 
@@ -518,22 +541,7 @@ def hydrate_child_identity(
                 raise ChildHeaderValidationError(
                     f"rsk child time disagrees with source bundle for BTC header {block_hash}"
                 )
-            _validate_rsk_sidecar_bundle(
-                candidate, row_id=f"rsk child-identity BTC header {block_hash}"
-            )
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                source_value = (row.get(field) or "").strip()
-                candidate_value = (candidate.get(field) or "").strip()
-                if source_value and source_value != candidate_value:
-                    raise ChildHeaderValidationError(
-                        f"rsk {field} disagrees with source bundle "
-                        f"for BTC header {block_hash}"
-                    )
-            row["child_height"] = (candidate.get("child_height") or "").strip()
-            row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
-            row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                row[field] = (candidate.get(field) or "").strip()
+            _apply_rsk_sidecar_bundle(row, candidate, block_hash)
             stats.targets += 1
             stats.hydrated += 1
             continue
@@ -612,22 +620,7 @@ def hydrate_child_identity(
                     f"rsk child identity disagrees with source bundle "
                     f"for BTC header {block_hash}"
                 )
-            _validate_rsk_sidecar_bundle(
-                candidate, row_id=f"rsk child-identity BTC header {block_hash}"
-            )
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                source_value = (row.get(field) or "").strip()
-                candidate_value = (candidate.get(field) or "").strip()
-                if source_value and source_value != candidate_value:
-                    raise ChildHeaderValidationError(
-                        f"rsk {field} disagrees with source bundle "
-                        f"for BTC header {block_hash}"
-                    )
-            row["child_height"] = (candidate.get("child_height") or "").strip()
-            row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
-            row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                row[field] = (candidate.get(field) or "").strip()
+            _apply_rsk_sidecar_bundle(row, candidate, block_hash)
             stats.hydrated += 1
             continue
         if not heights_agree:
@@ -662,21 +655,12 @@ def hydrate_child_identity(
         # The node-verified identity is authoritative for live chains. Its hash
         # fills a blank or repeats the exact source selector established above;
         # its timestamp replaces the source value. An authenticated source
-        # header is retained when the identity source genuinely has no
-        # Bitcoin-shaped header (for example RSK).
+        # header is retained when the identity source has no serialized header.
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
         for field in ("child_header_hex", "child_nbits"):
             candidate_value = (candidate.get(field) or "").strip()
             if candidate_value:
                 row[field] = candidate_value
-        if chain == "rsk":
-            # Sidecar fields are an RSK-only extension; the explicit gate keeps
-            # a stray sidecar-named column in another chain's identity file
-            # from ever leaking into a non-RSK row.
-            for field in RSK_SIDECAR_EXPORT_FIELDS:
-                value = (candidate.get(field) or "").strip()
-                if value:
-                    row[field] = value
         stats.hydrated += 1
     return stats

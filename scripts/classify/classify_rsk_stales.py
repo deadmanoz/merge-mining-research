@@ -297,7 +297,8 @@ def _exact_hash(value: str, *, field: str, row_number: int) -> None:
     if value != value.strip().lower() or value.startswith("0x") or len(value) != 64:
         raise ValueError(f"RSK row {row_number}: {field} is not canonical hex")
     try:
-        bytes.fromhex(value)
+        if bytes.fromhex(value).hex() != value:
+            raise ValueError("non-canonical hex")
     except ValueError as exc:
         raise ValueError(f"RSK row {row_number}: {field} is malformed hex") from exc
 

@@ -481,8 +481,9 @@ def extract_range(
     RPC batches are independently capped by ``rpc_batch_size`` while the whole
     interval remains in memory as one durable checkpoint unit.  Every canonical
     height and every advertised uncle has exactly one raw-row or skip-ledger
-    outcome.  Null responses, unadvertised identities, broken continuity, and
-    unsupported proof shapes fail the whole interval for retry.
+    outcome. Transient RPC failures retry the affected batch. Null responses,
+    unadvertised identities, broken continuity and unsupported proof shapes
+    stop the interval without advancing its durable checkpoint.
     """
     if not 1 <= rpc_batch_size <= BATCH_SIZE:
         raise ValueError(f"rpc_batch_size must be between 1 and {BATCH_SIZE}")
@@ -506,7 +507,9 @@ def extract_range(
             for index, height in enumerate(range(chunk_start, chunk_end))
         ]
         results = ordered_rpc_results(
-            rpc_batch(calls), len(calls), "canonical block batch"
+            retry_rpc("canonical block batch", lambda: rpc_batch(calls)),
+            len(calls),
+            "canonical block batch",
         )
         uncle_calls: list[dict] = []
         uncle_lookup: list[tuple[int, int, str]] = []
@@ -566,7 +569,9 @@ def extract_range(
             for response_id, call in enumerate(uncle_chunk):
                 call["id"] = response_id
             uncle_results = ordered_rpc_results(
-                rpc_batch(uncle_chunk), len(uncle_chunk), "uncle block batch"
+                retry_rpc("uncle block batch", lambda: rpc_batch(uncle_chunk)),
+                len(uncle_chunk),
+                "uncle block batch",
             )
             for offset, response in enumerate(uncle_results):
                 parent_height, uncle_index, advertised_hash = uncle_lookup[
@@ -735,15 +740,12 @@ def main():
             first_identity,
             last_identity,
             advertised_uncles,
-        ) = retry_rpc(
-            f"RSK interval [{h}, {batch_end})",
-            lambda: extract_range(
-                h,
-                batch_end,
-                rpc_batch_size=args.batch_size,
-                previous_hash=(state["last_canonical_identity"] or {}).get("hash", ""),
-                expected_start_identity=(start_identity if h == args.start else None),
-            ),
+        ) = extract_range(
+            h,
+            batch_end,
+            rpc_batch_size=args.batch_size,
+            previous_hash=(state["last_canonical_identity"] or {}).get("hash", ""),
+            expected_start_identity=(start_identity if h == args.start else None),
         )
         state = commit_interval(
             out_path,

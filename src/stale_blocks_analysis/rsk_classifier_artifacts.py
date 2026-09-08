@@ -8,9 +8,10 @@ import os
 import tempfile
 from pathlib import Path
 
+from .config import PROJECT_ROOT
 from .rsk_extraction import fsync_directory_best_effort, sha256_file
 
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
 DEFAULT_MANIFEST_NAME = "rsk_classification_manifest.json"
 OUTPUT_LABELS = frozenset(
     {"canonical", "stale_unknown", "error_blocks", "validated_stales", "summary"}
@@ -48,6 +49,29 @@ def validate_manifest_output_path(
 def _portable_path(path: Path, manifest_path: Path) -> str:
     """Record a relative path without embedding an absolute host location."""
     return os.path.relpath(path.resolve(), manifest_path.parent.resolve())
+
+
+def _dependency_location(path: Path, manifest_path: Path) -> dict[str, str]:
+    """Keep repository inputs independent of the archive's host layout."""
+    try:
+        relative = path.resolve().relative_to(PROJECT_ROOT.resolve())
+    except ValueError:
+        return {"path_base": "manifest", "path": _portable_path(path, manifest_path)}
+    return {"path_base": "repository", "path": relative.as_posix()}
+
+
+def _resolve_dependency(record: dict, manifest_path: Path) -> Path:
+    if record.get("path_base") == "manifest":
+        return _resolve_recorded_path(record.get("path"), manifest_path)
+    if record.get("path_base") == "repository":
+        value = record.get("path")
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{manifest_path}: invalid repository dependency path")
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"{manifest_path}: invalid repository dependency path")
+        return PROJECT_ROOT / path
+    raise ValueError(f"{manifest_path}: invalid dependency path base")
 
 
 def _resolve_recorded_path(value: object, manifest_path: Path) -> Path:
@@ -259,7 +283,7 @@ def publish_output_family(
     for label, path in dependency_paths.items():
         expected_bytes, expected_digest = expected_dependency_fingerprints[label]
         dependencies[label] = {
-            "path": _portable_path(path, manifest_path),
+            **_dependency_location(path, manifest_path),
             "sha256": expected_digest,
             "bytes": expected_bytes,
         }
@@ -406,10 +430,10 @@ def _is_sha256(value: object) -> bool:
     if not isinstance(value, str) or len(value) != 64 or value != value.lower():
         return False
     try:
-        bytes.fromhex(value)
+        decoded = bytes.fromhex(value)
     except ValueError:
         return False
-    return True
+    return decoded.hex() == value
 
 
 def _is_git_oid(value: object) -> bool:
@@ -420,10 +444,10 @@ def _is_git_oid(value: object) -> bool:
     ):
         return False
     try:
-        bytes.fromhex(value)
+        decoded = bytes.fromhex(value)
     except ValueError:
         return False
-    return True
+    return decoded.hex() == value
 
 
 def _validate_classification_context(value: object, manifest_path: Path) -> None:
@@ -508,7 +532,7 @@ def _validate_manifest(manifest_name: str) -> dict:
     for label, record in dependencies.items():
         if not isinstance(record, dict):
             raise ValueError(f"{manifest_path}: malformed dependency {label}")
-        path = _resolve_recorded_path(record.get("path"), manifest_path)
+        path = _resolve_dependency(record, manifest_path)
         resolved_path = path.resolve()
         expected_bytes = record.get("bytes")
         expected_digest = record.get("sha256")

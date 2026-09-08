@@ -675,7 +675,6 @@ def normalize_evidence_row(
         if source.source_kind in {
             "full_inventory",
             "canonical_blocks",
-            "validated_stales",
         } and FRESH_RSK_ARTIFACT_FIELDS.issubset(source_fields):
             normalized[RSK_SOURCE_BUNDLE_MARKER] = "1"
     return normalized, errors
