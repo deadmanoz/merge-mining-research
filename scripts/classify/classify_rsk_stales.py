@@ -407,8 +407,23 @@ def build_validated_rows(
         for height, row in verified
         if (height, row["btc_header_hash"].lower()) not in excluded
     ]
-    rows.sort(key=lambda row: (int(row["btc_height"]), row["btc_header_hash"]))
-    return rows
+    # The compact artifact contains parent verdicts. Choose the earliest
+    # child witness deterministically; the full inventory keeps every witness.
+    rows.sort(
+        key=lambda row: (
+            int(row["btc_height"]),
+            row["btc_header_hash"].lower(),
+            int(row["rsk_height"]),
+            int(row.get("is_uncle") or 0),
+            tuple(str(row.get(field, "")) for field in VALIDATED_COLS),
+        )
+    )
+    parents: dict[tuple[int, str], dict[str, str]] = {}
+    for row in rows:
+        parents.setdefault(
+            (int(row["btc_height"]), row["btc_header_hash"].lower()), row
+        )
+    return list(parents.values())
 
 
 def build_canonical_output_rows(

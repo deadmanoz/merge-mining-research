@@ -24,6 +24,9 @@ its separate child-identity hydration requirement for historical inputs. Join
 authoritative compact stale verdicts onto every matching fresh RSK observation
 without collapsing distinct child witnesses. Resolve raw and skip-ledger paths
 relative to their checkpoint so sealed bundles remain verifiable after relocation.
+Deduplicate compact RSK parent verdicts by Bitcoin height and hash, selecting the
+earliest child witness deterministically while retaining all full observations.
+Recheck raw extraction and skip-ledger bytes when consuming classifier manifests.
 
 Allow `RSK_RPC_URL` to select the archive endpoint from a research worker.
 Document a settled extraction endpoint and distinguish retried RPC failures

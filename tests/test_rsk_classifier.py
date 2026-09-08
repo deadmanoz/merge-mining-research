@@ -279,6 +279,19 @@ def test_validated_rows_apply_exact_key_exclusions_and_historical_labels() -> No
     assert rows[0]["pool_label"] == "Historical Pool"
     assert list(rows[0]) == rsk.VALIDATED_COLS
 
+    witnesses = [
+        (501, {**other, "rsk_height": "125", "is_uncle": "1"}),
+        (501, other),
+        (501, {**other, "btc_header_hash": "55" * 32}),
+    ]
+    unique = rsk.build_validated_rows(witnesses, {}, set())
+    assert unique == rsk.build_validated_rows(list(reversed(witnesses)), {}, set())
+    assert [(row["btc_height"], row["btc_header_hash"]) for row in unique] == [
+        ("501", "33" * 32),
+        ("501", "55" * 32),
+    ]
+    assert unique[0]["rsk_height"] == "124"
+
 
 def test_validated_cols_match_the_committed_loader_input_schema() -> None:
     """The emitted schema must equal the committed CSV's, not just itself.
@@ -1246,3 +1259,26 @@ def test_fresh_stale_witnesses_survive_compact_verdict_join(tmp_path: Path) -> N
         )
         with (output / "rsk_monitor_evidence.csv").open(newline="") as handle:
             assert list(csv.DictReader(handle)) == []
+
+
+@pytest.mark.parametrize("field", ["output_path", "skip_ledger_path"])
+@pytest.mark.parametrize("damage", ["remove", "truncate", "same_size"])
+def test_manifest_rechecks_retained_extraction_bytes(
+    tmp_path: Path, field: str, damage: str
+) -> None:
+    _archive, paths = _publish_one_canonical_family(tmp_path)
+    manifest = validate_classifier_manifest_for_artifact(paths["canonical"])
+    checkpoint = (
+        paths["manifest"].parent / manifest["input"]["checkpoint_path"]
+    ).resolve()
+    state = json.loads(checkpoint.read_text())
+    source = extraction.checkpoint_artifact_path(checkpoint, state[field])
+    content = source.read_bytes()
+    if damage == "remove":
+        source.unlink()
+    elif damage == "truncate":
+        source.write_bytes(content[:-1])
+    else:
+        source.write_bytes(bytes([content[0] ^ 1]) + content[1:])
+    with pytest.raises(ValueError, match="changed before classifier publication"):
+        validate_classifier_manifest_for_artifact(paths["canonical"])

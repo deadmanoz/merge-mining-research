@@ -589,6 +589,7 @@ def _validate_manifest(manifest_name: str) -> dict:
         resolved_output_paths | resolved_dependencies | {resolved_checkpoint_path}
     ):
         raise ValueError(f"{manifest_path}: extraction inputs alias artifact paths")
+    _validate_bound_extraction(resolved_checkpoint_path, checkpoint)
     return manifest
 
 
