@@ -27,7 +27,7 @@ def split_entries(cell: str) -> list[str]:
     representable evidence (the renderer never emits them) and are stripped as
     separator noise.
     """
-    parts = cell.replace("|", ";").split(";")
+    parts = cell.split(";")
     while parts and not parts[-1].strip():
         parts.pop()
     return parts
@@ -78,9 +78,6 @@ def cell_problems(path: Path, cell: str) -> list[str]:
     """
     problems: list[str] = []
     if "|" in cell:
-        # split_entries() tolerates the legacy separator so it can read
-        # pre-migration cells, so it has to be rejected here or a wholly
-        # pipe-joined cell would pass on its tokens alone.
         problems.append(f"{path.name}: legacy pipe separator in {cell[:40]}")
     entries = split_entries(cell)
     marked = [entry.startswith("~") for entry in entries if entry.strip()]

@@ -31,11 +31,10 @@ _P2SH_VERSIONS = frozenset({5, 13})  # Bitcoin, Namecoin
 # acquisition: Terracoin, Bitcoin Vault, and Syscoin retained a placeholder
 # for every output they could not name, so their legacy cells are
 # positionally complete.
-FILTERED_ACQUISITION_CHAINS = frozenset({"namecoin"})
-
 # The accepted Namecoin loader was restored from raw scripts in issue #52.
 # Keep this historical acquisition rule for legacy inventory/snapshot cells;
 # restored canonical cells explicitly carry exact positions and scripts.
+FILTERED_ACQUISITION_CHAINS = frozenset({"namecoin"})
 
 # Chains whose legacy cells carry the child node's *decoded addresses* rather
 # than script bytes we hold. Such a decode renders a P2PK output as the same
