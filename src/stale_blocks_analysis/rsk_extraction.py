@@ -1,7 +1,7 @@
 """Durable acquisition contract for the private RSK merge-mining corpus.
 
 The RSK extractor writes two append-only CSVs as one checkpointed unit: the
-raw 80-byte parent-header rows and an exact ledger of the 69/70-byte fallback
+raw 80-byte parent-header rows and an exact ledger of variable-width RLP fallback
 proofs plus the exact height-zero genesis sentinel that were intentionally
 skipped. A checkpoint integrity-protects every committed byte interval, the
 canonical-chain continuity at that boundary, and the pinned source-chain
@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
+from .config import RSK_FALLBACK_MAX_PROOF_BYTES, RSK_FALLBACK_MIN_PROOF_BYTES
 from .rsk_sidecar import validate_rsk_sidecar_cells
 
 CHECKPOINT_VERSION = 3
@@ -730,7 +731,9 @@ def _validate_interval_partition(
     if any(
         not (
             (
-                _as_int(row.get("proof_bytes"), field="proof_bytes") in (69, 70)
+                RSK_FALLBACK_MIN_PROOF_BYTES
+                <= _as_int(row.get("proof_bytes"), field="proof_bytes")
+                <= RSK_FALLBACK_MAX_PROOF_BYTES
                 and row.get("reason") == "fallback_signature"
             )
             or (
