@@ -481,6 +481,13 @@ in its own checkout and follow its `AGENTS.md`; do not restore a duplicate
 runtime here. The dashboard distinguishes transfer verification from research
 coverage and serves only cached metadata.
 
+`node-infra/monitor-dev/` builds the development Monitor from an explicit
+local Monitor checkout and runs it beside PostgreSQL 16. Use its `just config`,
+`just build`, `just db-up` and `just app-up` commands. Keep the app port on host
+loopback and restore databases logically into a separate development bind.
+Startup must not run migrations, imports, Core sync or pollers automatically.
+Keep private environment, configuration, data, backups and logs ignored.
+
 Each `node-infra/<chain>/` directory is its own operational workspace with a
 README and usually a local `justfile`. Read the chain README before building or
 starting a node.

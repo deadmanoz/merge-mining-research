@@ -79,6 +79,9 @@ The node workspaces support preserved datadir adoption, explicit historical
 start/stop commands and offline profiles. Host-specific settings and native
 build inputs remain in the private archive.
 
+The [development Monitor workspace](node-infra/monitor-dev/README.md) builds
+the companion application and runs it with a separate development database.
+
 The recovery pipeline runs per sibling chain:
 
 1. **Extract** (`scripts/extract/`): parse each sibling block's merge-mining
@@ -259,7 +262,7 @@ is not an input to stale-block recovery or the committed loader datasets.
 │   └── rsk_pool_registry.csv   # historical RSK miner-address label snapshot
 ├── docs/                       # methodology, research directions, per-chain
 │                               #   provenance, investigations, visual artefacts
-├── node-infra/                 # Chain nodes and the one-off research worker
+├── node-infra/                 # Chain nodes, research worker and development Monitor
 ├── tests/                      # pytest suite
 ├── justfile                    # common commands (just test / full-evidence / ...)
 ├── AGENTS.md                   # repo conventions (CLAUDE.md is a symlink to it)

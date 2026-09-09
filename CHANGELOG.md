@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Provide an on-demand development Monitor workspace with an explicit local
+source checkout, PostgreSQL 16 and a read-only Research bind. Keep the API on
+host loopback and database restoration, migrations and data jobs explicit.
+Exclude private settings and database files from Git and the image context.
+
 Document immutable archive inputs and path-preserving consolidation of exact
 duplicates. Keep original metadata receipts and replace disposable binary
 build inputs instead of modifying shared archived files in place.

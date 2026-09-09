@@ -7,6 +7,12 @@ README before building, and keep generated datadirs out of git (each directory
 ignores `data/`). Some workspaces, including SixEleven, pin a published image
 directly and therefore do not need a Dockerfile.
 
+The [development monitor](monitor-dev/README.md) builds the companion
+application from an explicit local checkout and runs it beside PostgreSQL 16.
+Use `just config` to validate settings, then start services on demand with
+`just db-up` and `just app-up`. Database restore, migrations and data jobs
+remain explicit operator actions. The app port stays on host loopback.
+
 Every node and research-worker image belongs here as a Dockerfile or pinned
 image reference, with its patches, runtime configuration and operating notes.
 The archive dashboard is maintained separately in its own private repository.

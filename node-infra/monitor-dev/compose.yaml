@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: "no"
+    shm_size: 1gb
+    environment:
+      POSTGRES_USER: ${MMM_DB_USER:?set a separate development database user}
+      POSTGRES_PASSWORD: ${MMM_DB_PASSWORD:?set a separate development database password}
+      POSTGRES_DB: ${MMM_DB_NAME:?set the development database name}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    stop_grace_period: 5m
+    volumes:
+      - type: bind
+        source: ${MMM_PGDATA_DIR:?set MMM_PGDATA_DIR to an existing development PGDATA directory}
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  app:
+    build:
+      context: ${MMM_REPO_DIR:?set MMM_REPO_DIR to the local monitor checkout}
+      dockerfile: ${MMR_REPO_DIR:?set MMR_REPO_DIR to the local MMR checkout}/node-infra/monitor-dev/Dockerfile
+      args:
+        MMM_SOURCE_REVISION: ${MMM_SOURCE_REVISION:-working-tree}
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.88-bookworm}
+    image: merge-mining-monitor/dev:local
+    restart: "no"
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${MMM_DB_USER:?set a separate development database user}
+      PGPASSWORD: ${MMM_DB_PASSWORD:?set a separate development database password}
+      PGDATABASE: ${MMM_DB_NAME:?set the development database name}
+      SERVE_BIND_ADDR: 0.0.0.0:8080
+      SERVE_WWW_DIR: /app/www
+      MERGE_MINING_RESEARCH_DIR: /mmr
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - type: bind
+        source: ${MMR_REPO_DIR:?set MMR_REPO_DIR to the local MMR checkout}
+        target: /mmr
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${MMM_APP_PORT:-18080}:8080"
