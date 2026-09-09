@@ -67,3 +67,25 @@ Override with env vars: `RPCUSER=xxx RPCPASSWORD=yyy just init`.
 
 `./data/` is the container's data directory (bind-mounted). It holds
 `bootstrap.dat`, `terracoin.conf`, `blocks/`, `chainstate/`, and the debug log.
+
+## Historical offline operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For an adopted historical datadir, create a private `.env` selecting the
+verified image and populated state:
+
+```dotenv
+TERRACOIN_IMAGE=<verified-image>
+TERRACOIN_CONTAINER_NAME=<existing-container>
+TERRACOIN_DATA_DIR=<populated-terracoin-datadir>
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+The datadir must already contain its existing `terracoin.conf`; do not run
+`just init` on copied state. The offline profile also omits the online
+`loadblock` import. Adopt it with `docker compose up -d --no-build --pull
+never`, then use `just height`, verify the recorded historical block anchors, and run
+`just stop`. It disables P2P and keeps RPC on the configured/default loopback
+port. For a new sync, create `./data` explicitly before running `just init`.

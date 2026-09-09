@@ -18,8 +18,8 @@ upstream release asset remaining unchanged.
 ## Datadir
 
 The datadir is bind-mounted from `FRACTAL_DATA_DIR` (default `./data`)
-to `/home/fractal/.fractal` in the container. Archival mode needs about
-2 TB, so point it at a disk with headroom:
+to `/home/fractal/.fractal` in the container. Archival mode needs multiple
+terabytes, so point it at a disk with headroom:
 
 ```sh
 export FRACTAL_DATA_DIR=<chain-data-dir>/fractal
@@ -32,6 +32,27 @@ Fractal defaults to 8332/8333, colliding with Bitcoin Core. The compose
 file publishes `127.0.0.1:18332` (RPC, loopback only) and `18333` (P2P,
 public), and `init.sh` pins those in `bitcoin.conf`, so the node can
 share a host with a Bitcoin Core instance on the defaults.
+
+## Adopting an existing disk
+
+Select the existing image and populated datadir in a private `.env`, using
+`.env.example` as the template. Do not run `just init`, rebuild the image,
+reindex, or create a replacement datadir during adoption. The data bind
+rejects a missing host path. Both the daemon and health check explicitly
+select the retained `bitcoin.conf`.
+
+Use `COMPOSE_FILE=docker-compose.yml:compose.offline.yml` for initial reads.
+This profile has no network interface or published ports; query RPC through
+`just height` and the container CLI. Verify the disk identity and historical
+blocks, then stop it with `just stop`. Both `just stop` and `just down` wait
+without a forced shutdown timeout.
+
+After live acceptance, select only the base Compose file, set
+`FRACTAL_RPC_BIND` to the intended private host address and
+`FRACTAL_RESTART_POLICY=unless-stopped`, and apply that configuration.
+The default restart policy is `no` while adoption is in progress. Persistent
+mount identity checks belong in the host runtime configuration; an existing
+directory alone does not establish that the correct disk is mounted.
 
 ## Usage
 

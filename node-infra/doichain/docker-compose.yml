@@ -3,19 +3,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: stale-blocks-research/doichaind:latest
-    container_name: doichaind
-    restart: unless-stopped
+    image: ${DOICHAIN_IMAGE:-stale-blocks-research/doichaind:latest}
+    container_name: ${DOICHAIN_CONTAINER_NAME:-doichaind}
+    restart: "no"
+    stop_grace_period: 5m
     ports:
       - "127.0.0.1:8339:8339"
       - "8338:8338"
     volumes:
-      - ${DOICHAIN_DATA_DIR:-./data}:/home/doichain/.doichain
+      - type: bind
+        source: ${DOICHAIN_DATA_DIR:-./data}
+        target: /home/doichain/.doichain
+        bind:
+          create_host_path: false
     command:
+      - "-daemon=0"
+      - "-server=1"
       - "-datadir=/home/doichain/.doichain"
+      - "-conf=/home/doichain/.doichain/doichain.conf"
       - "-printtoconsole"
     healthcheck:
-      test: ["CMD", "doichain-cli", "-datadir=/home/doichain/.doichain", "getblockcount"]
+      test: ["CMD", "doichain-cli", "-datadir=/home/doichain/.doichain", "-conf=/home/doichain/.doichain/doichain.conf", "getblockcount"]
       interval: 60s
       timeout: 10s
       retries: 3

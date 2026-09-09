@@ -3,19 +3,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/devcoind:latest
-    container_name: devcoind
-    restart: unless-stopped
+      args:
+        DEVCOIN_SOURCE: ${DEVCOIN_SOURCE:-upstream}
+    image: merge-mining-research/devcoind:301c1ae-archive
+    container_name: ${DEVCOIN_CONTAINER_NAME:-devcoind}
+    restart: "no"
+    stop_grace_period: 5m
 
     ports:
       - "127.0.0.1:52332:52332"
       - "52333:52333"
 
     volumes:
-      - ./data:/home/devcoin/.devcoin
+      - type: bind
+        source: ${DEVCOIN_DATA_DIR:-./data}
+        target: /home/devcoin/.devcoin
+        bind:
+          create_host_path: false
 
     command:
       - "-printtoconsole"
+      - "-daemon=0"
       - "-datadir=/home/devcoin/.devcoin"
 
     healthcheck:

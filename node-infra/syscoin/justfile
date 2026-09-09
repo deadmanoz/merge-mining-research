@@ -1,0 +1,28 @@
+default:
+    @just --list
+
+# Render and validate the selected Compose configuration without starting it.
+config:
+    docker compose config --quiet
+
+# Build from the two preserved binaries in the local ignored context.
+build:
+    docker compose build
+
+# Start an already created retained container.
+start:
+    docker compose start syscoind
+
+# Gracefully park the retained container and preserve its datadir.
+stop:
+    docker compose stop --timeout -1 syscoind
+
+status:
+    docker compose ps syscoind
+
+logs:
+    docker compose logs --tail=200 syscoind
+
+# Call the CLI with the same mounted datadir and reviewed config.
+rpc METHOD *ARGS:
+    docker compose exec -T syscoind syscoin-cli -datadir=/data -conf=/config/syscoin.conf "{{METHOD}}" {{ARGS}}

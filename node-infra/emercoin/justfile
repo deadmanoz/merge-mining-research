@@ -13,9 +13,17 @@ build:
 up:
     docker compose up -d
 
+# Start the retained emercoind container without recreating it.
+start:
+    docker compose start emercoind
+
+# Stop the retained emercoind container and wait for graceful shutdown.
+stop:
+    docker compose stop --timeout -1 emercoind
+
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail the emercoind logs.
 logs:

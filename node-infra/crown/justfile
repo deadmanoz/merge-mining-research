@@ -1,6 +1,9 @@
 default:
     @just --list
 
+config:
+    docker compose config --quiet
+
 # Render crown.conf (and any future bootstrap.dat handling).
 init:
     ./bootstrap.sh
@@ -13,9 +16,15 @@ build:
 up:
     docker compose up -d
 
+start:
+    docker compose start crownd
+
+stop:
+    docker compose stop --timeout -1 crownd
+
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail the crownd logs.
 logs:

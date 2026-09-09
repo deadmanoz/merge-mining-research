@@ -15,7 +15,14 @@ up:
 
 # Stop and remove the container while preserving chain data.
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+# Keep the container for explicit research sessions.
+stop:
+    docker compose stop --timeout -1 lyncoind
+
+start:
+    docker compose start lyncoind
 
 # Tail daemon logs.
 logs:

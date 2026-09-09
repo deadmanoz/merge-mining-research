@@ -1,0 +1,16 @@
+# Linux historical operation with loopback-only RPC and no peer traffic.
+# Requires Compose support for the !reset merge tag.
+services:
+  bitmarkd:
+    network_mode: host
+    ports: !reset []
+    command:
+      - "-datadir=/home/bitmark/.bitmark"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+    # This legacy RPC server ignores rpcbind. Any rpcallowip selects wildcard
+    # listening, so omit both here and remove both from the copied config.
+    # With no rpcallowip it opens only IPv4/IPv6 loopback sockets.

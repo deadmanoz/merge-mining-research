@@ -1,0 +1,6 @@
+# Native binaries are copied from the private archive into this build context.
+binaries/
+data/
+.env
+.env.*
+!.env.example

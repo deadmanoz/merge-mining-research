@@ -75,6 +75,9 @@ synced, and operated, along with recovered peer and bootstrap configuration.
 See [`node-infra/README.md`](node-infra/README.md) and its per-chain READMEs;
 recoveries based on snapshots, public archives, JSON dumps, or APIs are
 documented in the corresponding notes under [`docs/chains/`](docs/chains/).
+The node workspaces support preserved datadir adoption, explicit historical
+start/stop commands and offline profiles. Host-specific settings and native
+build inputs remain in the private archive.
 
 The recovery pipeline runs per sibling chain:
 

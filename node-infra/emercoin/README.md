@@ -83,3 +83,25 @@ tip. The original recovery is already integrated. For a refresh, run
 `scripts/extract/extract_emercoin_auxpow.py` and
 `scripts/classify/classify_emercoin_stales.py` from the repository root after
 the node is current.
+
+## Historical offline operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For an adopted historical datadir, create a private `.env` selecting the
+verified image and populated state:
+
+```dotenv
+EMERCOIN_IMAGE=<verified-image>
+EMERCOIN_CONTAINER_NAME=<existing-container>
+EMERCOIN_DATA_DIR=<populated-emercoin-datadir>
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+The datadir must already contain its existing `emercoin.conf`; do not run
+`just init` on copied state. Adopt it with `docker compose up -d --no-build
+--pull never`, then use `just height`, verify the recorded historical block anchors, and run
+`just stop`. The offline profile disables P2P and keeps RPC on the
+configured/default loopback port. For a new sync, create `./data` explicitly
+before running `just init`.

@@ -1,0 +1,17 @@
+# Legacy RPC stays inside the container. Use the workspace's exec-based CLI
+# recipes; there is no network interface or host-published port in this mode.
+services:
+  sixelevend:
+    network_mode: none
+    ports: !reset []
+    command:
+      - "611d"
+      - "-datadir=/sixeleven"
+      - "-daemon=0"
+      - "-server=1"
+      - "-dbcache=2048"
+      - "-printtoconsole"
+      - "-listen=0"
+      - "-dns=0"
+      - "-noirc=1"
+      - "-connect=0"

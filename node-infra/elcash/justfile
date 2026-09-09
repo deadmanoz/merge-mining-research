@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -13,9 +15,15 @@ build:
 up:
     docker compose up -d
 
+start:
+    docker compose start elcashd
+
+stop:
+    docker compose stop --timeout -1 elcashd
+
 # Stop and remove the container while preserving chain data.
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail daemon logs.
 logs:
@@ -23,15 +31,15 @@ logs:
 
 # Current child-chain height.
 height:
-    docker compose exec elcashd elcash-cli -datadir=/data getblockcount
+    docker compose exec elcashd elcash-cli -datadir=/data -rpcport="${ELCASH_RPC_PORT:-18432}" getblockcount
 
 # Peer count.
 peers:
-    docker compose exec elcashd elcash-cli -datadir=/data getconnectioncount
+    docker compose exec elcashd elcash-cli -datadir=/data -rpcport="${ELCASH_RPC_PORT:-18432}" getconnectioncount
 
 # Full sync/peer snapshot.
 status:
     @echo '--- blockchain ---'
-    @docker compose exec elcashd elcash-cli -datadir=/data getblockchaininfo | head -30
+    @docker compose exec elcashd elcash-cli -datadir=/data -rpcport="${ELCASH_RPC_PORT:-18432}" getblockchaininfo | head -30
     @echo '--- peers ---'
-    @docker compose exec elcashd elcash-cli -datadir=/data getpeerinfo | head -40
+    @docker compose exec elcashd elcash-cli -datadir=/data -rpcport="${ELCASH_RPC_PORT:-18432}" getpeerinfo | head -40

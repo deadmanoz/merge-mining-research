@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -12,7 +14,16 @@ up:
     docker compose up -d
 
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+stop:
+    docker compose stop --timeout -1 coiledcoind
+
+start:
+    docker compose start coiledcoind
+
+config:
+    docker compose config --quiet
 
 logs:
     docker compose logs -f --tail=200 coiledcoind

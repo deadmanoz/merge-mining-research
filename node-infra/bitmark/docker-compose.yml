@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/bitmarkd:latest
-    container_name: bitmarkd
-    restart: unless-stopped
+    image: ${BITMARK_IMAGE:-merge-mining-research/bitmarkd:latest}
+    container_name: ${BITMARK_CONTAINER_NAME:-bitmarkd}
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC port bound to loopback only -- AuxPoW extractor runs on the same host.
     # P2P port published publicly so DNS-seeded peers + inbound peers work.
@@ -14,11 +15,16 @@ services:
       - "9265:9265"
 
     volumes:
-      - ./data:/home/bitmark/.bitmark
+      - type: bind
+        source: ${BITMARK_DATA_DIR:-./data}
+        target: /home/bitmark/.bitmark
+        bind:
+          create_host_path: false
 
     # bitmark.conf must already exist in ./data; see init.sh.
     command:
       - "-printtoconsole"
+      - "-daemon=0"
       - "-datadir=/home/bitmark/.bitmark"
 
     healthcheck:

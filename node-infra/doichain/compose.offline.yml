@@ -1,0 +1,18 @@
+# Linux archival operation. Review doichain.conf before startup and remove
+# source-only datadir, bind, and multi-valued RPC settings first.
+services:
+  doichaind:
+    network_mode: host
+    restart: "no"
+    ports: !reset []
+    command:
+      - "-daemon=0"
+      - "-server=1"
+      - "-datadir=/home/doichain/.doichain"
+      - "-conf=/home/doichain/.doichain/doichain.conf"
+      - "-printtoconsole"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcallowip=127.0.0.1"

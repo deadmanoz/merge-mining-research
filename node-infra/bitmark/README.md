@@ -73,3 +73,28 @@ Alternative fork sources (per discovery brief):
 This directory is the source of truth for the Bitmark node-infra. Copy it to
 the target host, run `just init`, then `just build` and `just up`. After
 startup, monitor `just logs` and `just height` until sync reaches tip.
+
+## Historical offline operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For an adopted historical datadir, create a private `.env` selecting the
+verified image and populated state:
+
+```dotenv
+BITMARK_IMAGE=<verified-image>
+BITMARK_CONTAINER_NAME=<existing-container>
+BITMARK_DATA_DIR=<populated-bitmark-datadir>
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+The datadir must already contain its existing `bitmark.conf`; do not run
+`just init` on copied state. Adopt it with `docker compose up -d --no-build
+--pull never`, then use `just height`, verify the recorded historical block
+anchors, and run `just stop`. The offline profile disables P2P. Bitmark ignores
+`rpcbind`; any `rpcallowip` entry makes its legacy server listen on all
+addresses. Omit both arguments and remove both keys from the copied config
+to use its default IPv4/IPv6 loopback RPC sockets. Verify every listener on
+the configured RPC port is loopback before accepting the node. For a new sync,
+create `./data` explicitly before running `just init`.

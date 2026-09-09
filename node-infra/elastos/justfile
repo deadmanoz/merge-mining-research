@@ -1,0 +1,31 @@
+set dotenv-load := true
+
+default:
+	@just --list
+
+config:
+	docker compose config --quiet
+
+build:
+	docker compose build node
+
+start:
+	docker compose up -d --no-build --pull never node
+
+stop:
+	docker compose stop --timeout -1 node
+
+status:
+	docker compose ps node
+
+logs:
+	docker compose logs --tail=200 node
+
+rpc:
+	docker compose exec -T node /usr/local/bin/ela-cli info getnodestate
+
+clean:
+	docker compose rm node
+
+down:
+	docker compose down --timeout -1
