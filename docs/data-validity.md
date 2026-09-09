@@ -92,8 +92,16 @@ refresh added another 33 accepted direct observations under that profile, and
 the 5 September RSK side-chain reclassification added another 39 under RSK's
 available-evidence profile. The 8 September height-zero RSK acquisition added
 16 accepted observations from its extended later window under the same
-profile. The current committed direct set therefore contains 3,784 observations
-and 2,161 unique header hashes.
+profile.
+
+On 8 September, processing the complete March 2026 I0coin snapshot added 25
+accepted direct observations, each corroborating a header already present
+through another chain. An independent review verified all 191 I0coin direct
+observations against Bitcoin Core and their complete recovered AuxPoW
+witnesses, including child heights derived from authenticated ancestry to
+genesis. The 16 new RSK observations also passed a separate
+Bitcoin Core context review under RSK's available-evidence profile. The current
+committed direct set contains 3,809 observations and 2,161 unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,
@@ -136,11 +144,21 @@ validation.
 
 The error module has a separate complete preflight. It re-derives the declared
 consensus failures, including MTP and coinbase rules, from the canonical 39-row
-catalogue, 86-row observation ledger, and MTP context. The staged error
+catalogue, 88-row observation ledger, and MTP context. The staged error
 aggregate must then match every canonical ledger identity and derived field.
 Any full-coinbase enrichment is parsed and must authenticate the published
 coinbase scriptSig. A release stages all ordinary artifacts, that verified
 error aggregate, counts, and manifest as one transaction.
+
+The I0coin refresh contributes two new detailed witnesses to existing errors
+at Bitcoin heights 331,673 and 331,674 and corrects the existing height-367,047
+witness's child height to 1,546,541. I0coin therefore has three error
+observations while the catalogue remains at 39 parent blocks. The two new
+witnesses remain `unknown` in their source classifier inventory, with blank
+source Bitcoin heights; their error-ledger heights use
+`catalogue-authenticated-ancestry-placement`. That provenance records the
+separately verified ancestry placement without bypassing the catalogue's
+consensus-failure or witness-authentication gates.
 
 ## Namecoin release scope
 

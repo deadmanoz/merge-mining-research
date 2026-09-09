@@ -25,7 +25,7 @@ omits hostnames, mount paths, credentials, and operator-specific locations.
 | --- | --- | --- |
 | Devcoin | Raw RPC block by true height and source hash | Regenerated and authenticated. |
 | ixcoin | Raw RPC block by true height and source hash | Regenerated and authenticated. |
-| i0coin | Original `blk*.dat` snapshot; consensus height unavailable | Header bundle regenerated and authenticated. |
+| i0coin | All 87 `blk*.dat` files from the March 2026 snapshot | Header bundle authenticated; genesis-linked heights verified for private, accepted direct-stale and error records. Normalized full-inventory and canonical heights remain blank. |
 | Groupcoin | Original decoded `getblock` JSON dump | Regenerated and authenticated. |
 | CoiledCoin | Original `blk*.dat` blocks scanned by embedded BTC parent | Regenerated and authenticated. |
 | Geistgeld | Original decoded `getblock` JSON dump | Regenerated and authenticated. |
@@ -148,8 +148,8 @@ hard failures and leave the previous report untouched. A publication decision
 must inspect the reported unrecoverable counts rather than treating process
 exit alone as a complete-coverage assertion.
 
-The completed refresh authenticated all **2,933,154 of 2,933,154** historical
-source rows, with zero unrecoverable rows. All **6 of 6** accepted
+The completed September refresh authenticated all **3,019,416 of 3,019,416**
+historical source rows, with zero unrecoverable rows. All **6 of 6** accepted
 stale-descendant observations belonging to those 17 sources also carry
 complete authenticated child headers. `results/child-header-coverage.csv`
 records the per-chain totals and time ranges.

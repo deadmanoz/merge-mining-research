@@ -149,15 +149,19 @@ on 8 September 2026; its one-off repair code is not part of the runtime:
 | Loader before recovery | `dd0421a2eecdd4f579f570b085591504354da6ed9745069e2787cbd2b747ec38` |
 | Restored loader | `2eb154ff1346b087c61b3155bad2f9ba08b387500a0bb139178933e41d0b012e` |
 
-Only the private Namecoin inventory was materialized for this change, not the
-complete publication archive and relevance inputs. Generated monitor, full
-evidence, strict/weak and novelty outputs were therefore left untouched. Their
-existing snapshots do not constitute regenerated output-coverage claims; a
-later complete publication must consume the restored loader. The publication
-baseline reader applies the same chain-aware output normalization as source
-ingestion, so old unmarked Namecoin address projections remain filtered when
-checking that the restored exact vectors preserve prior evidence. Canonically
-rendered exact vectors retain their positional constraints. See
+The complete September publication regenerated Monitor evidence using the
+restored validated loader. Its 1,649 accepted Namecoin rows carry all 16,610
+outputs in exact order. The independent comparison checked that the restored
+vectors preserve the previous output claims and that other retained evidence
+remains consistent. Full evidence is generated from the selected classifier
+inventory and retains its source-level output claims; it does not apply this
+validated-loader overlay.
+
+The publication baseline reader applies the same chain-aware output
+normalization as source ingestion, so old unmarked Namecoin address projections
+remain filtered when checking that the restored exact vectors preserve prior
+evidence. Canonically rendered exact vectors retain their positional
+constraints. See
 [attribution impact](../pool-attribution.md#namecoin-output-restoration) for the
 measured label and match-mechanism comparison.
 

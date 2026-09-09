@@ -58,6 +58,29 @@ context, and document verification when adopting a native node. Correct the
 `getblockhex` recipe's shell-variable expansion and stop if its height lookup
 fails.
 
+Process the complete March 2026 I0coin snapshot through extraction, Bitcoin
+classification and independent AuxPoW verification. Retain all 189,652
+self-target-valid observations, accept 191 direct stales (25 additional
+I0coin witnesses), and preserve complete coinbases and genesis-linked child
+heights in all 191 accepted direct-stale rows. Add two witnesses for existing
+invalid parents and correct one
+child height by independently traversing its ancestry. Accept explicit
+authenticated-ancestry placement provenance for error witnesses whose source
+does not supply a Bitcoin height. Regenerate full evidence, relevance and
+Monitor from the complete source selection, retaining 189,649 I0coin
+full-evidence observations and two strict unknown observations. Refresh
+cross-chain chronological novelty; the 25 additional witnesses do not
+introduce a new Bitcoin header.
+
+Regenerate the complete publication with the expanded I0coin evidence while
+retaining the merged RSK recovery. Increase direct observations from 3,784 to
+3,809 without changing the 2,161 unique Bitcoin headers. Independently compare
+all 26 novelty CSVs against the pinned upstream bytes and chronological chain
+order, retaining the 331-row contribution sidecar and 264 header fills.
+Preserve 21 accepted descendant parents and 33 authenticated child witnesses,
+and publish the 39-parent error catalogue with 88 observations. Keep the full
+source population, final Monitor rows and deduplicated header totals distinct.
+
 Derive every monitor publication artifact path from one sanitized logical
 output root, and let externally staged builds name their final destination
 explicitly without leaking or misreporting the physical build directory.
@@ -77,8 +100,9 @@ before replacing the loader. Make the normal blkdat classifier emit complete
 output vectors in the final rendering and reject partial claims before
 RPC or writes, without a follow-up repair command. Refine filtered and
 recipient-only claims to exact scripts, document the unchanged pool labels and
-stronger tag matches, and retain generated publication snapshots pending a
-complete private-input rebuild. Replace the completed rendering migration with
+stronger tag matches, and carry the restored accepted-row vectors through a
+complete Monitor rebuild. Preserve source-level claims in full evidence.
+Replace the completed rendering migration with
 a read-only output validator. Read retained publication output cells with their
 acquisition semantics so old Namecoin projections accept restored exact vectors.
 
@@ -196,8 +220,8 @@ complete raw-script vectors and stay position-exact. Without this the
 normalization would have relabelled 1,058 position-exact rows across ten
 chains as filtered.
 
-Generated monitor-evidence and strict/weak payloads still carry the old
-renderings and pick this up at the next full publication run. Closes #50.
+Regenerate Monitor evidence and strict/weak payloads with the current output
+rendering contract during the complete September publication. Closes #50.
 
 Provenance corrections after review: legacy-cell normalization at the archive
 and ancestry read boundaries is now keyed on acquisition provenance, owned by
@@ -229,10 +253,10 @@ types become script-prefix claims, `76a914*` for `pubkeyhash` and so on;
 `multisig` and `witness_unknown` establish only the amount) so archive rows
 carrying them normalize instead of aborting publication. The JSON-RPC amount
 path fails closed on a value that is not a whole number of satoshis instead
-of rounding it, matching the parse side. Committed rows from the raw-script
-acquisitions predate amount retention and stay payout-only; a regeneration
-would add amounts, a pure refinement the publication floor accepts
-(documented in data-reference.md).
+of rounding it, matching the parse side. Earlier committed loader rows from
+raw-script acquisitions retained payouts without amounts. Adding amounts
+preserved by a selected source is a pure refinement the publication floor
+accepts (documented in data-reference.md).
 
 Hydrate `btc_header_hex` for the 228 accepted Namecoin rows whose loader
 input carried no header (their keys were already upstream, so the original
@@ -240,10 +264,9 @@ compact input deferred to the upstream record). The bytes come from the
 committed monitor evidence and each recovered header is byte-verified against
 the row's committed hash, `btc_prev_hash`, `btc_time`, and `btc_bits`. The
 header-fill sidecar grows from 91 to 264 rows and the
-missing-header-for-upstream-fill warning drops to zero. The committed monitor
-manifest's `namecoin_header_hydration` note remains as provenance of the
-existing payload build and drops out at the next full monitor publication run
-(a private-input step). Closes #48.
+missing-header-for-upstream-fill warning drops to zero. The complete September
+Monitor rebuild uses those loader headers directly and no longer records the
+old `namecoin_header_hydration` note in its manifest. Closes #48.
 
 Publish the header-fill contribution sidecar
 (`data/upstream_header_fills.csv`): the publication-gate-accepted candidates

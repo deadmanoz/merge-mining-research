@@ -100,7 +100,7 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,784 accepted direct observations covering
+The committed chain inputs hold 3,809 accepted direct observations covering
 2,161 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
@@ -131,7 +131,7 @@ above.
 |---|---|---:|---:|---:|---|
 | [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,649 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
 | [Geistgeld](docs/chains/geistgeld.md) | Complete Nicholas Stifter `getblock` JSON dump; 7.3M records | 0 | 0 | 0 | Most parent headers use targets easier than Bitcoin's and do not link to Bitcoin mainnet, so no direct stales are accepted. |
-| [i0coin](docs/chains/i0coin.md) | Third-party `blk*.dat` snapshot from January 2018 | 166 | 2 | 0 | Coverage ends with the January 2018 snapshot, so the count is provisional and incomplete. |
+| [i0coin](docs/chains/i0coin.md) | Complete March 2026 snapshot; 87 `blk*.dat` files parsed offline | 191 | 2 | 0 | Accepted Bitcoin stales end in August 2020; the later child snapshot contains no further accepted direct stale. |
 | [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 465 | 3 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |
 | [CoiledCoin](docs/chains/coiledcoin.md) | Recovered archival node; January to July 2012 BTC-parent window | 27 | 0 | 0 | The window includes the January 2012 Eligius attack; all 27 accepted candidates cross-confirm earlier sources. |
 | [Devcoin](docs/chains/devcoin.md) | Local node; AuxPoW range scanned to the recovered tip | 468 | 1 | 0 | One of the largest early-chain accepted sets, spanning January 2012 to December 2020. |
@@ -396,7 +396,8 @@ recovered from its private classified inventory. The normal blkdat extractor
 and classifier retain the full vector and emit its final rendering directly;
 classification rejects partial output claims before RPC or writes. See the
 [Namecoin recovery receipt](docs/chains/namecoin.md) for counts, fingerprints,
-attribution impact and the generated snapshots still awaiting a complete rebuild.
+attribution impact and the verified Monitor rebuild. Full-evidence exports
+retain the selected classifier inventories' source-level output claims.
 
 Bulky fetched data (the upstream `bitcoin-data/stale-blocks` clone) and large
 derived artifacts (full per-chain evidence exports,

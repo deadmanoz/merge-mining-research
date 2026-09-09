@@ -140,11 +140,15 @@ def test_ancestry_derived_error_catalogue_claims_are_exact() -> None:
     expected = {
         "000000000000000010bcbb75dc17fce43da835bd26ccec95ed0d39570a51112a": {
             "height": "331673",
-            "source_child_observations": "devcoin:163400|ixcoin:234208|namecoin:207157",
+            "source_child_observations": (
+                "devcoin:163400|i0coin:1315879|ixcoin:234208|namecoin:207157"
+            ),
         },
         "00000000000000000d610e393ffeed6b9494d54121f05f7a3905f940f0e0cf69": {
             "height": "331674",
-            "source_child_observations": "devcoin:163402|ixcoin:234210|namecoin:207159",
+            "source_child_observations": (
+                "devcoin:163402|i0coin:1315884|ixcoin:234210|namecoin:207159"
+            ),
         },
         "000000000000000003a1ce220ae97419cc4bdb5d70b90189b8f8a06b0b37e3a2": {
             "height": "402610",
@@ -886,11 +890,29 @@ def test_published_monitor_unknown_rows_only_use_descendant_verdict() -> None:
 def test_unresolved_offline_child_heights_remain_blank() -> None:
     # These offline sources cannot authenticate consensus child height. Remove
     # a chain from this pin when its historical evidence is fully hydrated.
-    for chain in ("coiledcoin", "i0coin"):
+    for chain in ("coiledcoin",):
         path = REPO / "results" / "monitor-evidence" / f"{chain}_monitor_evidence.csv"
         with path.open(newline="") as handle:
             for row_number, row in enumerate(csv.DictReader(handle), 2):
                 assert row.get("child_height") == "", (path, row_number)
+
+
+@pytest.mark.dataset
+def test_i0coin_child_heights_follow_authenticated_source_scope() -> None:
+    path = REPO / "results" / "monitor-evidence" / "i0coin_monitor_evidence.csv"
+    authenticated = 0
+    with path.open(newline="") as handle:
+        for row_number, row in enumerate(csv.DictReader(handle), 2):
+            if row["classification"] == "stale":
+                # The March 2026 recovery authenticates each accepted loader row
+                # through its complete child-header ancestry to genesis.
+                assert row["child_height"].isdigit(), (path, row_number)
+                assert int(row["child_height"]) > 0, (path, row_number)
+                authenticated += 1
+            else:
+                # Canonical and unknown source projections retain blank heights.
+                assert row["child_height"] == "", (path, row_number)
+    assert authenticated == 191
 
 
 def test_unknown_ancestry_does_not_treat_mixed_upstream_sidecar_as_roots(

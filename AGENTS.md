@@ -77,6 +77,13 @@ RSK extraction accepts `RSK_RPC_URL` for a remote archive endpoint; the default
 is loopback port 4444. Long runs pin a settled endpoint as documented in
 `docs/chains/rsk.md`.
 
+Staged regeneration keeps Monitor's preservation baseline in the runtime
+checkout's materialised
+`results/monitor-evidence/`; install the complete prior generation there
+before a staged rebuild. `--data-dir` can select the new publication inputs
+while the runtime retains original dependency bytes bound by a classifier
+manifest. See `docs/data-reference.md` for the source-family contract.
+
 Prefer the `justfile` recipes when they cover the task:
 
 ```bash

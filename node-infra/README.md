@@ -81,7 +81,7 @@ the live profile publishes RPC only on the selected private host address.
 Not every integrated chain has a recipe here, because not every recovery
 ran a node:
 
-- **i0coin** was recovered from a 2018 datadir snapshot parsed offline;
+- **i0coin** was recovered from the complete March 2026 snapshot parsed offline;
   no node ran.
 - **Geistgeld and Groupcoin** survive only as complete `getblock`-JSON
   dumps; there is no network left to sync.

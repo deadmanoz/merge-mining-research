@@ -218,11 +218,29 @@ Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
 | **Total** | **39** |
 
 Because one invalid block is witnessed by several sibling chains, the 39
-blocks produce 86 per-chain observations: namecoin 37, devcoin 18, ixcoin 15,
+blocks produce 88 per-chain observations: namecoin 37, devcoin 18, ixcoin 15,
 rsk 5, syscoin 3, elastos 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
-i0coin 1, and unobtanium 1.
+i0coin 3, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
+
+The complete March 2026 I0coin snapshot adds two detailed witnesses to
+already-catalogued Bitcoin errors and corrects the child height of an existing
+witness. It adds no new error parent:
+
+| Bitcoin height | I0coin child height | Recovered evidence |
+|---|---:|---|
+| 331,673 | 1,315,879 | New witness; the parent coinbase incorrectly encodes Bitcoin height 331,674. |
+| 331,674 | 1,315,884 | New witness; the parent coinbase incorrectly encodes Bitcoin height 331,675. |
+| 367,047 | 1,546,541 | Existing BIP66 version-2 error witness; corrected from child height 1,546,542. |
+
+All three witnesses have verified full child-block and AuxPoW bytes in the
+retained snapshot. Their child heights come from complete header-hash ancestry
+to the I0coin genesis. A separate traversal of the raw block files confirmed
+1,546,541 parent edges for the last witness; its old height equals the number
+of linked headers including genesis. Its child coinbase begins with difficulty bits,
+not a usable height prefix. The ledger retains the exact child headers,
+source coordinates, source hashes and verification provenance.
 
 Height 656,478 is not an error block. Its predecessor is a trusted stale root,
 so it is represented as a valid `stale_descendant` in
@@ -302,7 +320,7 @@ Run `just validate-error-blocks` to validate all three without private inputs
 or live RPC. Population sweeps remain diagnostic research tools and fail
 closed when their required private inputs are absent.
 
-The four ancestry-derived errors and their eight authenticated child
+The four ancestry-derived errors and their ten authenticated child
 observations are reviewed members of that canonical module. Their observation
 rows retain exact source coordinates, source-file SHA-256 values, and verified
 80-byte child headers. The catalogue retains the parent header and coinbase
@@ -320,6 +338,17 @@ height is derived from the authenticated ancestry path as `prev + 1`. The
 offline validator's job is to prove the named consensus violation from the
 committed bytes; it does not replace either classification-time active-parent
 checks or reconciliation-time ancestry validation.
+
+The two new I0coin witnesses retain `source_classification=unknown` and a
+blank `source_btc_height`, matching the classifier inventory. Their
+`btc_height_provenance=catalogue-authenticated-ancestry-placement` records that
+the Bitcoin height comes from the catalogue's verified ancestry placement.
+The ledger validator allows a blank source height for that token or
+`catalogue-active-parent-placement`; other provenance values still require a
+valid source height. This distinction records how the height was established.
+It does not bypass catalogue membership, exact witness and source-coordinate
+checks, child-header authentication, or re-derivation of the named Bitcoin
+consensus failure.
 
 ## Classification-time labelling
 
