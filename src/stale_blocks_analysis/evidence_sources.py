@@ -78,9 +78,10 @@ def archive_candidates(root: Path, chain: str, suffix: str, family: str) -> list
 
 
 _ARCHIVE_FULL_INVENTORY_OVERRIDES: dict[str, tuple[Path, ...]] = {
-    # Doichain's authoritative full inventory has a nonstandard archive
-    # location. The file in ``classified/`` is the intentionally header-only
-    # publication output, while this dated artifact contains all 50,621 rows.
+    # Retained unsplit Doichain archives keep all 50,621 rows in this dated
+    # artifact beside a header-only ``classified/`` primary. Other selected
+    # roots use that empty primary plus an unknown companion instead. Keep
+    # this preference within each root; caller root order selects the family.
     "doichain": (Path("2026-06-24-redo/doichain_stale_blocks.csv"),),
 }
 

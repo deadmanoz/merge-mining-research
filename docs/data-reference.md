@@ -225,7 +225,8 @@ historical evidence columns:
 | `coinbase_op_return`, `coinbase_ascii_strings` | Raw coinbase evidence. |
 | `is_uncle`, `uncle_index`, `uncle_parent_height` | RSK uncle (stale) metadata. |
 
-The full stale/unknown inventory (`rsk_stale_blocks.csv`, 354
+The full stale/unknown inventory (`rsk_stales.csv`, exposed for discovery as
+`rsk_stale_blocks.csv`, 354
 stale-labelled observations + 37,410 unknown rows after the 2026-09-08
 height-zero acquisition) and its 236,073-row canonical companion are private.
 Four consensus-invalid parents route to the error-block sibling output, and

@@ -121,10 +121,13 @@ def test_error_observation_count_row_has_canonical_publication_shape() -> None:
     count_row = error_observation_count_row(
         inventory,
         data_dir=DATA_DIR,
-        artifact_path=DATA_DIR / "error-block-observations_monitor_evidence.csv",
+        artifact_path="results/monitor-evidence/error-block-observations_monitor_evidence.csv",
     )
 
     assert list(count_row) == MONITOR_COUNT_FIELDS
+    assert count_row["artifact_path"] == (
+        "results/monitor-evidence/error-block-observations_monitor_evidence.csv"
+    )
 
 
 def test_ancestry_derived_error_witnesses_are_exact() -> None:

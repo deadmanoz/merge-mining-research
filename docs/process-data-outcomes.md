@@ -81,6 +81,27 @@ output cells that differ beyond rendering now match the already committed
 Namecoin loader input exactly after normalization, including 149 previously
 empty cells. These updates change no parent identities or classifications.
 
+Source paths describe the selected build inputs after private-path redaction;
+they are not download URLs or discovery instructions. This build used an
+external staging data tree containing the committed stale-descendant and
+error-observation ledgers, so their paths appear as
+`<external>/stale_descendants.csv` and
+`<external>/error_block_observations.csv`. Their published identities and
+evidence are unchanged. The same redaction exposes the resolved basenames of
+the selected Namecoin, Fractal and RSK private inventories. RSK's
+`rsk_stale_blocks.csv` discovery alias resolves to the sealed family's
+`rsk_stales.csv`; its original filename and manifest remain together in the
+private archive. `--reported-output-dir` controls the final output destination
+only and does not relabel external inputs as repository files.
+
+The Doichain primary path names an empty stale split; its 50,621 source rows
+come from the `doichain_unknown_blocks.csv` companion in the same selected
+root. That family was selected ahead of retained roots containing the dated
+unsplit inventory to match the relevance assessment's exact source coordinates.
+All evidence columns agree between the split family and the dated inventory.
+Both retained layouts remain supported, with explicit archive-root order
+choosing which family is consumed.
+
 Important implementation boundary: downstream cross-source publication views
 deduplicate by `(height, hash)`, so same-height competing stale hashes remain
 distinct. Exact duplicates retain the upstream row as the catalogue record;

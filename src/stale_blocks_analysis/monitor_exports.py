@@ -777,6 +777,7 @@ def build_monitor_evidence_exports(
         if source.chain == "rsk":
             artifact_fields = MONITOR_EVIDENCE_FIELDS + RSK_SIDECAR_EXPORT_FIELDS
         artifact_path: Path | None = None
+        reported_artifact_path = ""
         if (
             source.path is not None
             or companion is not None
@@ -799,9 +800,6 @@ def build_monitor_evidence_exports(
         if source.chain == "stale-descendants":
             notes_parts.append("parent_verdicts_only_witnesses_in_observation_ledger")
         notes = "; ".join(notes_parts)
-        reported_artifact_path = (
-            reported_child_path(artifact_name) if artifact_path is not None else ""
-        )
         count_rows.append(
             monitor_count_row(
                 source,

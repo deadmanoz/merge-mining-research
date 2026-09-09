@@ -684,18 +684,14 @@ def write_error_observation_artifact(
 
 
 def error_observation_count_row(
-    artifact: dict[str, object], *, data_dir: Path, artifact_path: Path | str
+    artifact: dict[str, object], *, data_dir: Path, artifact_path: str
 ) -> dict[str, object]:
     """Render the error aggregate's row in the monitor publication manifest."""
     return {
         "chain": ERROR_OBSERVATION_ARTIFACT,
         "source_kind": "error_block_catalogue",
         "artifact_scope": ERROR_OBSERVATION_SCOPE,
-        "artifact_path": (
-            artifact_path
-            if isinstance(artifact_path, str)
-            else safe_path(artifact_path)
-        ),
+        "artifact_path": artifact_path,
         "source_path": safe_path(data_dir / "error-blocks" / ERROR_OBSERVATION_LEDGER),
         "canonical": 0,
         "stale": 0,
