@@ -242,7 +242,7 @@ def test_producer_dependency_hashes_bind_loaded_sources():
         assert hashes[relative] == rod.sha256_file(Path(module.__file__).resolve())
 
 
-def test_full_evidence_rejects_envelope_target_metadata_contradiction(monkeypatch):
+def _full_evidence_fixture(monkeypatch):
     child = _header(timestamp=1_700_000_000)
     parent_header = _header(timestamp=1_700_000_001)
     coinbase = _coinbase()
@@ -282,13 +282,128 @@ def test_full_evidence_rejects_envelope_target_metadata_contradiction(monkeypatc
         "proof_envelope_hex": "00",
         "child_header_hex": child.hex(),
         "algorithm_byte": 0x81,
-        "effective_bits": "19077766",
+        "effective_bits": "1d00ffff",
         "parent_header_hex": parent_header.hex(),
         "parent_coinbase_hex": coinbase.hex(),
+        "child_coinbase_height": rod.CANONICAL_HEIGHT,
+        "child_merkle_root_matches": True,
+        "child_height_matches_node_height": True,
     }
+    reparsed = dict(row)
+    extractor = SimpleNamespace(parse_block=lambda *args: reparsed)
+    return row, framing, extractor, reparsed
+
+
+def test_full_evidence_rejects_envelope_target_metadata_contradiction(monkeypatch):
+    row, framing, extractor, _ = _full_evidence_fixture(monkeypatch)
+    row["effective_bits"] = "19077766"
 
     with pytest.raises(ValueError, match="envelope contradicts"):
-        rod._validate_full_evidence(row, "00", framing, SimpleNamespace())
+        rod._validate_full_evidence(row, "00", framing, extractor)
+
+
+def test_full_evidence_accepts_verified_body_at_pinned_height(monkeypatch):
+    row, framing, extractor, reparsed = _full_evidence_fixture(monkeypatch)
+
+    assert rod._validate_full_evidence(row, "00", framing, extractor) == reparsed
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in (
+            "child_merkle_root_matches",
+            "child_height_matches_node_height",
+        )
+        for value in (False, None, 0, 1, "true")
+    ]
+    + [
+        ("child_coinbase_height", rod.CANONICAL_HEIGHT - 1),
+        ("child_coinbase_height", None),
+    ],
+)
+def test_full_evidence_rejects_matching_invalid_body_claims(monkeypatch, field, value):
+    row, framing, extractor, reparsed = _full_evidence_fixture(monkeypatch)
+    # Agreement with the extraction row does not make a failed check acceptable.
+    row[field] = reparsed[field] = value
+
+    with pytest.raises(ValueError, match=f"full ROD body {field}"):
+        rod._validate_full_evidence(row, "00", framing, extractor)
+
+
+def _review_fixture(tmp_path):
+    artifacts = {}
+    for name, payload in {
+        "rod-2697753-body.hex": "00\n",
+        "canonical-body.response.json": json.dumps({"result": "00", "error": None}),
+    }.items():
+        path = tmp_path / name
+        path.write_text(payload)
+        artifacts[name] = {
+            "bytes": path.stat().st_size,
+            "sha256": rod.sha256_file(path),
+        }
+    return {
+        "canonical": {
+            "rod_height": rod.CANONICAL_HEIGHT,
+            "rod_hash": rod.CANONICAL_CHILD_HASH,
+            "bitcoin_height": rod.CANONICAL_BTC_HEIGHT,
+            "bitcoin_hash": rod.CANONICAL_BTC_HASH,
+            "coinbase_txid_and_script_match_proof": True,
+            "complete_bitcoin_body_merkle_verified": True,
+            "complete_rod_body_merkle_height_and_commitment_verified": True,
+            "rod_extraction_envelope_unchanged": True,
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _write_review(tmp_path, receipt):
+    path = tmp_path / "review-receipt.json"
+    path.write_text(json.dumps(receipt))
+    return rod.sha256_file(path)
+
+
+def test_candidate_review_binds_both_reviewed_bodies(tmp_path):
+    receipt = _review_fixture(tmp_path)
+    digest = _write_review(tmp_path, receipt)
+
+    validated, bindings = rod._validate_review(tmp_path, digest)
+
+    assert validated == receipt
+    assert bindings == {
+        "review-receipt.json": digest,
+        **{name: item["sha256"] for name, item in receipt["artifacts"].items()},
+    }
+
+
+@pytest.mark.parametrize("body_present", [False, True])
+def test_candidate_review_rejects_unbound_bitcoin_body(tmp_path, body_present):
+    receipt = _review_fixture(tmp_path)
+    del receipt["artifacts"]["canonical-body.response.json"]
+    if not body_present:
+        (tmp_path / "canonical-body.response.json").unlink()
+    digest = _write_review(tmp_path, receipt)
+
+    with pytest.raises(ValueError, match="artifact inventory is incomplete"):
+        rod._validate_review(tmp_path, digest)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "digest", "size"])
+def test_candidate_review_rejects_missing_or_changed_bitcoin_body(tmp_path, mutation):
+    receipt = _review_fixture(tmp_path)
+    path = tmp_path / "canonical-body.response.json"
+    if mutation == "missing":
+        path.unlink()
+    elif mutation == "digest":
+        path.write_text(path.read_text().replace("00", "01"))
+    else:
+        receipt["artifacts"][path.name]["bytes"] += 1
+    digest = _write_review(tmp_path, receipt)
+
+    with pytest.raises(ValueError, match="artifact (missing|mismatch).*canonical-body"):
+        rod._validate_review(tmp_path, digest)
 
 
 def test_rod_registered_for_historical_child_header_coverage():

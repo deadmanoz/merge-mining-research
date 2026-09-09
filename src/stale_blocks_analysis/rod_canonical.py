@@ -209,7 +209,8 @@ def _validate_review(
         if canonical.get(key) != value:
             raise ValueError(f"candidate review canonical {key} mismatch")
     artifacts = receipt.get("artifacts")
-    if not isinstance(artifacts, dict) or "rod-2697753-body.hex" not in artifacts:
+    required_bodies = {"rod-2697753-body.hex", "canonical-body.response.json"}
+    if not isinstance(artifacts, dict) or not required_bodies.issubset(artifacts):
         raise ValueError("candidate review artifact inventory is incomplete")
     bindings = {"review-receipt.json": receipt_sha}
     for relative, declared in artifacts.items():
@@ -356,6 +357,11 @@ def _validate_full_evidence(
     reparsed = extractor.parse_block(
         body_hex.strip(), CANONICAL_HEIGHT, CANONICAL_CHILD_HASH
     )
+    for key in ("child_merkle_root_matches", "child_height_matches_node_height"):
+        if reparsed.get(key) is not True:
+            raise ValueError(f"full ROD body {key} must be true")
+    if reparsed.get("child_coinbase_height") != CANONICAL_HEIGHT:
+        raise ValueError("full ROD body child_coinbase_height mismatch")
     for key in (
         "child_hash",
         "child_header_hex",

@@ -60,8 +60,11 @@ PowData AuxPoW commitment. The proof envelope agrees byte for byte with the
 audited extraction.
 
 The private canonical producer rechecks those identities and digests before
-writing `rod_canonical_blocks.csv`. It uses the wrapper's effective target as
-`child_nbits`, keeps the pure zero-header-bits fact in the bound source
+writing `rod_canonical_blocks.csv`. The review package must contain both full
+body artifacts with matching receipt-bound digests. The reparsed ROD body must
+pass its Merkle and height checks, including the pinned child coinbase height;
+matching a rejected extraction verdict is insufficient. It uses the wrapper's
+effective target as `child_nbits`, keeps the pure zero-header-bits fact in the bound source
 evidence, and leaves `validation_status` and `expected_nbits` empty because a
 canonical parent is outside the direct-stale validation profile. No empty
 `rod_validated_stales.csv` is fabricated.
