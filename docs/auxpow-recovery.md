@@ -81,10 +81,12 @@ see [`process-data-outcomes.md`](process-data-outcomes.md).
 
 ## Integrated chains
 
-Each chain contributes a historical-named
+Twenty-six of the 27 integrated chains contribute a historical-named
 `data/validated-stales/<chain>_validated_stales.csv` file containing publication-gate-accepted
 direct-stale header candidates
-consumed by `src/stale_blocks_analysis/stale_blocks.py`. Those inputs come from
+consumed by `src/stale_blocks_analysis/stale_blocks.py`. ROD instead supplies
+a reviewed canonical companion and has no accepted direct stale; no empty
+`rod_validated_stales.csv` is fabricated. Those direct-stale inputs come from
 shared entry points rather than one script per chain: thin AuxPoW chains
 classify through `python scripts/classify/classify_stales.py --chain <key>`,
 where a new chain is a `CHAIN_SPECS` row rather than a new sibling script, and
@@ -95,7 +97,7 @@ output is bucket-split into `<chain>_stale_blocks.csv` (stale only),
 `<chain>_unknown_blocks.csv`, and `<chain>_canonical_blocks.csv` (all sharing
 one schema); these, raw extracts, and other bulky intermediates are preserved
 in the private per-chain archive. RSK's committed
-loader input is `data/validated-stales/rsk_validated_stales.csv` like every other chain
+loader input is `data/validated-stales/rsk_validated_stales.csv`
 (shared validated-stales layout plus RSK miner-evidence and historical-label
 columns); the historical single-file exception is retired. Its full
 stale/unknown inventory and the separately emitted
@@ -146,9 +148,9 @@ Historical extraction paths also preserve the 80-byte child header from the
 same original block that supplied each AuxPoW proof. The derived
 `child_block_hash`, `child_header_hex`, `child_block_time`, and `child_nbits`
 travel together through classification and evidence export; any partial or
-self-contradictory bundle stops classification. Xaya is the sole outer-format
-exception: its block hash and timestamp come from `CPureBlockHeader`, while
-its effective `nBits` comes from the adjacent `PowData` field. Run
+self-contradictory bundle stops classification. Xaya and ROD are outer-format
+exceptions: their block hashes and timestamps come from `CPureBlockHeader`,
+while their effective `nBits` comes from the adjacent `PowData` field. Run
 `just child-header-coverage` against a staged evidence directory before
 publishing a dated refresh. Existing historical CSVs without the header
 bundle must be regenerated from their original sources, not post-processed.
@@ -211,8 +213,9 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 | 22 | [Hathor](chains/hathor.md) | 6 | 0 | **Only RFC-0006 split-header proof in the pipeline**: the 32-byte parent merkle root is reconstructed from the coinbase and merkle path; a three-part byte-order correction was required (see `docs/chains/hathor.md` §2). The retained corpus from height 0 through 6,593,796 contains 6,532,372 version-3 observations: 6,279,947 near, 3,658 canonical, 6 accepted direct stales, 248,760 unknown, and 1 error block. The unknown population yields 0 strict and 0 weak observations, and the accepted set has **0 chronologically novel** candidates. Not in Stifter 2018. |
 | 23 | [Bitcoin Vault](chains/bitcoin-vault.md) | 9 | 6 | Dormant chain recovered without running a node, via Blockbook `/api/rawblock/<hash>`. The original run classified 8 stale-labelled candidates from 2,575 self-target-PoW-valid headers; the refreshed committed input adds one already-upstream accepted candidate. |
 | 24 | [Electric Cash](chains/elcash.md) | 3 | 0 | Bitcoin Core 0.20.2 fork merge-mining from a fresh Dec 2020 genesis; the three accepted stales (Jun-Sep 2021) fall inside a 2021-2024 real-hashrate era that peaked Sep-Oct 2021, and all three re-observe Bitcoin Vault-first-claimed headers. Self-synced `elcashd`; standard Namecoin-style CAuxPow. Zombie chain, negligible current hashrate. |
-| 25 | [Lyncoin](chains/lyncoin.md) | 0 | 0 | Live-peer P2P header recovery across the complete pre-Flex merge-mined era through child height 260,499. No accepted stale or strict/weak evidence was found in the recovered window. |
-| 26 | [Fractal Bitcoin](chains/fractal.md) | 40 | 1 | Newest integrated chain. `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The current reclassification of 59,504 self-target-PoW-valid unique parents yields 58,970 canonical rows, 40 accepted direct stales, and 494 unknowns. Of the accepted rows, 25 are upstream and 15 are upstream-new; RSK first-claims 21 and Namecoin 16. Bitcoin height 928,455 remains the sole chronologically novel candidate. |
+| 25 | [SpaceXpanse ROD](chains/rod.md) | 0 | 0 | Complete unpruned native-chain scan through child height 4,127,689: 4,127,690 blocks, including 1,058,017 SHA256d PowData proofs. Earliest retained SHA256d evidence is child height 2 on 2022-06-09. The wrapper supplies the effective target separately from the pure child header. One independently reviewed canonical observation links ROD 2,697,753 to Bitcoin 886,688; no accepted direct stale, descendant or error block. Lower-work and unresolved observations remain private. |
+| 26 | [Lyncoin](chains/lyncoin.md) | 0 | 0 | Live-peer P2P header recovery across the complete pre-Flex merge-mined era through child height 260,499. No accepted stale or strict/weak evidence was found in the recovered window. |
+| 27 | [Fractal Bitcoin](chains/fractal.md) | 40 | 1 | Newest integrated chain by activation date (2024-09-09). `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The current reclassification of 59,504 self-target-PoW-valid unique parents yields 58,970 canonical rows, 40 accepted direct stales, and 494 unknowns. Of the accepted rows, 25 are upstream and 15 are upstream-new; RSK first-claims 21 and Namecoin 16. Bitcoin height 928,455 remains the sole chronologically novel candidate. |
 
 \* "Novel" = **chronologically novel at this chain's position** in
 `CHAINS_BY_AUXPOW_ACTIVATION`: not in upstream `bitcoin-data/stale-blocks`
