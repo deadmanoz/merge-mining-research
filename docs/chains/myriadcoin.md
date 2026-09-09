@@ -15,7 +15,7 @@
 | Loader | `load_myriadcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/myriadcoin_validated_stales.csv` |
 
-Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-PoW Huntercoin was integrated earlier, but both of its branches are merge-mined; Myriadcoin is the first chain with native-PoW branches that carry no AuxPoW at all). What it adds methodologically is the `nVersion` algo-bits filter - the node validates all five algorithms, but only the SHA-256d branch carries Bitcoin-parent AuxPoW commitments, so the extractor must drop ~78% of blocks (the non-SHA-256d four) before parsing. The filter pattern has since been reused by Argentum and Bitmark (same bits, different SHA-256d constants). With 40 validated stales (24 new-to-upstream at the current pin, 2 chronologically novel) over a 3¼-year coverage window from May 2017 to August 2020, the chain sits in a similar quality band to Terracoin and Unobtanium - modest absolute haul, meaningful enrichment of the multi-chain set.
+Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-PoW Huntercoin was integrated earlier, but both of its branches are merge-mined; Myriadcoin is the first chain with native-PoW branches that carry no AuxPoW at all). What it adds methodologically is the `nVersion` algo-bits filter - the node validates all five algorithms, but only the SHA-256d branch carries Bitcoin-parent AuxPoW commitments, so the extractor must drop ~78% of blocks (the non-SHA-256d four) before parsing. The filter pattern has since been reused by Argentum and Bitmark (same bits, different SHA-256d constants). With 40 validated stales (24 new-to-upstream at the current pin, 1 chronologically novel) over a 3¼-year coverage window from May 2017 to August 2020, the chain sits in a similar quality band to Terracoin and Unobtanium - modest absolute haul, meaningful enrichment of the multi-chain set.
 
 ## 1. Chain data
 
@@ -71,7 +71,7 @@ The 22.2% SHA-256d fraction is consistent with the equal-time-share assumption a
 - **Multi-algo PoW**: the chain's defining feature. Only the SHA-256d branch is Bitcoin-parent merge-mined; Scrypt merges with Litecoin/Dogecoin (out of scope); Groestl/Yescrypt/Argon2d are native PoW with no AuxPoW. The extractor's nVersion-bit algo filter is the gate.
 - **`fStrictChainId=false`**: the SHA-256d branch accepts AuxPoW from any SHA-256d parent. The classifier's self-target PoW check cannot identify the parent chain; Bitcoin Core classification and validation do so for accepted rows.
 - **Activation date correction**: catalogue records "2015-08" (month-precision); actual activation block 1,402,000 was mined 2015-09-26. `CHAINS_BY_AUXPOW_ACTIVATION` uses the precise date. Per the project chronological-ordering convention, we record production-activation, not chain genesis (2014-02-23).
-- **Pool population overlaps Terracoin**: both chains' validated windows are May 2017 → Aug 2020. The 38 stales claimed by earlier chains (chronological precedence) split as devcoin 17 / namecoin 10 / i0coin 5 / crown 4 / unobtanium 2 - meaning the SHA-256d miner substrate Myriadcoin witnessed in 2017–2020 is the same one those earlier chains had already been recording for years.
+- **Pool population overlaps Terracoin**: both chains' validated windows are May 2017 → Aug 2020. The 39 stales claimed by earlier chains (chronological precedence) split as i0coin 19 / namecoin 10 / devcoin 7 / unobtanium 2 / crown 1 - meaning the SHA-256d miner substrate Myriadcoin witnessed in 2017–2020 is the same one those earlier chains had already been recording for years.
 
 ## 3. Filtering → accepted direct-stale candidates
 
@@ -108,10 +108,10 @@ Myriadcoin is 11th chronologically. Earlier-born integrated chains: namecoin, ge
 | Split | Count |
 |---|---:|
 | also in upstream | 16 |
-| also in earlier-born chain (`devcoin`: 17, `namecoin`: 10, `i0coin`: 5, `crown`: 4, `unobtanium`: 2 - first-claim distribution) | 38 |
-| **novel at this position** | **2** |
+| also in earlier-born chain (`i0coin`: 19, `namecoin`: 10, `devcoin`: 7, `unobtanium`: 2, `crown`: 1 - first-claim distribution) | 39 |
+| **novel at this position** | **1** |
 
-The 38 earlier-chain-claimed stales are the same SHA-256d miner substrate that Devcoin/Namecoin/i0coin/Crown/Unobtanium had already been recording - each of those chains contributed at least one chronologically-earlier observation. The 2 chronological-novel hashes - BTC 508,169 (2018-02-07) and BTC 509,239 (2018-02-14) - are the genuinely new-to-the-multi-chain-set contributions at Myriadcoin's position; both were later cross-confirmed by Emercoin, whose novelty table credits them to `first_seen_chain=myriadcoin`.
+The 39 earlier-chain-claimed stales share observations with i0coin, Namecoin, Devcoin, Unobtanium and Crown. Myriadcoin retains one chronologically novel hash, BTC 508,169 (2018-02-07), which is also observed by Emercoin and credited there to `first_seen_chain=myriadcoin`. The complete March 2026 I0coin snapshot supplies the other previously Myriadcoin-novel hash, BTC 509,239 (2018-02-14), so its first claim now belongs to i0coin under chronological precedence.
 
 > Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
 
@@ -143,4 +143,5 @@ Myriadcoin is the first multi-algo chain in the pipeline. The algo-filter patter
 - **2026-05-15/16** - Docker node built (`ubuntu:20.04`, Myriadcoin Core master) and synced (~6 h IBD to tip 3,712,365); extraction, classification, and the 40-row validated CSV all landed in the origin recovery session (then 33 new-to-upstream at the pre-bump pin, 4 chronologically novel at the pipeline's earlier 16-chain numbering).
 - **2026-05-29** - nBits-gate schema regeneration added the persisted `validation_status` / `expected_nbits` columns (all 40 VALID).
 - **2026-06-24** - Canonical refresh backfilled the 14,705 canonical rows (the original run persisted only the stale/unknown split).
-- **2026-07** - Published in merge-mining-research; at the current upstream pin and 26-chain chronology the figures are 24 new-to-upstream (the pin bump absorbed 9) and 2 chronologically novel (Crown's integration reclaimed 2 of the original 4).
+- **2026-07** - Published in merge-mining-research; at that upstream pin and the then-current 26-chain chronology the figures were 24 new-to-upstream (the pin bump absorbed 9) and 2 chronologically novel (Crown's integration reclaimed 2 of the original 4).
+- **2026-09-08** - Processing the complete March 2026 I0coin snapshot reassigns BTC 509,239 to i0coin under chronological precedence, leaving one chronologically novel Myriadcoin hash. The 40 accepted stales and 24 new-to-upstream count are unchanged.

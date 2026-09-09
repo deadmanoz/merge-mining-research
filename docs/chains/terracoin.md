@@ -119,7 +119,7 @@ Terracoin is 14th chronologically. The earlier-born integrated chains are nameco
 | Split | Count |
 |---|---:|
 | also in upstream | 13 |
-| also in earlier-born chain (`devcoin`: 18, `namecoin`: 8, `i0coin`: 5, `crown`: 3, `unobtanium`: 1 - first-claim distribution) | 35 |
+| also in earlier-born chain (`i0coin`: 20, `namecoin`: 8, `devcoin`: 3, `crown`: 3, `unobtanium`: 1 - first-claim distribution) | 35 |
 | **novel at this position** | **0** |
 
 > **Differs from the "4 novel" figure in earlier project notes.** The 4-novel count was a multi-chain cross-reference at extraction time. Under chronological precedence - with all chronologically-earlier integrated chains layered in, including Crown (AuxPoW activation 2015-08-25, chronological position 10) - every one of Terracoin's 35 validated stales is first-claimed by an earlier-born chain, so **0** are chronologically novel at Terracoin's position. Terracoin's standalone value is therefore the **22 novel-vs-upstream** stales (view a), not chronological-precedence novelty.
