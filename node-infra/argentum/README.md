@@ -64,6 +64,37 @@ just refresh-peers         # attempt to re-pull live IPs from chainetics
 just down                  # stop container (data volume persists)
 ```
 
+## Historical offline operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For an adopted historical datadir, use a private `.env` to select the loaded
+image, retained container name, `ARGENTUM_DATA_DIR`, and
+`COMPOSE_FILE=docker-compose.yml:compose.offline.yml`. The selected datadir
+must already be populated and contain its existing `argentum.conf`; do not
+run `just init` against copied state. The offline profile disables P2P and
+binds RPC to loopback port 13581:
+
+```dotenv
+ARGENTUM_IMAGE=<verified-image>
+ARGENTUM_CONTAINER_NAME=<existing-container>
+ARGENTUM_DATA_DIR=<populated-argentum-datadir>
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+```bash
+docker compose up -d --no-build --pull never
+just height
+# Read the recorded historical block anchors, then park the node.
+just stop
+```
+
+`just stop` waits for graceful shutdown with no forced timeout. For a new
+sync, create `./data` explicitly, then run `just init` to render a fresh
+configuration before using the normal online `just build` and `just up`
+workflow. Keep `.env`, `argentum.conf`, and historical datadirs private.
+
 ## Peer discovery in 2026
 
 **All three DNS seeds in source are dead** (`seed.argentum.cc`,

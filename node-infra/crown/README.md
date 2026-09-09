@@ -58,6 +58,30 @@ following the terracoin/ pattern.
 
 ## Operational
 
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For a preserved-data deployment, copy `.env.example` to a private `.env` and
+select the reviewed image, container name, and populated `CROWN_DATA_DIR`.
+The bind uses `create_host_path: false`; a missing source fails instead of
+creating an empty datadir. Do not run `just init` on copied state. Use `just
+init` only when deliberately preparing a new sync with the default `./data`.
+
+The reviewed offline profile uses Linux host networking, foreground daemon mode,
+loopback RPC, and disables P2P listening, DNS seeding, and peer connections.
+Before startup, remove source-only datadir, bind, and multi-valued RPC entries
+from the private `crown.conf`; command-line overrides do not erase every
+multi-valued setting. Start a retained container with
+`docker compose up -d --no-build --pull never`, then use `just start`, reads,
+and `just stop`. Set `COMPOSE_FILE=docker-compose.yml:compose.offline.yml` in
+the private `.env` to select the offline overlay.
+
+Crown is a historical source. Keep its retained container stopped between
+research runs with `just stop`; `just start` resumes it explicitly. Automatic
+restart is disabled, and stopping waits for graceful shutdown without a forced
+timeout. `just down` removes the container and is not the normal parking
+command. The current online profile can contact peers when started.
+
 ```sh
 just status          # blockchain + peer snapshot
 just height          # current block count

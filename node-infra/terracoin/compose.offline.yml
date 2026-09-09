@@ -1,0 +1,15 @@
+# Linux historical operation with loopback-only RPC and no peer traffic.
+# Requires Compose support for the !reset merge tag.
+services:
+  terracoind:
+    network_mode: host
+    ports: !reset []
+    command:
+      - "-datadir=/home/terracoin/.terracoincore"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcallowip=127.0.0.1"

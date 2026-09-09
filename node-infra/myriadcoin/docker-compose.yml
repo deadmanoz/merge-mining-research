@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/myriadcoind:latest
-    container_name: myriadcoind
-    restart: unless-stopped
+    image: ${MYRIADCOIN_IMAGE:-merge-mining-research/myriadcoind:latest}
+    container_name: ${MYRIADCOIN_CONTAINER_NAME:-myriadcoind}
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC port bound to loopback only — AuxPoW extractor runs on the same host.
     # P2P port published publicly so DNS-seeded peers + inbound peers work.
@@ -14,11 +15,16 @@ services:
       - "10888:10888"
 
     volumes:
-      - ./data:/home/myriadcoin/.myriadcoin
+      - type: bind
+        source: ${MYRIADCOIN_DATA_DIR:-./data}
+        target: /home/myriadcoin/.myriadcoin
+        bind:
+          create_host_path: false
 
     # myriadcoin.conf must already exist in ./data; see init.sh.
     command:
       - "-printtoconsole"
+      - "-daemon=0"
       - "-datadir=/home/myriadcoin/.myriadcoin"
 
     healthcheck:

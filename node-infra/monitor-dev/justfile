@@ -1,0 +1,40 @@
+set dotenv-load
+
+default:
+    @just --list
+
+# Validate interpolation and the Compose schema without starting services.
+config:
+    docker compose config --quiet
+
+build:
+    docker compose build app
+
+db-up:
+    docker compose up -d db
+
+app-up:
+    docker compose up -d app
+
+up:
+    docker compose up -d db app
+
+down:
+    docker compose down
+
+app-logs:
+    docker compose logs -f --tail=200 app
+
+db-logs:
+    docker compose logs -f --tail=200 db
+
+# Run an existing monitor command explicitly without starting database
+# dependencies implicitly. Start `db` separately when the command needs it.
+run +args:
+    docker compose run --no-deps --rm app {{ args }}
+
+# Remove only stopped containers and this workspace's image. The PGDATA bind
+# directory is deliberately untouched.
+clean:
+    docker compose rm --force app db
+    docker image rm merge-mining-monitor/dev:local

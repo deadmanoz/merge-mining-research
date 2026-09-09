@@ -5,7 +5,7 @@
 set -euo pipefail
 
 if [[ ! -s /sixeleven/611.conf ]]; then
-    echo "ERROR: /sixeleven/611.conf is missing; run 'just init' first" >&2
+    echo "ERROR: /sixeleven/611.conf is missing; restore its private config, or use 'just init' only for a new datadir" >&2
     exit 1
 fi
 

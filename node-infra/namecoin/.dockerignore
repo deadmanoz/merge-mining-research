@@ -1,0 +1,7 @@
+# Allowlist only the preserved native binaries and the Dockerfile.
+**
+!Dockerfile
+!binaries/
+binaries/**
+!binaries/namecoind
+!binaries/namecoin-cli

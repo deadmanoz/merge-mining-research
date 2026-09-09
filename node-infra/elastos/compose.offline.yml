@@ -1,0 +1,13 @@
+# Diagnostic networkless operation. Do not use for synchronization.
+services:
+  node:
+    network_mode: none
+    restart: "no"
+    ports: !reset []
+    command:
+      - --conf=/config/config.json
+      - --datadir=/data/elastos
+      - --enablerpc
+      - --printlevel
+      - "3"
+      - --disabledns

@@ -13,9 +13,17 @@ build:
 up:
     docker compose up -d
 
+# Start the retained unobtaniumd container without recreating it.
+start:
+    docker compose start unobtaniumd
+
+# Stop the retained unobtaniumd container and wait for graceful shutdown.
+stop:
+    docker compose stop --timeout -1 unobtaniumd
+
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail the unobtaniumd logs.
 logs:

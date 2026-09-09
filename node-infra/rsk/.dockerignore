@@ -1,0 +1,7 @@
+# Only the preserved JAR, Dockerfile, and RPC helper enter the build.
+**
+!Dockerfile
+!rsk-rpc.sh
+!binaries/
+binaries/**
+!binaries/rskj-core-9.0.1-VETIVER-all.jar

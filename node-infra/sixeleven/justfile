@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -18,7 +20,17 @@ up:
 
 # Stop and remove the container while preserving chain data.
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+# Retain the container and wait for normal database shutdown.
+stop:
+    docker compose stop --timeout -1 sixelevend
+
+start:
+    docker compose start sixelevend
+
+config:
+    docker compose config --quiet
 
 # Tail daemon logs.
 logs:

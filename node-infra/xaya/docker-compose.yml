@@ -5,7 +5,8 @@ services:
       dockerfile: Dockerfile
     image: merge-mining-research/xayad:v1.13
     container_name: xayad
-    restart: unless-stopped
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC bound to 127.0.0.1 only — AuxPoW extractor runs on the same host.
     # P2P port published publicly so DNS-seeded peers + inbound peers work.

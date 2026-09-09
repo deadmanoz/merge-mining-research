@@ -15,7 +15,14 @@ up:
 
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+# Keep the container for explicit research sessions.
+stop:
+    docker compose stop --timeout -1 xayad
+
+start:
+    docker compose start xayad
 
 # Tail the xayad logs.
 logs:

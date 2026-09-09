@@ -64,3 +64,11 @@ just status          # full blockchain + peer snapshot
 - DNS seeds = `seed.xaya.io.`, `seed.xaya.domob.eu.`
 - Genesis = `e5062d76e5f50c42f493826ac9920b63a8def2626fd70a5cec707ec47a4c4651` (2018-07-13)
 - Genesis algo = NEOSCRYPT (the first SHA256D-AuxPoW block will be height ≥ 1)
+
+## Parked operation
+
+Automatic restart is disabled. Keep this research node stopped between
+explicit sessions: `just stop` waits for normal database shutdown and retains
+the container; `just start` resumes it. The existing online configuration can
+contact peers when started. These lifecycle commands do not establish that a
+preserved datadir is complete or that a surveyed chain has recoverable history.

@@ -3,15 +3,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: coiledcoind:local
-    container_name: coiledcoind
-    restart: unless-stopped
+    image: ${COILEDCOIN_IMAGE:-coiledcoind:local}
+    container_name: ${COILEDCOIN_CONTAINER_NAME:-coiledcoind}
+    restart: "no"
+    stop_grace_period: 5m
+    command: ["-daemon=0"]
 
     # No ports published — the chain is dead, no useful peers exist. RPC is
     # accessed via `docker compose exec` (the legacy 2012 client only exposes
     # `getinfo` and a handful of read commands; we don't need network RPC).
     volumes:
-      - ./data:/data
+      - type: bind
+        source: ${COILEDCOIN_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
 
     healthcheck:
       test: ["CMD", "coiledcoind", "-datadir=/data", "getblockcount"]

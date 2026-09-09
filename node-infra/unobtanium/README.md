@@ -48,3 +48,25 @@ just refresh-peers   # pull fresh peer list from Chainz API
 
 - `65534` - P2P (published publicly on `<archival-host>`)
 - `65535` - RPC (bound to 127.0.0.1 on the host; extractor runs on the same host)
+
+## Historical offline operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For an adopted historical datadir, create a private `.env` selecting the
+verified image and populated state:
+
+```dotenv
+UNOBTANIUM_IMAGE=<verified-image>
+UNOBTANIUM_CONTAINER_NAME=<existing-container>
+UNOBTANIUM_DATA_DIR=<populated-unobtanium-datadir>
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+The datadir must already contain its existing `unobtanium.conf`; do not run
+`just init` on copied state. Adopt it with `docker compose up -d --no-build
+--pull never`, then use `just height`, verify the recorded historical block anchors, and run
+`just stop`. The offline profile disables P2P and keeps RPC on the
+configured/default loopback port. For a new sync, create `./data` explicitly
+before running `just init`.
