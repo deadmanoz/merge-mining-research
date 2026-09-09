@@ -1,6 +1,9 @@
 default:
     @just --list
 
+config:
+    docker compose config --quiet
+
 init:
     ./init.sh
 
@@ -11,7 +14,14 @@ up:
     docker compose up -d
 
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+# Keep the container for explicit research sessions.
+stop:
+    docker compose stop --timeout -1 doichaind
+
+start:
+    docker compose start doichaind
 
 logs:
     docker compose logs -f --tail=200 doichaind

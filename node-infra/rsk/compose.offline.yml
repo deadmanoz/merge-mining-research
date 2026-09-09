@@ -1,0 +1,19 @@
+services:
+  rsk:
+    network_mode: none
+    restart: "no"
+    environment:
+      RSK_RPC_BIND: 127.0.0.1
+      RSK_RPC_PORT: 4444
+    command:
+      - -Xms4g
+      - -Xmx8g
+      - -cp
+      - /opt/rsk/rskj-core-9.0.1-VETIVER-all.jar
+      - co.rsk.Start
+      - --main
+      - --sync-mode=full
+      - -base-path=/data
+      - -Xdatabase.dir=/data/mainnet/database
+      - -Xrpc.providers.web.http.bind_address=127.0.0.1
+      - -Xrpc.providers.web.http.port=4444

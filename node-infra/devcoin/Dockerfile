@@ -8,8 +8,11 @@
 # Wallet, BDB, GUI, tests, and bench are all disabled because AuxPoW
 # extraction only reads blocks.
 
+# Select upstream or a preserved source.bundle without a private Dockerfile.
+ARG DEVCOIN_SOURCE=upstream
+
 # --- build stage --------------------------------------------------------------
-FROM ubuntu:24.04 AS build
+FROM ubuntu:24.04 AS build-tools
 
 ARG DEVCOIN_REF=301c1ae8c2a59c1bfa160a2dce3286b036989ba2
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,9 +26,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
+
+FROM build-tools AS source-upstream
 RUN git clone https://github.com/devcoin/core.git . \
     && git checkout "${DEVCOIN_REF}" \
     && git log -1 --oneline
+
+FROM build-tools AS source-bundle
+COPY source.bundle /tmp/devcoin-source.bundle
+RUN git clone /tmp/devcoin-source.bundle . \
+    && git checkout "${DEVCOIN_REF}" \
+    && git log -1 --oneline
+
+FROM source-${DEVCOIN_SOURCE} AS build
 
 # Modern-toolchain header-include patches. See README.
 COPY patches/0001-modern-toolchain.patch /tmp/

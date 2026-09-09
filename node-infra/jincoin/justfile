@@ -16,7 +16,14 @@ up:
 
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
+
+# Keep the container for explicit research sessions.
+stop:
+    docker compose stop --timeout -1 jincoind
+
+start:
+    docker compose start jincoind
 
 # Tail the jincoind logs.
 logs:

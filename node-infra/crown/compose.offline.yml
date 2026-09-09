@@ -1,0 +1,18 @@
+# Linux archival operation. Review crown.conf before startup and remove
+# source-only datadir, bind, and multi-valued RPC settings first.
+services:
+  crownd:
+    network_mode: host
+    restart: "no"
+    ports: !reset []
+    command:
+      - "-printtoconsole"
+      - "-daemon=0"
+      - "-server=1"
+      - "-datadir=/home/crown/.crown"
+      - "-conf=/home/crown/.crown/crown.conf"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcallowip=127.0.0.1"

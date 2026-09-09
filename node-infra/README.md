@@ -7,13 +7,81 @@ README before building, and keep generated datadirs out of git (each directory
 ignores `data/`). Some workspaces, including SixEleven, pin a published image
 directly and therefore do not need a Dockerfile.
 
+Every node and research-worker image belongs here as a Dockerfile or pinned
+image reference, with its patches, runtime configuration and operating notes.
+The archive dashboard is maintained separately in its own private repository.
+Deploy these recipes unchanged; add reusable variants to the repo and keep
+machine-specific settings private. Order host runtime startup after required
+data mounts and private network interfaces used by RPC bindings. Generated
+image exports, source bundles and node databases remain in the private archive.
+
+The private [archive dashboard](https://github.com/deadmanoz/mmr-archive-dashboard)
+provides a view of storage, locations, verified transfers and research gaps.
+Its source, Docker image recipe and read-only collector now live in that
+repository; `archive-dashboard/` here is only a pointer.
+
+Argentum, Bitmark, Crown, Devcoin, Doichain, Elcash, Emercoin, IXCoin,
+Myriadcoin, Terracoin and Unobtanium have `compose.offline.yml` overlays for reading preserved
+datadirs on Linux with peer connections disabled and RPC on loopback. Use
+each workspace's README to select the retained image and datadir; the
+overlays are opt-in, and the existing online recipes remain available.
+Before a host-network offline start, preserve the copied original config
+privately and remove its `addnode`, `connect`, `seednode`, `rpcbind` and
+`rpcallowip` entries from the runtime copy. The overlay supplies the offline
+connection and loopback RPC settings. Explicit peer entries must not survive
+merely because automatic peer discovery is disabled. Keep index, network and
+database options unchanged, and verify zero peers and loopback-only listeners.
+Historical containers, including Crown, have automatic restart disabled.
+Keep them stopped between explicit research runs. A retained datadir is not
+proof of complete coverage or of a successful restart; record its verified
+tip and historical block reads before relying on it.
+
+Use the workspace's actual CLI recipe for readiness checks. RPC error `-28`
+while loading or rewinding an existing block index is normal startup work.
+Keep the daemon running, inspect its progress, and poll again. A tool-call
+timeout or an unhealthy startup probe is not a reason to stop, recreate or
+reindex the node. Acceptance needs one successful cold start, authenticated
+block reads and graceful stop. Repeat startup only when a runtime correction
+needs verification. Use `just start` to resume the retained container for a
+later research run.
+
+The historical workspaces allow five minutes for ordinary container shutdown.
+Their explicit `just stop` and `just down` recipes wait without a forced
+timeout so database flushing can finish. Investigate a stalled shutdown before
+considering a forced stop.
+
+CoiledCoin and SixEleven have separate offline overlays with networking
+disabled entirely. Their legacy RPC is accessed through the workspace's
+`docker compose exec` recipes, without publishing a host port. Their existing
+database formats and entrypoints differ from newer Bitcoin-family nodes;
+follow their own instructions when adopting preserved data.
+
+The Blast, Jincoin, Lyncoin and Xaya research scaffolds also
+default to no automatic restart and provide explicit retained-container
+start/stop commands. Their ordinary configurations may contact peers when
+started. Keeping a scaffold available does not imply recoverable chain data.
+
+[Namecoin](namecoin/README.md) and [Syscoin](syscoin/README.md) package the
+preserved native Linux binaries with build-time hash checks. Their data and
+private configuration are separate, noncreating binds. Use the offline profile
+for initial read checks, and enable the live restart policy only after cutover
+acceptance. Packaging preserves the observed node version and index state.
+
+[Elastos](elastos/README.md) packages its preserved release binaries and keeps
+the complete node root, including logs, under one data bind. [RSK](rsk/README.md)
+packages the preserved JAR with its matching Java runtime and keeps the active
+unitrie store inside its complete data bind. Both provide networkless read
+profiles, reject
+missing data binds and keep automatic restart disabled until live acceptance.
+
+[Fractal](fractal/README.md) can adopt its retained image and existing disk
+through the same explicit lifecycle. Its offline overlay disables networking;
+the live profile publishes RPC only on the selected private host address.
+
 Not every integrated chain has a recipe here, because not every recovery
 ran a node:
 
-- **Namecoin, RSK, Syscoin, Elastos** ran as natively installed nodes
-  (RSK on RSKj, Elastos on its Go implementation); their setup is
-  conventional and documented in the per-chain docs.
-- **i0coin** was recovered from a 2018 datadir snapshot parsed offline;
+- **i0coin** was recovered from the complete March 2026 snapshot parsed offline;
   no node ran.
 - **Geistgeld and Groupcoin** survive only as complete `getblock`-JSON
   dumps; there is no network left to sync.

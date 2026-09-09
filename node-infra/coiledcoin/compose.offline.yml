@@ -1,0 +1,4 @@
+# The preserved legacy database is queried through docker compose exec.
+services:
+  coiledcoind:
+    network_mode: none

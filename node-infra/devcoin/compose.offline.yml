@@ -1,0 +1,15 @@
+# Linux archival operation with the original loopback-only RPC endpoint.
+# Requires Compose support for the !reset merge tag.
+services:
+  devcoind:
+    network_mode: host
+    ports: !reset []
+    command:
+      - "-datadir=/home/devcoin/.devcoin"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcport=52332"

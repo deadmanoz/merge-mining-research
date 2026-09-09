@@ -1,0 +1,16 @@
+# Linux historical operation. Cookie authentication is created at startup,
+# including when the preserved datadir has no elcash.conf.
+services:
+  elcashd:
+    network_mode: host
+    ports: !reset []
+    command:
+      - "-datadir=/data"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcallowip=127.0.0.1"
+      - "-rpcport=${ELCASH_RPC_PORT:-18432}"

@@ -1,0 +1,10 @@
+# Preserved release inputs are supplied from the private VM archive before a build.
+/ela
+/ela-cli
+/ela-dns
+
+# Runtime state and operator configuration never belong in this workspace.
+/data/
+/config/
+/.env
+!.env.example

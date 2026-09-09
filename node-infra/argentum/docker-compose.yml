@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/argentumd:latest
-    container_name: argentumd
-    restart: unless-stopped
+    image: ${ARGENTUM_IMAGE:-merge-mining-research/argentumd:latest}
+    container_name: ${ARGENTUM_CONTAINER_NAME:-argentumd}
+    restart: "no"
+    stop_grace_period: 5m
     # Docker's built-in init (PID-1 reaping); replaces tini, which is not
     # available in Debian stretch main.
     init: true
@@ -18,11 +19,16 @@ services:
 
     volumes:
       # Override ARGENTUM_DATA_DIR for production deployments.
-      - ${ARGENTUM_DATA_DIR:-./data}:/home/argentum/.argentum
+      - type: bind
+        source: ${ARGENTUM_DATA_DIR:-./data}
+        target: /home/argentum/.argentum
+        bind:
+          create_host_path: false
 
     # argentum.conf must already exist in ./data; see init.sh.
     command:
       - "-printtoconsole"
+      - "-daemon=0"
       - "-datadir=/home/argentum/.argentum"
 
     healthcheck:

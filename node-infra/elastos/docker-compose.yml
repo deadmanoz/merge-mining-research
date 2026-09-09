@@ -1,0 +1,41 @@
+services:
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: merge-mining-research/elastos:1.0.2
+    platform: linux/amd64
+    user: "1000:1000"
+    restart: ${ELASTOS_RESTART_POLICY:-no}
+    entrypoint: ["/usr/local/bin/ela"]
+    network_mode: host
+    ports: []
+
+    volumes:
+      - type: bind
+        source: ${ELASTOS_DATA_DIR:?ELASTOS_DATA_DIR must point to an existing populated datadir}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ELASTOS_CONFIG_FILE:?ELASTOS_CONFIG_FILE must point to an existing reviewed config}
+        target: /config/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      # ela-cli reads its default config from the working directory.
+      - type: bind
+        source: ${ELASTOS_CONFIG_FILE:?ELASTOS_CONFIG_FILE must point to an existing reviewed config}
+        target: /data/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+
+    command:
+      - --conf=/config/config.json
+      - --datadir=/data/elastos
+      - --enablerpc
+      - --printlevel
+      - "3"
+
+    stop_grace_period: 5m

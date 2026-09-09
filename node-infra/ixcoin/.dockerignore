@@ -1,0 +1,4 @@
+*
+!Dockerfile
+!patches/
+!patches/0001-modern-toolchain.patch

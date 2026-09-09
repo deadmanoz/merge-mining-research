@@ -88,6 +88,7 @@ data/canonical/
 # block indexes, and chainstate. Keep every workspace's default data/ target out
 # of git even when a chain-local ignore file is absent.
 /node-infra/*/data/
+/node-infra/devcoin/source.bundle
 
 # Full-evidence AuxPoW exports can include bulky/private classifier rows when
 # built with --chain-archive-dir. Regenerate them with

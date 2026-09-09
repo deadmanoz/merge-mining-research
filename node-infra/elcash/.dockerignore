@@ -1,0 +1,3 @@
+# The Dockerfile obtains source itself and needs no other context files.
+*
+!Dockerfile

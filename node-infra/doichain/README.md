@@ -82,3 +82,29 @@ exact-target audit results.
 The committed survey result is documented in
 [`docs/chains/doichain.md`](../../docs/chains/doichain.md). Generated node data,
 raw extracts, and full classifier inventories remain outside git.
+
+## Parked operation
+
+Apply the [copied-config preparation](../README.md) before using this host-network
+offline profile, including removal of explicit peer entries from the runtime copy.
+
+For preserved-data adoption, copy `.env.example` to a private `.env` and
+select the reviewed image, container name, and populated `DOICHAIN_DATA_DIR`.
+The bind uses `create_host_path: false`; a missing source fails instead of
+creating an empty datadir. Do not run `just init` on copied state. Use `just
+init` only when deliberately preparing a new sync with the default `./data`.
+
+The reviewed offline profile uses Linux host networking, foreground daemon mode,
+loopback RPC, and disables P2P listening, DNS seeding, and peer connections.
+Before startup, remove source-only datadir, bind, and multi-valued RPC entries
+from the private `doichain.conf`; command-line overrides do not erase every
+multi-valued setting. Start a retained container with
+`docker compose up -d --no-build --pull never`, then use `just start`, reads,
+and `just stop`. Set `COMPOSE_FILE=docker-compose.yml:compose.offline.yml` in
+the private `.env` to select the offline overlay.
+
+Automatic restart is disabled. Keep this research node stopped between
+explicit sessions: `just stop` waits for normal database shutdown and retains
+the container; `just start` resumes it. The existing online configuration can
+contact peers when started. These lifecycle commands do not establish that a
+preserved datadir is complete or that a surveyed chain has recoverable history.

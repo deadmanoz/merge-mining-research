@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/ixcoind:0.14.1
-    container_name: ixcoind
-    restart: unless-stopped
+    image: ${IXCOIN_IMAGE:-merge-mining-research/ixcoind:0.14.1}
+    container_name: ${IXCOIN_CONTAINER_NAME:-ixcoind}
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC bound to 127.0.0.1 only — AuxPoW extractor runs on the same host.
     # P2P port published publicly so addnodes + inbound peers work.
@@ -14,11 +15,16 @@ services:
       - "8338:8338"
 
     volumes:
-      - ./data:/home/ixcoin/.ixcoin
+      - type: bind
+        source: ${IXCOIN_DATA_DIR:-./data}
+        target: /home/ixcoin/.ixcoin
+        bind:
+          create_host_path: false
 
     # ixcoin.conf must already exist in ./data.
     command:
       - "-printtoconsole"
+      - "-daemon=0"
       - "-datadir=/home/ixcoin/.ixcoin"
 
     healthcheck:

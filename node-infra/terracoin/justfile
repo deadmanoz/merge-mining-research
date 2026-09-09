@@ -13,9 +13,17 @@ build:
 up:
     docker compose up -d
 
+# Start the retained terracoind container without recreating it.
+start:
+    docker compose start terracoind
+
+# Stop the retained terracoind container and wait for graceful shutdown.
+stop:
+    docker compose stop --timeout -1 terracoind
+
 # Stop and remove the container (data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail the terracoind logs.
 logs:
