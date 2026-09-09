@@ -1740,6 +1740,95 @@ def test_monitor_export_publishes_both_observation_chain_inventories(
     }
 
 
+def test_monitor_export_derives_all_artifact_paths_from_one_logical_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stale_blocks_analysis import error_observations
+
+    data_dir = tmp_path / "data"
+    parent_hex, parent_hash = _header(prev_hash="cc" * 32)
+    _write_csv(
+        data_dir / "validated-stales" / "namecoin_validated_stales.csv",
+        [
+            {
+                "btc_height": "331735",
+                "btc_header_hash": parent_hash,
+                "btc_header_hex": parent_hex,
+                "classification": "stale",
+                "validation_status": "VALID",
+            }
+        ],
+    )
+
+    def write_error_artifact(directory: Path, **_kwargs) -> dict[str, object]:
+        path = directory / "error-block-observations_monitor_evidence.csv"
+        path.write_text("")
+        return {
+            "artifact": "error-block-observations",
+            "path": path,
+            "rows": 2,
+            "parents": 1,
+            "source_chain_counts": {"namecoin": 2},
+        }
+
+    monkeypatch.setattr(
+        error_observations,
+        "write_error_observation_artifact",
+        write_error_artifact,
+    )
+
+    cases = [
+        (None, "<external>/output"),
+        (REPO / "results" / "monitor-evidence", "results/monitor-evidence"),
+    ]
+    for index, (reported_output_dir, logical_root) in enumerate(cases):
+        output_dir = tmp_path / f"physical-{index}" / "output"
+        summary = build_monitor_evidence_exports(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            reported_output_dir=reported_output_dir,
+            relevance_inventory=None,
+            include_error_observations=True,
+        )
+        expected = {
+            "namecoin": f"{logical_root}/namecoin_monitor_evidence.csv",
+            "error-block-observations": (
+                f"{logical_root}/error-block-observations_monitor_evidence.csv"
+            ),
+        }
+        counts = {
+            row["chain"]: row
+            for row in _read_csv(output_dir / "monitor-evidence-counts.csv")
+        }
+        manifest = json.loads(
+            (output_dir / "monitor-evidence-manifest.json").read_text()
+        )
+
+        assert summary["output_dir"] == logical_root
+        assert summary["counts_csv"] == (f"{logical_root}/monitor-evidence-counts.csv")
+        assert summary["manifest_json"] == (
+            f"{logical_root}/monitor-evidence-manifest.json"
+        )
+        for chain, path in expected.items():
+            assert summary["artifacts"][chain] == path
+        assert all(
+            path == f"{logical_root}/{Path(path).name}"
+            for path in summary["artifacts"].values()
+        )
+        assert counts["namecoin"]["artifact_path"] == expected["namecoin"]
+        assert (
+            counts["error-block-observations"]["artifact_path"]
+            == expected["error-block-observations"]
+        )
+        assert {
+            row["chain"]: row["artifact_path"]
+            for row in counts.values()
+            if row["artifact_path"]
+        } == summary["artifacts"]
+        assert manifest == summary
+
+
 def test_monitor_export_reads_unknown_from_split_companion_file(tmp_path: Path) -> None:
     # After the bucket split, unknown rows live in <chain>_unknown_blocks.csv,
     # NOT the stale inventory. The monitor export must merge that companion

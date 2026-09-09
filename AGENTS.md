@@ -106,7 +106,11 @@ builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
 available canonical row for every chain. Never point a partial build at the
 committed monitor-evidence directory. Both modes stage the complete generated
 artifact set before replacing the publication; unrelated files already in the
-output directory are preserved.
+output directory are preserved. Complete exports may use an external final
+destination. When output is staged for later installation elsewhere, pass
+`--reported-output-dir` with that final destination; otherwise the output
+directory itself is the reported destination. Completeness gates do not
+require installation into the repository's default results directory.
 
 Useful direct commands:
 

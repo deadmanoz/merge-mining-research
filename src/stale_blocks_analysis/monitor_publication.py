@@ -1766,6 +1766,16 @@ def validate_publication_inputs(
                 "--allow-partial requires an explicit disposable --output-dir; "
                 "refusing to overwrite committed monitor evidence"
             )
+        reported_output_dir = getattr(args, "reported_output_dir", None)
+        if (
+            reported_output_dir is not None
+            and reported_output_dir.expanduser().resolve()
+            == MONITOR_OUTPUT_DIR.resolve()
+        ):
+            parser.error(
+                "--allow-partial cannot report the committed monitor-evidence "
+                "directory as its logical output"
+            )
         return
 
     problems: list[str] = []
@@ -2378,6 +2388,14 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
     output_dir = args.output_dir.expanduser().resolve()
     if output_dir == output_dir.parent:
         raise ValueError("refusing to use a filesystem root as monitor output")
+    requested_reported_output_dir = getattr(args, "reported_output_dir", None)
+    reported_output_dir = (
+        requested_reported_output_dir.expanduser().resolve()
+        if requested_reported_output_dir is not None
+        else output_dir
+    )
+    if reported_output_dir == reported_output_dir.parent:
+        raise ValueError("refusing to report a filesystem root as monitor output")
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     transaction_dir = Path(
         tempfile.mkdtemp(
@@ -2391,7 +2409,7 @@ def build_transactionally(args: argparse.Namespace) -> dict[str, object]:
         summary = build_monitor_evidence_exports(
             data_dir=args.data_dir,
             output_dir=staging_dir,
-            reported_output_dir=output_dir,
+            reported_output_dir=reported_output_dir,
             chain_archive_dirs=args.chain_archive_dirs,
             relevance_inventory=args.relevance_inventory,
             reported_relevance_inventory=(

@@ -225,13 +225,15 @@ historical evidence columns:
 | `coinbase_op_return`, `coinbase_ascii_strings` | Raw coinbase evidence. |
 | `is_uncle`, `uncle_index`, `uncle_parent_height` | RSK uncle (stale) metadata. |
 
-The full stale/unknown inventory (`rsk_stale_blocks.csv`, 338
-stale-labelled candidates + 37,048 unknown rows after the 2026-09-05
-side-chain-aware reclassification) is not committed. Four consensus-invalid
-parents route to the error-block sibling output, the exact-key gate excludes
-the stale-labelled BTC 789,038, and the stale-descendant module represents the
-height-656,478 parent, leaving 337 direct-stale rows in the committed
-validated file.
+The full stale/unknown inventory (`rsk_stales.csv`, exposed for discovery as
+`rsk_stale_blocks.csv`, 354
+stale-labelled observations + 37,410 unknown rows after the 2026-09-08
+height-zero acquisition) and its 236,073-row canonical companion are private.
+Four consensus-invalid parents route to the error-block sibling output, and
+the exact-key gate excludes the stale-labelled BTC 789,038, leaving 353
+direct-stale rows in the committed validated file. Three RSK observations of
+stale-descendant parents, including BTC 656,478, enter publication through the
+authenticated parent/witness module.
 
 ## Stale descendants
 
