@@ -332,9 +332,12 @@ and is accepted only with `--allow-partial` and an explicit, disposable
 `--output-dir`; partial builds must not replace the committed release
 artifacts. The command stages the complete generated set before replacing the
 publication transactionally, and preserves unrelated files in the output
-directory if the build succeeds or fails. When the physical output is a
-separate staging tree, pass `--reported-output-dir` with the final logical
-publication directory so every generated metadata path names that destination.
+directory if the build succeeds or fails. Complete exports may have an
+external final destination. When output is staged for later installation
+elsewhere, pass `--reported-output-dir` with that final destination so every
+generated metadata path names it. Without that option, the output directory
+itself is the reported destination. The same completeness gates apply to
+repository and external destinations.
 
 `just validate-error-blocks` validates the reviewed canonical error-block
 catalogue, its median-time-past sidecar, and the exact child-observation
