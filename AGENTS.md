@@ -459,6 +459,13 @@ change. Never start extraction or publication automatically, and keep private
 inputs out of the Docker build context. Read the workspace README for RPC
 environment forwarding and the optional Linux host-network overlay.
 
+`node-infra/monitor-dev/` builds the development Monitor from an explicit
+local Monitor checkout and runs it beside PostgreSQL 16. Use its `just config`,
+`just build`, `just db-up` and `just app-up` commands. Keep the app port on host
+loopback and restore databases logically into a separate development bind.
+Startup must not run migrations, imports, Core sync or pollers automatically.
+Keep private environment, configuration, data, backups and logs ignored.
+
 Each `node-infra/<chain>/` directory is its own operational workspace with a
 README and usually a local `justfile`. Read the chain README before building or
 starting a node.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Provide an on-demand development Monitor workspace with an explicit local
+source checkout, PostgreSQL 16 and a read-only Research bind. Keep the API on
+host loopback and database restoration, migrations and data jobs explicit.
+Exclude private settings and database files from Git and the image context.
+
 Derive every monitor publication artifact path from one sanitized logical
 output root, and let externally staged builds name their final destination
 explicitly without leaking or misreporting the physical build directory.
