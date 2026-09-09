@@ -1,6 +1,14 @@
 # Stale recovery process, data volumes, and outcomes
 
-Published state: 2026-09-09.
+Published combined I0coin/RSK/ROD generation: 2026-09-09.
+
+This integration retains the complete I0coin publication and merged RSK
+recovery. The audited ROD companion contributes one canonical observation and
+no accepted direct stale, descendant or error block. The complete combined
+Monitor build passed, retaining all 1,283,971 prior observations and adding
+exactly one ROD canonical row. The publication now contains 1,283,972 rows,
+including 1,279,987 canonical observations. All 29 pre-existing Monitor
+payloads remain byte-for-byte unchanged.
 
 This document is the cross-chain accounting view for the stale-block recovery
 work. It is deliberately more operational than the per-chain writeups: it
@@ -51,8 +59,10 @@ prefix remain untested. This was not a full-block consensus replay.
 
 ## Executive Accounting
 
-The repository currently has 26 integrated registry entries with committed
-loader inputs. Twenty-two are non-empty; Geistgeld, Doichain, Lyncoin, and
+The repository currently has 27 integrated registry entries. Twenty-six have
+committed direct-stale loader inputs; ROD has a canonical companion only and
+no fabricated empty validated-stales file. Twenty-two direct-stale inputs are
+non-empty; Geistgeld, Doichain, Lyncoin, and
 SixEleven have legitimate header-only inputs recording zero accepted
 direct-stale candidates. The repository also carries the two-table
 stale-descendant module and complete final-category Monitor outputs under
@@ -64,8 +74,8 @@ characterization records 300,625 canonical-tip commitments matching exact
 Bitcoin `nBits` and BIP34 height, but no row-level canonical export is
 committed.
 
-The complete 9 September Monitor generation contains 1,283,971 rows:
-1,279,986 canonical observations, 3,809 direct stales, 33 descendant child
+The complete 9 September I0coin/RSK/ROD Monitor generation contains 1,283,972 rows:
+1,279,987 canonical observations, 3,809 direct stales, 33 descendant child
 observations, the separate 21-row descendant parent table, 88 error
 observations, and 34 strict/weak observations. The last group comprises 24
 strict and 10 weak observations after the strongest available verdict is
@@ -79,13 +89,13 @@ witnessed on multiple chains can occur more than once.
 | Per-chain accepted direct-stale candidate observations at height >= 0 | 3,809 | Sum of all integrated direct-stale loader functions, including Namecoin's 1,649, Elastos's 177, Syscoin's 98, RSK's 353, Emercoin's 96, Xaya's 40, Electric Cash's 3, Fractal Bitcoin's 40, and Bitcoin Vault's 9. Cross-chain observations of the same header count once per chain here. |
 | Accepted stale-descendant parent verdicts | 21 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. The complete selected Xaya unknown inventory is included in the 9 September reconciliation. |
 | Merge-mining/derived parent candidates before dedup | 3,830 | Per-chain direct-stale observations plus accepted stale-descendant parent verdicts. |
-| Authenticated historical child-header observations | 3,019,416 | All rows across the 17 regenerated historical sources. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. |
+| Authenticated historical child-header observations | 3,019,417 | All rows across the 17 regenerated historical sources plus one reviewed ROD canonical observation, verified across 18 source rows. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. |
 | Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,447 | Dedup key is `(height, hash)`. The total is unchanged at the epoch-aligned analysis floor of 147,168 because no effective upstream row remains below the floor. |
 | Unique events in post-compact base window | 924 | At `MIN_HEIGHT=421344` with every integrated loader included. |
 | Upstream-novel direct rows across novelty CSVs | 577 | `results/per-chain-novelty/*.csv`, `in_upstream=no`; row-level across chains, so cross-chain duplicates count once per chain. 314 unique events are chronologically first-claimed. Excludes stale descendants. |
 | Pending-upstream sidecar rows | 331 | `data/new_stale_blocks_for_upstream.csv`: 314 first-claimed direct upstream-new rows plus 17 upstream-new stale descendants. |
 | Pending-upstream header fills | 264 | `data/upstream_header_fills.csv`: committed headers for upstream rows recorded hash-only (heights 179,641 through 472,549). |
-| Published Monitor observations | 1,283,971 | The complete projection retains 236,432 RSK observations: 236,073 canonical, 353 direct stale, three descendant and three strict unknown. The expanded I0coin source adds 10,703 canonical and 25 direct-stale observations; its two additional error witnesses enter the separate error aggregate. |
+| Published I0coin/RSK/ROD Monitor observations | 1,283,972 | The complete projection preserves all 1,283,971 prior observations and adds one ROD canonical witness. It retains 236,432 RSK observations: 236,073 canonical, 353 direct stale, three descendant and three strict unknown. The expanded I0coin source adds 10,703 canonical and 25 direct-stale observations; its two additional error witnesses enter the separate error aggregate. |
 
 The RSK publication merged on 9 September 2026 refreshed source coordinates and
 canonical coinbase renderings across the retained publication. Its 1,625
@@ -215,7 +225,7 @@ Key artifacts:
 
 Monitor publication projects all 33 accepted witnesses into their ordinary
 per-chain artifacts with final `classification=stale_descendant`. It stages all
-28 ordinary artifacts, the error-observation aggregate, counts, and manifest
+29 ordinary artifacts, the error-observation aggregate, counts, and manifest
 as one coherent transaction. The 21-row parent summary artifact records
 parent verdicts and does not substitute for witness membership.
 
@@ -291,6 +301,7 @@ upstream and not first claimed by any earlier-born integrated chain.
 | Fractal Bitcoin | `fractald` v0.3.0 archival node; compact `getblockheader <hash> false true` extraction. | Historical 2026-05-29 run: 1,807,154 FB blocks scanned; 1,205,394 non-merge-mined blocks skipped; 601,760 AuxPoW rows; 0 parse errors. The dated 2026-07-18 reclassification materialized 59,504 self-target-PoW-valid unique parent headers as 58,980 canonical, 31 stale-labelled, and 493 unknown. The 30 August current-Core reclassification of the same population yields 58,970 canonical, 40 accepted direct stales, and 494 unknown. | `data/validated-stales/fractal_validated_stales.csv` (40 rows), `results/per-chain-novelty/fractal.csv`. | 1 | Integrated. The Monitor projects 58,970 canonical rows, 40 direct stales, and the BTC 941,882 source witness once as `stale_descendant`. The complete classifier inventory remains external. The extractor requires the AuxPoW flag plus chain ID `0x2024`; a generic `0x100` test would falsely select the `0x20260100` Indexer class. Contributes fifteen rows to the upstream sidecar, of which exactly one (BTC 928,455) is observed by no other integrated chain; the other fourteen are also observed by RSK. |
 | Electric Cash | Self-synced `elcashd` node; standard Namecoin-style CAuxPow under a Bitcoin Core 0.20.2 codebase. | Fresh-genesis Dec 2020 chain; 5,140 classified unique parents: 2,426 canonical, 3 stale-labelled candidates, and 2,711 unknown rows; all 3 stales are VALID (Jun-Sep 2021, all first-claimed by Bitcoin Vault), and no unknown receives a strict/weak verdict. | `data/validated-stales/elcash_validated_stales.csv` (3 rows), `results/per-chain-novelty/elcash.csv`. | 0 | Zombie chain still merge-mined at negligible hashrate (real-difficulty wins ceased Nov 2024); see `docs/chains/elcash.md`. |
 | Catalogued-source recoveries ([Lyncoin](chains/lyncoin.md), [SixEleven](chains/sixeleven.md), [Doichain](chains/doichain.md)) | Lyncoin: live-peer raw P2P extended-header capture. SixEleven: pinned official node synced from six peers, followed by a complete legacy `blkNNNN.dat` scan with RPC identity validation. Doichain: pinned-source node and `blkNNNN.dat` survey through the active-chain tip observed at height 430,684. | Lyncoin: 56,653 self-target-PoW candidates -> 11 canonical, 0 stale, 0 strict, 0 weak. SixEleven: 80,364 candidates -> 7 canonical, 0 stale, 0 strict, 0 weak. Doichain: 429,401 commitments, including 300,625 canonical-tip rows independently confirmed against exact Bitcoin `nBits` and BIP34 height -> 0 accepted direct stale, 0 strict, 0 weak. | `results/monitor-evidence/{lyncoin,sixeleven,doichain}_monitor_evidence.csv`, header-only `data/validated-stales/{lyncoin,sixeleven,doichain}_validated_stales.csv`, and `results/strict-weak-orphans/{lyncoin,sixeleven,doichain}_strict_weak_orphans.csv`. | 0 | Complete scoped negative stale result for all three recovered windows. Lyncoin and SixEleven publish canonical Monitor rows; Doichain has aggregate-only canonical characterization. |
+| SpaceXpanse ROD | Fully synced, unpruned native node pinned through height 4,127,689. | 4,127,690 blocks: 1,058,017 SHA256d proofs and 3,069,673 standalone NeoScrypt blocks. Exact Bitcoin lookups identify 1 canonical parent, 68,246 active-predecessor templates that fail Bitcoin self-target PoW, 1 lower-work known-stale-predecessor template, and 989,769 unresolved-parent-network observations. | `results/monitor-evidence/rod_monitor_evidence.csv` (1 canonical row); no validated-stales file. | 0 | Complete pinned active-chain scan with every raw and lower-work observation retained privately. The canonical witness is ROD 2,697,753 committing Bitcoin 886,688. No new accepted stale, descendant or error block. See [ROD](chains/rod.md). |
 | VCash canonical subset | Private explorer archive containing 767 VCash-to-Bitcoin mappings; Bitcoin Core hydration recovered 68 canonical parents. | 68 canonical rows. No VCash blockchain was recovered and 699 mappings remain unresolved, so stale and strict/weak totals are not established. | `results/monitor-evidence/vcash_monitor_evidence.csv`. | Not applicable | Canonical-only partial Monitor evidence, not a complete VCash recovery or a zero-stale result. |
 
 ## Final Artifacts

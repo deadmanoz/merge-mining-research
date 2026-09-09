@@ -5,7 +5,7 @@
 | Ticker | XMY (legacy MYR) |
 | AuxPoW activation | 2015-09-26 (XMY height 1,402,000; block timestamp 1443262763 UTC) |
 | Network status | Active (multi-algo PoW; SHA-256d branch is one of five; DNS seeds healthy) |
-| Chronological position | 11 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown; before SixEleven) |
+| Chronological position | 11 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown; before SixEleven) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; in-window from 2015-09 but not a sampled data source) |
 | AuxPoW chain ID | `90` (`0x005A`), **`fStrictChainId=false`**. The SHA-256d branch accepts AuxPoW from any SHA-256d parent; parent identity is established downstream, not by the Phase 1 PoW filter. |
 | Algorithms | 5 active (SHA-256d, Scrypt, Groestl, Yescrypt, Argon2d). The original set had **Qubit and Skein** in two of the slots; two separate hard forks replaced them - Yescrypt for Qubit at XMY 1,764,000 (`nFork1MinBlock`, Aug 2016) and Argon2d for Skein at XMY 2,772,000 (`nFork2MinBlock`, ~2019, MIP4). The `nVersion` algo enum kept the legacy slots, so `NUM_ALGOS_IMPL=7` but `NUM_ALGOS=5`. |

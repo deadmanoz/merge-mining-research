@@ -86,6 +86,33 @@ Preserve 21 accepted descendant parents and 33 authenticated child witnesses,
 and publish the 39-parent error catalogue with 88 observations. Keep the full
 source population, final Monitor rows and deduplicated header totals distinct.
 
+Provide a pinned SpaceXpanse ROD archival-node workspace for a complete,
+unpruned historical sync with transaction indexing and assume-valid disabled. Add
+the checked archival throughput variant that raises only ROD's per-peer
+in-flight block cap from 16 to 128 after source verification, retaining the
+global window and native validation while using a distinct rollback-selectable
+image tag.
+Build from a checksummed local source archive, keep RPC inside the container,
+and separate comprehensive parent-evidence extraction from publication gates.
+
+Register ROD's external-target PowData evidence and complete historical child
+header coverage. Add a fail-closed canonical companion producer that binds the
+complete audited extraction and independently reviewed full child and Bitcoin
+bodies, then emits the single authenticated canonical observation without
+fabricating an empty direct-stale dataset.
+Require the reviewed Bitcoin body artifact and its receipt-bound digest, and
+reject reparsed ROD bodies unless their Merkle and pinned-height checks pass.
+Bind the selected chunk and complete classification inventory through the
+audit-pinned summary, recompute the envelope digest, and execute frozen parser
+source directly without adjacent bytecode caches. Keep canonical companions
+visible without hiding missing primary inventories on other chains.
+
+Publish the complete combined I0coin/RSK/ROD generation with 1,283,972 Monitor
+observations, including 1,279,987 canonical rows. Preserve all 1,283,971 prior
+observations and add exactly one ROD canonical witness. Authenticate all
+3,019,417 historical child-header observations across 18 source rows, with
+zero unrecoverable rows.
+
 Derive every monitor publication artifact path from one sanitized logical
 output root, and let externally staged builds name their final destination
 explicitly without leaking or misreporting the physical build directory.
@@ -97,6 +124,10 @@ height-zero range `[0, 9220905)`. Preserve 18,609,230 full parent headers and
 from 337 to 353 without changing prior rows, adding six chronological
 upstream-new claims. Record that no parent observation below RSK 139,999 passes
 its own proof-of-work target, including the height-112,829 canary.
+
+Treat a canonical companion as the effective primary source when a registry
+chain has no stale or full inventory, so canonical-only ROD counts and
+manifests retain the source metadata of the evidence actually consumed.
 
 Restore complete Namecoin coinbase output vectors from the private classified
 inventory (#52), adding 784 scripts across 455 accepted rows. Require complete

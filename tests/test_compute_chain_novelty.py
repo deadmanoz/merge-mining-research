@@ -93,6 +93,7 @@ def test_all_chronology_chains_are_wired() -> None:
 
     assert set(mod.LOADERS) == chronology
     assert mod.LOADERS["lyncoin"].__name__ == "load_lyncoin_stales"
+    assert mod.LOADERS["rod"].__name__ == "load_rod_stales"
     assert mod.LOADERS["sixeleven"].__name__ == "load_sixeleven_stales"
 
 

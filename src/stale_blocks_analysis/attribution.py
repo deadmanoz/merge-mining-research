@@ -68,6 +68,7 @@ from pathlib import Path
 
 from . import stale_blocks as _stale_loaders
 from .config import (
+    CANONICAL_ONLY_CHAINS,
     ACCEPTED_STALE_VALIDATION_STATUSES,
     BLOCKS_DIR,
     CHAIN_SPECS,
@@ -480,11 +481,14 @@ def require_committed_inputs() -> None:
     indistinguishable in the export from a chain that genuinely recovered
     no stales (several chains legitimately have zero-row inputs). Presence
     is therefore checked before loading rather than inferred from counts.
+    A chain registered in ``CANONICAL_ONLY_CHAINS`` is the explicit exception:
+    its reviewed evidence contains no direct-stale publication artifact.
     """
     missing = [
         VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION
-        if not (VALIDATED_STALES_DIR / f"{key}_validated_stales.csv").exists()
+        if key not in CANONICAL_ONLY_CHAINS
+        and not (VALIDATED_STALES_DIR / f"{key}_validated_stales.csv").exists()
     ]
     if not STALE_DESCENDANTS_CSV.exists():
         missing.append(STALE_DESCENDANTS_CSV)
@@ -497,6 +501,8 @@ def require_committed_inputs() -> None:
         unreadable = []
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
             path = VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
+            if key in CANONICAL_ONLY_CHAINS and not path.exists():
+                continue
             # RSK has no spec and bitcoin-vault's is keyed with an
             # underscore, so a plain lookup silently skipped the identity
             # columns for exactly those two chains.

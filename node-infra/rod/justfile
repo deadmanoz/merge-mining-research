@@ -1,0 +1,39 @@
+default:
+    @just --list
+
+config:
+    docker compose config --quiet
+
+build:
+    docker compose build rod
+
+run:
+    docker compose up -d rod
+
+start:
+    docker compose start rod
+
+stop:
+    docker compose stop rod
+
+logs:
+    docker compose logs --tail=100 rod
+
+rpc +args:
+    docker compose exec -T rod spacexpanse-cli -datadir=/data -conf=/config/spacexpanse.conf {{args}}
+
+# Use the shared Python worker and the running node's loopback RPC explicitly.
+research +args:
+    docker compose --project-name rod-research -f compose.research.yml run --rm --no-deps research-worker {{args}}
+
+# Keep a named long-running job independent of the operator's SSH session.
+research-background name +args:
+    docker compose --project-name rod-research -f compose.research.yml run --detach --name {{name}} --no-deps research-worker {{args}}
+
+test:
+    docker compose config --quiet
+    docker compose run --rm --no-deps rod spacexpansed -version
+
+# Remove the stopped container only. Retain source, image and complete datadir.
+clean:
+    docker compose rm -f rod

@@ -5,7 +5,7 @@
 | Ticker | ELCASH |
 | AuxPoW activation | 2020-12-20 (fresh genesis, nTime 1608451200; AuxPoW permitted from height 1 - see §2 quirks) |
 | Network status | Zombie: still producing merge-mined blocks on schedule, but real Bitcoin-difficulty block wins ceased November 2024 |
-| Chronological position | 24 of 26 (after Bitcoin Vault, before Lyncoin) |
+| Chronological position | 24 of 27 (after Bitcoin Vault, before ROD) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; 2020 launch, after the paper's mid-2018 data cutoff) |
 | AuxPoW chain ID | `8503` (`0x2137`), strict (`consensus.fStrictChainId = true`) |
 | Block time | 600 s (Bitcoin-identical 10-minute target, `nPowTargetSpacing = 10 * 60`) |

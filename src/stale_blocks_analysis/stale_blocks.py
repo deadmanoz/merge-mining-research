@@ -4,7 +4,7 @@ Reads the upstream bitcoin-data/stale-blocks CSV and the per-chain
 AuxPoW-recovered validated CSVs (Geistgeld, Namecoin, CoiledCoin, Syscoin,
 Devcoin, ixcoin, i0coin, Groupcoin, Huntercoin, Elastos, Unobtanium, Doichain,
 Myriadcoin, Bitmark, Argentum, Terracoin, RSK, Xaya, Bitcoin Vault,
-Electric Cash, Lyncoin, SixEleven, and Fractal Bitcoin; see docs/ for
+Electric Cash, ROD, Lyncoin, SixEleven, and Fractal Bitcoin; see docs/ for
 methodology), returning the established
 row shape (`height`, `hash`, `source`, and where available
 `_scriptsig_hex` / `_outputs_str`). Merging across sources is handled
@@ -14,7 +14,7 @@ attribution.
 Depends on: config (STALE_CSV, MIN_HEIGHT, ARGENTUM_CSV, AUXPOW_CSV,
 BITCOIN_VAULT_CSV, BITMARK_CSV, COILEDCOIN_CSV, DEVCOIN_CSV, ELASTOS_CSV, FRACTAL_CSV,
 GEISTGELD_CSV, GROUPCOIN_CSV, HUNTERCOIN_CSV, I0COIN_CSV, IXCOIN_CSV,
-LYNCOIN_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
+LYNCOIN_CSV, ROD_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
 UNOBTANIUM_CSV, ELCASH_CSV), coinbase_output_claims.
 """
 
@@ -65,6 +65,7 @@ from .config import (  # noqa: F401
     IXCOIN_CSV,
     LYNCOIN_CSV,
     MYRIADCOIN_CSV,
+    ROD_CSV,
     SIXELEVEN_CSV,
     SYSCOIN_CSV,
     TERRACOIN_CSV,
@@ -267,6 +268,10 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
     "lyncoin": LoaderSpec(
         csv_attr="LYNCOIN_CSV",
         source="lyncoin",
+    ),
+    "rod": LoaderSpec(
+        csv_attr="ROD_CSV",
+        source="rod",
     ),
     "elastos": LoaderSpec(
         csv_attr="ELASTOS_CSV",
@@ -734,6 +739,15 @@ def load_lyncoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     checks and will admit future VALID stale rows without a second path.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["lyncoin"], min_height=min_height)
+
+
+def load_rod_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
+    """Load future accepted ROD direct stales through the shared contract.
+
+    The reviewed recovery currently has only a canonical companion, so the
+    deliberately absent validated-stales path returns an empty list.
+    """
+    return load_auxpow_validated_stales(_LOADER_SPECS["rod"], min_height=min_height)
 
 
 def _outputs_for_tagging(raw_outputs: str) -> str:

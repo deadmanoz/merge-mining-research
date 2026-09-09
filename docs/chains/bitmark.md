@@ -5,7 +5,7 @@
 | Ticker | BTMK |
 | AuxPoW activation | 2018-06-07 (Fork 1 multi-algo + AuxPoW; BTMK height 450,947, empirically the first post-fork block) |
 | Network status | Active, hybrid 8-algo PoW (live explorer `chainz.cryptoid.info/btmk/`; `project-bitmark/bitmark` repo maintained) |
-| Chronological position | 18 of 26 (after Doichain, before Xaya) |
+| Chronological position | 18 of 27 (after Doichain, before Xaya) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Bitmark's AuxPoW activated 2018-06-07, just inside the window, but it was not a sampled data source) |
 | AuxPoW chain ID | `91` (`0x005B`), `fStrictChainId=true` (`src/chainparams.cpp:56-57`) |
 | Algorithms | SHA-256d, Scrypt, Yescrypt, Argon2d, X17, LYRA2REv2, Equihash, CryptoNight (`NUM_ALGOS = 8`, `src/pureheader.h:11-22`) |

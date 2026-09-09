@@ -5,7 +5,7 @@
 | Ticker | CLC |
 | AuxPoW activation | 2012-01-05 (CLC genesis; `GetAuxPowStartBlock()` returns 0, so AuxPoW is accepted from genesis onward) |
 | Network status | Dead (bitcointalk thread marked `[DEAD]`; `mmpool/coiledcoin` archived as a dead coin; merge-mined to extinction in 2012, no advancing tip). Recovered from a single surviving archival node - see the intro. |
-| Chronological position | 5 of 26 (after namecoin, geistgeld, i0coin, ixcoin; before devcoin) |
+| Chronological position | 5 of 27 (after namecoin, geistgeld, i0coin, ixcoin; before devcoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; CoiledCoin merge-mined in 2012, inside the window, but was not sampled) |
 | AuxPoW chain ID | 16 (collides with Syscoin chain 2; harmless at runtime) |
 | Block time | 120 s nominal; ~50 min observed wall-clock cadence |

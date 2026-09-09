@@ -350,11 +350,23 @@ coverage report authenticated 2,933,154 of 2,933,154 rows and all 6 accepted
 stale-descendant observations belonging to those 17 sources, with zero
 unrecoverable rows.
 
-The September 2026 coverage report authenticates 3,019,416 of 3,019,416
+The September 2026 I0coin/RSK coverage report authenticated 3,019,416 of 3,019,416
 historical source rows and all 6 accepted stale-descendant observations
 belonging to those 17 sources, with zero unrecoverable rows. The larger I0coin
 inventory adds 86,267 rows; current catalogue exclusions remove two Devcoin,
 two Ixcoin and one Emercoin row from the earlier coverage population.
+
+The combined 9 September 2026 coverage report adds one independently reviewed
+ROD canonical observation to that generation. Its separate complete native
+scan covers 4,127,690 blocks through height 4,127,689, including 1,058,017
+SHA256d proofs.
+The private extraction and Bitcoin-context ledger preserve every observation;
+only the one eligible canonical witness enters the standard publication.
+The verified combined coverage authenticates all 3,019,417 observations across
+18 source rows, with zero unrecoverable rows and all 6 accepted
+stale-descendant observations hydrated. The existing 17 sources retain
+the September I0coin/RSK generation and are not replaced with the smaller
+Monitor projection. See [ROD provenance](chains/rod.md).
 
 Each `<chain>_evidence.csv` uses this normalized schema:
 
@@ -362,7 +374,7 @@ Each `<chain>_evidence.csv` uses this normalized schema:
 | --- | --- |
 | `chain`, `source_kind`, `source_path`, `source_row_number` | Source identity and row provenance. External archive roots are redacted as `<chain-archive>/...`. |
 | `artifact_scope` | `full_classifier_inventory`, `stale_only_publication`, or `stale_descendant_parent_verdicts`. |
-| `child_height`, `child_block_hash`, `child_header_hex`, `child_block_time`, `child_nbits` | Child-chain location and authenticated header evidence when available. `child_block_hash` is the internal/wire-order double-SHA256 digest, `child_header_hex` is the 80-byte canonical header serialization, `child_block_time` is the header timestamp, and `child_nbits` is eight lowercase hexadecimal characters. For Xaya, the header and timestamp come from `CPureBlockHeader`, while effective `child_nbits` comes from the adjacent `PowData` wrapper. For the five identity-hydration chains the existing hash and timestamp remain hydrated from `data/child-identity/` (see below); their historical data is not re-derived by this work. Hathor publishes its source-authenticated block identity and timestamp directly. |
+| `child_height`, `child_block_hash`, `child_header_hex`, `child_block_time`, `child_nbits` | Child-chain location and authenticated header evidence when available. `child_block_hash` is the internal/wire-order double-SHA256 digest, `child_header_hex` is the 80-byte canonical header serialization, `child_block_time` is the header timestamp, and `child_nbits` is eight lowercase hexadecimal characters. For Xaya and ROD, the header and timestamp come from `CPureBlockHeader`, while effective `child_nbits` comes from the adjacent `PowData` wrapper. For the five identity-hydration chains the existing hash and timestamp remain hydrated from `data/child-identity/` (see below); their historical data is not re-derived by this work. Hathor publishes its source-authenticated block identity and timestamp directly. |
 | `btc_height`, `btc_header_hash`, `btc_prev_hash`, `btc_time`, `btc_bits`, `btc_nonce`, `btc_header_hex` | Normalized Bitcoin parent header fields. |
 | `coinbase_scriptsig_hex`, `coinbase_outputs`, `full_coinbase_hex` | Coinbase evidence. Hathor-style full rows with only `full_coinbase_hex` are parsed during export. |
 | `classification` | Preserved source classification: `canonical`, `stale`, `unknown` (normalized from the historical `orphan` spelling on read), `stale_descendant`, `near`, or source-specific values. |
@@ -597,8 +609,8 @@ consensus-failure gates remain required.
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes
 `child_header_hex`, `child_block_time`, and `child_nbits`; rows from the 17
-historical child-header refresh pipelines carry a complete authenticated
-bundle. The five identity-hydration
+historical child-header refresh pipelines and the reviewed ROD canonical
+companion carry a complete authenticated bundle. The five identity-hydration
 chains additionally publish `child_block_hash` / `child_block_time` hydrated
 from `data/child-identity/` (coverage recorded in the counts `notes` as
 `child_identity_hydration=hydrated:N`; a publication build fails closed when
@@ -606,8 +618,8 @@ a non-canonical final row lacks a verified identity). Canonical rows remain
 publishable when their historical source never recorded exact child identity;
 the counts `notes` disclose that limit as `canonical_unhydrated=N`. The RSK
 export appends the seven `rsk_merge_mining_evidence` sidecar columns listed in
-the child-identity section. Sources outside the 17 historical-header pipelines
-emit the child evidence their native source proves; absent fields stay empty
+the child-identity section. Sources outside those historical-header pipelines
+and the ROD companion emit the child evidence their native source proves; absent fields stay empty
 rather than being inferred. The standalone stale-descendants export contains
 one row per accepted parent and therefore leaves child identity blank. Its
 counts notes are `child_height=unavailable` and
@@ -618,7 +630,7 @@ with `classification=stale_descendant`,
 `validation_status=VALID_STALE_DESCENDANT`, and
 `relevance_reason=valid_stale_descendant`. Their source-bucket classifications
 remain audit fields in the witness ledger and never override the accepted
-parent verdict. The 28 ordinary artifacts, error-observation aggregate, and
+parent verdict. The 29 ordinary artifacts, error-observation aggregate, and
 both metadata files describe the same source generation. The six historical
 observations carry complete authenticated child headers; live-chain
 observations use the independently verified identities in

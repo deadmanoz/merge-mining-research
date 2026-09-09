@@ -15,4 +15,5 @@ argentum,present,argentum_evidence.csv,634306,634306,0,{},0,0,0,{},1470997929,17
 crown,present,crown_evidence.csv,389128,389128,0,{},0,0,0,{},1440558550,1555092658,non_degenerate,389128/389128,-8065,1544645238
 elcash,present,elcash_evidence.csv,5140,5140,0,{},0,0,0,{},1611240398,1782340511,non_degenerate,5140/5140,-6392,6
 xaya,present,xaya_evidence.csv,38483,38483,0,{},0,0,0,{},1531504538,1731429483,non_degenerate,38483/38483,-521,91
+rod,present,rod_evidence.csv,1,1,0,{},0,0,0,{},1741327653,1741327653,non_degenerate,1/1,-49,-49
 bitcoin-vault,present,bitcoin-vault_evidence.csv,2575,2575,0,{},0,0,0,{},1605724860,1709777800,non_degenerate,2575/2575,-78746,28172

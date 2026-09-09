@@ -5,7 +5,7 @@
 | Ticker | EMC |
 | AuxPoW activation | 2017-03-17 (EMC height 219,809; block timestamp 1489767965 UTC; `consensus.MMHeight` in `src/chainparams.cpp:158`) |
 | Network status | Active (hybrid PoW/PoS, Peercoin lineage; DNS seed `seed.emercoin.com` healthy) |
-| Chronological position | 15 of 26 (after terracoin; before rsk) |
+| Chronological position | 15 of 27 (after terracoin; before rsk) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Emercoin merge-mined inside the paper's window from 2017-03 but was not a sampled data source) |
 | AuxPoW chain ID | `666` (`0x29A`), enforced via raw conditional at `src/pow.cpp:173` (`pblock->GetChainID() != AUXPOW_CHAIN_ID` rejected). No `fStrictChainId` flag - strict-chain-ID semantics are hard-coded. |
 | Consensus model | Hybrid PoW/PoS. Only PoW blocks carry the AuxPoW commitment; PoS blocks have none. `IsProofOfStake()` predicate at `src/chain.h:211` reads `nFlags & BLOCK_PROOF_OF_STAKE` (bit 0). Measured PoW share over the post-MMHeight window: **15.5 %**. |
@@ -159,4 +159,4 @@ Emercoin is the first hybrid PoW/PoS chain in the pipeline. The PoS-filter patte
 - **2026-06-24** - Canonical-refresh re-run of the archived extract with the side-chain-aware shared classifier: 4 headers the prototype had filed as canonical are Bitcoin Core side-chain headers (`confirmations=-1`) and reclassify to stale; committed set 92 → 96, canonical 45,599 → 45,595 (§2).
 - **2026-06-26** - Tail re-scan EMC 587,579 → 797,184: 34,255 AuxPoW parents, 668 canonical BTC blocks, zero new stales (§1 Holes).
 - **2026-07** - Publication: the 96-row refresh CSV becomes the committed loader input, and the upstream pin bump absorbs previously-novel rows (novel-vs-upstream 63 → 40).
-- **2026-07-22** - Terracoin's activation re-date (2016-09-23, hard fork 1) flips the chronological order: Emercoin moves back one position. SixEleven's integration places it 15th of 26 in the current registry.
+- **2026-07-22** - Terracoin's activation re-date (2016-09-23, hard fork 1) flips the chronological order: Emercoin moves back one position. SixEleven's integration placed it 15th of 26 in the then-current registry.

@@ -5,7 +5,7 @@
 | Ticker | UNO |
 | AuxPoW activation | 2015-05-08 (UNO height 600,000) |
 | Network status | Dormant (chain alive but upstream repo last touched Feb 2024 (commit `54d68b0`, [GitHub commit history](https://github.com/unobtanium-official/Unobtanium/commits/master)); small peer set, DNS seeds partially degraded) |
-| Chronological position | 9 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin; before Crown) |
+| Chronological position | 9 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin; before Crown) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1) |
 | AuxPoW chain ID | `117` (0x75) - defined in source as `AUXPOW_CHAIN_ID = 0x75` (`src/primitives/block.h:17`); equivalently the high 16 bits of an AuxPoW block header's `nVersion` (`(nVersion >> 16) & 0xffff`). AuxPoW is permitted from UNO height 600,000 (`AUXPOW_START_MAINNET`, `src/auxpow.h:10`). No collision with Namecoin (1), i0coin (2), ixcoin (3), Devcoin (4), Syscoin/CoiledCoin (16), Terracoin (50), or RSK. |
 | Block time | ~3 minutes (~184 s observed; `chainparams.cpp:nTargetSpacing = 60` is stale and doesn't match actual DAA) ≈ 3.3 UNO blocks per BTC block |

@@ -5,7 +5,7 @@
 | Ticker | 611 |
 | AuxPoW activation | 2015-11-03; child height 19,200 |
 | Network status | Active at recovery time; six peers served the observed height-999,406 tip on 2026-07-10 |
-| Chronological position | 12 of 26 (after Myriadcoin; before Argentum) |
+| Chronological position | 12 of 27 (after Myriadcoin; before Argentum) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured Bitcoin-parent chains) |
 | AuxPoW chain ID | `1`, verified from the official chain and recovered blocks |
 | Source tag (in code) | `sixeleven` |

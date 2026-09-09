@@ -5,7 +5,7 @@
 | Ticker | IXC |
 | AuxPoW activation | 2011-12-31 (IXC height 45,001, BTC height ~159,910) |
 | Network status | Dormant (~8 reachable peers at sync time, DNS seeds dead) |
-| Chronological position | 4 of 26 (after namecoin, geistgeld, i0coin; before coiledcoin) |
+| Chronological position | 4 of 27 (after namecoin, geistgeld, i0coin; before coiledcoin) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1) |
 | Source tag (in code) | `ixcoin` |
 | Loader | `load_ixcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |

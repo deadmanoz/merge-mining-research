@@ -2045,6 +2045,11 @@ def _load_monitor_count_rows(path: Path) -> list[dict[str, str]]:
                         f"{path}:{row_number}: {chain} {field} is not a "
                         "canonical nonnegative integer"
                     )
+            if row["source_kind"] == "missing" and int(row["canonical"]):
+                raise ValueError(
+                    f"{path}:{row_number}: {chain} missing source metadata "
+                    "declares retained canonical observations"
+                )
             rows.append(row)
     if not rows:
         raise ValueError(f"{path}: publication counts are empty")

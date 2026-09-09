@@ -204,6 +204,19 @@ def _child_fields(prev_hash: str = "33" * 32) -> dict[str, str]:
     }
 
 
+def _external_target_child_fields(prev_hash: str = "33" * 32) -> dict[str, str]:
+    header_hex, _child_hash = _child_header(prev_hash)
+    raw = bytearray.fromhex(header_hex)
+    raw[72:76] = bytes(4)
+    child_hash = hashlib.sha256(hashlib.sha256(raw).digest()).digest().hex()
+    return {
+        "child_block_hash": child_hash,
+        "child_header_hex": raw.hex(),
+        "child_block_time": "1700000000",
+        "child_nbits": "1d00ffff",
+    }
+
+
 def _coinbase_tx() -> str:
     raw = (
         bytes.fromhex("01000000")
@@ -1265,6 +1278,171 @@ def test_canonical_companion_file_is_discovered_and_merged(tmp_path: Path) -> No
     namecoin_counts = next(row for row in counts if row["chain"] == "namecoin")
     assert namecoin_counts["canonical"] == "1"
     assert namecoin_counts["stale"] == "1"
+
+
+def test_canonical_only_registry_source_uses_companion_metadata(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    parent_hex, parent_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "rod_canonical_blocks.csv",
+        [
+            {
+                "btc_height": "886688",
+                "btc_header_hash": parent_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": parent_hex,
+                "child_height": "2697753",
+                **_external_target_child_fields(),
+                "classification": "canonical",
+            }
+        ],
+    )
+
+    monitor_dir = tmp_path / "monitor"
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=monitor_dir,
+        relevance_inventory=None,
+    )
+    monitor_counts = {
+        row["chain"]: row
+        for row in _read_csv(monitor_dir / "monitor-evidence-counts.csv")
+    }
+    rod_monitor = monitor_counts["rod"]
+    monitor_rows = _read_csv(monitor_dir / "rod_monitor_evidence.csv")
+
+    assert len(monitor_rows) == 1
+    assert monitor_rows[0]["source_kind"] == "canonical_blocks"
+    assert monitor_rows[0]["artifact_scope"] == "canonical_blocks"
+    assert rod_monitor["source_kind"] == "canonical_blocks"
+    assert rod_monitor["artifact_scope"] == "canonical_blocks"
+    assert rod_monitor["source_path"].endswith("/rod_canonical_blocks.csv")
+    assert rod_monitor["canonical"] == "1"
+    assert rod_monitor["monitor_rows"] == "1"
+    assert rod_monitor["source_rows"] == "1"
+    assert rod_monitor["canonical_evidence_status"] == "canonical_retained"
+    assert "no evidence source discovered" not in rod_monitor["notes"]
+
+    full_dir = tmp_path / "full"
+    build_full_evidence_exports(data_dir=data_dir, output_dir=full_dir)
+    full_counts = {
+        row["chain"]: row
+        for row in _read_csv(full_dir / "auxpow-full-evidence-counts.csv")
+    }
+    rod_full = full_counts["rod"]
+    full_rows = _read_csv(full_dir / "rod_evidence.csv")
+
+    assert len(full_rows) == 1
+    assert full_rows[0]["source_kind"] == "canonical_blocks"
+    assert full_rows[0]["artifact_scope"] == "canonical_blocks"
+    assert rod_full["source_kind"] == "canonical_blocks"
+    assert rod_full["artifact_scope"] == "canonical_blocks"
+    assert rod_full["source_path"].endswith("/rod_canonical_blocks.csv")
+    assert rod_full["canonical"] == "1"
+    assert rod_full["source_rows"] == "1"
+    assert rod_full["canonical_evidence_status"] == "canonical_retained"
+    assert "no evidence source discovered" not in rod_full["notes"]
+
+
+@pytest.mark.parametrize("export_kind", ["monitor", "full"])
+def test_ordinary_chain_companion_retains_rows_without_hiding_missing_primary(
+    tmp_path: Path, export_kind: str
+) -> None:
+    data_dir = tmp_path / "data"
+    parent_hex, parent_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "namecoin_canonical_blocks.csv",
+        [
+            {
+                "btc_height": "150001",
+                "btc_header_hash": parent_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": parent_hex,
+                "nmc_height": "201",
+                "classification": "canonical",
+            }
+        ],
+    )
+    output_dir = tmp_path / export_kind
+    if export_kind == "monitor":
+        build_monitor_evidence_exports(
+            data_dir=data_dir, output_dir=output_dir, relevance_inventory=None
+        )
+        artifact_name = "namecoin_monitor_evidence.csv"
+        counts_name = "monitor-evidence-counts.csv"
+    else:
+        build_full_evidence_exports(data_dir=data_dir, output_dir=output_dir)
+        artifact_name = "namecoin_evidence.csv"
+        counts_name = "auxpow-full-evidence-counts.csv"
+
+    rows = _read_csv(output_dir / artifact_name)
+    assert len(rows) == 1
+    assert rows[0]["btc_header_hash"] == parent_hash
+    assert rows[0]["classification"] == "canonical"
+    assert rows[0]["source_kind"] == "canonical_blocks"
+    assert rows[0]["source_path"].endswith("/namecoin_canonical_blocks.csv")
+    counts = next(
+        row for row in _read_csv(output_dir / counts_name) if row["chain"] == "namecoin"
+    )
+    assert counts["canonical"] == "1"
+    assert counts["source_rows"] == "1"
+    assert counts["artifact_path"].endswith("/" + artifact_name)
+    assert counts["source_kind"] == "missing"
+    assert counts["artifact_scope"] == "missing"
+    assert counts["source_path"] == ""
+    assert counts["canonical_evidence_status"] == "not_checked_missing_source"
+    assert "no evidence source discovered" in counts["notes"]
+
+
+def test_canonical_only_registry_source_missing_both_inputs_stays_missing(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+
+    monitor_dir = tmp_path / "monitor"
+    build_monitor_evidence_exports(
+        data_dir=data_dir,
+        output_dir=monitor_dir,
+        relevance_inventory=None,
+    )
+    monitor_counts = {
+        row["chain"]: row
+        for row in _read_csv(monitor_dir / "monitor-evidence-counts.csv")
+    }
+    rod_monitor = monitor_counts["rod"]
+
+    assert not (monitor_dir / "rod_monitor_evidence.csv").exists()
+    assert rod_monitor["source_kind"] == "missing"
+    assert rod_monitor["artifact_scope"] == "missing"
+    assert rod_monitor["artifact_path"] == ""
+    assert rod_monitor["source_path"] == ""
+    assert rod_monitor["canonical"] == "0"
+    assert rod_monitor["monitor_rows"] == "0"
+    assert rod_monitor["source_rows"] == "0"
+    assert rod_monitor["canonical_evidence_status"] == "not_checked_missing_source"
+    assert rod_monitor["notes"] == "no evidence source discovered"
+
+    full_dir = tmp_path / "full"
+    build_full_evidence_exports(data_dir=data_dir, output_dir=full_dir)
+    full_counts = {
+        row["chain"]: row
+        for row in _read_csv(full_dir / "auxpow-full-evidence-counts.csv")
+    }
+    rod_full = full_counts["rod"]
+
+    assert not (full_dir / "rod_evidence.csv").exists()
+    assert rod_full["source_kind"] == "missing"
+    assert rod_full["artifact_scope"] == "missing"
+    assert rod_full["artifact_path"] == ""
+    assert rod_full["source_path"] == ""
+    assert rod_full["canonical"] == "0"
+    assert rod_full["source_rows"] == "0"
+    assert rod_full["canonical_evidence_status"] == "not_checked_missing_source"
+    assert rod_full["notes"] == "no evidence source discovered"
 
 
 def test_monitor_dedupes_authenticated_canonical_companion_event(

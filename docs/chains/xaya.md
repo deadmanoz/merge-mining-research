@@ -5,7 +5,7 @@
 | Ticker | CHI |
 | AuxPoW activation | 2018-07-13 (chain genesis; SHA256D-AuxPoW accepted from genesis, although the genesis block itself is NEOSCRYPT) |
 | Network status | Dead. The legacy Xaya Core P2P network is fully down (DNS seeds removed, fixed seeds unreachable; see `node-infra/xaya/peers.list`), and the CHI to WCHI migration (announced 2025-09-12, snapshot taken at Xaya Core block height 7,300,000 on 26 Oct 2025) wound the chain down. Recovered offline from Xaya's own open `blocks.zip` snapshot, not from a live node. |
-| Chronological position | 19 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark; before elastos) |
+| Chronological position | 19 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark; before elastos) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Xaya launched 2018-07-13, just after the paper's mid-2018 data cutoff) |
 | AuxPoW chain ID | `1829` (`0x0725`); no `fStrictChainId` flag (the AuxPoW parent is a plain Bitcoin `CPureBlockHeader` that carries no chain ID) |
 | Algorithms | Dual-algo: NEOSCRYPT (CPU/GPU, solo-mined) or SHA256D (merge-mined with Bitcoin). The source enforces "SHA256D must be merge-mined" and "NEOSCRYPT must not", so SHA256D block <=> carries a Bitcoin-parent `CAuxPow`. Only the SHA256D branch is in scope. |

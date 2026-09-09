@@ -1,0 +1,4 @@
+.env
+source.tar
+data/
+*.log

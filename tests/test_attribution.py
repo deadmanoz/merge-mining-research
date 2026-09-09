@@ -400,6 +400,8 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
     staged = tmp_path / "validated-stales"
     staged.mkdir()
     for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
+        if key == "rod":
+            continue
         spec = _LOADER_SPECS.get(key)
         cols = [
             "classification",
@@ -427,6 +429,14 @@ def test_missing_committed_loader_input_stops_the_run(tmp_path, monkeypatch):
     monkeypatch.setattr(attribution, "STALE_DESCENDANT_OBSERVATIONS_CSV", observations)
 
     attribution.require_committed_inputs()
+
+    # Canonical-only chains need no fabricated empty input. If an input is
+    # supplied anyway, it remains subject to the normal readability gate.
+    rod_input = staged / "rod_validated_stales.csv"
+    rod_input.write_text("btc_height\n")
+    with pytest.raises(FileNotFoundError, match="rod_validated_stales.csv"):
+        attribution.require_committed_inputs()
+    rod_input.unlink()
 
     observations.unlink()
     with pytest.raises(FileNotFoundError, match="stale_descendant_observations.csv"):

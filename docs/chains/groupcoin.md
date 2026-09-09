@@ -5,7 +5,7 @@
 | Ticker | GPC |
 | AuxPoW activation | 2012-02-16 (catalogue date, verified from the dump - see §2 quirks) |
 | Network status | **Dead** - no live nodes, no public explorer, no Arweave archive |
-| Chronological position | 7 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin; before huntercoin) |
+| Chronological position | 7 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin; before huntercoin) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1) |
 | Block time | ~60 s nominal (per the chain catalogue) |
 | Source tag (in code) | `groupcoin` |

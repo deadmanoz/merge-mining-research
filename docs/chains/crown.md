@@ -5,7 +5,7 @@
 | Ticker | CRW |
 | AuxPoW activation | 2015-08-25 (CRW height **453,273**; activation block timestamp 1440546428 UTC) |
 | Network status | Merge-mining ended April 2019 (full MN-PoS replacement of PoW at CRW 2,330,000, Crown v0.13.0 "Jade"); 2026 chain-tip liveness unconfirmed, token dormant. All source-coded DNS seeds dead, peer discovery via a Wayback harvest of `monitor.crownplatform.com`. |
-| Chronological position | 10 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium; before myriadcoin) |
+| Chronological position | 10 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium; before myriadcoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Crown merge-mined from 2015, inside the window, but was not sampled) |
 | AuxPoW chain ID | `20` (`0x14`), **`fStrictChainId=true`**. This prevents the parent header from using Crown's own chain ID; it does not prove that the parent is Bitcoin. |
 | Algorithms | Single-algo SHA-256d. No per-algo `nVersion` filter - the only extraction gate is the AuxPoW version bit. |

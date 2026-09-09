@@ -5,7 +5,7 @@
 | Ticker | TRC |
 | AuxPoW activation | 2016-09-23 (TRC height 833,000, hard fork 1; `nAuxpowStartHeight=833000`) - first validated stale at BTC 467,186 (May 2017) |
 | Network status | Active (small but functional; Mining-Dutch / Zergpool / Pool4ever are the current SHA-256 pools) |
-| Chronological position | 14 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum; before emercoin) |
+| Chronological position | 14 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum; before emercoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; in-window but not a sampled data source) |
 | AuxPoW chain ID | 50 (0x0032), strict |
 | Block time | 120 s (≈ 5 TRC blocks per BTC block) |
