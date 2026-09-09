@@ -1,174 +1,173 @@
 # i0coin
 
-> **Provisional and incomplete.** The committed i0coin set comes from a January 2018 third-party blockchain snapshot. It ends in January 2018 and captures no later activity, so the 166 validated stales are a lower bound on i0coin's true stale signal. If a fuller i0coin history is ever obtained, the chain can be re-extracted and this doc refreshed.
+The current result processes the complete March 2026 snapshot: 87 block files,
+4,700,682 distinct child headers and 11,626,267,268 bytes of raw block data.
+It contributes **191 accepted direct-stale Bitcoin headers**, including 25
+additional I0coin observations compared with the January 2018 snapshot.
+All 25 headers were already recovered through other child chains.
 
 | Field | Value |
 |---|---|
 | Ticker | I0C |
-| AuxPoW activation | 2011-12-20 (I0C height 160,000, BTC height ~158,300) |
-| Network status | Effectively dead (of 7 fixed seeds only `51.254.131.226:7333` answers on the P2P port, and it does not complete an i0coin handshake; DNS seeds dead; project sites static since early 2018) |
-| Chronological position | 3 of 26 (after namecoin, geistgeld) |
-| In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1) |
-| AuxPoW chain ID | 2 (Namecoin's is 1; ixcoin's is 3) |
-| Block time | 90 seconds (≈ 6.67 i0coin blocks per BTC block) |
-| Source tag (in code) | `i0coin` |
-| Loader | `load_i0coin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
+| AuxPoW activation | 2011-12-20, at I0C height 160,000 |
+| Acquisition | Offline March 2026 snapshot; no live I0coin node required |
+| Chronological position | 3 of 26, after Namecoin and Geistgeld |
+| In Stifter et al. 2018 baseline | Yes |
+| AuxPoW chain ID | 2 |
+| Target block interval | 90 seconds |
+| Source tag | `i0coin` |
+| Loader | `load_i0coin_stales()` |
 | Validated CSV | `data/validated-stales/i0coin_validated_stales.csv` |
 
-i0coin was the third SHA-256d AuxPoW chain by merged-mining activation order (after Namecoin and Geistgeld), launched in August 2011 (genesis nTime 1313457620 = 2011-08-15) and merge-mining-enabled at I0C block 160,000 on 20 December 2011 with the original Namecoin AuxPoW code (Vince Durham's design). Daniel Kraft (`domob1812`) later became i0coin's maintainer and rebased it onto Bitcoin Core 0.12.x in 2016, but that port postdates the chain's launch by several years. Its 90-second block time is the unusual feature: it captures roughly six to seven independent AuxPoW proofs per BTC block interval, so any BTC stale broadly propagated to i0coin miners has many opportunities to be embedded as a parent header. In principle this gives i0coin substantially higher sampling density for short-lived BTC stales than the 10-minute chains (Namecoin, ixcoin, Devcoin).
+i0coin launched in August 2011 and became the third SHA-256d AuxPoW chain in
+this project's activation chronology. Its target interval provides roughly
+6.67 child-block opportunities per ten-minute Bitcoin interval. This is a
+sampling opportunity, not a guarantee that each Bitcoin stale was observed.
 
-In practice the committed data is a January 2018 partial snapshot, and the validated set is small (166). Because the snapshot ends in early 2018 and the extraction only reaches the parent headers i0coin actually embedded, the true i0coin stale signal is very likely larger than what is captured here; treat these counts as a lower bound.
+## 1. Acquisition and coverage
 
-## 1. Chain data
+The source is the [March 2026 snapshot announcement](https://bitcointalk.org/index.php?topic=624935.msg66548791#msg66548791)
+and its [complete I0coin.7z archive](https://drive.google.com/file/d/11-D1r5s8267YmOT1VaObrcmVoV8d_JAn/view?usp=sharing),
+acquired on 2026-09-08. The archive is 4,577,214,986 bytes with SHA-256
+`6363c3635099640d47e4afc5bacb0cf53d9f5103f2aef1bb027e357d2cd74a9d`.
+The complete archive integrity test and extraction passed. The original
+archive, extracted files, per-file checksums and processing receipts are
+retained privately alongside the earlier snapshot.
 
-**Source.** Offline `blk*.dat` binary parse of a January 2018 third-party blockchain snapshot of i0coin (`I0coin_full_blockchain_20-Jan-2018.zip`, 2.4 GB compressed; the parse expanded to ~7.9 GB across 59 `blk*.dat` files, spanning roughly 2.3M I0C blocks), originally hosted on MediaFire and Mega and downloaded to `<archival-host>` during the recovery effort. No live i0coin node was practical at sync time: DNS seeds were dead and, of seven fixed seeds, only `51.254.131.226:7333` answered on the P2P port (and it did not complete an i0coin handshake). The same generic Namecoin-family extractor (`extract_auxpow_from_blkdat.py`) handles i0coin because its AuxPoW format is byte-identical to Namecoin's (Vince Durham's original specification).
+All files `blk00000.dat` through `blk00086.dat` were processed. Their child
+header timestamps range from **2011-08-16 01:20:20 UTC** to
+**2026-03-26 12:34:42 UTC**. The record count and timestamp bounds describe
+stored data; they do not assert active-chain membership or full child-chain
+consensus validation.
 
-**Provenance.** Snapshot downloaded to `<archival-host>` in early 2026, extracted into `~/.i0coin/`, parsed offline against the project's generic Namecoin-family AuxPoW extractor. No live RPC node ran for this chain. Bitcoin Core on `<archival-host>` provided the RPC for the subsequent classification step.
+Bitcoin-parent coverage is narrower. The recovered canonical parents span
+BTC **158,531 to 689,505**, with timestamps from 2011-12-22 to 2021-07-03.
+Accepted direct stales span BTC **160,948 to 645,179**, from 2012-01-06 to
+2020-08-24. The full scan found no later accepted direct stale. The snapshot's
+2026 endpoint should therefore not be presented as the endpoint of its
+accepted Bitcoin stale evidence.
 
-**Coverage.** Validated stales span BTC heights **160,948 → 504,952** (parent timestamps **2012-01-06 → 2018-01-19**, i.e. Jan 2012 → Jan 2018), bounded above by the January 2018 snapshot date. The snapshot does not provide authenticated I0C consensus heights.
+## 2. Extraction and independent verification
 
-**Holes.**
+The normal `scripts/extract/extract_auxpow_from_blkdat.py --chain i0coin`
+entry point scans every framed block and extracts the Bitcoin parent from
+each AuxPoW-bearing child. Its default filter retains parents whose hash
+meets the target encoded in their own `nBits`; Bitcoin's contextual target
+is checked separately during classification. Every qualifying child
+observation is preserved. File order is never used as a consensus height.
 
-- **Pre-AuxPoW** (I0C 0 → 159,999): solo SHA-256 mining, no embedded BTC parent headers.
-- **Before the BIP34 transition** (BTC < 224,413): height is inferred from the active-chain parent, with `nBits` epoch and `nTime` as supporting evidence. From 224,413 through 227,930, the coinbase-height prefix is enforced for version 2 or newer candidates; from 227,931 it is universal.
-- **Post-snapshot gap (the big one)**: the committed data ends with the January 2018 snapshot (last parent `btc_time` 2018-01-19). If the chain continued past that, whatever activity existed between early 2018 and its true death is invisible to this extraction. Closing that gap would require a fuller i0coin history than the 2018 snapshot; none has been obtained.
-- **Post-BCH/BSV contamination**: 12 validated rows are tagged `VALID (post-BCH, difficulty matches BTC)` - these are Aug 2017 → Jan 2018 records where the `nBits` check confirms the parent header is BTC rather than BCH/BSV. None are `REJECTED` in the committed set, but the full classifier additionally rejected 9 stale-labelled candidates on the `nBits` gate (parent difficulty inconsistent with Bitcoin at that height); those rejected rows are gitignored and not included here.
-
-**Reference scripts.**
-
-- `scripts/extract/extract_auxpow_from_blkdat.py:1` - generic Namecoin-family `blk*.dat` extractor (shared with Namecoin; invoke with `--chain i0coin`).
-- `scripts/classify/classify_auxpow_candidates.py:1` - generic AuxPoW classifier (canonical / stale / unknown; includes `nBits` BCH/BSV cross-check for post-2017 blocks).
-
-## 2. Extraction → potential stales
-
-**Method.** Offline binary parse of every block in the snapshot's `blk*.dat`. Same extractor used for Namecoin. For each I0C block ≥ 160,000 carrying a `CAuxPow` payload, extract the embedded Bitcoin parent header, coinbase tx, and Merkle branch.
-
-The snapshot exposes the serialized child header and hash but no authenticated
-consensus height. Because `blk*.dat` order is not chain order, the extractor
-leaves the uniform `child_height` slot blank and does not persist a scan
-counter. The full child header, authenticated child hash, timestamp, and
-`nBits` remain the available child identity evidence.
-
-**Phases.**
-
-1. **Parse**: walk all I0C blocks in `blk*.dat`; for each AuxPoW-bearing block, extract parent header + coinbase tx + Merkle branch.
-2. **Self-target PoW filter**: keep only headers where `SHA256d(header) ≤ target(nBits)` using the target encoded in that header. Bitcoin's contemporaneous target is checked later for stale-labelled candidates.
-3. **Dedup** on `btc_header_hash` (with 6.67× block density, many consecutive I0C blocks can reference the same BTC parent - especially from the same miner running the same hashing job across multiple I0C blocks).
-4. **BTC RPC classify** (`classify_auxpow_candidates.py`): batch `bitcoin-cli getblockheader <hash>`. A header with positive confirmations → `canonical`. Otherwise (not found, or known only as a side-chain block) look up `prev_hash`: a predecessor with positive confirmations → `stale`; neither → `unknown`.
-5. **Validation**: like Namecoin, candidates are checked against BTC's actual
-   difficulty, historical minimum block version, and applicable BIP34 height
-   rule. Rows are tagged `VALID`, `VALID (post-BCH, difficulty matches BTC)`,
-   `REJECTED`, or `UNKNOWN`.
-
-The classifier's primary accepted, rejected, canonical, stale, and unknown
-publication files use the normalized parent columns `btc_height`,
-`btc_header_hash`, and `btc_bits`. Source-specific fields such as
-`btc_stale_height`, `btc_hash`, `btc_bits_hex`, `nbits_match`, and
-`post_bch_fork` remain in the private full classifier inventory, where they
-serve as diagnostics rather than loader fields.
-
-**Counts in the private full classifier output** (103,383 rows total):
-
-| `classification` | Count |
+| Extraction stage | Records |
 |---|---:|
-| `canonical` | 16,958 |
-| `unknown` | 86,249 |
-| `stale`-labelled candidate | 176 |
-| **Total** | **103,383** |
+| Distinct stored child headers | 4,700,682 |
+| Non-AuxPoW child records | 162,662 |
+| Parsed AuxPoW records | 4,538,020 |
+| Parents meeting their own encoded proof-of-work target | 189,652 |
+| Parents failing that self-target filter | 4,348,368 |
+| Malformed flagged AuxPoW records | 0 |
+| Qualifying witnesses failing the independent proof audit | 0 |
 
-The 103,383 total is the deduped, self-target-PoW-passing unique parent-header
-set; the full historical CSV remains external because of its size. The
-normalized full-evidence export contains 103,382 rows because it applies the
-same exact-key exclusion that removes the invalid BTC-height-367,047 candidate.
-The normal Monitor publication includes all 16,958 canonical parents, the 166
-accepted stales, and the 2 unknown rows with final strict relevance verdicts.
-The other unknown and rejected rows remain in the full external evidence. Of
-the 176 stale-labelled candidates, 9 fail the `nBits` gate (parent difficulty
-inconsistent with Bitcoin at that height) and are rejected, leaving 167
-`VALID`; the error-blocks dataset (`data/error-blocks/error_blocks.csv`) then
-removes one shared post-BIP66 version 2 candidate (BTC 367,047), leaving
-**166** committed loader rows.
+A separate bounded binary parser checked all flagged AuxPoW records and
+fully verified every qualifying witness. It checked the parent coinbase's
+Merkle inclusion, child commitment branch and deterministic chain index,
+chain IDs, committed tree size and nonce, parent work against the child's
+encoded target, complete child transaction serialization and child Merkle
+root. All 189,652 observations matched the normal extraction across 15
+parent, child and coinbase fields. The audit also rejected 171 deliberately
+corrupted proofs. All previously recovered 13 targeted witnesses reproduced
+with identical raw bytes and heights.
 
-**Counts in the committed validated CSV** (`data/validated-stales/i0coin_validated_stales.csv`, 166 rows, all `classification == "stale"`):
+The audit follows the historical rules in I0coin commit
+`4e166c8c9ac8b452dc3007520bf8b61950ad91c1`. In particular, **1,492 qualifying
+proofs legitimately omit the `fabe6d6d` marker**: their first child commitment
+root starts no later than byte offset 20 in the coinbase script, as the legacy
+rule permits. A mandatory-marker check would falsely reject them.
 
-| `validation_status` | Count |
+Every qualifying child's ancestry was traced through the retained headers
+to the known genesis hash
+`00000000de13b7f748fb214e3f9c284fe6a57e1559fee545bfe473f72599c0d1`.
+This establishes a height by counting parent links, without claiming that
+the child belongs to the active chain. The private source family retains
+these heights and complete Bitcoin coinbases. Published direct-stale and
+error witnesses carry the derived heights; the historical full-inventory
+and canonical source contracts continue to leave their normalized height
+cells blank.
+
+The independent proof audit does not replay child-chain difficulty changes,
+transaction scripts or UTXO consensus. Likewise, the Bitcoin evidence usually
+contains a parent header and coinbase proof, not the complete Bitcoin block.
+
+## 3. Bitcoin classification and publication
+
+`scripts/classify/classify_auxpow_candidates.py` classifies every qualifying
+parent against Bitcoin Core. A noncanonical header whose predecessor is
+canonical becomes a direct-stale candidate. Available-evidence gates check
+header identity, self-target work, Bitcoin's expected `nBits`, median time
+past, historical block version, coinbase script length and BIP34 height.
+A separate review repeated these checks for all 191 accepted rows, including
+all 25 additions, with no failures.
+
+| Final classifier bucket | Observations |
 |---|---:|
-| `VALID` (pre-BCH-fork) | 154 |
-| `VALID (post-BCH, difficulty matches BTC)` | 12 |
-| **Total** | **166** |
+| Canonical | 27,661 |
+| Accepted direct stale | 191 |
+| Unknown | 161,799 |
+| Directly classified error block | 1 |
+| **Total** | **189,652** |
 
-**Chain-specific quirks.**
+The unknown total includes nine candidates whose encoded `nBits` failed
+Bitcoin's contextual difficulty gate. Independent active-parent checks place
+them at heights 376,385 to 376,388, where Bitcoin required `181287ba` rather
+than their `1a1bf2d4`. Their hashes exceed the required target by roughly
+2,018 to 93,852 times, so they also fail Bitcoin's actual work requirement.
 
-- **High block density (6.67×)**: many BTC parents are referenced by multiple I0C blocks. Dedup is essential to avoid double-counting.
-- **No `auxpow` JSON in RPC**: the Bitcoin Core 0.12.x lineage of i0coin Core (release `i0coin-0.12.0.1`, 2016) doesn't expose decoded AuxPoW via `getblock`. Extraction is binary-only - but since the snapshot is parsed offline from `blk*.dat`, the RPC path doesn't matter for this chain.
-- **Snapshot integrity**: the 2018 snapshot was a third-party upload (izerocoin.org via MediaFire/Mega). The extraction relied on the snapshot being uncorrupted; no independent cryptographic verification of the snapshot was possible.
+One additional self-target-valid parent's encoded target exceeds Bitcoin's
+proof-of-work limit. Its predecessor is not on the active Bitcoin chain, and
+its hash exceeds the target selected for a timestamp-based comparison by
+roughly 1,883 times. That comparison does not authenticate its Bitcoin height.
+Neither review identified an additional admissible invalid-block parent.
 
-## 3. Filtering → accepted direct-stale candidates
+All 103,383 previous source observations and all 166 previous accepted
+stales remain represented. Of the 191 accepted rows, 154 have status `VALID`
+and 37 have `VALID (post-BCH, difficulty matches BTC)`. The loader admits
+only those exact statuses and applies the shared error exclusion gate.
 
-**Loader filter** (`load_i0coin_stales()` in `stale_blocks.py`):
+The full scan adds I0coin witnesses for the already catalogued invalid
+Bitcoin parents at heights **331,673 and 331,674**. They remain excluded from
+stale and orphan publication despite appearing in the classifier's unknown
+bucket. The directly classified BIP66 failure at **367,047** was already
+catalogued. Its existing child witness height is corrected from 1,546,542
+to **1,546,541**, independently confirmed by counting links to genesis.
+No new invalid Bitcoin parent was discovered. The error module now records
+three I0coin witnesses, with complete coinbase evidence retained.
 
-```python
-classification == "stale" and validation_status in {
-    "VALID",
-    "VALID (post-BCH, difficulty matches BTC)",
-}
-```
+The normalized private full-evidence export contains **189,649** observations
+after excluding those three catalogued invalid parents: 27,661 canonical,
+191 accepted direct stale and 161,797 unknown observations. An independent
+comparison verified every retained source observation and its normalized fields.
 
-The exact status gate accepts `VALID` and
-`VALID (post-BCH, difficulty matches BTC)`. All 166 committed entries are
-`classification == "stale"` with one of those two statuses; the loader also
-applies the exact-key error-blocks exclusion gate, which removes the one shared
-post-BIP66 version 2 candidate (BTC 367,047).
+The complete relevance pass identifies **2 strict and 0 weak** I0coin unknown
+observations. Unknown relevance is a separate classification axis; it does not
+promote an unanchored parent to an accepted direct stale.
 
-**Post-filter count: 166 accepted direct-stale header candidates.**
+### Novelty
 
-**Derived strict/weak relevance: 2 strict, 0 weak observations.** These are
-unknown rows admitted to the separate relevance axis, not direct-stale
-promotions. They remain `classification=unknown` in the monitor evidence.
+`results/per-chain-novelty/i0coin.csv` compares the 191 accepted observations
+with the exact upstream pin in `data-sources.tsv`. **140 are already upstream
+and 51 are absent upstream**. Under the project's earlier-chain precedence
+rule, all 51 are first-claimed by I0coin. Namecoin also observes 107 of the
+191 headers, overlapping the upstream-known set.
 
-### Two novelty views
+The additional I0coin witnesses change some later chains' chronological
+attribution, but every added header was already known elsewhere in this
+project. Earlier-chain precedence is a reproducible attribution convention,
+not a claim about the order in which miners actually saw a stale block.
 
-Generated by `python scripts/compute_chain_novelty.py i0coin`. Per-stale row-level breakdown at `results/per-chain-novelty/i0coin.csv`.
+## 4. Reproducible artifacts
 
-**(a) Isolated - vs upstream `bitcoin-data/stale-blocks` only**
-
-| Split | Count | % |
-|---|---:|---:|
-| also in upstream | 129 | 77.7 % |
-| novel vs upstream | 37 | 22.3 % |
-
-**(b) Chronological cumulative - layered on upstream + every chronologically-earlier chain**
-
-i0coin is 3rd chronologically. The chronologically-earlier integrated chains are `namecoin` and `geistgeld`; Geistgeld contributes zero validated stales, so Namecoin is the only earlier-chain first-claim source here. Breakdown:
-
-| Split | Count |
-|---|---:|
-| also in upstream | 129 |
-| also in earlier-born chain (`namecoin`: 102) | 102 |
-| **novel at this position (current snapshot)** | **37** |
-
-The current-snapshot 37 i0coin-novel hashes are stales that Namecoin's extraction didn't catch but i0coin's did - likely a combination of (a) blocks where Namecoin's lower sampling density missed a short-lived stale that i0coin's 6.67× density caught, and (b) blocks where i0coin's miner population overlapped with stale-block-producing pools that Namecoin's didn't. Treat this as provisional: the January 2018 snapshot bounds i0coin's coverage, so this novelty contribution is a lower bound.
-
-> Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
-
-## 4. Outputs & references
-
-**In-repo artifacts.**
-
-- `data/validated-stales/i0coin_validated_stales.csv` - 166 validated stales (committed; the loader's input).
-- `results/monitor-evidence/i0coin_monitor_evidence.csv` - 16,958 canonical,
-  166 accepted stale, and 2 strict unknown-row observations.
-- `results/per-chain-novelty/i0coin.csv` - per-stale `(height, hash, in_upstream, first_seen_chain)` table.
-
-**External references.**
-
-- `docs/auxpow-recovery.md` - cross-chain summary table (i0coin row).
-
-**Remaining work.**
-
-- **Fuller re-extraction (if data becomes available)**: the committed set is bounded by the January 2018 snapshot. A complete i0coin history, if one is ever obtained, would likely increase the validated-stale count and shift i0coin's cumulative-novelty contribution. No such fuller history is currently in hand.
-- **Unknown-chain origin (H1 vs H2)**: Namecoin's [private research
-  boundary](namecoin.md#private-research-boundary) rejects promoting its broad
-  unknown population while retaining a small strict/weak subset. i0coin's
-  86,249-row unknown population likewise yields only the 2 strict observations
-  above and remains a substantial sample for substrate research.
+The private run retains the raw archive and block-file hashes, original
+extraction, full classifier inventory and splits, full serialized witnesses,
+independent audit scripts and receipts, genesis-linked heights, complete
+source selection, unknown relevance assessment and full-evidence exports.
+The public interfaces are the validated loader CSV, per-chain novelty CSV,
+Monitor evidence and counts, error catalogue and witness ledger, and derived
+upstream contribution sidecars. Regeneration uses the normal complete-input publication gates.

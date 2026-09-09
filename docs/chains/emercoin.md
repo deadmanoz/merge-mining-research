@@ -15,7 +15,7 @@
 | Loader | `load_emercoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/emercoin_validated_stales.csv` |
 
-Emercoin is the **first hybrid PoW/PoS chain in the integrated pipeline**. What it adds methodologically is the PoS filter - the node validates both branches, but only PoW blocks embed a Bitcoin-parent AuxPoW commitment, so the extractor must drop the PoS majority (~85 % of post-MMHeight blocks) before attempting to read the parent header. The filter pattern is reusable for any future Peercoin-lineage hybrid chain. With **96 committed accepted direct-stale candidates (39 new-to-upstream at the bumped upstream pin, 28 chronologically novel; the 2026-06-24 canonical-refresh re-run added 4 - the original 2026-05 run committed 93, trimmed to 92 by the `nBits` gate)** over a coverage window from May 2017 to February 2023, the chain delivered roughly **14× the chronologically-novel count of Myriadcoin** despite its low PoW share - the long BTC-mainchain time window (six years straddling the BCH and BSV forks) and the still-mostly-distinct miner substrate explain the strong novelty.
+Emercoin is the **first hybrid PoW/PoS chain in the integrated pipeline**. What it adds methodologically is the PoS filter - the node validates both branches, but only PoW blocks embed a Bitcoin-parent AuxPoW commitment, so the extractor must drop the PoS majority (~85 % of post-MMHeight blocks) before attempting to read the parent header. The filter pattern is reusable for any future Peercoin-lineage hybrid chain. With **96 committed accepted direct-stale candidates (39 new-to-upstream at the bumped upstream pin, 28 chronologically novel; the 2026-06-24 canonical-refresh re-run added 4 - the original 2026-05 run committed 93, trimmed to 92 by the `nBits` gate)** over a coverage window from May 2017 to February 2023, the chain delivered **28× the chronologically-novel count of Myriadcoin** despite its low PoW share - the long BTC-mainchain time window (six years straddling the BCH and BSV forks) and the still-mostly-distinct miner substrate explain the strong novelty.
 
 ## 1. Chain data
 
@@ -119,10 +119,10 @@ Emercoin is 15th chronologically. Earlier-born integrated chains: namecoin, geis
 | Split | Count |
 |---|---:|
 | also in upstream | 57 |
-| also in earlier-born chain (`namecoin`: 35, `devcoin`: 5, `crown`: 4, `i0coin`: 3, `myriadcoin`: 2 - first-claim distribution) | 49 |
+| also in earlier-born chain (`namecoin`: 35, `i0coin`: 8, `devcoin`: 4, `crown`: 1, `myriadcoin`: 1 - first-claim distribution) | 49 |
 | **novel at this position** | **28** |
 
-The 49 earlier-chain-claimed stales reflect the same SHA-256d miner substrate that Namecoin (mostly) and the older chains had already been recording - Namecoin alone claims 35 of Emercoin's 96 committed candidates chronologically. The **28 chronologically novel hashes** are genuinely new-to-the-multi-chain-set contributions at Emercoin's position, **14× Myriadcoin's chronologically-novel count** of 2. This is the substantive payoff despite the low PoW share - the long coverage window and the BCH/BSV-era miner population diversity matter more than per-block AuxPoW density.
+The 49 earlier-chain-claimed stales reflect the same SHA-256d miner substrate that Namecoin (mostly) and the older chains had already been recording - Namecoin alone claims 35 of Emercoin's 96 committed candidates chronologically. The **28 chronologically novel hashes** are genuinely new-to-the-multi-chain-set contributions at Emercoin's position, **28× Myriadcoin's chronologically-novel count** of 1. This is the substantive payoff despite the low PoW share - the long coverage window and the BCH/BSV-era miner population diversity matter more than per-block AuxPoW density.
 
 > Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
 

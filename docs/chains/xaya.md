@@ -145,7 +145,7 @@ All 40 accepted rows in the 2026-06-24 refresh are accounted for by upstream or 
 - `data/validated-stales/xaya_validated_stales.csv` - 40 accepted direct-stale candidates
   (committed; the loader's input; 34 in the original run).
 - Private archive `xaya_btc_valid.csv` - 38,483 self-target-PoW-valid unique parent rows (intermediate, before classification; on `<archival-host>` only).
-- Private archive split inventories (2026-06-24 refresh): `xaya_canonical_blocks.csv` (20,801 canonical), `xaya_stale_blocks.csv` (40 stale), and `xaya_unknown_blocks.csv` (17,642 unknown; on `<archival-host>` only, plus a local gitignored scratch copy); these reconcile to the 38,483 self-target-PoW-valid parents. Not yet folded into unknown-to-stale-descendant reconciliation, which requires the full multi-chain inventory set.
+- Private archive split inventories (2026-06-24 refresh): `xaya_canonical_blocks.csv` (20,801 canonical), `xaya_stale_blocks.csv` (40 stale), and `xaya_unknown_blocks.csv` (17,642 unknown; on `<archival-host>` only, plus a local gitignored scratch copy); these reconcile to the 38,483 self-target-PoW-valid parents. All 17,642 unknown rows were included in the complete multi-chain ancestry reconciliation on 9 September 2026. The published descendant set remains at 21 parents and 33 authenticated witnesses.
 - `results/per-chain-novelty/xaya.csv` - per-stale `(btc_height, btc_hash, in_upstream, first_seen_chain)` table.
 - `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain), retained for a future tail top-up.
 
