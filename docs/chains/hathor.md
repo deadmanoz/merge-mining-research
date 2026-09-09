@@ -5,7 +5,7 @@
 | Ticker | HTR |
 | Earliest confirmed merge-mining evidence | Hathor height 60,275 on 2020-01-24 is `version == 3`; BTC-linked work is independently confirmed by height 100,000 on 2020-02-07. The exact first merge-mined height is not established. Mainnet launched 2020-01-03. |
 | Network status | Active. Joining the mainnet P2P network requires allowlisting, so this recovery uses the documented public REST API. |
-| Chronological position | 22 of 26 (after Syscoin, before Bitcoin Vault) |
+| Chronological position | 22 of 27 (after Syscoin, before Bitcoin Vault) |
 | In Stifter et al. 2018 baseline | **No**. Hathor mainnet and merge mining post-date the paper's data cutoff. |
 | Block time | 30 s |
 | Multi-parent-chain | **Yes**. The proof can bind to a compatible Bitcoin-derived SHA-256d parent. An unresolved parent is not assumed to be Bitcoin, BCH, BSV, or any other particular chain. |

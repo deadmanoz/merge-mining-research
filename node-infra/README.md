@@ -110,6 +110,11 @@ ran a node:
 The per-chain provenance docs under `docs/chains/` record which path
 each recovery took and the resulting stage counts.
 
+The [ROD archival node](rod/README.md) builds from a pinned local source
+archive and retains the complete block dataset with pruning off. Its sync and
+Bitcoin-parent extraction are separate acceptance steps; the workspace does
+not register a source or publish recovery evidence automatically.
+
 The [research worker](research-worker/README.md) runs extraction and
 classification commands in a container with an explicit read-only checkout and
 archive. Generated output goes to a separate writable directory. It includes

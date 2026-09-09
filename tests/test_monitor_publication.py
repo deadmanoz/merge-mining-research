@@ -2051,6 +2051,39 @@ def test_staged_publication_rejects_cross_interface_count_fields(
         )
 
 
+def test_staged_publication_rejects_missing_source_with_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging = tmp_path / "staged"
+    relevance = _write_staged_publication(staging)
+    counts_path = staging / monitor_publication.PUBLICATION_COUNTS.name
+    count_rows = _read_rows(counts_path)
+    count_rows[0]["source_kind"] = "missing"
+    count_rows[0]["artifact_scope"] = "missing"
+    count_rows[0]["source_path"] = ""
+    count_rows[0]["canonical"] = "1"
+    _write_count_rows(counts_path, count_rows)
+    manifest = _read_manifest(staging)
+    manifest["counts"][0].update(
+        {
+            "source_kind": "missing",
+            "artifact_scope": "missing",
+            "source_path": "",
+            "canonical": 1,
+        }
+    )
+    _write_manifest(staging, manifest)
+    monkeypatch.setattr(monitor_publication, "MONITOR_OUTPUT_DIR", staging)
+
+    with pytest.raises(ValueError, match="missing source metadata declares retained"):
+        monitor_publication._validate_staged_publication(
+            staging,
+            data_dir=REPO / "data",
+            relevance_inventory=relevance,
+        )
+
+
 def _write_coverage_snapshot(
     directory: Path,
     *,

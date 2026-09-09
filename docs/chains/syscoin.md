@@ -5,7 +5,7 @@
 | Ticker | SYS |
 | AuxPoW activation | 2019-06-03 (SYS chain-2 genesis, BTC height ~579,000). AuxPoW permitted from SYS 1 (`nAuxpowStartHeight = 1`); first AuxPoW block SYS 1,973 |
 | Network status | Active (modern Bitcoin Core fork, v5.0.5, July 2025) |
-| Chronological position | 21 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark, xaya, elastos) |
+| Chronological position | 21 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark, xaya, elastos) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; chain 2 is a 2019 launch, after the paper's mid-2018 data cutoff) |
 | AuxPoW chain ID | 16 (with legacy 4096), strict (`fStrictChainId=true`) |
 | Block time | 60 s pre-NEVM (Jun 2019 → Dec 2021), 150 s post-NEVM (Dec 2021 → present). 10× then 4× per BTC interval. |

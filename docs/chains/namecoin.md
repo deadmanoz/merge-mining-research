@@ -7,7 +7,7 @@
 | Associated Bitcoin parent | BTC height 148,553, dated 2011-10-08 |
 | Network status | Active (still merge-mining Bitcoin; accepted parent timestamps run through 2026-04-13). Recovered from an archival Namecoin Core `blk*.dat` snapshot, with every published height re-verified against a Namecoin node. |
 | AuxPoW chain ID | 1, with strict chain-ID checking |
-| Chronological position | 1 of 26 (first production AuxPoW witness) |
+| Chronological position | 1 of 27 (first production AuxPoW witness) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1, and the paper's canonical first AuxPoW chain) |
 | Source tag (in code) | `namecoin` |
 | Loader | `load_namecoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |

@@ -12,6 +12,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from stale_blocks_analysis import config  # noqa: E402
 from stale_blocks_analysis.btc_classify import output_columns  # noqa: E402
 from stale_blocks_analysis.config import (  # noqa: E402
+    CANONICAL_ONLY_CHAINS,
     CHAIN_SPECS,
     CHAINS_BY_AUXPOW_ACTIVATION,
     DATA_DIR,
@@ -43,6 +44,7 @@ INTEGRATED_KEYS = {
     "hathor",
     "bitcoin-vault",
     "elcash",
+    "rod",
     "fractal",
     "sixeleven",
     "lyncoin",
@@ -57,6 +59,11 @@ COINBASE_MODE_KEYS = {
 def test_chain_specs_covers_integrated_chains() -> None:
     missing = INTEGRATED_KEYS - set(CHAIN_SPECS)
     assert not missing, f"CHAIN_SPECS missing integrated chains: {sorted(missing)}"
+
+
+def test_canonical_only_chains_are_integrated_without_stale_artifacts() -> None:
+    assert CANONICAL_ONLY_CHAINS == {"rod"}
+    assert CANONICAL_ONLY_CHAINS <= set(CHAIN_SPECS)
 
 
 def test_historical_child_header_keys_match_chain_specs() -> None:
@@ -81,12 +88,15 @@ def test_bitcoin_vault_is_the_only_decimal_bits_spec() -> None:
     )
 
 
-def test_xaya_uses_powdata_nbits_and_other_specs_use_header_nbits() -> None:
-    assert CHAIN_SPECS["xaya"].child_nbits_from_header is False
+def test_powdata_chains_use_external_nbits_and_other_specs_use_header_nbits() -> None:
+    powdata_chains = {"xaya", "rod"}
+    assert all(
+        CHAIN_SPECS[key].child_nbits_from_header is False for key in powdata_chains
+    )
     assert all(
         spec.child_nbits_from_header
         for key, spec in CHAIN_SPECS.items()
-        if key != "xaya"
+        if key not in powdata_chains
     )
 
 
@@ -114,6 +124,12 @@ def test_height_column_nonempty_and_stripped_for_every_spec() -> None:
 
 def test_validated_csvs_share_registered_core_schema() -> None:
     for key, spec in CHAIN_SPECS.items():
+        if key == "rod":
+            assert not spec.validated_csv.exists(), (
+                "ROD has no accepted direct stale and must not fabricate "
+                "an empty validated-stales artifact"
+            )
+            continue
         with spec.validated_csv.open(newline="") as handle:
             header = next(csv.reader(handle))
         expected = output_columns(spec.height_column)
@@ -201,6 +217,7 @@ def test_validated_csv_reuses_existing_constants() -> None:
     assert CHAIN_SPECS["sixeleven"].validated_csv == config.SIXELEVEN_CSV
     assert CHAIN_SPECS["lyncoin"].validated_csv == config.LYNCOIN_CSV
     assert CHAIN_SPECS["doichain"].validated_csv == config.DOICHAIN_CSV
+    assert CHAIN_SPECS["rod"].validated_csv == config.ROD_CSV
 
 
 def test_activation_height_int_or_none() -> None:

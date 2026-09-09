@@ -5,7 +5,7 @@
 | Ticker | RBTC / RSK |
 | Recovery chronology | RSK mainnet launched in January 2018. The 2026-09-08 extraction covers the half-open range `[0, 9220905)`, including canonical blocks and every advertised uncle. The former lower bound of 139,999 was an acquisition convention, not a consensus activation or proof-format boundary. The height-zero `0x00` genesis sentinel and structurally recognised RLP fallback signatures are recorded as intentional skips; every other non-80-byte or malformed proof fails the interval. |
 | Network status | Active. Data were acquired from an RSKj Vetiver 9.0.1 archive node on `<archival-host>`; 9.0.3 was the current upstream release when audited on 2026-07-22. |
-| Chronological position | 16 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin) |
+| Chronological position | 16 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; RSK is not a Namecoin-family SHA-256d fork and was not sampled. RSK mainnet launched inside the paper's window, but the accepted direct-stale window is almost entirely after the mid-2018 cutoff) |
 | Block time | ~30 s (≈ 20 RSK blocks per BTC block) |
 | Source tag (in code) | `rsk` |

@@ -5,7 +5,7 @@
 | Ticker | ELA |
 | AuxPoW activation | No coded activation constant. The first observed non-dummy proof is ELA height 177,153 on 2018-08-26, carrying Bitcoin parent height 538,457. |
 | Network status | Active; merge-mined BPoS since ELA 1,405,000, after DPoS v1 consensus began at 402,680. Current blocks continue to carry AuxPoW. |
-| Chronological position | 20 of 26 (after Xaya, before Syscoin) |
+| Chronological position | 20 of 27 (after Xaya, before Syscoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; real Bitcoin-parent evidence begins after its 2018-07-06 data freeze) |
 | AuxPoW chain ID | 1224, used in the merged-mining tree index calculation rather than encoded as a child-header version predicate |
 | Block time | 120 s target |

@@ -82,7 +82,12 @@ strict-weak-orphans *ARGS:
 monitor-evidence *ARGS:
     {{python}} scripts/reports/build_monitor_evidence.py {{ARGS}}
 
-# Validate and report child-header coverage across the 17 historical chains.
+# Build the one-row, digest-bound ROD canonical companion in a fresh private
+# output directory. All source and review paths are explicit in ARGS.
+build-rod-canonical *ARGS:
+    {{python}} scripts/prep/build_rod_canonical.py {{ARGS}}
+
+# Validate and report child-header coverage across the historical chains.
 child-header-coverage *ARGS:
     {{python}} scripts/reports/report_child_header_coverage.py {{ARGS}}
 

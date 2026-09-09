@@ -5,7 +5,7 @@
 | Ticker | HUC |
 | AuxPoW activation | 2014-01-31 (genesis; merge-mined from block 0 - see §2 quirks) |
 | Network status | **Dead** - no reachable live node or explorer; data only available via the Arweave permaweb archive |
-| Chronological position | 8 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin; before unobtanium) |
+| Chronological position | 8 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin; before unobtanium) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Huntercoin's February–March 2014 window is inside the paper's period but it was not a sampled data source) |
 | AuxPoW chain ID | 6 (SHA-256d branch; the Scrypt branch with chain ID 2 / LTC parent is out of scope) |
 | Block time | 120 s per algorithm (dual SHA-256d + Scrypt), ~60 s combined |

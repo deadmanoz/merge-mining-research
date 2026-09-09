@@ -5,7 +5,7 @@
 | Ticker | DVC |
 | AuxPoW activation | 2012-01-07 (DVC height 25,000, BTC height ~161,000) |
 | Network status | Active (small but functional P2P network; `seed01.devcoin.org` live) |
-| Chronological position | 6 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin) |
+| Chronological position | 6 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1) |
 | AuxPoW chain ID | 4 |
 | Block time | 10 minutes (≈ 1:1 with BTC) |

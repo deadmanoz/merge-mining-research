@@ -5,7 +5,7 @@
 | Ticker | ARG |
 | AuxPoW activation | 2016-04-10 (ANN thread 1432608 multi-algo + AuxPoW relaunch; ARG height **1,825,000**) |
 | Network status | Active (live `argentum.cc` portal with 2025 footer; SHA-256d difficulty ~4.3 × 10¹⁰ at recovery time implies real BTC ASIC participation). All 3 source-coded DNS seeds + 41 fixed seeds dead - peer discovery via Wayback harvest of `chainetics.com/nodes/arg.php`. |
-| Chronological position | 13 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven) |
+| Chronological position | 13 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Argentum's SHA-256d AuxPoW ran from 2016, inside the paper's window, but it was not a sampled data source) |
 | AuxPoW chain ID | `1187` (`0x004A3`), **`fStrictChainId=false`** (`src/chainparams.cpp:83-84`) - the SHA-256d branch accepts AuxPoW from **any** SHA-256d parent, not just Bitcoin. This permissiveness is what drives Argentum's extracted-block distribution (see §3). |
 | Algorithms | 6 post-2018-03 fork (Scrypt, SHA-256d, Lyra2REv2, Myriad-Groestl, Argon2d, Yescrypt); pre-fork Scrypt + SHA-256d only. Only the SHA-256d branch is Bitcoin-parent merge-mined. |

@@ -11,7 +11,7 @@ BTC direct-stale rows.
 | Ticker | FB |
 | AuxPoW activation | Fractal's post-genesis chain launched 2024-09-09; AuxPoW is permitted from height 1 and first observed at height 2. Height 0 reuses Bitcoin's 2009 genesis. |
 | Network status | Active. The research node and latest official binary release are v0.3.0 as audited on 2026-07-22. |
-| Chronological position | 26 of 26 (latest, after Lyncoin) |
+| Chronological position | 27 of 27 (latest, after Lyncoin) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; chain post-dates the paper by 6+ years) |
 | AuxPoW chain ID | `0x2024` (decimal 8228) |
 | Block time | 30 s aggregate target; Cadence Mining targets roughly one-third AuxPoW, and v0.3.0 adds a third Indexer class after height 1,500,000 |

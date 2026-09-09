@@ -1,0 +1,14 @@
+services:
+  research-worker:
+    extends:
+      file: ${MMR_REPO_DIR:?set MMR_REPO_DIR}/node-infra/research-worker/docker-compose.yml
+      service: research-worker
+    # Share only the running node's network namespace, so RPC stays loopback.
+    network_mode: container:mmr-rod-archive
+    volumes:
+      - type: bind
+        source: ${ROD_COOKIE_FILE:?set ROD_COOKIE_FILE to the running node cookie}
+        target: /run/rod.cookie
+        read_only: true
+        bind:
+          create_host_path: false

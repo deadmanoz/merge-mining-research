@@ -5,7 +5,7 @@
 | Ticker | GG (contemporary sources; the launch ANN notes the name "neatly abbreviates to GG or GEG", bitcointalk.org/index.php?topic=42417.0. "XGG" is this project's internal tag and now belongs to an unrelated coin, 10x.gg) |
 | AuxPoW activation | 2011-10-08 (catalogue date, a project convention for Geistgeld; Namecoin's own merged-mining activation was NMC height 19200, 2011-10-11, on BTC block 148553 per Stifter et al. 2018). The dump shows AuxPoW commitments from GG height 14,092 / 2011-09-16, but those early blocks ran Geistgeld's own merged-mining code (the repo ships the standard Durham AuxPoW implementation verbatim) and don't reflect real BTC merge-mining; see §2 quirks. |
 | Network status | **Dead** - no live nodes, no public explorer, no Arweave archive |
-| Chronological position | 2 of 26 (tied with Namecoin at 2011-10-08, alphabetical tie-break to second; Namecoin at 1) |
+| Chronological position | 2 of 27 (tied with Namecoin at 2011-10-08, alphabetical tie-break to second; Namecoin at 1) |
 | In Stifter et al. 2018 baseline | **Yes** (one of the paper's seven measured Bitcoin-parent chains; Table 1 lists `XGG` with a negligible BTC-parent contribution - 2 parent blocks against 2,493,631 child blocks). The paper mentions GeistGeld only incidentally in the text - as a very-short-block-interval example and as the chain whose block 144590 parented canonical Namecoin block 19236 - not as a quantified Bitcoin stale-block contributor. Consistent with this repo's 0-accepted-stale result. |
 | Source tag (in code) | `geistgeld` |
 | Loader | `load_geistgeld_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |

@@ -5,7 +5,7 @@
 | Ticker | LYN |
 | AuxPoW activation | 2022-12-30 launch; AuxPoW permitted from child height 1 and recovered through the pre-Flex boundary at 260,499 |
 | Network status | Active at recovery time; a live peer advertised Lyncoin Core v4.0.0 at roughly height 1.36 million on 2026-07-10 |
-| Chronological position | 25 of 26 (after Electric Cash; before Fractal Bitcoin) |
+| Chronological position | 26 of 27 (after ROD; before Fractal Bitcoin) |
 | In Stifter et al. 2018 baseline | **No** (Lyncoin launched after the paper's measurement window) |
 | AuxPoW chain ID | `2829` (`0x0B0D`), strict in the recovered pre-Flex consensus rules |
 | Source tag (in code) | `lyncoin` |

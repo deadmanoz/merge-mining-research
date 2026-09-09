@@ -156,6 +156,7 @@ above.
 | [Hathor](docs/chains/hathor.md) | Public REST API; retained corpus through child height 6,593,796 | 6 | 0 | 0 | The unified result covers 6,532,372 version-3 observations and publishes 3,658 canonical parents plus the 6 accepted direct stales. |
 | [Bitcoin Vault](docs/chains/bitcoin-vault.md) | Trezor Blockbook raw-block API; nearly complete AuxPoW lifetime | 9 | 0 | 0 | No node was available, and no later accepted direct stale was found after 2021. |
 | [Electric Cash](docs/chains/elcash.md) | Self-synced local node; standard Namecoin-style AuxPoW | 3 | 0 | 0 | The three accepted stales from June to September 2021 all cross-confirm Bitcoin Vault observations. |
+| [SpaceXpanse ROD](docs/chains/rod.md) | Fully synchronized archival node; every active-chain block through height 4,127,689 | 0 | 0 | 0 | The complete scan found one fully reviewed canonical Bitcoin parent; lower-work and unresolved templates remain private evidence. |
 | [Lyncoin](docs/chains/lyncoin.md) | Live-peer P2P header stream; complete pre-Flex merge-mined era | 0 | 0 | 0 | Complete recovered era with no accepted stale or strict/weak evidence. |
 | [Fractal Bitcoin](docs/chains/fractal.md) | Archival node; point-in-time scan through child height 1,807,154 | 40 | 0 | 0 | Only the Cadence merge-mined block class carries Bitcoin-parent evidence. |
 
@@ -321,6 +322,8 @@ just strict-weak-orphans
 just monitor-evidence
 just validate-error-blocks
 just reconcile-stale-ancestry --rpc-source-label bitcoin-01
+just build-rod-canonical --extraction-root <private-rod-extraction> \
+  --audit-root <private-final-audit> <remaining-pinned-input-options>
 just attribute
 just child-header-coverage --input-dir <staged-evidence-dir> \
   --output <staged-results-dir>/child-header-coverage.csv
@@ -344,6 +347,13 @@ elsewhere, pass `--reported-output-dir` with that final destination so every
 generated metadata path names it. Without that option, the output directory
 itself is the reported destination. The same completeness gates apply to
 repository and external destinations.
+
+`just build-rod-canonical` validates the complete audited private ROD
+extraction and the independently reviewed canonical child and Bitcoin bodies.
+It writes `rod_canonical_blocks.csv` plus a digest receipt to a required fresh
+private output directory. Activate the project virtual environment first and
+pass every required source path and digest shown by `--help`; the repository
+does not contain those private inputs.
 
 `just validate-error-blocks` validates the reviewed canonical error-block
 catalogue, its median-time-past sidecar, and the exact child-observation

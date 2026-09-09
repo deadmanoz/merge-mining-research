@@ -11,7 +11,7 @@ All 25 headers were already recovered through other child chains.
 | Ticker | I0C |
 | AuxPoW activation | 2011-12-20, at I0C height 160,000 |
 | Acquisition | Offline March 2026 snapshot; no live I0coin node required |
-| Chronological position | 3 of 26, after Namecoin and Geistgeld |
+| Chronological position | 3 of 27, after Namecoin and Geistgeld |
 | In Stifter et al. 2018 baseline | Yes |
 | AuxPoW chain ID | 2 |
 | Target block interval | 90 seconds |

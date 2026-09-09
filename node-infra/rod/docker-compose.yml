@@ -1,0 +1,25 @@
+services:
+  rod:
+    build:
+      context: .
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-6}
+    image: ${ROD_IMAGE:-merge-mining-research/rod:0.6.8.10-248f1af-archive128}
+    container_name: mmr-rod-archive
+    restart: "no"
+    stop_grace_period: 5m
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ${ROD_DATA_DIR:?set ROD_DATA_DIR to a dedicated data directory}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ROD_CONFIG_FILE:?set ROD_CONFIG_FILE to a reviewed config file}
+        target: /config/spacexpanse.conf
+        read_only: true
+        bind:
+          create_host_path: false

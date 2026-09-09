@@ -76,6 +76,7 @@ HISTORICAL_CHILD_HEADER_CHAINS = (
     "crown",
     "elcash",
     "xaya",
+    "rod",
     "bitcoin-vault",
 )
 
@@ -362,9 +363,21 @@ DOICHAIN_CSV = VALIDATED_STALES_DIR / "doichain_validated_stales.csv"
 # path; the 6.34M -> ~7.3M deprecation-height tail is a documented coverage gap.
 XAYA_CSV = VALIDATED_STALES_DIR / "xaya_validated_stales.csv"
 
-# Chronological ordering by earliest evidenced Bitcoin merge mining. Most
-# entries use the chain's AuxPoW activation date; custom proof formats use the
-# earliest source-confirmed production evidence.
+# SpaceXpanse ROD stores the effective target beside the pure child header in
+# PowData, like Xaya.  The full historical recovery currently publishes a
+# canonical companion only; this conventional path is deliberately absent
+# until a direct stale is admitted by the normal validation workflow.
+ROD_CSV = VALIDATED_STALES_DIR / "rod_validated_stales.csv"
+
+# Integrated chains whose reviewed result currently consists only of a
+# canonical companion. They stay in chronology and loader rosters, but a
+# missing validated-stales file is intentional until a direct stale is admitted.
+CANONICAL_ONLY_CHAINS = frozenset({"rod"})
+
+# Chronological ordering by activation or earliest retained merge-mining proof
+# evidence. Most entries use the chain's AuxPoW activation date; custom proof
+# formats use the earliest source-confirmed production evidence. An entry does
+# not by itself establish that the observed parent belongs to Bitcoin.
 #
 # Used by per-chain documentation and the chain-novelty helper to attribute
 # "first-seen" credit when the same BTC stale appears in multiple chains'
@@ -442,6 +455,10 @@ CHAINS_BY_AUXPOW_ACTIVATION: list[tuple[str, str]] = [
     ("hathor", "2020-01-24"),  # earliest source-confirmed version-3 block
     ("bitcoin-vault", "2020-11-17"),  # BTCV mainnet AuxPoW activation block h=58420
     ("elcash", "2020-12-20"),  # fresh genesis nTime; AuxPoW permitted from height 1
+    (
+        "rod",
+        "2022-06-09",
+    ),  # earliest retained SHA256d PowData observation: child height 2
     (
         "lyncoin",
         "2022-12-30",
@@ -817,6 +834,21 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
         input_csv=_chain_input_csv("xaya"),
         output_csv=_chain_output_csv("xaya"),
         validated_csv=XAYA_CSV,
+        child_nbits_from_header=False,
+    ),
+    "rod": ChainSpec(
+        key="rod",
+        display_name="SpaceXpanse ROD",
+        height_column="child_height",
+        chain_id=1899,
+        # Height 1 is the first post-genesis block eligible for a PowData
+        # proof. Mainnet genesis is standalone NeoScrypt; the first retained
+        # SHA256d observation is height 2, dated 2022-06-09.
+        activation_height=1,
+        attribution_mode="coinbase",
+        input_csv=_chain_input_csv("rod"),
+        output_csv=_chain_output_csv("rod"),
+        validated_csv=ROD_CSV,
         child_nbits_from_header=False,
     ),
     "elastos": ChainSpec(

@@ -5,7 +5,7 @@
 | Ticker | BTCV |
 | AuxPoW activation | 2020-11-17 (BTCV mainnet block h=58,420, `consensus.nAuxpowStartHeight=58420`) |
 | Network status | **Dormant** (chain tip stalled at h=228,360 since 2024-03-10 03:54:40 UTC; repo last commit 2024-02-19 v2.6.0) |
-| Chronological position | 23 of 26 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark, xaya, elastos, syscoin, hathor; before Electric Cash) |
+| Chronological position | 23 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark, xaya, elastos, syscoin, hathor; before Electric Cash) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; 2020-11-17 launch post-dates the paper's mid-2018 data cutoff) |
 | AuxPoW chain ID | `1638` (`0x0666`), strict (`fStrictChainId=true`). **Do not confuse with Emercoin's `666` decimal (`0x029A` hex)** - different by an order of magnitude despite visual similarity when written as just "666". |
 | Block time | 600 s (Bitcoin-identical 10-minute target) |

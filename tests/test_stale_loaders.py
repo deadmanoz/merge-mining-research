@@ -152,6 +152,7 @@ def test_load_xaya_stales_missing_csv_returns_empty(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("csv_attr", "loader_name", "source"),
     [
+        ("ROD_CSV", "load_rod_stales", "rod"),
         ("LYNCOIN_CSV", "load_lyncoin_stales", "lyncoin"),
         ("SIXELEVEN_CSV", "load_sixeleven_stales", "sixeleven"),
     ],

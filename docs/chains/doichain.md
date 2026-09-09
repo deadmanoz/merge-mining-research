@@ -14,7 +14,7 @@ result for the recovered window, not a claim about later Doichain history.
 | Source | `Doichain/doichain-core` at `7eb68ae902f8329c80dc38e464f80d8bda2ed514` |
 | Observed child tip | 430,684, hash `f0d15b6a4b5c713e246061d188bd77a461d767f59c5f168700cfba2c8ddb5e42` |
 | Observed node state | 16 connections and `initialblockdownload=false` on 2026-06-24 |
-| Chronological position | 17 of 26 (after RSK; before Bitmark) |
+| Chronological position | 17 of 27 (after RSK; before Bitmark) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Doichain launched in 2018 and was not sampled) |
 | Source tag (in code) | `doichain` |
 | Loader | `load_doichain_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |

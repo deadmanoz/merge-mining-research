@@ -215,6 +215,11 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   rechecks them immediately before promotion, stages the complete output
   family, emits a hash manifest last, and keeps the private
   `rsk_canonical_blocks.csv` companion alongside the stale/unknown inventory.
+  ROD's publication input is a canonical-only companion built by
+  `scripts/prep/build_rod_canonical.py`. The producer requires the complete
+  private extraction audit and independently reviewed child and Bitcoin bodies,
+  validates their pinned digests and PowData proof, and writes to a fresh
+  private output directory. Do not create an empty `rod_validated_stales.csv`.
   Scripts import the installed package and many default to
   `data/` paths for operator convenience.
 - `data/`: committed compact loader inputs plus gitignored fetched/scratch data.
@@ -453,6 +458,16 @@ when behavior crosses module boundaries.
 Always state which commands were run and which were skipped.
 
 ## Node Infrastructure
+
+`node-infra/rod/` owns the pinned SpaceXpanse ROD archival build. Keep its
+source archive ignored and digest-verified, use noncreating data/config binds,
+and retain `prune=0`, `txindex=1` and `assumevalid=0` for comprehensive recovery.
+RPC stays inside the container. Node sync and complete parent-evidence
+extraction are separate from Research publication and Monitor registration. The tracked
+`download-window.patch` is an archival throughput variant: it changes only the
+per-peer in-flight block cap after source digest verification, keeps the global
+download window and native consensus validation unchanged, and must use its
+distinct image tag or an explicit `ROD_IMAGE` rollback selection.
 
 `node-infra/research-worker/` defines the one-off research container. It installs
 Python dependencies in a venv and includes Git/Git LFS for classifier provenance
