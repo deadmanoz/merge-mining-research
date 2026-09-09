@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Derive every monitor publication artifact path from one sanitized logical
+output root, and let externally staged builds name their final destination
+explicitly without leaking or misreporting the physical build directory.
+
+Recover RSK canonical blocks and every advertised uncle across the sealed
+height-zero range `[0, 9220905)`. Preserve 18,609,230 full parent headers and
+166,082 intentional skips in the private archive, and retain the verified
+236,073-row canonical companion. Extend the accepted direct-stale dataset
+from 337 to 353 without changing prior rows, adding six chronological
+upstream-new claims. Record that no parent observation below RSK 139,999 passes
+its own proof-of-work target, including the height-112,829 canary.
+
 Restore complete Namecoin coinbase output vectors from the private classified
 inventory (#52), adding 784 scripts across 455 accepted rows. Require complete
 coverage, matching parent evidence and exact ordered address-subset agreement

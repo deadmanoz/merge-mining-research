@@ -441,6 +441,62 @@ def test_allow_partial_refuses_committed_output_directory() -> None:
         module.main(["--allow-partial"])
 
 
+def test_allow_partial_refuses_committed_reported_output_directory(
+    tmp_path: Path,
+) -> None:
+    module = _load_cli_module()
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main(
+            [
+                "--allow-partial",
+                "--output-dir",
+                str(tmp_path / "diagnostic"),
+                "--reported-output-dir",
+                str(monitor_publication.MONITOR_OUTPUT_DIR),
+            ]
+        )
+
+
+@pytest.mark.parametrize("explicit_logical", [False, True])
+def test_transactional_build_forwards_logical_output_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_logical: bool,
+) -> None:
+    module = _load_cli_module()
+    output_dir = tmp_path / "physical"
+    logical_dir = tmp_path / "logical"
+    argv = [
+        "--allow-partial",
+        "--output-dir",
+        str(output_dir),
+        "--data-dir",
+        str(tmp_path / "data"),
+    ]
+    if explicit_logical:
+        argv.extend(["--reported-output-dir", str(logical_dir)])
+    args = module.build_parser().parse_args(argv)
+    received: dict[str, object] = {}
+
+    def build_exports(**kwargs):
+        received.update(kwargs)
+        return {"counts_csv": "counts", "manifest_json": "manifest"}
+
+    monkeypatch.setattr(
+        monitor_publication, "build_monitor_evidence_exports", build_exports
+    )
+    monkeypatch.setattr(
+        monitor_publication, "_publish_staged_artifacts", lambda *_args: None
+    )
+
+    monitor_publication.build_transactionally(args)
+
+    assert received["reported_output_dir"] == (
+        logical_dir.resolve() if explicit_logical else output_dir.resolve()
+    )
+
+
 def test_monitor_artifact_rejects_missing_parent_hash(tmp_path: Path) -> None:
     artifact = tmp_path / "namecoin_monitor_evidence.csv"
     _write_ordinary_artifact(artifact)

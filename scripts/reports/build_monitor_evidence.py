@@ -27,6 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--output-dir", type=Path, default=MONITOR_OUTPUT_DIR)
     parser.add_argument(
+        "--reported-output-dir",
+        type=Path,
+        help=(
+            "Logical final output directory recorded in publication metadata "
+            "when --output-dir is a separate physical staging destination."
+        ),
+    )
+    parser.add_argument(
         "--relevance-inventory",
         type=Path,
         default=DEFAULT_RELEVANCE_INVENTORY,

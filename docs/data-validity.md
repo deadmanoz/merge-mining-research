@@ -90,13 +90,15 @@ direct observations, each of which passed the same available-evidence profile
 against Bitcoin Core. The 30 August same-generation Namecoin and Fractal
 refresh added another 33 accepted direct observations under that profile, and
 the 5 September RSK side-chain reclassification added another 39 under RSK's
-available-evidence profile. The current committed direct set therefore
-contains 3,768 observations and 2,145 unique header hashes.
+available-evidence profile. The 8 September height-zero RSK acquisition added
+16 accepted observations from its extended later window under the same
+profile. The current committed direct set therefore contains 3,784 observations
+and 2,161 unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,
 back-filled from the committed monitor evidence and byte-verified against each
-row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 337
+row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 353
 accepted rows, so its scriptSig-length and BIP34 checks remain untested. The
 audit found no remaining failure in the committed direct sets, but it was not a
 full-block consensus replay.

@@ -319,7 +319,7 @@ def monitor_count_row(
     stats: SourceStats,
     counts: Counter[str],
     monitor_rows: int,
-    artifact_path: Path | None,
+    artifact_path: str,
     notes: str = "",
 ) -> dict[str, object]:
     """Render one per-chain row for the monitor-evidence counts CSV."""
@@ -327,7 +327,7 @@ def monitor_count_row(
         "chain": source.chain,
         "source_kind": source.source_kind,
         "artifact_scope": source.artifact_scope,
-        "artifact_path": safe_path(artifact_path, chain=source.chain),
+        "artifact_path": artifact_path,
         "source_path": safe_path(source.path, chain=source.chain),
         "canonical": counts.get("canonical", 0),
         "stale": counts.get("stale", 0),
@@ -623,7 +623,11 @@ def build_monitor_evidence_exports(
     build because the recovered witness ledger must agree with the catalogue;
     diagnostic exports deliberately leave the aggregate absent.
     """
-    logical_output_dir = reported_output_dir or output_dir
+    logical_output_root = safe_path(reported_output_dir or output_dir)
+
+    def reported_child_path(name: str) -> str:
+        return f"{logical_output_root}/{name}"
+
     output_dir.mkdir(parents=True, exist_ok=True)
     sources = discover_evidence_sources(data_dir, chain_archive_dirs)
     canonical_sources = (
@@ -781,10 +785,8 @@ def build_monitor_evidence_exports(
         ):
             artifact_path = output_dir / artifact_name
             write_csv(artifact_path, kept, artifact_fields)
-            reported_artifact_path = logical_output_dir / artifact_name
-            artifacts[source.chain] = safe_path(
-                reported_artifact_path, chain=source.chain
-            )
+            reported_artifact_path = reported_child_path(artifact_name)
+            artifacts[source.chain] = reported_artifact_path
         notes_parts = sorted(stats.notes)
         if stats.classifications.get("unknown", 0) and not inventory_available:
             notes_parts.append("unknown_rows_present_no_relevance_inventory")
@@ -798,7 +800,7 @@ def build_monitor_evidence_exports(
             notes_parts.append("parent_verdicts_only_witnesses_in_observation_ledger")
         notes = "; ".join(notes_parts)
         reported_artifact_path = (
-            logical_output_dir / artifact_name if artifact_path is not None else None
+            reported_child_path(artifact_name) if artifact_path is not None else ""
         )
         count_rows.append(
             monitor_count_row(
@@ -874,8 +876,8 @@ def build_monitor_evidence_exports(
                 "error observation writer returned a non-canonical artifact name"
             )
         observation_chain_counts[ERROR_OBSERVATION_ARTIFACT] = source_chain_counts
-        reported_error_path = logical_output_dir / error_path.name
-        artifacts[error_chain] = safe_path(reported_error_path)
+        reported_error_path = reported_child_path(error_path.name)
+        artifacts[error_chain] = reported_error_path
         count_rows.append(
             error_observation_count_row(
                 error_artifact,
@@ -898,14 +900,14 @@ def build_monitor_evidence_exports(
         )
     counts_path = output_dir / "monitor-evidence-counts.csv"
     manifest_json_path = output_dir / "monitor-evidence-manifest.json"
-    reported_counts_path = logical_output_dir / counts_path.name
-    reported_manifest_path = logical_output_dir / manifest_json_path.name
+    reported_counts_path = reported_child_path(counts_path.name)
+    reported_manifest_path = reported_child_path(manifest_json_path.name)
     write_csv(counts_path, count_rows, MONITOR_COUNT_FIELDS)
 
     summary = {
-        "output_dir": safe_path(logical_output_dir),
-        "counts_csv": safe_path(reported_counts_path),
-        "manifest_json": safe_path(reported_manifest_path),
+        "output_dir": logical_output_root,
+        "counts_csv": reported_counts_path,
+        "manifest_json": reported_manifest_path,
         "validation_contracts": MONITOR_VALIDATION_CONTRACTS,
         "artifacts": artifacts,
         "relevance_inventory": (

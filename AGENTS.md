@@ -106,7 +106,9 @@ builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
 available canonical row for every chain. Never point a partial build at the
 committed monitor-evidence directory. Both modes stage the complete generated
 artifact set before replacing the publication; unrelated files already in the
-output directory are preserved.
+output directory are preserved. A publication built in an external staging
+tree must pass `--reported-output-dir` with the final logical destination so
+all generated metadata paths agree.
 
 Useful direct commands:
 
