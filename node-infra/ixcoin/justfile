@@ -8,8 +8,16 @@ build:
 up:
     docker compose up -d
 
+# Start the retained ixcoind container without recreating it.
+start:
+    docker compose start ixcoind
+
+# Stop the retained ixcoind container and wait for graceful shutdown.
+stop:
+    docker compose stop --timeout -1 ixcoind
+
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 logs:
     docker compose logs -f --tail=200 ixcoind

@@ -10,7 +10,8 @@ services:
     image: merge-mining-research/lyncoind:4.0.0
     platform: linux/amd64
     container_name: lyncoind
-    restart: unless-stopped
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC is loopback-only on the host. P2P remains publicly reachable.
     ports:

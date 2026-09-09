@@ -56,6 +56,20 @@ just height     # 1379337 if the seed is intact
 
 ## Useful commands
 
+For archival operation, keep the container stopped between research runs.
+Put `COILEDCOIN_DATA_DIR=/path/to/preserved/coiledcoin` and
+`COMPOSE_FILE=docker-compose.yml:compose.offline.yml` in an ignored `.env`.
+Set `COILEDCOIN_IMAGE` to the verified retained image ID when adopting an
+existing database; do not rebuild or reindex as part of that adoption.
+The offline overlay has no network interface. All queries use the existing
+`docker compose exec` CLI recipes.
+
+After verifying the selected datadir and image, first create the container
+with `docker compose up -d --no-build --pull never`. Check its tip and
+historical reads, then use `just stop` to wait for normal shutdown and retain
+the container. `just start` resumes it. Missing bind directories fail instead
+of creating an empty node state. Automatic restart is disabled.
+
 ```sh
 just status     # legacy `getinfo` - closest thing to getblockchaininfo
 just shell      # drop into a root shell in the container

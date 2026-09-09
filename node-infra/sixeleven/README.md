@@ -76,6 +76,31 @@ timestamp, confirmations, canonical `getblockhash(height)` identity, and the
 height-19,200 activation boundary. Feed the `.heights.csv` file to the Bitcoin
 parent classifier, never the `.raw.csv` file.
 
+## Preserved historical data
+
+Keep this node stopped between research runs. To adopt a preserved datadir,
+retain its existing `611.conf` and the pinned image. Do not run `just init`
+against the adopted state. Record its ownership and validate the restored tip
+and historical block reads before relying on it. The upstream entrypoint runs
+the daemon as UID/GID 999 and changes datadir ownership on the destination;
+the wrapper prevents it from printing RPC credentials.
+
+For an isolated read session, put these selections in an ignored `.env`:
+
+```dotenv
+SIXELEVEN_DATA_DIR=/path/to/preserved/sixeleven
+COMPOSE_FILE=docker-compose.yml:compose.offline.yml
+```
+
+After checking the selected mount and pulling the pinned image, create the
+container with `docker compose up -d --no-build --pull never`. Then use
+`just height` or `just status`, and `just stop`. `just start` resumes that
+retained container. The offline overlay has no external network or published
+RPC port; its CLI recipes use `docker compose exec`. Do not assume a generic
+`611d -help` invocation is harmless: the pinned legacy binary attempted
+database initialization during an isolated probe. Never use such probes with
+a real datadir. Omit the overlay only when an online session is intended.
+
 ## Completed recovery
 
 The 2026-07-10 run reached height 999,406 with six peers and then froze the

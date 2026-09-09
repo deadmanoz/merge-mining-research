@@ -1,0 +1,40 @@
+services:
+  syscoind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${SYSCOIN_IMAGE:-merge-mining-research/syscoind:5.1.0-native}
+    platform: linux/amd64
+    container_name: ${SYSCOIN_CONTAINER_NAME:-syscoind}
+    user: "1000:1000"
+    restart: ${SYSCOIN_RESTART_POLICY:-no}
+    network_mode: host
+    ports: []
+
+    volumes:
+      - type: bind
+        source: ${SYSCOIN_DATA_DIR:?SYSCOIN_DATA_DIR must point to an existing populated datadir}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SYSCOIN_CONFIG_FILE:?SYSCOIN_CONFIG_FILE must point to an existing reviewed config}
+        target: /config/syscoin.conf
+        read_only: true
+        bind:
+          create_host_path: false
+
+    command:
+      - "-daemon=0"
+      - "-server=1"
+      - "-datadir=/data"
+      - "-conf=/config/syscoin.conf"
+
+    stop_grace_period: 5m
+
+    healthcheck:
+      test: ["CMD", "syscoin-cli", "-datadir=/data", "-conf=/config/syscoin.conf", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

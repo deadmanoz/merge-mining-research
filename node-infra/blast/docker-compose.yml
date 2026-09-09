@@ -5,7 +5,8 @@ services:
       dockerfile: Dockerfile
     image: merge-mining-research/blastd:latest
     container_name: blastd
-    restart: unless-stopped
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC port bound to loopback only — AuxPoW extractor runs on the same host.
     # P2P port published publicly so any surviving BLAST node can dial in (the

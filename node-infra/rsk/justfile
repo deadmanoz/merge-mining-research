@@ -1,0 +1,29 @@
+set dotenv-load := true
+set positional-arguments
+
+default:
+    @just --list
+
+config:
+    docker compose config --quiet
+
+build:
+    docker compose build rsk
+
+start:
+    docker compose up -d --no-build --pull never rsk
+
+stop:
+    docker compose stop --timeout -1 rsk
+
+down:
+    docker compose down --timeout -1
+
+status:
+    docker compose ps
+
+logs:
+    docker compose logs -f --tail=100 rsk
+
+rpc *ARGS:
+    exec docker compose exec -T rsk /usr/local/bin/rsk-rpc "$@"

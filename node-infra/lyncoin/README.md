@@ -65,3 +65,11 @@ classification and normalization before Merge Mining Monitor ingestion. Its
 `btc_hash` remains conventional display hex. Its `child_height` is only a
 blk-file sequence counter, so normalization must replace it with an exact
 consensus height before ingestion.
+
+## Parked operation
+
+Automatic restart is disabled. Keep this research node stopped between
+explicit sessions: `just stop` waits for normal database shutdown and retains
+the container; `just start` resumes it. The existing online configuration can
+contact peers when started. These lifecycle commands do not establish that a
+preserved datadir is complete or that a surveyed chain has recoverable history.

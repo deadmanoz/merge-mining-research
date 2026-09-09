@@ -1,0 +1,4 @@
+# The Dockerfile clones its source during the build and copies no
+# build-context files. Keep node data, generated config, and credentials out.
+*
+!Dockerfile

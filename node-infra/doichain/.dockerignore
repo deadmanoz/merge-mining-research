@@ -1,0 +1,3 @@
+# Doichain's Dockerfile clones its source and does not COPY local runtime files.
+**
+!Dockerfile

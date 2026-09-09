@@ -7,6 +7,62 @@ source checkout, PostgreSQL 16 and a read-only Research bind. Keep the API on
 host loopback and database restoration, migrations and data jobs explicit.
 Exclude private settings and database files from Git and the image context.
 
+Document immutable archive inputs and path-preserving consolidation of exact
+duplicates. Keep original metadata receipts and replace disposable binary
+build inputs instead of modifying shared archived files in place.
+
+Move the private archive dashboard into the separate
+`deadmanoz/mmr-archive-dashboard` repository. Keep a pointer here and maintain
+its code, Docker recipe and operations in that repository.
+
+Support Fractal disk adoption with explicit retained-image selection,
+noncreating binds, the original configuration filename, networkless reads
+and graceful lifecycle commands. Enable live restart only after acceptance.
+
+Add Elastos and RSK container workspaces around their preserved native runtime
+inputs. Keep node logs under data binds, preserve Elastos's complete node root
+and RSK's complete datadir including active unitrie, and provide networkless
+read profiles with explicit graceful lifecycle commands.
+Preserve one JSON value per RSK RPC argument and reject malformed or multiple
+values before sending a request.
+
+Consolidate RSK's container storage into one noncreating data bind so all live
+state can reside on the research VM's main disk without a separate SSD volume.
+
+Add Namecoin and Syscoin container workspaces using their preserved native
+Linux binaries, with exact build-time hash checks, separate private config
+binds and offline read profiles. Preserve the existing node versions and
+index state; enable automatic restart only after live-cutover acceptance.
+
+Add offline archival overlays and configurable retained image/datadir
+selections for Argentum, Bitmark, Crown, Doichain, Elcash, Emercoin, IXCoin,
+Myriadcoin, Terracoin and Unobtanium. Disable automatic restart, reject missing bind
+sources, and keep historical start/stop commands explicit. Align Elcash's
+configured RPC port across the daemon, health check and CLI.
+Keep Bitmark's legacy RPC on its default loopback sockets by omitting
+`rpcallowip`, which triggers wildcard binding, and the unsupported `rpcbind`.
+Allow five minutes for ordinary historical container shutdown, and make
+explicit stop/down recipes wait for database flushing without a forced timeout.
+
+Add isolated archival overlays for CoiledCoin and SixEleven, with RPC queried
+through their existing container CLI recipes. Preserve configured datadir
+selection, reject missing bind sources and retain stopped containers. Keep
+SixEleven's credential-suppressing wrapper and direct missing-config errors
+towards restoring the original configuration when adopting preserved data.
+
+Keep the remaining historical and surveyed Blast, Jincoin, Lyncoin
+and Xaya workspaces stopped between sessions, with automatic restart disabled
+and explicit retained-container start/stop commands.
+
+Make the Devcoin Docker workspace support on-demand archival operation with
+retained-container start/stop commands, automatic restart disabled and an
+explicit foreground daemon. Keep its local-source bundle build and offline
+Linux runtime overlay in the repo so archival deployments use the canonical
+recipes unchanged. Exclude datadirs and RPC credentials from its build
+context, and document verification when adopting a native node. Correct the
+`getblockhex` recipe's shell-variable expansion and stop if its height lookup
+fails.
+
 Process the complete March 2026 I0coin snapshot through extraction, Bitcoin
 classification and independent AuxPoW verification. Retain all 189,652
 self-target-valid observations, accept 191 direct stales (25 additional

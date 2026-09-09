@@ -108,3 +108,11 @@ parties most likely to still hold a peers.dat or blk*.dat:
 
 If a private peer surfaces, drop it into `peers.list` (one per line,
 `host[:port]`), re-run `just init`, and restart the container.
+
+## Parked operation
+
+Automatic restart is disabled. Keep this research node stopped between
+explicit sessions: `just stop` waits for normal database shutdown and retains
+the container; `just start` resumes it. The existing online configuration can
+contact peers when started. These lifecycle commands do not establish that a
+preserved datadir is complete or that a surveyed chain has recoverable history.

@@ -1,0 +1,3 @@
+# The existing Dockerfile downloads its release; no local runtime data is used.
+**
+!Dockerfile

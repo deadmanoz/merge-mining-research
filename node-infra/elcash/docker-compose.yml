@@ -3,27 +3,34 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: merge-mining-research/elcashd:latest
-    container_name: elcashd
-    restart: unless-stopped
+    image: ${ELCASH_IMAGE:-merge-mining-research/elcashd:latest}
+    container_name: ${ELCASH_CONTAINER_NAME:-elcashd}
+    restart: "no"
+    stop_grace_period: 5m
 
     # RPC port bound to loopback only — the extractor runs on the same host.
     # P2P port published publicly so DNS-seeded peers + inbound peers work.
-    # ELCASH inherits Bitcoin Core's 8332/8333 defaults; init.sh pins the
-    # remapped 18432/8433 pair in elcash.conf.
+    # ELCASH inherits Bitcoin Core's 8332/8333 defaults. Set RPC explicitly
+    # so a preserved datadir without elcash.conf uses the same port as the CLI.
     ports:
-      - "127.0.0.1:18432:18432"
+      - "127.0.0.1:${ELCASH_RPC_PORT:-18432}:${ELCASH_RPC_PORT:-18432}"
       - "8433:8433"
 
     volumes:
-      - ${ELCASH_DATA_DIR:-./data}:/data
+      - type: bind
+        source: ${ELCASH_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
 
     command:
       - "-printtoconsole"
       - "-datadir=/data"
+      - "-daemon=0"
+      - "-rpcport=${ELCASH_RPC_PORT:-18432}"
 
     healthcheck:
-      test: ["CMD", "elcash-cli", "-datadir=/data", "getblockcount"]
+      test: ["CMD", "elcash-cli", "-datadir=/data", "-rpcport=${ELCASH_RPC_PORT:-18432}", "getblockcount"]
       interval: 60s
       timeout: 10s
       retries: 3

@@ -1,15 +1,23 @@
 default:
     @just --list
 
-# Build the devcoind image (~10 min first time).
+# Build the devcoind image.
 build:
     docker compose build
 
 up:
     docker compose up -d
 
+# Restart the retained historical container without recreating it.
+start:
+    docker compose start devcoind
+
+# Park the node and wait for graceful shutdown without a forced kill.
+stop:
+    docker compose stop --timeout -1 devcoind
+
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 logs:
     docker compose logs -f --tail=200 devcoind
@@ -32,5 +40,5 @@ shell:
 # Hex-dump a block by height. JSON RPC does not expose AuxPoW headers on
 # this codebase, so AuxPoW extraction reads the raw hex instead.
 getblockhex height:
-    @hash=$(docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblockhash {{height}}); \
-    docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblock $$hash 0
+    @block_hash=$(docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblockhash {{height}}) && \
+    docker compose exec -T devcoind devcoin-cli -datadir=/home/devcoin/.devcoin getblock "${block_hash}" 0

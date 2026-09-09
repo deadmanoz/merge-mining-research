@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -9,13 +11,23 @@ init:
 build:
     docker compose build
 
-# Start fractald (detached). IBD over a ~2 TB chain takes days.
+# Validate configuration without printing private settings.
+config:
+    docker compose config --quiet
+
+# Start from the selected existing image.
 up:
-    docker compose up -d
+    docker compose up -d --no-build --pull never
+
+start:
+    docker compose start fractald
+
+stop:
+    docker compose stop --timeout -1 fractald
 
 # Stop and remove the container (the data volume persists).
 down:
-    docker compose down
+    docker compose down --timeout -1
 
 # Tail the fractald logs.
 logs:
@@ -23,18 +35,18 @@ logs:
 
 # Blockchain height from inside the container.
 height:
-    docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getblockcount
+    docker compose exec -T fractald fractal-cli -datadir=/home/fractal/.fractal -conf=/home/fractal/.fractal/bitcoin.conf getblockcount
 
 # Peer count.
 peers:
-    docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getconnectioncount
+    docker compose exec -T fractald fractal-cli -datadir=/home/fractal/.fractal -conf=/home/fractal/.fractal/bitcoin.conf getconnectioncount
 
 # Full sync/peer snapshot.
 status:
     @echo '--- blockchain ---'
-    @docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getblockchaininfo | head -30
+    @docker compose exec -T fractald fractal-cli -datadir=/home/fractal/.fractal -conf=/home/fractal/.fractal/bitcoin.conf getblockchaininfo | head -30
     @echo '--- peers ---'
-    @docker compose exec fractald fractal-cli -datadir=/home/fractal/.fractal getpeerinfo | head -40
+    @docker compose exec -T fractald fractal-cli -datadir=/home/fractal/.fractal -conf=/home/fractal/.fractal/bitcoin.conf getpeerinfo | head -40
 
 # Drop into a shell inside the container.
 shell:

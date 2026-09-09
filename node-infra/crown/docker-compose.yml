@@ -8,10 +8,11 @@ services:
       # universe ships `tini` for amd64 only.
       platforms:
         - "linux/amd64"
-    image: merge-mining-research/crownd:0.14.0.4
+    image: ${CROWN_IMAGE:-merge-mining-research/crownd:0.14.0.4}
     platform: linux/amd64
-    container_name: crownd
-    restart: unless-stopped
+    container_name: ${CROWN_CONTAINER_NAME:-crownd}
+    restart: "no"
+    stop_grace_period: 5m
     # PID 1 zombie reaping (we dropped tini from the image to avoid the
     # bionic-universe apt step).
     init: true
@@ -23,18 +24,24 @@ services:
       - "9340:9340"
 
     volumes:
-      # Chain data lives on a large external volume on the deployment host.
-      # Set CROWN_DATA_DIR (e.g. via a .env file beside this compose file) to
-      # that absolute path; defaults to ./data for fresh local deploys.
-      - ${CROWN_DATA_DIR:-./data}:/home/crown/.crown
+      # Defaults to ./data for deliberate new setup; existing adoption must
+      # select its already-populated private source through CROWN_DATA_DIR.
+      - type: bind
+        source: ${CROWN_DATA_DIR:-./data}
+        target: /home/crown/.crown
+        bind:
+          create_host_path: false
 
     # crown.conf is rendered by bootstrap.sh.
     command:
       - "-printtoconsole"
+      - "-daemon=0"
+      - "-server=1"
       - "-datadir=/home/crown/.crown"
+      - "-conf=/home/crown/.crown/crown.conf"
 
     healthcheck:
-      test: ["CMD", "crown-cli", "-datadir=/home/crown/.crown", "getblockcount"]
+      test: ["CMD", "crown-cli", "-datadir=/home/crown/.crown", "-conf=/home/crown/.crown/crown.conf", "getblockcount"]
       interval: 60s
       timeout: 10s
       retries: 3

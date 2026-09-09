@@ -1,0 +1,16 @@
+# Initial reads on an adopted disk, with no network interface or host ports.
+services:
+  fractald:
+    network_mode: none
+    ports: !reset []
+    restart: "no"
+    command:
+      - "-datadir=/home/fractal/.fractal"
+      - "-conf=/home/fractal/.fractal/bitcoin.conf"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcallowip=127.0.0.1"

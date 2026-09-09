@@ -1,0 +1,5 @@
+# Allowlist for this workspace's reviewed runtime inputs.
+*
+!Dockerfile
+!ela
+!ela-cli
