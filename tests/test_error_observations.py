@@ -112,7 +112,7 @@ def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None
     } == set(ledger)
     assert inventory["rows"] == len(ledger)
     assert len(blocks) == 39
-    assert inventory["rows"] == 86
+    assert inventory["rows"] == 88
 
 
 def test_error_observation_count_row_has_canonical_publication_shape() -> None:
@@ -348,6 +348,48 @@ def test_error_observation_ledger_rejects_lost_audit_provenance(
         )
 
 
+@pytest.mark.parametrize(
+    "provenance",
+    (
+        "catalogue-active-parent-placement",
+        "catalogue-authenticated-ancestry-placement",
+        "unverified-placement",
+    ),
+)
+def test_unknown_error_witness_requires_catalogue_placement_for_missing_source_height(
+    tmp_path, provenance: str
+) -> None:
+    data_dir, ledger_path, fieldnames, rows = _copied_error_ledger(tmp_path)
+    row = next(
+        candidate
+        for candidate in rows
+        if candidate["btc_height"] == "331673" and candidate["chain"] == "devcoin"
+    )
+    row["source_classification"] = "unknown"
+    row["source_btc_height"] = ""
+    row["btc_height_provenance"] = provenance
+    _rewrite_ledger(ledger_path, rows, fieldnames)
+
+    kwargs = {
+        "catalogue_path": data_dir / "error-blocks" / "error_blocks.csv",
+        "ledger_path": ledger_path,
+    }
+    if provenance == "unverified-placement":
+        with pytest.raises(ValueError, match="missing source_btc_height"):
+            validate_error_observation_ledger(**kwargs)
+    else:
+        _blocks, ledger = validate_error_observation_ledger(**kwargs)
+        key = (
+            row["chain"],
+            int(row["child_height"]),
+            row["child_block_hash"],
+            row["btc_header_hash"],
+        )
+        assert ledger[key]["btc_height"] == "331673"
+        assert ledger[key]["source_btc_height"] == ""
+        assert ledger[key]["btc_height_provenance"] == provenance
+
+
 def test_error_observation_header_is_the_34_column_union() -> None:
     rows, _inventory = build_error_observation_rows()
 
@@ -573,7 +615,7 @@ def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> Non
         sibling_hash,
     }
     assert inventory["parents"] == 39
-    assert inventory["rows"] == 87
+    assert inventory["rows"] == 89
 
 
 @pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))

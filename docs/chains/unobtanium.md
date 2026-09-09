@@ -101,7 +101,7 @@ Unobtanium is 9th chronologically. The earlier-born integrated chains are nameco
 | Split | Count |
 |---|---:|
 | also in upstream | 21 |
-| also in earlier-born chain (`devcoin`: 20, `namecoin`: 15, `i0coin`: 4 - first-claim distribution) | 39 |
+| also in earlier-born chain (`i0coin`: 17, `namecoin`: 15, `devcoin`: 7 - first-claim distribution) | 39 |
 | **novel at this position** | **3** |
 
 The "3 novel" figure matches the historical recovery note. The candidates are

@@ -291,7 +291,10 @@ def _load_ledger(path: Path) -> dict[ErrorObservationKey, dict[str, str]]:
                     raise ValueError(
                         f"{path}:{row_number}: malformed source_btc_height"
                     )
-            elif row["btc_height_provenance"] != "catalogue-active-parent-placement":
+            elif row["btc_height_provenance"] not in {
+                "catalogue-active-parent-placement",
+                "catalogue-authenticated-ancestry-placement",
+            }:
                 raise ValueError(f"{path}:{row_number}: missing source_btc_height")
             source_row = int_or_none(
                 _required(row, "source_row_number", row_number=row_number, path=path)

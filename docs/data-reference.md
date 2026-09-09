@@ -58,7 +58,7 @@ columns trail that shared core:
 | `coinbase_scriptsig_hex` | Preserved coinbase evidence for later pool-attribution research. |
 | `coinbase_outputs` | The BTC parent coinbase's payout list, semicolon-joined in coinbase order. Each entry is `<payout>` or `<payout>:<value_sats>`, where the amount appears only where the extraction preserved it. `<payout>` is the Bitcoin mainnet address for the address-bearing standard templates (P2PKH, P2SH, P2WPKH, P2WSH, P2TR) and raw scriptPubKey hex for every other script; see "Coinbase output rendering" below. Empty where the extraction preserved none (RSK). |
 | `btc_header_hex` | Full 80-byte header, hex (160 chars). |
-| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. The column occupies the same position in every validated schema and remains blank when unavailable. Namecoin classifier inventory heights are historical block-file scan order, so normalization blanks them and hydrates only the exact node-verified identity height; see `docs/chains/namecoin.md`. |
+| `<chain>_height` (`dvc_height`, `nmc_height`, `child_height`, ...) | Height on the merge-mined sibling chain where independently resolved. The column occupies the same position in every validated schema and remains blank when unavailable. I0coin's refreshed validated rows carry heights derived from complete authenticated header ancestry to genesis. Namecoin classifier inventory heights are historical block-file scan order, so normalization blanks them and hydrates only the exact node-verified identity height; see `docs/chains/namecoin.md`. |
 | `child_block_hash` | Authenticated child block hash for the 17 refreshed historical source families. |
 | `child_header_hex` | Authenticated serialized 80-byte child header for the 17 refreshed historical source families. |
 | `child_block_time` | Unsigned decimal timestamp decoded from `child_header_hex`. |
@@ -72,8 +72,11 @@ namecoin's `nbits_match` / `post_bch_fork` gate detail,
 `btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
 is populated for all 1,649 rows; the 228 historically header-less rows were
 back-filled from the committed monitor evidence, byte-verified against each
-row's committed hash and decoded fields), and
-coiledcoin's `eligius_attack_window`.
+row's committed hash and decoded fields),
+coiledcoin's `eligius_attack_window`, and i0coin's `full_coinbase_hex`.
+The latter preserves the complete serialized Bitcoin parent coinbase for
+all 191 accepted I0coin witnesses; its decoded scriptSig and ordered outputs,
+including amounts, agree with the shared columns.
 
 ### Coinbase output rendering
 
@@ -100,9 +103,11 @@ ordinal is its order in the surviving list rather than its transaction
 position. Namecoin's original acquisition produced 1,476 such lists; issue #52
 recovered complete raw-script vectors for all 1,649 accepted loader rows, so
 none of those loader cells now carries `~` or recipient-only `pkh(...)` claims.
-Historical inventories and unchanged generated snapshots may still carry the
-weaker forms. Keep their filtered semantics: the marker is decided per row
-rather than removed for the entire chain. Terracoin and Syscoin also
+Historical inventories and their full-evidence exports retain source-level
+claims, including these weaker forms. The refreshed Monitor uses the restored
+validated-loader vectors for accepted Namecoin rows. Keep filtered semantics
+where the source warrants them: the marker is decided per row rather than
+removed for the entire chain. Terracoin and Syscoin also
 decoded through the child node but kept a placeholder for every output the
 decode could not name, so their positions stay exact even where a payout
 survives only as `pkh(...)`. Terracoin's committed cells predate its
@@ -140,9 +145,10 @@ Acquisition limitations are not repairable by rendering alone:
   discarded before commit. The checker tolerates the label as a legacy value.
 - Namecoin's former address-only projection omitted 784 outputs across 455
   accepted rows. The recorded [raw-script recovery](chains/namecoin.md)
-  restored them with an exact ordered-subset consistency check. Normal reruns
-  consume complete extracted scripts directly. Generated publication snapshots
-  were not rebuilt with this loader change.
+  restored them with an exact ordered-subset consistency check. Normal classifier
+  reruns consume complete extracted scripts directly. The complete Monitor
+  rebuild uses the restored validated loader for accepted rows; full evidence
+  retains the selected classifier inventory's source-level claims.
 
 ## Error blocks: `data/error-blocks/error_blocks.csv`
 
@@ -344,6 +350,12 @@ coverage report authenticated 2,933,154 of 2,933,154 rows and all 6 accepted
 stale-descendant observations belonging to those 17 sources, with zero
 unrecoverable rows.
 
+The September 2026 coverage report authenticates 3,019,416 of 3,019,416
+historical source rows and all 6 accepted stale-descendant observations
+belonging to those 17 sources, with zero unrecoverable rows. The larger I0coin
+inventory adds 86,267 rows; current catalogue exclusions remove two Devcoin,
+two Ixcoin and one Emercoin row from the earlier coverage population.
+
 Each `<chain>_evidence.csv` uses this normalized schema:
 
 | Column | Meaning |
@@ -507,6 +519,25 @@ evidence uniformly for every chain. `--skip-canonical` is permitted only in an
 explicit `--allow-partial` diagnostic build with a disposable output
 directory.
 
+`--output-dir` selects the physical destination. For an isolated publication,
+`--reported-output-dir` selects the logical final directory recorded in the
+manifest, counts CSV and artifact map, using the same convention as the
+full-evidence producer. Omit it to report the physical destination. The writer
+sanitises the logical directory once and appends each artifact filename, so
+ordinary chain files, the error aggregate and both metadata files describe
+one publication location. A partial diagnostic cannot report the committed
+Monitor directory as its logical destination.
+
+This flag does not select the preservation baseline or bypass publication
+gates. The baseline remains the runtime checkout's committed
+`results/monitor-evidence/` files. When assembling a generation separately,
+materialise the complete previous publication there before running the normal
+producer. `--data-dir` selects the new canonical data inputs; original
+classifier dependency bytes must still remain available at the paths bound
+by a source-family manifest. Keep the complete RSK raw/checkpoint/skip-ledger
+bundle and its classified siblings together, and verify them without
+rewriting their dependency fingerprints.
+
 The per-chain `*_monitor_evidence.csv` payloads are stored in Git LFS. Run
 `git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"`
 before reading or rebuilding them. `monitor-evidence-counts.csv` and
@@ -515,7 +546,7 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 86-row aggregate
+`error-block-observations_monitor_evidence.csv` is a separate 88-row aggregate
 for the 39 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
@@ -544,11 +575,24 @@ ledger row must have the exact canonical field count and identify its child
 either with a well-formed hash or with a serialized child header from which
 that hash can be authenticated. Staged publication applies the ordinary
 parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 86-row
+catalogue/ledger-derived field and identity to match the canonical 88-row
 module exactly; source-derived coinbase output enrichment may add evidence but
 cannot replace it. The release path stages every ordinary artifact, the error
 aggregate, counts, and manifest as one coherent transaction after validating
 them against the current schemas and source contracts.
+
+I0coin contributes three exact error observations. The recovered snapshot
+adds witnesses at Bitcoin heights 331,673 and 331,674, with child heights
+1,315,879 and 1,315,884, and corrects the existing height-367,047 witness's
+child height from 1,546,542 to 1,546,541. The latter is the same authenticated
+child identity with corrected ancestry metadata, not an additional event.
+The two new source rows remain `unknown` with blank `source_btc_height`;
+their ledger `btc_height` comes from the catalogue's verified ancestry and
+uses `btc_height_provenance=catalogue-authenticated-ancestry-placement`.
+Together with `catalogue-active-parent-placement`, this is an explicit
+provenance case allowing a blank source height. The catalogued Bitcoin height,
+exact witness identity, authenticated child header, source coordinates and
+consensus-failure gates remain required.
 
 Each `<chain>_monitor_evidence.csv` uses the full-evidence schema plus two
 columns the monitor's importer parses verbatim. The current schema includes
@@ -585,8 +629,13 @@ partial diagnostic records that hydration shortfall instead of claiming a
 usable identity.
 
 i0coin and CoiledCoin publish their authenticated child hash, header, time, and
-`nBits`, but the normalized `child_height` value remains empty because their
-offline archives provide no authenticated consensus height. Doichain's retained
+`nBits`. Their `full_inventory` and `canonical_blocks` source families retain
+the existing normalization contract that leaves `child_height` empty, rather
+than trusting historical block-file scan counters. I0coin's complete snapshot
+now supports independently verified genesis-linked heights in its private
+research records, accepted direct-stale rows and error-observation ledger.
+Those verified heights do not change the normalized full-inventory or
+canonical-companion contract. Doichain's retained
 historical inventories likewise leave their unauthenticated file-order values blank; a
 future run can fill exact heights through its documented RPC normalization
 pass. The old block-file scan counters have been removed rather than presented
@@ -606,9 +655,9 @@ header hash so their coverage is explicit:
 Namecoin's monitor export previously required partial header hydration for
 its stale rows. The validated loader now carries `btc_header_hex` for all
 1,649 accepted rows (back-filled from the committed monitor evidence), so
-stale-row hydration has no remaining targets: the committed manifest's
-`namecoin_header_hydration=hydrated:228` note is provenance of the existing
-payload build and drops out at the next full monitor publication run. The 21
+stale-row hydration has no remaining targets. The complete September Monitor
+rebuild uses those loader headers directly; its manifest no longer carries
+the earlier `namecoin_header_hydration=hydrated:228` note. The 21
 published strict/weak unknown rows already carry 160-character headers from
 their private full-inventory source rows, so reproducing them requires that
 private inventory but not the hydration inputs. A recovered header is
@@ -648,9 +697,22 @@ with the committed gate-accepted direct-stale rows. It can therefore
 be smaller than the full-evidence or child-header coverage total when a stale
 candidate was rejected. A canonical row present in both the main inventory and
 its canonical companion is likewise counted once, matching the deduplicated
-publication projection. The current validation differences are 9 i0coin rows, 1
-Groupcoin row, and 1 Emercoin row; this is validation accounting, not
-missing source acquisition.
+publication projection. Across the 27 source families represented by both
+producers in the current refresh, only Groupcoin has this difference: 4,867
+full-evidence source rows versus 4,866 Monitor source rows. This records one
+rejected candidate, not missing source acquisition. Full evidence includes
+that rejected row in its 31 stale-classified Groupcoin rows; `rejected=1` is
+an overlapping diagnostic count, not an additional row.
+
+The aggregate source populations also differ because Monitor includes the
+68-row VCash canonical subset and the separate 88-row error-observation
+ledger, neither of which appears in full-evidence discovery. Full evidence
+therefore contains 4,560,214 source rows, while Monitor reports 4,560,369:
+68 VCash rows plus 88 error observations, less the rejected Groupcoin row.
+These source totals are distinct from final Monitor row counts. Monitor
+admits 34 strict/weak observations from the unknown bucket and projects all
+33 accepted descendant witnesses into their observing chains, alongside the
+separate 21-row descendant parent table.
 
 ## Strict/weak BTC orphans: `results/strict-weak-orphans/<chain>_strict_weak_orphans.csv`
 

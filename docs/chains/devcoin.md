@@ -13,7 +13,7 @@
 | Loader | `load_devcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/devcoin_validated_stales.csv` |
 
-Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with the original Namecoin AuxPoW code (Vince Durham's design). The Kraft lineage arrives roughly a decade later: the modern Devcoin Core 22.x codebase carries Daniel Kraft's AuxPoW implementation, ported via Syscoin's fork (`devcoin/core` issue #73). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (468 vs ixcoin's 465 and i0coin's 166) and a leading source of novel-vs-upstream candidates (92 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
+Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with the original Namecoin AuxPoW code (Vince Durham's design). The Kraft lineage arrives roughly a decade later: the modern Devcoin Core 22.x codebase carries Daniel Kraft's AuxPoW implementation, ported via Syscoin's fork (`devcoin/core` issue #73). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (468 vs ixcoin's 465 and i0coin's 191) and a leading source of novel-vs-upstream candidates (92 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
 
 ## 1. Chain data
 
@@ -125,10 +125,10 @@ Devcoin is 6th chronologically. The chronologically-earlier chains with integrat
 | Split | Count |
 |---|---:|
 | also in upstream | 376 |
-| also in earlier-born chain (`namecoin`: 299, `ixcoin`: 95, `i0coin`: 27 - first-claim distribution) | 421 |
-| **novel at this position** | **32** |
+| also in earlier-born chain (`namecoin`: 299, `ixcoin`: 95, `i0coin`: 42 - first-claim distribution) | 436 |
+| **novel at this position** | **21** |
 
-> **Reconciles the historical "76 novel" figure.** A private historical result records 76 hashes flagged as Devcoin-novel during the original recovery analysis. Those are precisely the rows that are *not in upstream* but *not yet excluding chains added later*. The 76 set is a superset of our chronological-novel 32, with the difference (44) being hashes that ixcoin - earlier-born but integrated after Devcoin - now claims under chronological precedence. The historical pipeline placed Devcoin before ixcoin; chronological order reverses that precedence.
+> **Reconciles the historical "76 novel" figure.** A private historical result records 76 hashes flagged as Devcoin-novel during the original recovery analysis, before excluding chains integrated later. The previous chronological result was 32, with 44 of the historical claims assigned to ixcoin, which was integrated after Devcoin but has earlier chronological precedence. Processing the complete March 2026 I0coin snapshot assigns another 11 of those 32 claims to i0coin, leaving **21** chronologically novel Devcoin hashes. The isolated count at the current upstream pin remains 92.
 
 > Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
 

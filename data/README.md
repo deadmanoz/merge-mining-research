@@ -135,12 +135,20 @@ columns trail them after the gate columns (for example coiledcoin's
 
 The 20 July 2026 audit replayed all 3,652 accepted direct observations against
 Bitcoin Core tip 958,882. All passed their available checks; this was not a
-full-block consensus replay. RSK's 337 rows still lack evidence for the two
+full-block consensus replay. RSK's 353 accepted rows still lack evidence for the two
 coinbase-dependent checks.
 The 3 August Elastos/Syscoin refresh added 44 accepted direct observations, and
 the 30 August same-generation Namecoin/Fractal refresh added another 33. Each
 passed the same available-evidence profile. The 5 September RSK side-chain
 reclassification added another 39 under RSK's available-evidence profile.
+The complete March 2026 I0coin snapshot adds 25 accepted observations while
+preserving all 166 prior rows. Its 191 accepted direct stales passed independent
+Bitcoin-context and AuxPoW verification. The sealed 8 September RSK acquisition
+covers `[0, 9,220,905)` and adds 16 accepted observations, retaining all 337
+previous rows unchanged. Its private classifier family also preserves 236,073
+canonical Bitcoin-parent observations and the full stale/unknown inventory.
+The RSK manifest binds each sibling to the completed raw checkpoint and
+skip ledger; retain that bundle together when relocating the archive.
 
 Many extractor/classifier scripts keep their defaults under `data/` so an
 operator can run them from the repo root without a long path. Those outputs are
