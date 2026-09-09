@@ -7,7 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from .config import CHAIN_SPECS, DATA_DIR, RESULTS_DIR
+from .config import CANONICAL_ONLY_CHAINS, CHAIN_SPECS, DATA_DIR, RESULTS_DIR
 from .evidence_hydration import (
     CHILD_IDENTITY_HYDRATION_CHAINS,
     CHILD_IDENTITY_REQUIRED_CHAINS,
@@ -134,7 +134,11 @@ def build_full_evidence_exports(
     for chain in CHAIN_SPECS:
         source = sources[chain]
         companion = canonical_sources.get(chain)
-        if source.path is None and companion is not None:
+        if (
+            chain in CANONICAL_ONLY_CHAINS
+            and source.path is None
+            and companion is not None
+        ):
             # A canonical-only chain has no stale/full primary inventory.
             # Treat its companion as the effective source so counts and
             # provenance describe the rows that were actually consumed.

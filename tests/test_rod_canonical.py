@@ -1,5 +1,9 @@
 import hashlib
+import importlib.util
 import json
+import os
+import py_compile
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,12 +39,12 @@ def _coinbase() -> bytes:
     )
 
 
-def _candidate() -> dict:
+def _candidate(*, canonical=True) -> dict:
     evidence = {
         "source_scope": "node_extraction",
         "source_locator": "chunks/000000000000-000000000255.jsonl",
-        "acquisition_height": 42,
-        "child_hash": "11" * 32,
+        "acquisition_height": rod.CANONICAL_HEIGHT if canonical else 43,
+        "child_hash": rod.CANONICAL_CHILD_HASH if canonical else "11" * 32,
         "envelope_sha256": "22" * 32,
     }
     evidence["evidence_sha256"] = rod._canonical_json_sha256(evidence)
@@ -54,15 +58,38 @@ def _candidate() -> dict:
         "result": {
             **evidence,
             "observation_id": observation_id,
-            "bitcoin_context_category": "bitcoin_canonical_parent",
+            "bitcoin_context_category": (
+                "bitcoin_canonical_parent"
+                if canonical
+                else "bitcoin_known_noncanonical_predecessor"
+            ),
+            "research_classification": "canonical_candidate"
+            if canonical
+            else "unknown",
+            "parent_self_target_pass": canonical,
+            "publication_disposition": (
+                "requires_publication_profile_review"
+                if canonical
+                else "requires_ancestry_and_consensus_review"
+            ),
         },
     }
 
 
 def _write_candidate(tmp_path, candidate: dict):
     path = tmp_path / "candidates.json"
-    path.write_text(json.dumps([candidate]))
+    path.write_text(json.dumps([candidate, _candidate(canonical=False)]))
     return path, rod.sha256_file(path)
+
+
+_CANDIDATE_SUMMARY = {
+    "counts": {
+        "bitcoin_context_category": {
+            "bitcoin_canonical_parent": 1,
+            "bitcoin_known_noncanonical_predecessor": 1,
+        }
+    }
+}
 
 
 def test_publication_row_uses_external_target_and_internal_child_hash(monkeypatch):
@@ -194,7 +221,7 @@ def test_candidate_identity_formulas_are_recomputed(tmp_path):
     candidate = _candidate()
     path, digest = _write_candidate(tmp_path, candidate)
 
-    selected, actual_digest = rod._select_candidate(path, digest)
+    selected, actual_digest = rod._select_candidate(path, digest, _CANDIDATE_SUMMARY)
 
     assert selected == candidate
     assert actual_digest == digest
@@ -226,7 +253,7 @@ def test_candidate_identity_mutation_is_rejected(tmp_path, mutation, error):
     path, digest = _write_candidate(tmp_path, candidate)
 
     with pytest.raises(ValueError, match=error):
-        rod._select_candidate(path, digest)
+        rod._select_candidate(path, digest, _CANDIDATE_SUMMARY)
 
 
 def test_producer_dependency_hashes_bind_loaded_sources():
@@ -280,6 +307,7 @@ def _full_evidence_fixture(monkeypatch):
     row = {
         **expected_proof,
         "proof_envelope_hex": "00",
+        "proof_envelope_sha256": hashlib.sha256(b"\x00").hexdigest(),
         "child_header_hex": child.hex(),
         "algorithm_byte": 0x81,
         "effective_bits": "1d00ffff",
@@ -306,6 +334,17 @@ def test_full_evidence_accepts_verified_body_at_pinned_height(monkeypatch):
     row, framing, extractor, reparsed = _full_evidence_fixture(monkeypatch)
 
     assert rod._validate_full_evidence(row, "00", framing, extractor) == reparsed
+
+
+@pytest.mark.parametrize("declared_digest", ["00" * 32, None])
+def test_full_evidence_rejects_matching_false_envelope_digests(
+    monkeypatch, declared_digest
+):
+    row, framing, extractor, reparsed = _full_evidence_fixture(monkeypatch)
+    row["proof_envelope_sha256"] = reparsed["proof_envelope_sha256"] = declared_digest
+
+    with pytest.raises(ValueError, match="envelope SHA256 mismatch"):
+        rod._validate_full_evidence(row, "00", framing, extractor)
 
 
 @pytest.mark.parametrize(
@@ -417,3 +456,156 @@ def test_rod_registered_for_historical_child_header_coverage():
     assert ("rod", "2022-06-09") in CHAINS_BY_AUXPOW_ACTIVATION
     assert CHAIN_SPECS["rod"].chain_id == 1899
     assert CHAIN_SPECS["rod"].child_nbits_from_header is False
+
+
+def _write_pinned_source(path, source, poison_cache):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    if poison_cache:
+        original_stat = path.stat()
+        poisoned = source.replace('"safe"', '"evil"')
+        assert len(poisoned) == len(source) and poisoned != source
+        path.write_text(poisoned)
+        os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        py_compile.compile(
+            str(path),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
+        )
+        path.write_text(source)
+        os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    return rod.sha256_file(path)
+
+
+_PINNED_SOURCE = """from __future__ import annotations
+from dataclasses import dataclass
+VALUE = "safe"
+@dataclass
+class Payload:
+    value: str = VALUE
+"""
+
+
+@pytest.mark.parametrize("poison_cache", [False, True])
+def test_pinned_loader_executes_hashed_source_without_touching_cache(
+    tmp_path, monkeypatch, poison_cache
+):
+    path = tmp_path / "pinned.py"
+    digest = _write_pinned_source(path, _PINNED_SOURCE, poison_cache)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*.pyc")}
+    monkeypatch.setitem(sys.modules, "rod_test_pinned", None)
+
+    module = rod._load_module(path, digest, "rod_test_pinned")
+
+    assert module.VALUE == module.Payload().value == "safe"
+    assert module.__file__ == str(path)
+    assert sys.modules["rod_test_pinned"] is module
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*.pyc")} == before
+    if not poison_cache:
+        assert not list(tmp_path.rglob("__pycache__"))
+
+
+@pytest.mark.parametrize("poison_cache", [False, True])
+def test_frozen_extractor_nested_load_uses_verified_source_without_cache(
+    tmp_path, monkeypatch, poison_cache
+):
+    framing_path = tmp_path / "deps" / "rod_header_acquire.py"
+    framing_digest = _write_pinned_source(framing_path, _PINNED_SOURCE, poison_cache)
+    # Match the frozen extractor's unconditional importlib-based dependency load.
+    extractor_source = """import importlib.util, sys
+from pathlib import Path
+DEP = Path(__file__).resolve().parent / "deps" / "rod_header_acquire.py"
+VALUE = "safe"
+def load_framing():
+    spec = importlib.util.spec_from_file_location("rod_framing", DEP)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+F = load_framing()
+"""
+    path = tmp_path / "extract_rod_rpc.py"
+    digest = _write_pinned_source(path, extractor_source, poison_cache)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*.pyc")}
+    monkeypatch.setattr(rod, "FRAMING_SHA256", framing_digest)
+    monkeypatch.setitem(sys.modules, "rod_test_extractor", None)
+    monkeypatch.setitem(sys.modules, "rod_framing", None)
+    original_spec_factory = importlib.util.spec_from_file_location
+
+    module = rod._load_module(
+        path, digest, "rod_test_extractor", framing_path=framing_path
+    )
+
+    assert module.VALUE == module.F.Payload().value == "safe"
+    assert module.F is sys.modules["rod_framing"]
+    assert module.F.__file__ == str(framing_path)
+    assert importlib.util.spec_from_file_location is original_spec_factory
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*.pyc")} == before
+    if not poison_cache:
+        assert not list(tmp_path.rglob("__pycache__"))
+
+
+def test_pinned_loader_rejects_source_digest_mismatch(tmp_path, monkeypatch):
+    path = tmp_path / "pinned.py"
+    path.write_text(_PINNED_SOURCE)
+    monkeypatch.setitem(sys.modules, "rod_test_pinned", None)
+
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        rod._load_module(path, "00" * 32, "rod_test_pinned")
+
+    assert sys.modules["rod_test_pinned"] is None
+    assert not list(tmp_path.rglob("__pycache__"))
+
+
+@pytest.mark.parametrize("mutation", ["name", "path", "digest"])
+def test_nested_framing_load_rejects_unexpected_dependency(
+    tmp_path, monkeypatch, mutation
+):
+    framing_path = tmp_path / "rod_header_acquire.py"
+    framing_path.write_text(_PINNED_SOURCE)
+    digest = rod.sha256_file(framing_path)
+    monkeypatch.setattr(
+        rod, "FRAMING_SHA256", "00" * 32 if mutation == "digest" else digest
+    )
+    name = "unexpected_framing" if mutation == "name" else "rod_framing"
+    location = tmp_path / "unexpected.py" if mutation == "path" else framing_path
+    path = tmp_path / "extractor.py"
+    path.write_text(
+        "import importlib.util\n"
+        f"importlib.util.spec_from_file_location({name!r}, {str(location)!r})\n"
+    )
+    monkeypatch.setitem(sys.modules, "rod_test_extractor", None)
+    original_spec_factory = importlib.util.spec_from_file_location
+
+    with pytest.raises(ValueError, match="unexpected dependency|SHA256 mismatch"):
+        rod._load_module(
+            path, rod.sha256_file(path), "rod_test_extractor", framing_path=framing_path
+        )
+
+    assert importlib.util.spec_from_file_location is original_spec_factory
+    assert not list(tmp_path.rglob("__pycache__"))
+
+
+def test_pinned_loader_executes_the_single_hashed_read(tmp_path, monkeypatch):
+    path = tmp_path / "pinned.py"
+    path.write_text(_PINNED_SOURCE)
+    digest = rod.sha256_file(path)
+    original_read = Path.read_bytes
+    reads = []
+
+    def replace_after_read(self):
+        source = original_read(self)
+        if self == path:
+            reads.append(self)
+            self.write_bytes(source.replace(b'"safe"', b'"evil"'))
+        return source
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    monkeypatch.setitem(sys.modules, "rod_test_pinned", None)
+
+    module = rod._load_module(path, digest, "rod_test_pinned")
+
+    assert module.VALUE == "safe"
+    assert reads == [path]
+    assert '"evil"' in path.read_text()
+    assert not list(tmp_path.rglob("__pycache__"))

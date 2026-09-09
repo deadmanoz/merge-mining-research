@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import csv
 import hashlib
 import importlib.util
@@ -102,12 +103,66 @@ def _producer_dependency_sha256() -> dict[str, str]:
     return hashes
 
 
-def _load_module(path: Path, expected_sha256: str, name: str) -> ModuleType:
-    _require_digest(path, expected_sha256)
-    spec = importlib.util.spec_from_file_location(name, path)
+class _VerifiedSourceLoader:
+    """Execute the exact verified bytes without reading or writing a pyc cache."""
+
+    def __init__(self, path: Path, expected_sha256: str):
+        source = path.read_bytes()
+        if hashlib.sha256(source).hexdigest() != expected_sha256:
+            raise ValueError(f"{path}: SHA256 mismatch")
+        self.code = compile(source, str(path), "exec", dont_inherit=True)
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        exec(self.code, module.__dict__)
+
+
+def _load_module(
+    path: Path,
+    expected_sha256: str,
+    name: str,
+    *,
+    framing_path: Path | None = None,
+) -> ModuleType:
+    loader = _VerifiedSourceLoader(path, expected_sha256)
+    spec = importlib.util.spec_from_file_location(name, path, loader=loader)
     if spec is None or spec.loader is None:
         raise ValueError(f"cannot load pinned dependency {path}")
     module = importlib.util.module_from_spec(spec)
+    if framing_path is not None:
+        # The frozen extractor imports importlib.util and reloads its framing
+        # module itself. Confine that load to verified source in this module's
+        # builtins rather than changing the process-wide import machinery.
+        def framing_spec(dependency_name, location):
+            if (
+                dependency_name != "rod_framing"
+                or Path(location).resolve() != framing_path.resolve()
+            ):
+                raise ValueError("frozen extractor requested an unexpected dependency")
+            return importlib.util.spec_from_file_location(
+                dependency_name,
+                location,
+                loader=_VerifiedSourceLoader(framing_path, FRAMING_SHA256),
+            )
+
+        local_util = ModuleType("importlib.util")
+        local_util.__dict__.update(vars(importlib.util))
+        local_util.spec_from_file_location = framing_spec
+        local_importlib = ModuleType("importlib")
+        local_importlib.__dict__.update(vars(importlib))
+        local_importlib.util = local_util
+
+        def import_verified(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "importlib.util" and not fromlist and level == 0:
+                return local_importlib
+            return builtins.__import__(name, globals, locals, fromlist, level)
+
+        module.__dict__["__builtins__"] = {
+            **vars(builtins),
+            "__import__": import_verified,
+        }
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
@@ -186,6 +241,156 @@ def _validate_audit(
     }
 
 
+def _validate_classification_summary(
+    path: Path, audit: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], str]:
+    """Bind the complete v6 classification and relocatable extraction inventory."""
+    v6 = audit.get("v6")
+    if not isinstance(v6, dict) or v6.get("errors") != []:
+        raise ValueError("final audit lacks a clean v6 classification binding")
+    summary_sha = _require_digest(path, v6.get("summary_sha256"))
+    summary = _json(path)
+    if not isinstance(summary, dict):
+        raise ValueError("classification summary must be an object")
+    for field in (
+        "complete_context_and_source_coverage",
+        "source_coverage_complete",
+        "exact_hash_context_complete",
+    ):
+        if summary.get(field) is not True:
+            raise ValueError(f"classification summary {field} must be true")
+    expected_numbers = {
+        "classifier_version": 6,
+        "acquired_observations_accounted": TERMINAL_HEIGHT + 1,
+        "acquired_sha256d_accounted": 1_058_017,
+        "sha256d_observations": 1_058_017,
+        "pointwise_rows": 1_058_017,
+        "rpc_errors": 0,
+        "rpc_pending_observations": 0,
+        "unresolved_source_rows": 0,
+    }
+    for field, expected in expected_numbers.items():
+        if type(summary.get(field)) is not int or summary[field] != expected:
+            raise ValueError(f"classification summary {field} mismatch")
+    if (
+        summary.get("pointwise_sha256") != v6.get("pointwise_sha256")
+        or v6.get("pointwise_rows") != summary["pointwise_rows"]
+    ):
+        raise ValueError("classification summary pointwise audit binding mismatch")
+    expected_counts = {
+        "bitcoin_context_category": {
+            "bitcoin_active_predecessor": 68_246,
+            "bitcoin_canonical_parent": 1,
+            "bitcoin_known_noncanonical_predecessor": 1,
+            "unresolved_parent_network": 989_769,
+        },
+        "research_classification": {
+            "canonical_candidate": 1,
+            "near": 660_695,
+            "unknown": 397_321,
+        },
+        "publication_disposition": {
+            "requires_ancestry_and_consensus_review": 1,
+            "requires_publication_profile_review": 1,
+            "retained_lower_work_not_publishable_as_bitcoin_block": 68_246,
+            "retained_unresolved_not_publishable": 989_769,
+        },
+    }
+    counts = summary.get("counts")
+    if not isinstance(counts, dict):
+        raise ValueError("classification summary lacks category counts")
+    for field, expected in expected_counts.items():
+        actual = counts.get(field)
+        if (
+            actual != expected
+            or not isinstance(actual, dict)
+            or any(type(value) is not int for value in actual.values())
+        ):
+            raise ValueError(f"classification summary {field} inventory mismatch")
+
+    binding = summary.get("observation_source_binding")
+    if (
+        not isinstance(binding, dict)
+        or binding.get("input_kind") != "node-extraction"
+        or binding.get("input_path") != audit.get("extraction_root")
+        or binding.get("run_config_sha256") != audit.get("run_config_sha256")
+    ):
+        raise ValueError("classification summary extraction binding mismatch")
+    original_root = binding.get("input_path")
+    if (
+        not isinstance(original_root, str)
+        or not original_root.startswith("/")
+        or original_root.startswith("//")
+        or "\\" in original_root
+        or "\0" in original_root
+        or PurePosixPath(original_root).as_posix() != original_root
+        or ".." in PurePosixPath(original_root).parts
+    ):
+        raise ValueError("classification summary extraction root is unsafe")
+    inputs = summary.get("inputs")
+    if not isinstance(inputs, list) or not inputs:
+        raise ValueError("classification summary lacks extraction inputs")
+    manifest: dict[str, dict[str, Any]] = {}
+    for item in inputs:
+        if not isinstance(item, dict) or set(item) != {
+            "path",
+            "kind",
+            "bytes",
+            "sha256",
+        }:
+            raise ValueError("classification summary input entry is malformed")
+        historical_path = item["path"]
+        digest = item["sha256"]
+        if (
+            not isinstance(historical_path, str)
+            or "\\" in historical_path
+            or "\0" in historical_path
+            or PurePosixPath(historical_path).as_posix() != historical_path
+            or ".." in PurePosixPath(historical_path).parts
+        ):
+            raise ValueError("classification summary input path is unsafe")
+        try:
+            relative = PurePosixPath(historical_path).relative_to(original_root)
+        except ValueError as error:
+            raise ValueError(
+                "classification summary input escapes extraction root"
+            ) from error
+        key = relative.as_posix()
+        expected_kind = None
+        if len(relative.parts) == 2:
+            if relative.parts[0] == "chunks" and relative.suffix == ".jsonl":
+                expected_kind = "node-chunk"
+            elif relative.parts[0] == "receipts" and relative.suffix == ".json":
+                expected_kind = "node-chunk-receipt"
+        elif key == "run-config.json":
+            expected_kind = "node-extraction-run-config"
+        if expected_kind is None or item["kind"] != expected_kind:
+            raise ValueError("classification summary input kind/path mismatch")
+        if (
+            type(item["bytes"]) is not int
+            or item["bytes"] <= 0
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ValueError("classification summary input digest/size is malformed")
+        if key in manifest:
+            raise ValueError("classification summary has duplicate input paths")
+        manifest[key] = {"kind": item["kind"], "bytes": item["bytes"], "sha256": digest}
+    chunks = {PurePosixPath(key).stem for key in manifest if key.startswith("chunks/")}
+    receipts = {
+        PurePosixPath(key).stem for key in manifest if key.startswith("receipts/")
+    }
+    if not chunks or chunks != receipts:
+        raise ValueError("classification summary chunk/receipt inventory mismatch")
+    if (
+        manifest.get("run-config.json", {}).get("sha256")
+        != binding["run_config_sha256"]
+    ):
+        raise ValueError("classification summary run-config input binding mismatch")
+    return summary, manifest, summary_sha
+
+
 def _validate_review(
     review_root: Path, expected_sha256: str
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -228,51 +433,101 @@ def _validate_review(
     return receipt, bindings
 
 
-def _select_candidate(path: Path, expected_sha256: str) -> tuple[dict[str, Any], str]:
+def _select_candidate(
+    path: Path, expected_sha256: str, summary: Mapping[str, Any]
+) -> tuple[dict[str, Any], str]:
     inventory_sha = _require_digest(path, expected_sha256)
     payload = _json(path)
-    if not isinstance(payload, list):
-        raise ValueError("special-candidate inventory must be a JSON array")
-    selected = [
-        item
-        for item in payload
-        if isinstance(item, dict)
-        and isinstance(item.get("result"), dict)
-        and item["result"].get("bitcoin_context_category") == "bitcoin_canonical_parent"
-    ]
-    if len(selected) != 1:
+    categories = summary.get("counts", {}).get("bitcoin_context_category", {})
+    expected_categories = {
+        "bitcoin_canonical_parent": (
+            "canonical_candidate",
+            True,
+            "requires_publication_profile_review",
+        ),
+        "bitcoin_known_noncanonical_predecessor": (
+            "unknown",
+            False,
+            "requires_ancestry_and_consensus_review",
+        ),
+    }
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 2
+        or any(categories.get(key) != 1 for key in expected_categories)
+    ):
         raise ValueError(
-            "special-candidate inventory must contain exactly one canonical parent"
+            "special-candidate inventory must contain exactly one canonical and one known noncanonical observation"
         )
-    item = selected[0]
-    result, evidence = item["result"], item.get("evidence")
-    if not isinstance(evidence, dict):
-        raise ValueError("canonical candidate lacks source evidence")
-    for key in evidence:
-        if key in result and result[key] != evidence[key]:
-            raise ValueError(f"canonical candidate result/evidence mismatch: {key}")
-    identity_evidence = dict(evidence)
-    declared_evidence_sha = identity_evidence.pop("evidence_sha256", None)
-    computed_evidence_sha = _canonical_json_sha256(identity_evidence)
-    if (
-        declared_evidence_sha != computed_evidence_sha
-        or result.get("evidence_sha256") != computed_evidence_sha
-    ):
-        raise ValueError("canonical candidate evidence SHA256 mismatch")
-    observation_basis = "\0".join(
-        str(evidence.get(key, "")) for key in OBSERVATION_ID_FIELDS
-    )
-    computed_observation_id = hashlib.sha256(observation_basis.encode()).hexdigest()
-    if (
-        item.get("observation_id") != computed_observation_id
-        or result.get("observation_id") != computed_observation_id
-    ):
-        raise ValueError("canonical candidate observation ID mismatch")
-    return item, inventory_sha
+    seen_categories: set[str] = set()
+    seen_ids: set[str] = set()
+    selected = None
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("special-candidate inventory contains a malformed entry")
+        result, evidence = item.get("result"), item.get("evidence")
+        if not isinstance(result, dict) or not isinstance(evidence, dict):
+            raise ValueError("special candidate lacks result or source evidence")
+        category = result.get("bitcoin_context_category")
+        if not isinstance(category, str) or category not in expected_categories:
+            raise ValueError("special candidate has an unrecognized Bitcoin category")
+        if category in seen_categories:
+            raise ValueError("special-candidate inventory repeats a Bitcoin category")
+        classification, self_target, disposition = expected_categories[category]
+        if (
+            result.get("research_classification") != classification
+            or result.get("parent_self_target_pass") is not self_target
+            or result.get("publication_disposition") != disposition
+        ):
+            raise ValueError("special candidate classification/disposition mismatch")
+        for key in evidence:
+            if key in result and result[key] != evidence[key]:
+                raise ValueError(f"special candidate result/evidence mismatch: {key}")
+        for key in OBSERVATION_ID_FIELDS:
+            value = evidence.get(key)
+            if key == "acquisition_height":
+                valid = type(value) is int and 0 <= value <= TERMINAL_HEIGHT
+            else:
+                valid = isinstance(value, str) and bool(value) and "\0" not in value
+            if not valid:
+                raise ValueError(f"special candidate identity field is invalid: {key}")
+            if result.get(key) != value:
+                raise ValueError(f"special candidate result/evidence mismatch: {key}")
+        if category == "bitcoin_canonical_parent" and (
+            evidence["acquisition_height"] != CANONICAL_HEIGHT
+            or evidence["child_hash"] != CANONICAL_CHILD_HASH
+        ):
+            raise ValueError("canonical candidate does not identify the pinned child")
+        identity_evidence = dict(evidence)
+        declared_evidence_sha = identity_evidence.pop("evidence_sha256", None)
+        computed_evidence_sha = _canonical_json_sha256(identity_evidence)
+        if (
+            declared_evidence_sha != computed_evidence_sha
+            or result.get("evidence_sha256") != computed_evidence_sha
+        ):
+            raise ValueError("special candidate evidence SHA256 mismatch")
+        observation_basis = "\0".join(
+            str(evidence[key]) for key in OBSERVATION_ID_FIELDS
+        )
+        computed_observation_id = hashlib.sha256(observation_basis.encode()).hexdigest()
+        if (
+            item.get("observation_id") != computed_observation_id
+            or result.get("observation_id") != computed_observation_id
+            or computed_observation_id in seen_ids
+        ):
+            raise ValueError("special candidate observation ID mismatch or duplicate")
+        seen_ids.add(computed_observation_id)
+        seen_categories.add(category)
+        if category == "bitcoin_canonical_parent":
+            selected = item
+    assert selected is not None
+    return selected, inventory_sha
 
 
 def _source_row(
-    extraction_root: Path, result: Mapping[str, Any]
+    extraction_root: Path,
+    result: Mapping[str, Any],
+    classification_inputs: Mapping[str, Mapping[str, Any]],
 ) -> tuple[dict[str, Any], int, dict[str, str]]:
     locator = result.get("source_locator")
     provenance = result.get("source_provenance")
@@ -288,6 +543,21 @@ def _source_row(
     receipt = _json(receipt_path)
     chunk_sha = sha256_file(chunk)
     receipt_sha = sha256_file(receipt_path)
+    for relative, path, kind, digest in (
+        (locator, chunk, "node-chunk", chunk_sha),
+        (receipt_relative, receipt_path, "node-chunk-receipt", receipt_sha),
+    ):
+        declared = classification_inputs.get(relative)
+        if (
+            not isinstance(declared, Mapping)
+            or declared.get("kind") != kind
+            or declared.get("sha256") != digest
+            or type(declared.get("bytes")) is not int
+            or declared["bytes"] != path.stat().st_size
+        ):
+            raise ValueError(
+                f"canonical extraction file does not match classification summary: {relative}"
+            )
     if receipt.get("chunk_sha256") != chunk_sha:
         raise ValueError("canonical extraction chunk digest mismatch")
     for key, actual in (
@@ -328,6 +598,8 @@ def _validate_full_evidence(
     row: Mapping[str, Any], body_hex: str, framing: ModuleType, extractor: ModuleType
 ) -> dict[str, Any]:
     envelope = bytes.fromhex(str(row["proof_envelope_hex"]))
+    if hashlib.sha256(envelope).hexdigest() != row.get("proof_envelope_sha256"):
+        raise ValueError("canonical PowData envelope SHA256 mismatch")
     cursor = framing.Cursor(envelope)
     parsed, end = framing.parse_envelope_structure(cursor, CANONICAL_HEIGHT)
     if end != len(envelope) or cursor.remaining():
@@ -453,6 +725,7 @@ def build_rod_canonical(
     *,
     extraction_root: Path,
     audit_root: Path,
+    classification_summary_path: Path,
     candidates_path: Path,
     candidates_sha256: str,
     review_root: Path,
@@ -467,6 +740,10 @@ def build_rod_canonical(
         raise ValueError(f"output already exists: {output_dir}")
     extraction_root = extraction_root.resolve()
     report, bindings = _validate_audit(audit_root.resolve(), extraction_root)
+    summary, classification_inputs, summary_sha = _validate_classification_summary(
+        classification_summary_path.resolve(), report
+    )
+    bindings["classification-summary.json"] = summary_sha
     run_config = _json(extraction_root / "run-config.json")
     expected_config = {
         "source_revision": SOURCE_REVISION,
@@ -483,11 +760,13 @@ def build_rod_canonical(
     _, review_bindings = _validate_review(review_root.resolve(), review_receipt_sha256)
     bindings.update(review_bindings)
     candidate, inventory_sha = _select_candidate(
-        candidates_path.resolve(), candidates_sha256
+        candidates_path.resolve(), candidates_sha256, summary
     )
     bindings["candidate-inventory.json"] = inventory_sha
     result = candidate["result"]
-    source, line_number, source_bindings = _source_row(extraction_root, result)
+    source, line_number, source_bindings = _source_row(
+        extraction_root, result, classification_inputs
+    )
     bindings.update(source_bindings)
     framing = _load_module(
         framing_path.resolve(), FRAMING_SHA256, "rod_canonical_framing"
@@ -501,7 +780,10 @@ def build_rod_canonical(
     ):
         raise ValueError("frozen extractor has a different framing dependency")
     extractor = _load_module(
-        extractor_path.resolve(), EXTRACTOR_SHA256, "rod_canonical_extractor"
+        extractor_path.resolve(),
+        EXTRACTOR_SHA256,
+        "rod_canonical_extractor",
+        framing_path=framing_path.resolve(),
     )
     loaded_dependency = Path(extractor.DEP).resolve()
     if (

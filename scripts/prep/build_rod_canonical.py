@@ -17,6 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extraction-root", type=Path, required=True)
     parser.add_argument("--audit-root", type=Path, required=True)
+    parser.add_argument("--classification-summary", type=Path, required=True)
     parser.add_argument("--candidates", type=Path, required=True)
     parser.add_argument("--candidates-sha256", required=True)
     parser.add_argument("--review-root", type=Path, required=True)
@@ -28,6 +29,7 @@ def main() -> None:
     receipt = build_rod_canonical(
         extraction_root=args.extraction_root,
         audit_root=args.audit_root,
+        classification_summary_path=args.classification_summary,
         candidates_path=args.candidates,
         candidates_sha256=args.candidates_sha256,
         review_root=args.review_root,

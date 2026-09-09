@@ -22,6 +22,7 @@ from .coinbase_output_claims import (
 from .config import (
     ACCEPTED_STALE_VALIDATION_STATUSES,
     BIP34_HEIGHT,
+    CANONICAL_ONLY_CHAINS,
     CHAIN_SPECS,
     MONITOR_VALIDATION_CONTRACTS,
     RELEVANCE_STRICT_BTC_ORPHAN,
@@ -814,7 +815,11 @@ def build_monitor_evidence_exports(
     for chain, spec in CHAIN_SPECS.items():
         main = sources[chain]
         canonical_companion = canonical_sources.get(chain)
-        if main.path is None and canonical_companion is not None:
+        if (
+            chain in CANONICAL_ONLY_CHAINS
+            and main.path is None
+            and canonical_companion is not None
+        ):
             # Canonical-only chains have no stale/full inventory to serve as
             # the primary source. Render their real companion metadata once
             # instead of attaching its rows to a synthetic missing source.

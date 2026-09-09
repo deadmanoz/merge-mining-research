@@ -218,7 +218,11 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   ROD's publication input is a canonical-only companion built by
   `scripts/prep/build_rod_canonical.py`. The producer requires the complete
   private extraction audit and independently reviewed child and Bitcoin bodies,
-  validates their pinned digests and PowData proof, and writes to a fresh
+  plus the audit-bound complete classification summary supplied with
+  `--classification-summary`. It verifies the selected chunk and receipt
+  against that summary's input manifest, validates the whole special-candidate
+  inventory, and executes only verified frozen parser source bytes. It
+  validates the pinned body digests and PowData proof, and writes to a fresh
   private output directory. Do not create an empty `rod_validated_stales.csv`.
   Scripts import the installed package and many default to
   `data/` paths for operator convenience.

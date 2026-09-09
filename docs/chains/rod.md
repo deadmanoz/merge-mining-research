@@ -69,6 +69,13 @@ evidence, and leaves `validation_status` and `expected_nbits` empty because a
 canonical parent is outside the direct-stale validation profile. No empty
 `rod_validated_stales.csv` is fabricated.
 
+The pinned final audit binds the complete classification summary, whose input
+manifest authenticates the selected extraction chunk and receipt after
+relocation. The producer checks the full classification totals and both special
+candidates before selecting the canonical row, and rejects additional or
+accepted noncanonical results. Frozen parser dependencies execute directly from
+their verified source bytes, without reading or writing adjacent bytecode caches.
+
 ## 3. Reproducibility and limits
 
 Activate the project virtual environment, then run the producer only against
@@ -81,6 +88,7 @@ source .venv/bin/activate
 just build-rod-canonical \
   --extraction-root <private-rod-extraction> \
   --audit-root <private-final-audit> \
+  --classification-summary <private-complete-classification-summary.json> \
   --candidates <private-special-candidates.json> \
   --candidates-sha256 <pinned-sha256> \
   --review-root <private-candidate-review> \

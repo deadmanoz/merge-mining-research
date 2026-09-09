@@ -1346,6 +1346,58 @@ def test_canonical_only_registry_source_uses_companion_metadata(tmp_path: Path) 
     assert "no evidence source discovered" not in rod_full["notes"]
 
 
+@pytest.mark.parametrize("export_kind", ["monitor", "full"])
+def test_ordinary_chain_companion_retains_rows_without_hiding_missing_primary(
+    tmp_path: Path, export_kind: str
+) -> None:
+    data_dir = tmp_path / "data"
+    parent_hex, parent_hash = _header(prev_hash="aa" * 32)
+    _write_csv(
+        data_dir / "namecoin_canonical_blocks.csv",
+        [
+            {
+                "btc_height": "150001",
+                "btc_header_hash": parent_hash,
+                "btc_prev_hash": "aa" * 32,
+                "btc_time": "1700000000",
+                "btc_bits": "1d00ffff",
+                "btc_header_hex": parent_hex,
+                "nmc_height": "201",
+                "classification": "canonical",
+            }
+        ],
+    )
+    output_dir = tmp_path / export_kind
+    if export_kind == "monitor":
+        build_monitor_evidence_exports(
+            data_dir=data_dir, output_dir=output_dir, relevance_inventory=None
+        )
+        artifact_name = "namecoin_monitor_evidence.csv"
+        counts_name = "monitor-evidence-counts.csv"
+    else:
+        build_full_evidence_exports(data_dir=data_dir, output_dir=output_dir)
+        artifact_name = "namecoin_evidence.csv"
+        counts_name = "auxpow-full-evidence-counts.csv"
+
+    rows = _read_csv(output_dir / artifact_name)
+    assert len(rows) == 1
+    assert rows[0]["btc_header_hash"] == parent_hash
+    assert rows[0]["classification"] == "canonical"
+    assert rows[0]["source_kind"] == "canonical_blocks"
+    assert rows[0]["source_path"].endswith("/namecoin_canonical_blocks.csv")
+    counts = next(
+        row for row in _read_csv(output_dir / counts_name) if row["chain"] == "namecoin"
+    )
+    assert counts["canonical"] == "1"
+    assert counts["source_rows"] == "1"
+    assert counts["artifact_path"].endswith("/" + artifact_name)
+    assert counts["source_kind"] == "missing"
+    assert counts["artifact_scope"] == "missing"
+    assert counts["source_path"] == ""
+    assert counts["canonical_evidence_status"] == "not_checked_missing_source"
+    assert "no evidence source discovered" in counts["notes"]
+
+
 def test_canonical_only_registry_source_missing_both_inputs_stays_missing(
     tmp_path: Path,
 ) -> None:

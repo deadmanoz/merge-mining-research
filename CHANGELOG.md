@@ -102,6 +102,10 @@ bodies, then emits the single authenticated canonical observation without
 fabricating an empty direct-stale dataset.
 Require the reviewed Bitcoin body artifact and its receipt-bound digest, and
 reject reparsed ROD bodies unless their Merkle and pinned-height checks pass.
+Bind the selected chunk and complete classification inventory through the
+audit-pinned summary, recompute the envelope digest, and execute frozen parser
+source directly without adjacent bytecode caches. Keep canonical companions
+visible without hiding missing primary inventories on other chains.
 
 Publish the complete combined I0coin/RSK/ROD generation with 1,283,972 Monitor
 observations, including 1,279,987 canonical rows. Preserve all 1,283,971 prior
