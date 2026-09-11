@@ -264,6 +264,17 @@ CHAINS: tuple[AuxPoWChain, ...] = (
         slot_enforcement="consensus",
         scope_notes="Modern cadence-mined chain with standard scriptSig AuxPoW.",
     ),
+    AuxPoWChain(
+        slug="qbit",
+        display_name="Qbit",
+        chain_id=47,
+        activation_date="2026-07-16",
+        slot_enforcement="consensus",
+        scope_notes=(
+            "Chain ID in child-header version bits 13-28; merge-mined from "
+            "genesis. Proof envelope omits classic CAuxPow's hashBlock field."
+        ),
+    ),
 )
 
 CHAINS_BY_SLUG: dict[str, AuxPoWChain] = {chain.slug: chain for chain in CHAINS}

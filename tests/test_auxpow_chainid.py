@@ -49,6 +49,7 @@ from stale_blocks_analysis.auxpow_chainid import (  # noqa: E402
     parent_commitment_for_proof,
     size_status_allows_inference,
 )
+from stale_blocks_analysis.auxpow_registry import get_chain  # noqa: E402
 from stale_blocks_analysis.coinbase_markers import parse_auxpow_marker  # noqa: E402
 
 
@@ -235,6 +236,25 @@ def test_lcg_candidate_lookup_is_residue_filter_only():
     candidates = candidate_chains_for_residue(residue, branch_len)
     assert "namecoin" in {chain.slug for chain in candidates}
     assert all(chain.chain_id % (1 << branch_len) == residue for chain in candidates)
+
+
+def test_qbit_is_registered_and_reachable_by_residue():
+    """Qbit's consensus slot must be verifiable through the shared registry.
+
+    The parser enforces the same LCG slot rule, so chain ID 47 has to be a
+    registry member or sidecar generation and census candidacy silently skip it.
+    """
+    chain = get_chain("qbit")
+    assert chain is not None
+    assert chain.chain_id == 47
+    assert chain.slot_enforcement == "consensus"
+
+    nonce = 0
+    branch_len = 4
+    index = auxpow_lcg_index(nonce, chain.chain_id, branch_len)
+    residue = lcg_chain_id_residue(nonce, index, branch_len)
+    candidates = candidate_chains_for_residue(residue, branch_len)
+    assert "qbit" in {candidate.slug for candidate in candidates}
 
 
 def test_commitment_size_statuses_gate_inference():
