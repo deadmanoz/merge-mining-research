@@ -34,6 +34,13 @@ upstream-sidecar:
 
 # ── AuxPoW evidence exports ─────────────────────────────────────────────
 
+# Qbit acquisition is private and requires an explicit native endpoint.
+acquire-qbit *ARGS:
+    {{python}} scripts/extract/extract_qbit_auxpow.py {{ARGS}}
+
+test-qbit:
+    {{python}} -m pytest tests/test_qbit.py tests/test_qbit_acquisition.py
+
 # Validate final coinbase output rendering without rewriting loader datasets.
 validate-coinbase-outputs:
     {{python}} scripts/analysis/validate_coinbase_outputs.py

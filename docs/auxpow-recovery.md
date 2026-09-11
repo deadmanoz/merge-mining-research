@@ -81,7 +81,7 @@ see [`process-data-outcomes.md`](process-data-outcomes.md).
 
 ## Integrated chains
 
-Twenty-six of the 27 integrated chains contribute a historical-named
+Twenty-seven of the 28 integrated chains contribute a historical-named
 `data/validated-stales/<chain>_validated_stales.csv` file containing publication-gate-accepted
 direct-stale header candidates
 consumed by `src/stale_blocks_analysis/stale_blocks.py`. ROD instead supplies
@@ -215,7 +215,8 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 | 24 | [Electric Cash](chains/elcash.md) | 3 | 0 | Bitcoin Core 0.20.2 fork merge-mining from a fresh Dec 2020 genesis; the three accepted stales (Jun-Sep 2021) fall inside a 2021-2024 real-hashrate era that peaked Sep-Oct 2021, and all three re-observe Bitcoin Vault-first-claimed headers. Self-synced `elcashd`; standard Namecoin-style CAuxPow. Zombie chain, negligible current hashrate. |
 | 25 | [SpaceXpanse ROD](chains/rod.md) | 0 | 0 | Complete unpruned native-chain scan through child height 4,127,689: 4,127,690 blocks, including 1,058,017 SHA256d PowData proofs. Earliest retained SHA256d evidence is child height 2 on 2022-06-09. The wrapper supplies the effective target separately from the pure child header. One independently reviewed canonical observation links ROD 2,697,753 to Bitcoin 886,688; no accepted direct stale, descendant or error block. Lower-work and unresolved observations remain private. |
 | 26 | [Lyncoin](chains/lyncoin.md) | 0 | 0 | Live-peer P2P header recovery across the complete pre-Flex merge-mined era through child height 260,499. No accepted stale or strict/weak evidence was found in the recovered window. |
-| 27 | [Fractal Bitcoin](chains/fractal.md) | 40 | 1 | Newest integrated chain by activation date (2024-09-09). `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The current reclassification of 59,504 self-target-PoW-valid unique parents yields 58,970 canonical rows, 40 accepted direct stales, and 494 unknowns. Of the accepted rows, 25 are upstream and 15 are upstream-new; RSK first-claims 21 and Namecoin 16. Bitcoin height 928,455 remains the sole chronologically novel candidate. |
+| 27 | [Fractal Bitcoin](chains/fractal.md) | 40 | 1 | Activation date 2024-09-09. `fractald` v0.3.0 on the archival host; compact `getblockheader <hash> false true` extraction through FB height 1,807,154. The extractor requires the AuxPoW flag plus chain ID `0x2024`; the observed encoding was `0x20240100`. The current reclassification of 59,504 self-target-PoW-valid unique parents yields 58,970 canonical rows, 40 accepted direct stales, and 494 unknowns. Of the accepted rows, 25 are upstream and 15 are upstream-new; RSK first-claims 21 and Namecoin 16. Bitcoin height 928,455 remains the sole chronologically novel candidate. |
+| 28 | [Qbit](chains/qbit.md) | 4 | 0 | Complete native archive through child height 80,986: 16,418 AuxPoW proofs yield 2,536 canonical and four accepted stale observations. All four cross-confirm upstream and RSK. The 24 zero-predecessor synthetic parents use Qbit targets and fail Bitcoin epoch relevance; their leading commitments do not encode Bitcoin heights. |
 
 \* "Novel" = **chronologically novel at this chain's position** in
 `CHAINS_BY_AUXPOW_ACTIVATION`: not in upstream `bitcoin-data/stale-blocks`

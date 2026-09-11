@@ -1,0 +1,22 @@
+services:
+  qbit:
+    image: ${QBIT_IMAGE:-merge-mining-research/qbit:1.0.0-70fea84f-archive}
+    build:
+      context: .
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-4}
+    container_name: mmr-qbit-archive
+    restart: "no"
+    stop_grace_period: 5m
+    volumes:
+      - type: bind
+        source: ${QBIT_DATA_DIR:?Set existing Qbit data directory}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QBIT_CONFIG_FILE:?Set existing Qbit config file}
+        target: /config/qbit.conf
+        read_only: true
+        bind:
+          create_host_path: false

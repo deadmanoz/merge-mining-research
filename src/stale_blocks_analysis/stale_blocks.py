@@ -4,7 +4,7 @@ Reads the upstream bitcoin-data/stale-blocks CSV and the per-chain
 AuxPoW-recovered validated CSVs (Geistgeld, Namecoin, CoiledCoin, Syscoin,
 Devcoin, ixcoin, i0coin, Groupcoin, Huntercoin, Elastos, Unobtanium, Doichain,
 Myriadcoin, Bitmark, Argentum, Terracoin, RSK, Xaya, Bitcoin Vault,
-Electric Cash, ROD, Lyncoin, SixEleven, and Fractal Bitcoin; see docs/ for
+Electric Cash, ROD, Lyncoin, SixEleven, Qbit, and Fractal Bitcoin; see docs/ for
 methodology), returning the established
 row shape (`height`, `hash`, `source`, and where available
 `_scriptsig_hex` / `_outputs_str`). Merging across sources is handled
@@ -14,7 +14,7 @@ attribution.
 Depends on: config (STALE_CSV, MIN_HEIGHT, ARGENTUM_CSV, AUXPOW_CSV,
 BITCOIN_VAULT_CSV, BITMARK_CSV, COILEDCOIN_CSV, DEVCOIN_CSV, ELASTOS_CSV, FRACTAL_CSV,
 GEISTGELD_CSV, GROUPCOIN_CSV, HUNTERCOIN_CSV, I0COIN_CSV, IXCOIN_CSV,
-LYNCOIN_CSV, ROD_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
+LYNCOIN_CSV, QBIT_CSV, ROD_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
 UNOBTANIUM_CSV, ELCASH_CSV), coinbase_output_claims.
 """
 
@@ -66,6 +66,7 @@ from .config import (  # noqa: F401
     LYNCOIN_CSV,
     MYRIADCOIN_CSV,
     ROD_CSV,
+    QBIT_CSV,
     SIXELEVEN_CSV,
     SYSCOIN_CSV,
     TERRACOIN_CSV,
@@ -178,6 +179,7 @@ def load_auxpow_validated_stales(
 # one of these to load_auxpow_validated_stales while preserving the public
 # function name and signature so all existing callers keep working.
 _LOADER_SPECS: dict[str, LoaderSpec] = {
+    "qbit": LoaderSpec(csv_attr="QBIT_CSV", source="qbit"),
     "namecoin": LoaderSpec(
         # Normalized to the shared schema in the data pass (legacy file used
         # btc_stale_height / btc_hash / btc_bits_hex). The shared exact-status
@@ -748,6 +750,11 @@ def load_rod_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     deliberately absent validated-stales path returns an empty list.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["rod"], min_height=min_height)
+
+
+def load_qbit_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
+    """Load native-archive Qbit direct stales through the shared verdict gate."""
+    return load_auxpow_validated_stales(_LOADER_SPECS["qbit"], min_height=min_height)
 
 
 def _outputs_for_tagging(raw_outputs: str) -> str:

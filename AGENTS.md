@@ -463,6 +463,18 @@ Always state which commands were run and which were skipped.
 
 ## Node Infrastructure
 
+`node-infra/qbit/` owns the pinned Qbit archival build and explicit acquisition
+worker. Keep `prune=0`, `prunewitnesses=0`, `assumevalid=0` and `txindex=1`,
+noncreating data/config binds, internal RPC and acquisition restart disabled.
+`qbit.py` validates its distinct header/proof envelope using existing bounded
+wire helpers; `qbit_acquisition.py` accounts for every native active-chain
+height and writes private receipts. `--from-acquisition` authenticates sealed
+captures and replays the same producer into a fresh generation. Failed runs
+remain incomplete. Qbit uses the shared classifier, loader and publication
+registry; leading arbitrary commitment pushes are not Bitcoin height evidence.
+Its 24 zero-predecessor synthetic parents remain unknown and are excluded by
+Bitcoin epoch targets. See `docs/chains/qbit.md`.
+
 `node-infra/rod/` owns the pinned SpaceXpanse ROD archival build. Keep its
 source archive ignored and digest-verified, use noncreating data/config binds,
 and retain `prune=0`, `txindex=1` and `assumevalid=0` for comprehensive recovery.

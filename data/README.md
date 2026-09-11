@@ -147,6 +147,11 @@ Bitcoin-context and AuxPoW verification. The sealed 8 September RSK acquisition
 covers `[0, 9,220,905)` and adds 16 accepted observations, retaining all 337
 previous rows unchanged. Its private classifier family also preserves 236,073
 canonical Bitcoin-parent observations and the full stale/unknown inventory.
+The 10 September Qbit scan adds four accepted direct-stale observations, all
+with native child identity and full coinbase evidence. They cross-confirm
+upstream and RSK headers; the 24 zero-predecessor unknown parents are private
+evidence excluded by Bitcoin epoch targets.
+
 The RSK manifest binds each sibling to the completed raw checkpoint and
 skip ledger; retain that bundle together when relocating the archive.
 

@@ -576,7 +576,15 @@ def hash_meets_btc_difficulty(header_hash_internal: bytes, bits: int) -> bool:
 def parse_coinbase_height(scriptsig: bytes) -> Optional[int]:
     """Return the BIP34 height encoded in a coinbase scriptSig, or None.
 
-    Thin wrapper delegating to ``coinbase_markers.parse_bip34_height`` (a proper
-    CScriptNum decode) so the extract scripts have a single import surface.
+    A leading arbitrary data push is not height evidence. Bitcoin heights fit
+    in a nonnegative signed 32-bit integer; in particular, a 44-byte AuxPoW
+    commitment must never become an enormous apparent future height.
     """
-    return parse_bip34_height(scriptsig)
+    if not scriptsig:
+        return None
+    if 5 <= scriptsig[0] <= 75:
+        return None
+    if scriptsig[0] == 0x4C and (len(scriptsig) < 2 or scriptsig[1] > 4):
+        return None
+    height = parse_bip34_height(scriptsig)
+    return height if height is not None and 0 <= height <= 0x7FFFFFFF else None

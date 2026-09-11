@@ -1,0 +1,14 @@
+services:
+  research-worker:
+    extends:
+      file: ${MMR_REPO_DIR:?set MMR_REPO_DIR}/node-infra/research-worker/docker-compose.yml
+      service: research-worker
+    image: merge-mining-research/research-worker:qbit-recovery
+    network_mode: container:mmr-qbit-archive
+    volumes:
+      - type: bind
+        source: ${QBIT_COOKIE_FILE:?set QBIT_COOKIE_FILE to the running node cookie}
+        target: /run/qbit.cookie
+        read_only: true
+        bind:
+          create_host_path: false

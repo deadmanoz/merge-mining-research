@@ -1,5 +1,9 @@
 # Node infrastructure
 
+[Qbit](qbit/README.md) provides a pinned archival build and an explicit complete
+active-chain acquisition worker. Its proof adapter and current recovery scope
+are documented in [the Qbit chain notes](../docs/chains/qbit.md).
+
 Build and run recipes for the merge-mined chains whose recovery needed a
 locally operated node. Each directory is its own workspace with a README,
 a compose file, and usually a Dockerfile and `justfile`; read the chain's

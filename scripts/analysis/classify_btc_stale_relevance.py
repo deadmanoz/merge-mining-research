@@ -99,6 +99,7 @@ UNKNOWN_SOURCE_CLASSIFICATIONS = {"unknown", "orphan"}
 EXCLUDED_SOURCE_CLASSIFICATIONS = {"canonical", "near"}
 STRICT_HEIGHT_COLUMNS = ("btc_bip34_height",)
 BTC_COINBASE_SCRIPTSIG_CHAINS = {
+    "qbit",
     "argentum",
     "bitcoin-vault",
     "bitmark",
