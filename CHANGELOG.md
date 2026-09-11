@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Add a pinned Qbit archival node workspace and explicit complete-chain
+acquisition adapter. Validate Qbit's distinct proof layout, version rules and
+display-order commitments, preserve lower-work controls, and seal only scans
+with every active-chain height and predecessor edge accounted for. Replay sealed
+RPC captures through the normal producer, reject oversized commitment pushes
+as height evidence, and integrate Qbit publication with 2,536 canonical and
+four accepted stale observations. Retain all 24 excluded synthetic parents
+privately and preserve the complete existing Monitor evidence baseline.
+
 Provide an on-demand development Monitor workspace with an explicit local
 source checkout, PostgreSQL 16 and a read-only Research bind. Keep the API on
 host loopback and database restoration, migrations and data jobs explicit.

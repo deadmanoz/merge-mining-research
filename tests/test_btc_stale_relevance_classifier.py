@@ -1627,3 +1627,33 @@ def test_missing_upstream_dataset_fails_loudly(tmp_path: Path):
     )
     with pytest.raises(SystemExit, match="upstream stale-blocks dataset missing"):
         classifier.run(args)
+
+
+def test_qbit_synthetic_parent_is_excluded_not_future_height(tmp_path):
+    from stale_blocks_analysis.qbit import parse_header
+
+    control = json.loads(
+        (PROJECT_ROOT / "tests/fixtures/qbit_synthetic_parent.json").read_text()
+    )
+    row = parse_header(
+        bytes.fromhex(control["header_hex"]),
+        height=control["height"],
+        expected_hash=control["hash"],
+    )["row"]
+    row["classification"] = "unknown"
+    path = tmp_path / "qbit_unknown_blocks.csv"
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    ref = PROJECT_ROOT / "data/bitcoin-epoch-reference"
+    bits, _ = classifier.load_epoch_bits(ref / "btc_nbits_by_epoch.json")
+    headers, _ = classifier.load_epoch_headers(ref / "btc_epoch_headers.json")
+    source = next(iter(classifier.iter_csv_source(path, "qbit", "full_inventory")))
+    result = classifier.classify_source_row(
+        source, set(), bits, classifier.EpochTimeLookup.from_headers(headers), {}
+    )
+    assert result["btc_height"] == ""
+    assert result["btc_stale_relevance"] == "excluded"
+    assert result["relevance_reason"] == "non_btc_epoch_bits"
+    assert result["expected_nbits_by_time"] == "1702369d"

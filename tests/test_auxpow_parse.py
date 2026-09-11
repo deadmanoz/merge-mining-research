@@ -496,3 +496,11 @@ def test_module_imports_stdlib_only():
             # Only stdlib (level 0, no third party) or intra-package (level >= 1).
             if node.level == 0 and node.module:
                 assert node.module.split(".")[0] not in third_party
+
+
+@pytest.mark.parametrize(
+    "script",
+    [b"\x2c" + b"\xfa\xbe\x6d\x6d" + b"\0" * 40, b"\x01\x81", b"\x05\x01\0\0\0\0"],
+)
+def test_height_inference_rejects_commitments_and_out_of_range_numbers(script):
+    assert ap.parse_coinbase_height(script) is None

@@ -22,6 +22,7 @@ from stale_blocks_analysis.config import (  # noqa: E402
 
 # Chains the project considers integrated.
 INTEGRATED_KEYS = {
+    "qbit",
     "namecoin",
     "geistgeld",
     "i0coin",
@@ -225,7 +226,9 @@ def test_activation_height_int_or_none() -> None:
         if spec.activation_height is not None:
             assert isinstance(spec.activation_height, int)
             assert not isinstance(spec.activation_height, bool)
-            assert spec.activation_height >= 1, f"{key}: activation_height must be >= 1"
+            assert spec.activation_height >= 0, (
+                f"{key}: activation_height must be nonnegative"
+            )
     # These recoveries do not have a verified numeric activation constant.
     assert CHAIN_SPECS["huntercoin"].activation_height is None
     assert CHAIN_SPECS["rsk"].activation_height is None
@@ -237,3 +240,12 @@ def test_chainspec_is_frozen() -> None:
     spec = CHAIN_SPECS["syscoin"]
     with pytest.raises(Exception):
         spec.chain_id = 999  # type: ignore[misc]
+
+
+def test_qbit_native_acquisition_contract():
+    spec = CHAIN_SPECS["qbit"]
+    assert spec.chain_id == 47
+    assert spec.activation_height == 0
+    assert spec.child_nbits_from_header
+    assert spec.height_column == "qbit_height"
+    assert dict(CHAINS_BY_AUXPOW_ACTIVATION)["qbit"] == "2026-07-16"

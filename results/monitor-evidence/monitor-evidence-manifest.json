@@ -21,6 +21,7 @@
     "lyncoin": "results/monitor-evidence/lyncoin_monitor_evidence.csv",
     "myriadcoin": "results/monitor-evidence/myriadcoin_monitor_evidence.csv",
     "namecoin": "results/monitor-evidence/namecoin_monitor_evidence.csv",
+    "qbit": "results/monitor-evidence/qbit_monitor_evidence.csv",
     "rod": "results/monitor-evidence/rod_monitor_evidence.csv",
     "rsk": "results/monitor-evidence/rsk_monitor_evidence.csv",
     "sixeleven": "results/monitor-evidence/sixeleven_monitor_evidence.csv",
@@ -32,6 +33,23 @@
     "xaya": "results/monitor-evidence/xaya_monitor_evidence.csv"
   },
   "counts": [
+    {
+      "artifact_path": "results/monitor-evidence/qbit_monitor_evidence.csv",
+      "artifact_scope": "full_classifier_inventory",
+      "canonical": 2536,
+      "canonical_evidence_status": "canonical_retained",
+      "chain": "qbit",
+      "error_block": 0,
+      "monitor_rows": 2540,
+      "notes": "",
+      "source_kind": "full_inventory",
+      "source_path": "<chain-archive>/qbit/classified/qbit_stale_blocks.csv",
+      "source_rows": 2564,
+      "stale": 4,
+      "stale_descendant": 0,
+      "strict_btc_orphan": 0,
+      "weak_btc_orphan": 0
+    },
     {
       "artifact_path": "results/monitor-evidence/namecoin_monitor_evidence.csv",
       "artifact_scope": "full_classifier_inventory",
@@ -365,7 +383,7 @@
       "monitor_rows": 1,
       "notes": "",
       "source_kind": "canonical_blocks",
-      "source_path": "<external>/rod_canonical_blocks.csv",
+      "source_path": "<chain-archive>/rod/classified/rod_canonical_blocks.csv",
       "source_rows": 1,
       "stale": 0,
       "stale_descendant": 0,

@@ -1,0 +1,40 @@
+default:
+    @just --list
+
+config:
+    docker compose config --quiet
+
+build:
+    docker compose build qbit
+
+run:
+    docker compose up -d qbit
+
+start:
+    docker compose start qbit
+
+stop:
+    docker compose stop qbit
+
+logs:
+    docker compose logs --tail=100 qbit
+
+rpc +args:
+    docker compose exec -T qbit qbit-cli -datadir=/data -conf=/config/qbit.conf {{args}}
+
+test:
+    docker compose config --quiet
+    docker compose run --rm --no-deps qbit qbitd -version
+
+research-build:
+    docker compose --project-name qbit-research -f compose.research.yml build research-worker
+
+research +args:
+    docker compose --project-name qbit-research -f compose.research.yml run --rm --no-deps research-worker {{args}}
+
+research-background name +args:
+    docker compose --project-name qbit-research -f compose.research.yml run --detach --name {{name}} --no-deps research-worker {{args}}
+
+# Remove only the stopped container; retain the archive and image.
+clean:
+    docker compose rm -f qbit

@@ -677,6 +677,51 @@ def test_classify_stales_chain_syscoin_default_input(monkeypatch):
     assert rec.calls[0]["input_path"] == "data/auxpow_raw.csv"
 
 
+def test_classify_stales_chain_qbit_forwards(monkeypatch):
+    """Qbit classifies through the shared command, with no sibling wrapper.
+
+    docs/chains/qbit.md documents this exact invocation, so the chain must be
+    an accepted --chain choice and must forward its own ChainSpec.
+    """
+    rec = _Recorder()
+    monkeypatch.setattr("stale_blocks_analysis.classifier_cli.run_classifier", rec)
+    mod = _load("classify_stales")
+    assert (
+        mod.main(
+            [
+                "--chain",
+                "qbit",
+                "--input",
+                "qbit_auxpow.csv",
+                "--output",
+                "qbit_stale_blocks.csv",
+                "--validated-output",
+                "qbit_validated_stales.csv",
+                "--keep-near",
+            ]
+        )
+        == 0
+    )
+    call = rec.calls[0]
+    assert call["spec"].key == "qbit"
+    assert call["input_path"] == "qbit_auxpow.csv"
+    assert call["output_path"] == "qbit_stale_blocks.csv"
+    assert call["validated_output_path"] == "qbit_validated_stales.csv"
+    assert call["keep_near"] is True
+    assert call["bits_source_is_decimal"] is False
+
+
+def test_classify_stales_help_lists_qbit() -> None:
+    """The generated --help must advertise qbit as a valid choice."""
+    result = subprocess.run(
+        [sys.executable, str(CLASSIFY / "classify_stales.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "qbit" in result.stdout
+
+
 @pytest.mark.parametrize("chain", ["huntercoin", "rsk", "not-a-chain"])
 def test_classify_stales_refuses_non_thin_chain(monkeypatch, chain):
     rec = _Recorder()

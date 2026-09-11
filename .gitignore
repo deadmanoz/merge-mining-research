@@ -10,9 +10,12 @@ venv/
 env/
 .python-version
 
-# Local secrets / RPC credentials.
+# Local secrets / RPC credentials. The per-workspace `.env.example` templates
+# carry only placeholder paths and are committed; every node-infra workspace
+# README tells operators to copy one into a private `.env`.
 .env
 .env.*
+!.env.example
 
 # Operator-specific private-infra tokens for `just check-leaks` (internal host
 # aliases, personal handles). Commit only .leak-tokens.example.

@@ -368,6 +368,7 @@ XAYA_CSV = VALIDATED_STALES_DIR / "xaya_validated_stales.csv"
 # canonical companion only; this conventional path is deliberately absent
 # until a direct stale is admitted by the normal validation workflow.
 ROD_CSV = VALIDATED_STALES_DIR / "rod_validated_stales.csv"
+QBIT_CSV = VALIDATED_STALES_DIR / "qbit_validated_stales.csv"
 
 # Integrated chains whose reviewed result currently consists only of a
 # canonical companion. They stay in chronology and loader rosters, but a
@@ -464,6 +465,7 @@ CHAINS_BY_AUXPOW_ACTIVATION: list[tuple[str, str]] = [
         "2022-12-30",
     ),  # strict chain ID 0x0b0d; pre-Flex AuxPoW through height 260,499
     ("fractal", "2024-09-09"),
+    ("qbit", "2026-07-16"),  # earliest authenticated native AuxPoW observation
 ]
 
 
@@ -626,6 +628,17 @@ def _chain_output_csv(key: str) -> Path:
 
 
 CHAIN_SPECS: dict[str, ChainSpec] = {
+    "qbit": ChainSpec(
+        key="qbit",
+        display_name="Qbit",
+        height_column="qbit_height",
+        chain_id=47,
+        activation_height=0,
+        attribution_mode="coinbase",
+        input_csv=_chain_input_csv("qbit"),
+        output_csv=_chain_output_csv("qbit"),
+        validated_csv=QBIT_CSV,
+    ),
     "namecoin": ChainSpec(
         key="namecoin",
         display_name="Namecoin",

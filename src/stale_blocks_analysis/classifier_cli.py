@@ -202,6 +202,7 @@ def add_standard_output_args(
 
 
 # Thin run_classifier chains: the shared command and the 13 delegate wrappers.
+# Qbit is shared-command-only and deliberately has no sibling wrapper script.
 # Huntercoin / emercoin / doichain (normalizers) and the bespoke classifiers
 # are intentionally absent.
 THIN_CLASSIFIER_CHAINS = frozenset(
@@ -215,6 +216,7 @@ THIN_CLASSIFIER_CHAINS = frozenset(
         "fractal",
         "ixcoin",
         "myriadcoin",
+        "qbit",
         "syscoin",
         "terracoin",
         "unobtanium",

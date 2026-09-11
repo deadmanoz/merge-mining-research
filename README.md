@@ -82,6 +82,11 @@ build inputs remain in the private archive.
 The [development Monitor workspace](node-infra/monitor-dev/README.md) builds
 the companion application and runs it with a separate development database.
 
+[Qbit archival acquisition](docs/chains/qbit.md) is complete through child
+height 80,986, with a pinned node workspace and tested proof adapter. Its
+publication contains 2,536 canonical observations and four accepted direct-stale
+witnesses. All 24 unknown parents fail the Bitcoin epoch-target relevance gate.
+
 The recovery pipeline runs per sibling chain:
 
 1. **Extract** (`scripts/extract/`): parse each sibling block's merge-mining
@@ -103,7 +108,7 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,809 accepted direct observations covering
+The committed chain inputs hold 3,813 accepted direct observations covering
 2,161 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
@@ -159,6 +164,7 @@ above.
 | [SpaceXpanse ROD](docs/chains/rod.md) | Fully synchronized archival node; every active-chain block through height 4,127,689 | 0 | 0 | 0 | The complete scan found one fully reviewed canonical Bitcoin parent; lower-work and unresolved templates remain private evidence. |
 | [Lyncoin](docs/chains/lyncoin.md) | Live-peer P2P header stream; complete pre-Flex merge-mined era | 0 | 0 | 0 | Complete recovered era with no accepted stale or strict/weak evidence. |
 | [Fractal Bitcoin](docs/chains/fractal.md) | Archival node; point-in-time scan through child height 1,807,154 | 40 | 0 | 0 | Only the Cadence merge-mined block class carries Bitcoin-parent evidence. |
+| [Qbit](docs/chains/qbit.md) | Fully validating native archive; genesis through child height 80,986 | 4 | 0 | 0 | Publishes 2,536 canonical parents; all four stales cross-confirm upstream and RSK, while 24 synthetic-parent proofs fail Bitcoin epoch targets. |
 
 ### Partial canonical evidence
 

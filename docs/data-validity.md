@@ -100,8 +100,11 @@ through another chain. An independent review verified all 191 I0coin direct
 observations against Bitcoin Core and their complete recovered AuxPoW
 witnesses, including child heights derived from authenticated ancestry to
 genesis. The 16 new RSK observations also passed a separate
-Bitcoin Core context review under RSK's available-evidence profile. The current
-committed direct set contains 3,809 observations and 2,161 unique header hashes.
+Bitcoin Core context review under RSK's available-evidence profile. The
+10 September Qbit scan adds four independently witnessed direct stales that
+pass the complete coinbase-bearing available-evidence profile; all four
+headers already occur upstream and in RSK. The current
+committed direct set contains 3,813 observations and 2,161 unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,

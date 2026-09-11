@@ -436,6 +436,16 @@ when used without the full private inventory. Hathor's unified classifier
 writes the standard terminal category files for canonical, stale, unknown,
 near, and error-block rows.
 
+Qbit's complete native scan through child height 80,986 publishes 2,536
+canonical parents and four accepted direct-stale observations. It records
+the exact pure child header, native height and proof at acquisition, so no
+separate identity hydration is needed. Its 24 zero-predecessor synthetic
+parent proofs remain private unknown evidence: their own targets pass, but
+the Bitcoin epoch targets do not. The original 44-byte commitment prefix is
+not a BIP34 height. `just acquire-qbit --from-acquisition ...` verifies the
+sealed captures and reruns the normal producer into a fresh output directory.
+See [Qbit provenance](chains/qbit.md).
+
 ## Child identity: `data/child-identity/`
 
 Five active child chains (Namecoin, RSK, Syscoin, Elastos, and Fractal) were
@@ -630,7 +640,7 @@ with `classification=stale_descendant`,
 `validation_status=VALID_STALE_DESCENDANT`, and
 `relevance_reason=valid_stale_descendant`. Their source-bucket classifications
 remain audit fields in the witness ledger and never override the accepted
-parent verdict. The 29 ordinary artifacts, error-observation aggregate, and
+parent verdict. The 30 ordinary artifacts, error-observation aggregate, and
 both metadata files describe the same source generation. The six historical
 observations carry complete authenticated child headers; live-chain
 observations use the independently verified identities in
