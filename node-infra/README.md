@@ -1,7 +1,10 @@
 # Node infrastructure
 
 [Qbit](qbit/README.md) provides a pinned archival build and an explicit complete
-active-chain acquisition worker. Its proof adapter and current recovery scope
+active-chain acquisition worker, and follows the same profile model as the
+other node workspaces: the base Compose file publishes authenticated RPC on
+one selected host address with a reviewed restart policy, and an offline
+overlay serves networkless reads. Its proof adapter and current recovery scope
 are documented in [the Qbit chain notes](../docs/chains/qbit.md).
 
 Build and run recipes for the merge-mined chains whose recovery needed a

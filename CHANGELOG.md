@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Align the Qbit node workspace with the profile model the other node workspaces
+use, so the retained node can serve the Monitor's live capture. The base
+Compose file now publishes RPC on one selected host address (loopback by
+default), takes its restart policy from the environment with `no` as the
+default, and carries a CLI health check; a new offline overlay serves
+networkless reads of the retained datadir. The start recipes never build or
+pull the retained image, and the README documents the private config lines a
+remote poller needs (container-interface RPC binding, a client allowlist by
+role, one `rpcauth` line), the restart-policy flip after acceptance, and the
+rollback to the loopback bind.
+
 Add a pinned Qbit archival node workspace and explicit complete-chain
 acquisition adapter. Validate Qbit's distinct proof layout, version rules and
 display-order commitments, preserve lower-work controls, and seal only scans

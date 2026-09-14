@@ -1,0 +1,21 @@
+# Networkless reads of the retained datadir: no network interface, no host
+# ports, no automatic restart. Do not use for acquisition or service.
+services:
+  qbit:
+    network_mode: none
+    restart: "no"
+    ports: !reset []
+    command:
+      - qbitd
+      - -datadir=/data
+      - -conf=/config/qbit.conf
+      - -prune=0
+      - -prunewitnesses=0
+      - -assumevalid=0
+      - -txindex=1
+      - -printtoconsole
+      - -listen=0
+      - -dnsseed=0
+      - -connect=0
+      - -rpcbind=127.0.0.1
+      - -rpcallowip=127.0.0.1

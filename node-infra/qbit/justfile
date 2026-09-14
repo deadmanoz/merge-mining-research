@@ -1,20 +1,31 @@
+set dotenv-load := true
+
 default:
     @just --list
 
 config:
     docker compose config --quiet
 
+# Build from the digest-verified local source.tar; the only recipe that builds.
 build:
     docker compose build qbit
 
-run:
-    docker compose up -d qbit
+# Create and start from the selected existing image; never builds or pulls.
+up:
+    docker compose up -d --no-build --pull never qbit
 
 start:
     docker compose start qbit
 
 stop:
-    docker compose stop qbit
+    docker compose stop --timeout -1 qbit
+
+# Stop and remove the container and network; the datadir and image persist.
+down:
+    docker compose down --timeout -1
+
+status:
+    docker compose ps qbit
 
 logs:
     docker compose logs --tail=100 qbit

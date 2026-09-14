@@ -464,8 +464,14 @@ Always state which commands were run and which were skipped.
 ## Node Infrastructure
 
 `node-infra/qbit/` owns the pinned Qbit archival build and explicit acquisition
-worker. Keep `prune=0`, `prunewitnesses=0`, `assumevalid=0` and `txindex=1`,
-noncreating data/config binds, internal RPC and acquisition restart disabled.
+worker and uses the same profile model as the other node workspaces: the base
+Compose file publishes RPC only on the selected host address in
+`QBIT_RPC_BIND` (loopback by default) with the restart policy in
+`QBIT_RESTART_POLICY` (enable only after acceptance), and
+`compose.offline.yml` serves networkless reads. Keep `prune=0`,
+`prunewitnesses=0`, `assumevalid=0` and `txindex=1`, noncreating data/config
+binds, and `rpcauth` for any remote poller in the private config; `just up`
+and `just start` never build or pull.
 `qbit.py` validates its distinct header/proof envelope using existing bounded
 wire helpers; `qbit_acquisition.py` accounts for every native active-chain
 height and writes private receipts. `--from-acquisition` authenticates sealed
