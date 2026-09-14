@@ -56,9 +56,10 @@ Set `QBIT_RPC_BIND` to the selected private host address and keep
 `QBIT_RESTART_POLICY=no` until the endpoint and recovery checks pass:
 authenticated requests succeed from each intended client path, unauthenticated
 requests are rejected, and other host addresses refuse the connection. Then
-set `unless-stopped` and apply it to the existing container with
-`docker update --restart unless-stopped mmr-qbit-archive` without recreating
-it. `docker stop` and `docker kill` are operator actions that suppress
+set `unless-stopped` and apply it to the existing container without
+recreating it: `docker update --restart unless-stopped <container>`, where
+`<container>` is the configured `QBIT_CONTAINER_NAME` (default
+`mmr-qbit-archive`). `docker stop` and `docker kill` are operator actions that suppress
 restart policies, so test recovery by terminating the daemon process inside
 the container instead. Host startup must be ordered after the data mount and
 the private interface that `QBIT_RPC_BIND` names, as the node-infra README
@@ -67,8 +68,10 @@ daemon running. The published address, allowlist values and credentials are
 host-specific and never appear in tracked files.
 
 Rollback at any point: `just stop`, set `QBIT_RPC_BIND` back to loopback and
-the restart policy to `no` (`docker update --restart no mmr-qbit-archive`),
-and `just up`; or select the offline overlay for reads only. The datadir is
+the restart policy to `no` (`docker update --restart no <container>`), and
+`just up`; or select the offline overlay for reads only. The research worker
+overlay joins the configured container's network namespace through the same
+`QBIT_CONTAINER_NAME` variable. The datadir is
 shared by every profile and untouched by the switch.
 
 ## Explicit historical acquisition
