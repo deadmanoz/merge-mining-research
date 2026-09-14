@@ -5,9 +5,17 @@ services:
       context: .
       args:
         BUILD_JOBS: ${BUILD_JOBS:-4}
-    container_name: mmr-qbit-archive
-    restart: "no"
+    container_name: ${QBIT_CONTAINER_NAME:-mmr-qbit-archive}
+    restart: ${QBIT_RESTART_POLICY:-no}
     stop_grace_period: 5m
+
+    # RPC is published on one host address only: loopback by default for
+    # acquisition and local reads, the selected private host address for a
+    # remote poller. The daemon binds the container interface in the private
+    # config; this mapping is the exposure control.
+    ports:
+      - "${QBIT_RPC_BIND:-127.0.0.1}:8354:8354"
+
     volumes:
       - type: bind
         source: ${QBIT_DATA_DIR:?Set existing Qbit data directory}
@@ -20,3 +28,10 @@ services:
         read_only: true
         bind:
           create_host_path: false
+
+    healthcheck:
+      test: ["CMD", "qbit-cli", "-datadir=/data", "-conf=/config/qbit.conf", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

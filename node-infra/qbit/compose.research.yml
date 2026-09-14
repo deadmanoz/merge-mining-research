@@ -4,7 +4,7 @@ services:
       file: ${MMR_REPO_DIR:?set MMR_REPO_DIR}/node-infra/research-worker/docker-compose.yml
       service: research-worker
     image: merge-mining-research/research-worker:qbit-recovery
-    network_mode: container:mmr-qbit-archive
+    network_mode: container:${QBIT_CONTAINER_NAME:-mmr-qbit-archive}
     volumes:
       - type: bind
         source: ${QBIT_COOKIE_FILE:?set QBIT_COOKIE_FILE to the running node cookie}
