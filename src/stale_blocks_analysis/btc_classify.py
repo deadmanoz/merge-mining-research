@@ -60,9 +60,12 @@ from .btc_stale_validation import (
 )
 from .config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
+    ERROR_BLOCKS_CSV,
     HISTORICAL_CHILD_HEADER_CHAINS,
     ChainSpec,
 )
+
+from .error_blocks import load_error_block_keys
 
 # Default RPC batch size, matching the inline copies.
 BATCH_SIZE = 200
@@ -696,6 +699,7 @@ def write_classifier_outputs(
     unknown_path: str,
     validated_path: str,
     error_block_path: str,
+    error_blocks_path: Path = ERROR_BLOCKS_CSV,
 ) -> dict[str, int]:
     """Partition classified rows by ``classification`` and write the five
     bucket-split output files.
@@ -716,7 +720,8 @@ def write_classifier_outputs(
     unresolved-unknown output rows clear stale-gate annotations because their
     state is already final on the primary axis. ``validated`` is the
     ``classification == "stale"`` AND ``validation_status == "VALID"`` subset --
-    the committed loader input the ``stale_blocks.py`` loaders read. Each file
+    minus exact catalogue keys, matching the downstream loader exclusion.
+    Raw source buckets retain their classification as audit evidence. Each file
     is sorted by ``btc_height`` and its header is always written, even when the
     bucket is empty. Returns bucket counts for the caller's summary.
 
@@ -771,7 +776,13 @@ def write_classifier_outputs(
             output_row["expected_nbits"] = ""
             output_row["rejection_reason"] = ""
         bucket.append(output_row)
-    validated = [s for s in buckets["stale"] if s.get("validation_status") == "VALID"]
+    excluded = load_error_block_keys(error_blocks_path)
+    validated = [
+        s
+        for s in buckets["stale"]
+        if s.get("validation_status") == "VALID"
+        and (int(s["btc_height"]), str(s["btc_header_hash"]).lower()) not in excluded
+    ]
 
     error_block_columns = list(columns)
     if RULES_VIOLATED_COLUMN not in error_block_columns:

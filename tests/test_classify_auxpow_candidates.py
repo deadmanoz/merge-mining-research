@@ -130,6 +130,7 @@ def _candidate(prev_hash, bits, child_seed, *, nonce_seed=0, bip34_height=478_55
 
 def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
     tmp_path,
+    monkeypatch,
 ):
     mod = _load_classifier()
 
@@ -378,6 +379,17 @@ def test_classifier_batches_mixed_canonical_stale_orphan_and_validates_nbits(
         assert len(list(csv.DictReader(f))) == 2
     with (tmp_path / "publication_only_error_blocks.csv").open(newline="") as f:
         assert len(list(csv.DictReader(f))) == 0
+
+    # Catalogue admission must survive a fresh producer run even when the
+    # available-evidence gates still accept the same raw parent.
+    monkeypatch.setattr(mod, "load_error_block_keys", lambda: {(478559, stale_valid)})
+    mod.classify_and_validate(
+        input_path, output_path, rejected_path, client, classified_csv=classified_path
+    )
+    with output_path.open(newline="") as handle:
+        assert list(csv.DictReader(handle)) == []
+    with classified_path.open(newline="") as handle:
+        assert stale_valid in {r["btc_hash"] for r in csv.DictReader(handle)}
 
 
 def test_classifier_routes_bip34_height_mismatch_to_the_error_block_artifact(tmp_path):

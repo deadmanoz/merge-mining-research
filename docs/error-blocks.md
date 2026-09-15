@@ -299,8 +299,9 @@ validated-stales input.
 
 ## Evidence standard
 
-Catalogue membership derives from evidence, not a source bucket label. Every
-violation is re-derived from committed bytes by the offline validator,
+Catalogue membership derives from evidence, not a source bucket label. The
+current 39 entries use local header/coinbase or context-rule verification.
+Those violations are re-derived from committed bytes by the offline validator,
 `scripts/analysis/validate_error_blocks.py`,
 which is wired into `tests/` so it runs in CI. For every row it re-checks,
 with no live RPC:
@@ -319,6 +320,29 @@ sidecar, and exact observation ledger form one reviewed canonical data module.
 Run `just validate-error-blocks` to validate all three without private inputs
 or live RPC. Population sweeps remain diagnostic research tools and fail
 closed when their required private inputs are absent.
+
+The validator also supports externally verified body-rule verdicts through
+`body_evidence.csv`, beside the catalogue. Its columns are `height`, `hash`,
+`rule`, `block_file`, `block_sha256` and `evidence_url`. The reference must name
+an exact row of `bitcoin-data/invalid-blocks` at a full commit hash. Admission
+requires checking that the referenced invalidity evidence is independent of
+Research's classification; links back to Research may establish witnesses only.
+The validator checks the reference's form, not its remote content or CI result.
+
+For these entries, Research checks the body digest, header identity, transaction
+merkle root and applicable witness commitment. Before SegWit activation at
+481,824, a commitment-looking output alone does not require witness data.
+Required bodies resolve under the pinned stale-blocks `blocks/` directory
+(`STALE_BLOCKS_DIR` selects the clone); missing bodies fail validation.
+No prevouts are fetched and no body-rule verdict is re-derived here.
+The closed rule set is `missing_unconfirmed_parent`,
+`bad-txns-inputs-missingorspent`, `bad-cb-amount` and `bad-blk-sigops`.
+The first maps to the Core reject family `bad-txns-inputs-missingorspent`;
+the other reject families match their rule tokens. Unknown rules still fail.
+
+No body-rule catalogue entries or sidecar have been installed yet. The five-parent
+cutover remains pending independent invalid-blocks evidence for height 584,802;
+the existing overlay and publication counts remain unchanged.
 
 The four ancestry-derived errors and their ten authenticated child
 observations are reviewed members of that canonical module. Their observation

@@ -89,6 +89,15 @@ ERROR_BLOCKS_CSV = ERROR_BLOCKS_DIR / "error_blocks.csv"
 # parent's median-time-past, keyed by (height, hash), so the validator can
 # re-derive time-rule violations offline.
 ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
+# Body-rule verdicts are externally verified; these are Core reject families.
+ERROR_BLOCKS_BODY_EVIDENCE_NAME = "body_evidence.csv"
+SEGWIT_ACTIVATION_HEIGHT = 481824
+BODY_ERROR_REJECTIONS = {
+    "missing_unconfirmed_parent": "bad-txns-inputs-missingorspent",
+    "bad-txns-inputs-missingorspent": "bad-txns-inputs-missingorspent",
+    "bad-cb-amount": "bad-cb-amount",
+    "bad-blk-sigops": "bad-blk-sigops",
+}
 # Committed body-invalid-stales overlay: accepted VALID direct stales whose
 # full block body is known consensus-invalid from an independently observed
 # complete block (a rule the header/coinbase evidence profile cannot cover).

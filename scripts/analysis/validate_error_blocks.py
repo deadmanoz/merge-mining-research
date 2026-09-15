@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the canonical error-block module from committed evidence."""
+"""Validate local error-block rules, external body evidence and exact witnesses."""
 
 from __future__ import annotations
 

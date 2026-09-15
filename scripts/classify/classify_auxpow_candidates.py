@@ -64,6 +64,7 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     stale_header_context_error,
 )
 from stale_blocks_analysis.classifier_cli import add_rpc_args, rpc_from_args  # noqa: E402
+from stale_blocks_analysis.error_blocks import load_error_block_keys  # noqa: E402
 from stale_blocks_analysis.config import (  # noqa: E402
     ACCEPTED_STALE_VALIDATION_STATUSES,
 )
@@ -1186,6 +1187,13 @@ def classify_and_validate(
     # unknown -- those have no artifact of their own in this mode, and dropping
     # them would lose them from the run entirely. Error blocks do have their own
     # artifact, so they are written there instead of counted as rejected stales.
+    excluded = load_error_block_keys()
+    validated = [
+        row
+        for row in validated
+        if (int(row["btc_stale_height"]), row["btc_hash"].lower()) not in excluded
+    ]
+    stats["validated"] = len(validated)
     _write_publication_rows_atomic(output_csv, validated)
     _write_publication_rows_atomic(rejected_csv, rejected + rerouted_unknowns)
     _write_error_block_rows_atomic(error_blocks_csv, error_blocks)

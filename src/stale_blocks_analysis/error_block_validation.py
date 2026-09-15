@@ -1,8 +1,12 @@
-"""Offline re-derivation validator for the committed error-blocks dataset.
+"""Offline evidence validator for the committed error-blocks dataset.
+
+Body-rule verdicts use reviewed commit-pinned invalid-blocks evidence. Their
+bodies are authenticated locally; the consensus failures are not re-derived
+here. Header/coinbase rules retain the local checks described below.
 
 Every row in ``data/error-blocks/error_blocks.csv`` claims to be a
 consensus-invalid full-PoW Bitcoin block. This validator re-checks each claim
-from the committed bytes, with no live RPC:
+using the checks below, with no live RPC:
 
 1. Full proof of work: the 80-byte header's sha256d digest must meet the
    header's own ``btc_bits`` target. A header that fails this is a share, not
@@ -11,7 +15,8 @@ from the committed bytes, with no live RPC:
    with easy non-Bitcoin embedded bits plus a correct canonical
    ``expected_nbits`` is a share at the canonical difficulty, not a full-PoW
    error block (the BCH/BSV-contamination concern).
-2. Each rule token in ``rules_violated`` must re-derive: the matching gate in
+2. Each locally verified rule token in ``rules_violated`` must re-derive:
+   the matching gate in
    ``stale_blocks_analysis.btc_stale_validation`` must return a failure string
    for the row's committed header/coinbase bytes. A gate returning ``None``
    means the claimed violation does not reproduce from the evidence. A firing
@@ -26,9 +31,10 @@ from the committed bytes, with no live RPC:
    one gate serves both the wrong-height and the missing-height rules, so a
    row must not claim both tokens off a single mismatch verdict.
    ``rejection_reason`` must be non-empty and equal to the FIRST token of
-   ``rules_violated``: the dataset contract makes it the primary rule of the
-   pipe-joined set, so a row whose ``rejection_reason`` is a secondary rule
-   or unrelated token is inconsistent even when every rule re-derives.
+   ``rules_violated`` for local rules. Body rules instead use their registered
+   Core reject family (``missing_unconfirmed_parent`` maps to
+   ``bad-txns-inputs-missingorspent``). A secondary rule or unrelated reject
+   family is inconsistent even when every local rule re-derives.
    The reverse direction holds for the three mechanically-derivable-from-bytes
    rules: the version, BIP34 coinbase-height, and coinbase scriptSig-length
    violations are re-derived unconditionally, and one that is present but NOT
@@ -64,8 +70,8 @@ nTime derived from the header bytes (bytes 68-72 LE), never trusted from the
 ``btc_time`` column. The remaining time
 rule (``time_beyond_future_limit``) needs network-adjusted time, which is not
 committed, so it can never be re-derived offline. It is therefore REJECTED,
-not deferred-accepted: a row carrying the token fails validation, because an
-error block must have a mechanically-recheckable violation and this rule is
+not deferred-accepted: a row carrying the token fails validation, because
+this time rule has no admitted external-evidence path and is
 not offline-recheckable. The ``TIME_RULES`` set is the explicit extension
 point for any further not-offline-recheckable time rules; every token in it
 fails closed.
@@ -89,7 +95,7 @@ not check that the claimed parent (``btc_prev_hash``) is a canonical/active
 Bitcoin block. That check needs canonical chain context (a live RPC view of
 the active chain) and is enforced by the online classification pipeline at
 classification time, not by this offline re-derivation. The offline validator
-proves the named consensus violation from the committed bytes;
+re-derives local rules and authenticates bodies for external rule verdicts;
 active-parent/canonical placement is a separate, online gate.
 """
 
@@ -127,8 +133,15 @@ from stale_blocks_analysis.btc_stale_validation import (
 )
 from stale_blocks_analysis.config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
+    BLOCKS_DIR,
+    BODY_ERROR_REJECTIONS,
+    ERROR_BLOCKS_BODY_EVIDENCE_NAME,
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_MTP_CONTEXT_CSV,
+)
+from stale_blocks_analysis.body_evidence import (
+    load_body_evidence,
+    validate_body_evidence,
 )
 from stale_blocks_analysis.error_observations import (
     ERROR_OBSERVATION_LEDGER,
@@ -340,8 +353,10 @@ def validate_row(
     *,
     nbits_by_epoch: dict[int, int] | None = None,
     mtp_context: dict[tuple[int, str], int] | None = None,
+    body_evidence: dict[tuple[int, str], dict[str, str]] | None = None,
+    blocks_dir: Path = BLOCKS_DIR,
 ) -> list[str]:
-    """Return re-derivation failure messages for one error-block row."""
+    """Return local-gate or externally attested body-evidence failures."""
     if nbits_by_epoch is None:
         nbits_by_epoch = _load_nbits_by_epoch()
     if mtp_context is None:
@@ -475,7 +490,7 @@ def validate_row(
                 "target (not full Bitcoin PoW)"
             )
 
-    # (b) Every claimed rule violation must re-derive via its gate.
+    # (b) Every claimed rule needs its local gate or reviewed body evidence.
     rules_text = str(row.get("rules_violated", "") or "").strip()
     rules = [rule for rule in rules_text.split("|") if rule]
     if not rules:
@@ -501,18 +516,24 @@ def validate_row(
         )
 
     # The dataset contract: rejection_reason is the PRIMARY (first) rule of
-    # the pipe-joined rules_violated set. A row whose rejection_reason is
+    # the pipe-joined rules_violated set, or its registered Core reject family
+    # for external body rules. A row whose rejection_reason is
     # empty, missing, or any token other than the first is inconsistent even
     # when every rule in rules_violated re-derives.
     rejection_reason = str(row.get("rejection_reason", "") or "").strip()
     if not rejection_reason:
         failures.append("rejection_reason is empty")
-    elif rules and rejection_reason != rules[0]:
+    elif rules and rejection_reason != BODY_ERROR_REJECTIONS.get(rules[0], rules[0]):
         failures.append(
             f"rejection_reason {rejection_reason} is not the primary (first) "
             f"rule of rules_violated ({rules[0]})"
         )
     for rule in rules:
+        if rule in BODY_ERROR_REJECTIONS:
+            failures.extend(
+                validate_body_evidence(row, rule, body_evidence or {}, blocks_dir)
+            )
+            continue
         if rule in TIME_RULES:
             # Fail closed: the rule needs network-adjusted time that is not
             # committed, so it can never be re-derived offline and can never
@@ -708,10 +729,19 @@ def validate_dataset(
     *,
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
+    body_evidence_path: Path | None = None,
+    blocks_dir: Path = BLOCKS_DIR,
 ) -> list[str]:
-    """Re-derive every row in the committed error-blocks CSV."""
+    """Validate every catalogue row and its matching body sidecar, if required."""
     nbits_by_epoch = _load_nbits_by_epoch(nbits_by_epoch_path)
     mtp_context = _load_mtp_context(mtp_context_path)
+    if body_evidence_path is None:
+        body_evidence_path = path.parent / ERROR_BLOCKS_BODY_EVIDENCE_NAME
+    try:
+        body_evidence = load_body_evidence(body_evidence_path)
+    except ValueError as exc:
+        return [str(exc)]
+    body_keys: set[tuple[int, str]] = set()
     failures: list[str] = []
     seen_keys: set[tuple[int, str]] = set()
     row_count = 0
@@ -737,10 +767,22 @@ def validate_dataset(
                         f"{row_id}: duplicate error-block key {key} in {path}"
                     )
                 seen_keys.add(key)
+            if (
+                key is not None
+                and set(row.get("rules_violated", "").split("|"))
+                & BODY_ERROR_REJECTIONS.keys()
+            ):
+                body_keys.add(key)
             for failure in validate_row(
-                row, nbits_by_epoch=nbits_by_epoch, mtp_context=mtp_context
+                row,
+                nbits_by_epoch=nbits_by_epoch,
+                mtp_context=mtp_context,
+                body_evidence=body_evidence,
+                blocks_dir=blocks_dir,
             ):
                 failures.append(f"{row_id}: {failure}")
+    for unused in sorted(body_evidence.keys() - body_keys):
+        failures.append(f"body evidence has no matching catalogue body rule: {unused}")
     if row_count == 0:
         # Fail closed: a header-only or empty dataset yields an empty failure
         # list, which the CLI would otherwise report as success — a truncated
@@ -757,6 +799,8 @@ def validate_error_module(
     ledger_path: Path | None = None,
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
+    body_evidence_path: Path | None = None,
+    blocks_dir: Path = BLOCKS_DIR,
 ) -> tuple[list[ErrorBlock], dict[ErrorObservationKey, dict[str, str]]]:
     """Validate consensus claims and exact witness coverage as one module."""
     if ledger_path is None:
@@ -765,6 +809,8 @@ def validate_error_module(
         catalogue_path,
         nbits_by_epoch_path=nbits_by_epoch_path,
         mtp_context_path=mtp_context_path,
+        body_evidence_path=body_evidence_path,
+        blocks_dir=blocks_dir,
     )
     try:
         blocks, observations = validate_error_observation_ledger(
@@ -788,7 +834,7 @@ def main() -> int:
             print(f"  {failure}")
         return 1
     print(
-        f"all {len(blocks)} committed error blocks re-derive from committed "
-        f"bytes and cover {len(observations)} child observations"
+        f"all {len(blocks)} committed error blocks pass evidence validation "
+        f"and cover {len(observations)} child observations"
     )
     return 0

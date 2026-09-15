@@ -161,7 +161,9 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   median-time-past, historical minimum-version, coinbase scriptSig-length, and
   BIP34 coinbase-height gates),
   `error_blocks` (the exact-key consensus-invalid exclusion gate, reading
-  `data/error-blocks/error_blocks.csv`), and the
+  `data/error-blocks/error_blocks.csv`), `block_body` (shared body/merkle/witness
+  authentication) and `body_evidence` (commit-pinned external verdict references
+  and body authentication, without re-deriving body-rule invalidity), and the
   `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
   in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
   `evidence_sources.py` owns source discovery, `evidence_normalization.py`
@@ -639,3 +641,13 @@ Before handing back:
 - Summarize data/result/doc regeneration separately from code edits.
 - Call out unresolved research caveats, missing private inputs, or cache/RPC
   limitations that affect the result.
+
+### Pending body-invalid catalogue cutover
+
+The validator supports the four closed body-rule tokens through a catalogue-adjacent
+`body_evidence.csv`; no such entries are admitted until their independent
+invalid-blocks evidence is reviewed. The five-parent cutover still requires
+584802's external verdict. Keep the existing overlay and publication data until
+that complete cutover. Missing bodies fail complete body-evidence validation.
+Shared and blkdat validated-stale writers apply exact catalogue exclusion;
+RSK already does so. Raw classifier buckets retain their source verdicts.
