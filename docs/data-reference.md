@@ -196,7 +196,7 @@ stay absent from `error_blocks.csv`, and it removes nothing from publication.
 The current two rows are the F2Pool `bad-blk-sigops` blocks at heights
 783,426 and 784,121; see
 [`error-blocks.md`](error-blocks.md) "Externally attested body-invalid
-stales" for why the sigop rule cannot enter the catalogue. Validated by
+stales" for the current overlay state and pending catalogue admission. Validated by
 `just validate-body-invalid-stales` and `tests/test_body_invalid_overlay.py`.
 
 | Column | Notes |
