@@ -5,9 +5,10 @@
 Prepare catalogue validation for commit-pinned external body-rule evidence,
 reusing the existing merkle and witness parser with pre-SegWit handling.
 Exclude catalogue keys from shared and blkdat validated-stale outputs so a
-fresh classifier run cannot restore known invalid parents. Keep the five-parent
-data cutover pending independent evidence for height 584,802; this change does
-not alter catalogue membership, the existing overlay or published counts.
+fresh classifier run cannot restore known invalid parents. Prepare the separate
+four-parent data cutover for heights 474,294, 477,115, 783,426 and 784,121; defer
+height 584,802 independently. This support change does not alter catalogue
+membership, the existing overlay or published counts.
 
 Align the Qbit node workspace with the profile model the other node workspaces
 use, so the retained node can serve the Monitor's live capture. The base

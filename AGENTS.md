@@ -646,8 +646,10 @@ Before handing back:
 
 The validator supports the four closed body-rule tokens through a catalogue-adjacent
 `body_evidence.csv`; no such entries are admitted until their independent
-invalid-blocks evidence is reviewed. The five-parent cutover still requires
-584802's external verdict. Keep the existing overlay and publication data until
-that complete cutover. Missing bodies fail complete body-evidence validation.
+invalid-blocks evidence is reviewed. The pending cutover covers four parents:
+474294, 477115, 783426 and 784121, adding four catalogue entries and 12 child
+observations. Height 584802 is deferred separately and does not block this
+cutover. Keep the existing overlay and publication data until those four
+parents are installed together. Missing bodies fail complete body-evidence validation.
 Shared and blkdat validated-stale writers apply exact catalogue exclusion;
 RSK already does so. Raw classifier buckets retain their source verdicts.

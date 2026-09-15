@@ -260,20 +260,17 @@ Their headers were merge-mined and are witnessed by five sibling chains each
 (namecoin, syscoin, elastos, xaya, rsk), which is why they appear in
 `data/validated-stales/` at all.
 
-They are deliberately **not** catalogue rows, and this is the sharp example of
-what an accepted status means: `VALID` asserts that the declared
+These two parents remain outside the catalogue pending the four-parent data
+cutover described below. Their current `VALID` statuses assert that the
 header/coinbase publication profile passed, never that the complete block was
-consensus-valid (see [`data-validity.md`](data-validity.md)). The sigop rule
-cannot enter this catalogue because it is not re-derivable under the evidence
-standard below — and not merely for want of committed bytes. The full block
-bodies survive in the pinned `bitcoin-data/stale-blocks` archive, and the
-legacy sigops embedded in their own scripts count to 18,630 (783,426) and
-18,051 (784,121), which scale to 74,520 and 72,204: **below** the limit. The
-attested excess to 80,003 lives in P2SH/witness sigops, which require the
-spent prevout scripts that no committed artifact holds. (The arithmetic agrees:
-80,003 is not divisible by the witness scale factor 4, so at least three
-witness-path sigops must contribute.) A `bad-blk-sigops` row would fail the
-catalogue's own offline validator by construction.
+consensus-valid (see [`data-validity.md`](data-validity.md)). The full block
+bodies survive in the pinned `bitcoin-data/stale-blocks` archive. Their
+embedded legacy sigops count to 18,630 (783,426) and 18,051 (784,121), which
+scale to 74,520 and 72,204, below the limit. The attested excess to 80,003
+requires the spent prevout scripts for the P2SH/witness sigop calculation.
+Research does not reproduce that calculation. The catalogue validator now
+supports reviewed, commit-pinned external `bad-blk-sigops` verdicts while
+locally authenticating the referenced bodies, as described below.
 
 The committed overlay `data/error-blocks/body_invalid_stales.csv` records the
 externally attested invalidity instead: the Core reject family, the attested
@@ -340,9 +337,11 @@ The closed rule set is `missing_unconfirmed_parent`,
 The first maps to the Core reject family `bad-txns-inputs-missingorspent`;
 the other reject families match their rule tokens. Unknown rules still fail.
 
-No body-rule catalogue entries or sidecar have been installed yet. The five-parent
-cutover remains pending independent invalid-blocks evidence for height 584,802;
-the existing overlay and publication counts remain unchanged.
+No body-rule catalogue entries or sidecar have been installed yet. The pending
+cutover covers heights 474,294, 477,115, 783,426 and 784,121: 39 to 43 catalogue
+entries, with 12 added child observations. Height 584,802 is deferred separately
+and does not block those four. The existing overlay and publication counts
+remain unchanged in this support change.
 
 The four ancestry-derived errors and their ten authenticated child
 observations are reviewed members of that canonical module. Their observation
