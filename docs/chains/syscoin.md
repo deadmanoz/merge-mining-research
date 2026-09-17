@@ -125,7 +125,7 @@ One row is upstream-only (in upstream but first-claimed by no earlier-born chain
 
 **In-repo artifacts.**
 
-- `data/validated-stales/syscoin_validated_stales.csv` - 98 validated stales (committed; the loader's input).
+- `data/validated-stales/syscoin_validated_stales.csv` - 96 validated stales (committed; the loader's input).
 - `results/per-chain-novelty/syscoin.csv` - per-stale `(btc_height, btc_hash, in_upstream, first_seen_chain)` table.
 
 **Private archive artifacts.**

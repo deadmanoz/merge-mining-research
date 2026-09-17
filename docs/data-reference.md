@@ -40,9 +40,10 @@ chain. Every committed row is `classification = stale` and
 `VALID (post-BCH, difficulty matches BTC)`. These files are the
 publication-gate-accepted output; no other `VALID`-prefixed spelling is
 accepted. An accepted status is a header-profile verdict, not a full-block
-validity assertion: two committed rows (the F2Pool blocks at heights 783,426
-and 784,121) are known body-invalid from external full-block evidence and are
-annotated in the body-invalid stales overlay below. Every file begins with the same 16-column core layout: normalized
+validity assertion. The F2Pool blocks at heights 783,426 and 784,121 passed
+that profile, but independent body evidence now places them in the error
+catalogue and excludes them from these files. Every file begins with the same
+16-column core layout: normalized
 Bitcoin-parent fields, the registered child-height slot, the four child-header
 fields, and the verdict fields. Source-specific variants (`btc_stale_height`, `btc_hash`,
 `btc_bits_hex`) are normalized into this layout. Chain-specific research
@@ -101,7 +102,7 @@ A leading `~` on every entry marks the list as an ordered *filtered*
 projection, meaning the acquisition kept only some outputs so an entry's
 ordinal is its order in the surviving list rather than its transaction
 position. Namecoin's original acquisition produced 1,476 such lists; issue #52
-recovered complete raw-script vectors for all 1,649 accepted loader rows, so
+recovered complete raw-script vectors for all 1,649 then-accepted loader rows, so
 none of those loader cells now carries `~` or recipient-only `pkh(...)` claims.
 Historical inventories and their full-evidence exports retain source-level
 claims, including these weaker forms. The refreshed Monitor uses the restored
