@@ -496,6 +496,7 @@ def build_error_observation_rows(
                 "height": str(block.height),
                 "hash": block.block_hash,
                 "btc_header_hex": block.header_hex,
+                "coinbase_scriptsig_hex": block.coinbase_scriptsig_hex,
             },
             record["rule"],
             body_evidence,

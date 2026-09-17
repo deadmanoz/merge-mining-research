@@ -306,7 +306,7 @@ requires checking that the referenced invalidity evidence is independent of
 Research's classification; links back to Research may establish witnesses only.
 The validator checks the reference's form, not its remote content or CI result.
 
-For these entries, Research checks the body digest, header identity, transaction
+For these entries, Research checks the body digest, header identity, catalogue coinbase scriptSig, transaction
 merkle root and applicable witness commitment. Before SegWit activation at
 481,824, a commitment-looking output alone does not require witness data.
 Required bodies resolve under the pinned stale-blocks `blocks/` directory

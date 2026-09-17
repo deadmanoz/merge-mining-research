@@ -158,3 +158,17 @@ def test_sidecar_requires_unique_matching_rule_membership(body_case, tmp_path):
     failures = validate_dataset(catalogue, blocks_dir=tmp_path)
     assert any("no gate registered" in f for f in failures)
     assert any("no matching catalogue body rule" in f for f in failures)
+
+
+def test_catalogue_scriptsig_must_match_authenticated_body(body_case, tmp_path):
+    row, _, _, _, catalogue = body_case
+    assert validate_dataset(catalogue, blocks_dir=tmp_path) == []
+    # Keep the BIP34 prefix and script length valid while corrupting the tag.
+    scriptsig = bytearray.fromhex(row["coinbase_scriptsig_hex"])
+    scriptsig[-1] ^= 1
+    row["coinbase_scriptsig_hex"] = scriptsig.hex()
+    write_csv(catalogue, list(row), [row])
+    assert any(
+        "body coinbase scriptSig does not match catalogue" in failure
+        for failure in validate_dataset(catalogue, blocks_dir=tmp_path)
+    )

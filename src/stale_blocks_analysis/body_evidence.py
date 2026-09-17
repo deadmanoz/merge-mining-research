@@ -14,6 +14,8 @@ import re
 import struct
 from pathlib import Path
 
+from .auxpow_parse import read_transaction
+from .bitcoin_binary import _varint
 from .block_body import authenticate_block_body
 from .config import BODY_ERROR_REJECTIONS, SEGWIT_ACTIVATION_HEIGHT
 
@@ -111,6 +113,13 @@ def validate_body_evidence(
             raw, segwit_active=key[0] >= SEGWIT_ACTIVATION_HEIGHT
         )
         failures.extend(body_failures)
+        if not body_failures:
+            _, start = _varint(raw, 80)
+            coinbase, _ = read_transaction(raw, start)
+            if coinbase["vin"][0]["scriptsig"].hex() != row.get(
+                "coinbase_scriptsig_hex"
+            ):
+                failures.append("body coinbase scriptSig does not match catalogue")
     except (ValueError, IndexError, struct.error) as exc:
         failures.append(f"body did not parse: {exc}")
     return failures
