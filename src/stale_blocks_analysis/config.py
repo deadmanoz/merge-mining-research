@@ -89,13 +89,15 @@ ERROR_BLOCKS_CSV = ERROR_BLOCKS_DIR / "error_blocks.csv"
 # parent's median-time-past, keyed by (height, hash), so the validator can
 # re-derive time-rule violations offline.
 ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
-# Committed body-invalid-stales overlay: accepted VALID direct stales whose
-# full block body is known consensus-invalid from an independently observed
-# complete block (a rule the header/coinbase evidence profile cannot cover).
-# The overlay is an annotation, NOT part of the error-block catalogue or its
-# exclusion gate; see docs/error-blocks.md "Externally attested body-invalid
-# stales" and stale_blocks_analysis.body_invalid_overlay.
-BODY_INVALID_STALES_CSV = ERROR_BLOCKS_DIR / "body_invalid_stales.csv"
+# Body-rule verdicts are externally verified; these are Core reject families.
+ERROR_BLOCKS_BODY_EVIDENCE_NAME = "body_evidence.csv"
+SEGWIT_ACTIVATION_HEIGHT = 481824
+BODY_ERROR_REJECTIONS = {
+    "missing_unconfirmed_parent": "bad-txns-inputs-missingorspent",
+    "bad-txns-inputs-missingorspent": "bad-txns-inputs-missingorspent",
+    "bad-cb-amount": "bad-cb-amount",
+    "bad-blk-sigops": "bad-blk-sigops",
+}
 
 # Output locations (all relative to the project root).
 RESULTS_DIR = PROJECT_ROOT / "results"
@@ -477,13 +479,7 @@ BIP34_HEIGHT = 227_931
 BIP66_HEIGHT = 363_725
 BIP65_HEIGHT = 388_381
 
-# Bitcoin's block-wide signature-operation consensus limits (Core's
-# MAX_BLOCK_SIGOPS_COST / WITNESS_SCALE_FACTOR / MAX_PUBKEYS_PER_MULTISIG).
-# Used by the body-invalid overlay validator: legacy and P2SH sigops count at
-# the witness scale factor toward the 80,000 cost limit, and an unaccompanied
-# CHECKMULTISIG counts the 20-key maximum.
-MAX_BLOCK_SIGOPS_COST = 80_000
-WITNESS_SCALE_FACTOR = 4
+# Core's maximum key count for inaccurate legacy CHECKMULTISIG counting.
 MAX_PUBKEYS_PER_MULTISIG = 20
 
 # Derived BTC-stale-relevance bucket vocabulary, emitted by

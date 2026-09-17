@@ -1381,3 +1381,33 @@ def test_an_error_block_publishes_the_rules_that_justified_it(tmp_path):
     for peer in ("canonical", "stale", "unknown", "validated"):
         with open(paths[peer], newline="") as f:
             assert csv.DictReader(f).fieldnames == cols
+
+
+def test_validated_output_excludes_exact_catalogue_key(tmp_path):
+    """An externally catalogued parent cannot return through VALID output."""
+    rows = [_cls_row("stale", 500, "VALID"), _cls_row("stale", 501, "VALID")]
+    competing = dict(rows[0], btc_header_hash="ab" * 32)
+    rows.append(competing)
+    catalogue = tmp_path / "catalogue.csv"
+    catalogue.write_text(
+        f"height,hash,classification\n500,{rows[0]['btc_header_hash']},error_block\n"
+    )
+    paths = {
+        k: str(tmp_path / f"{k}.csv")
+        for k in ("canonical", "stale", "unknown", "validated", "error_block")
+    }
+    counts = write_classifier_outputs(
+        rows,
+        columns=output_columns("ixc_height"),
+        error_blocks_path=catalogue,
+        **{f"{k}_path": p for k, p in paths.items()},
+    )
+    with open(paths["validated"], newline="") as handle:
+        assert {r["btc_header_hash"] for r in csv.DictReader(handle)} == {
+            rows[1]["btc_header_hash"],
+            competing["btc_header_hash"],
+        }
+    with open(paths["stale"], newline="") as handle:
+        assert len(list(csv.DictReader(handle))) == 3
+    assert counts["valid"] == 2
+    assert counts["stale"] == 3

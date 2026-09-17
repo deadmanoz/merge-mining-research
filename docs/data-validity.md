@@ -64,12 +64,11 @@ that a candidate is invalid, while passing all available checks means only that
 no failure was found within this profile. The error-blocks dataset therefore may
 call a rejected row consensus-invalid, but accepted rows are described as
 publication-gate-accepted header candidates rather than fully consensus-valid
-blocks. The F2Pool blocks at heights 783,426 and 784,121 are the committed
-demonstration: both carry accepted statuses, and both are known
-`bad-blk-sigops` invalid from independently observed full blocks — recorded in
-the `data/error-blocks/body_invalid_stales.csv` overlay (see
-[`error-blocks.md`](error-blocks.md) "Externally attested body-invalid
-stales"), not by rewriting their accepted verdicts. RSK's midstate-compressed proof does not expose the real parent
+blocks. The F2Pool blocks at heights 783,426 and 784,121 demonstrate the
+limit: their header profiles passed, but independent full-block evidence
+establishes `bad-blk-sigops`. They now belong to the error catalogue and are
+excluded from accepted stale outputs. Historical source verdicts remain audit
+evidence; see [`error-blocks.md`](error-blocks.md) "Externally verified body-invalid blocks". RSK's midstate-compressed proof does not expose the real parent
 coinbase scriptSig, so RSK cannot independently apply the scriptSig-length or
 BIP34-prefix checks.
 
@@ -104,12 +103,12 @@ Bitcoin Core context review under RSK's available-evidence profile. The
 10 September Qbit scan adds four independently witnessed direct stales that
 pass the complete coinbase-bearing available-evidence profile; all four
 headers already occur upstream and in RSK. The current
-committed direct set contains 3,813 observations and 2,161 unique header hashes.
+committed direct set contains 3,801 observations and 2,157 unique header hashes.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,
 back-filled from the committed monitor evidence and byte-verified against each
-row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 353
+row's committed hash and decoded fields. RSK has no recoverable parent coinbase for any of its 351
 accepted rows, so its scriptSig-length and BIP34 checks remain untested. The
 audit found no remaining failure in the committed direct sets, but it was not a
 full-block consensus replay.
@@ -146,8 +145,11 @@ confirms the upstream publication contract rather than independent full-block
 validation.
 
 The error module has a separate complete preflight. It re-derives the declared
-consensus failures, including MTP and coinbase rules, from the canonical 39-row
-catalogue, 88-row observation ledger, and MTP context. The staged error
+locally reproducible consensus failures, including MTP and coinbase rules,
+and authenticates the bodies and pinned-reference format of the four
+externally verified body-invalid records. Admission review establishes the
+upstream verdicts; this preflight does not fetch or re-run them. The canonical module contains
+43 parents and 100 observations, with MTP and body-evidence sidecars. The staged error
 aggregate must then match every canonical ledger identity and derived field.
 Any full-coinbase enrichment is parsed and must authenticate the published
 coinbase scriptSig. A release stages all ordinary artifacts, that verified
@@ -156,7 +158,7 @@ error aggregate, counts, and manifest as one transaction.
 The I0coin refresh contributes two new detailed witnesses to existing errors
 at Bitcoin heights 331,673 and 331,674 and corrects the existing height-367,047
 witness's child height to 1,546,541. I0coin therefore has three error
-observations while the catalogue remains at 39 parent blocks. The two new
+observations; that refresh retained the then-current 39-parent catalogue. The two new
 witnesses remain `unknown` in their source classifier inventory, with blank
 source Bitcoin heights; their error-ledger heights use
 `catalogue-authenticated-ancestry-placement`. That provenance records the
@@ -165,19 +167,19 @@ consensus-failure or witness-authentication gates.
 
 ## Namecoin release scope
 
-The Namecoin set contains 1,649 distinct direct-stale header
-candidates. All 1,649 carry `btc_header_hex` directly in
+The Namecoin set contains 1,645 distinct direct-stale header
+candidates. All 1,645 carry `btc_header_hex` directly in
 `data/validated-stales/namecoin_validated_stales.csv`; the 228 historically
 header-less rows were back-filled from
-`results/monitor-evidence/namecoin_monitor_evidence.csv`. All 1,649 rows retain
+`results/monitor-evidence/namecoin_monitor_evidence.csv`. All 1,645 rows retain
 the parent coinbase scriptSig, but the compact CSV does not retain the complete
 serialized coinbase transaction or its parent-merkle branch.
 
 The pinned upstream `bitcoin-data/stale-blocks` checkout currently carries a
-matching full-block blob for 323 of the 1,649 accepted Namecoin candidates. Its
+matching full-block blob for 319 of the 1,645 accepted Namecoin candidates. Its
 public sanity check confirms that each blob starts with the expected header; it
 does not perform full historical Bitcoin consensus validation, and none of the
-323 blobs has undergone a full consensus replay in this project. The remaining
+319 blobs has undergone a full consensus replay in this project. The remaining
 1,326 candidates have no matching full Bitcoin block body in that pinned
 dataset.
 
@@ -189,7 +191,8 @@ coinbase scriptSig, and one carries the prior epoch's `nBits` at height 717,696.
 Two additional Namecoin-witnessed live captures at
 946,213 and 957,780 fail `time_below_mtp`, and four ancestry-derived parents
 fail BIP34's coinbase-height rule. Those six do not belong to the direct-stale
-set and do not change its 1,649 accepted plus 32 excluded accounting. Bitcoin
+set. The four externally verified body-invalid parents add four direct-set
+exclusions, leaving 1,645 accepted plus 36 excluded candidates. Bitcoin
 height 656,478 belongs to the stale-descendant module because its predecessor
 is a trusted stale root, not an active-chain block. The recovered Namecoin
 observation at height 941,882 is also projected through the shared accepted
@@ -197,14 +200,14 @@ descendant verdict.
 
 Accordingly, the defensible public statement for this release is:
 
-> Namecoin preserves 1,649 distinct direct-stale Bitcoin header candidates that
-> pass the declared available-evidence header-context checks. Thirty-two
+> Namecoin preserves 1,645 distinct direct-stale Bitcoin header candidates that
+> pass the declared available-evidence header-context checks. Thirty-six
 > additional candidates are excluded because they fail a necessary Bitcoin
 > rule, and heights 656,478 and 941,882 have Namecoin observations represented
 > separately as accepted stale descendants. Full Bitcoin block validity has not
-> been established for any of the 1,649 accepted direct candidates.
+> been established for any of the 1,645 accepted direct candidates.
 
 This validity scope is independent of coverage completeness. Namecoin's source
 snapshot boundary is not recorded in a committed provenance manifest, so the
-1,649-row set is neither a claim of full Bitcoin block validity nor a claim of
+1,645-row set is neither a claim of full Bitcoin block validity nor a claim of
 exhaustive Namecoin-chain recovery.

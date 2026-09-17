@@ -27,12 +27,15 @@ by the main analysis package:
   each witness to its archive row. `source_classification` records the source
   bucket for audit; it does not determine the parent verdict.
 - `error-blocks/error_blocks.csv` - the error-blocks dataset and publication
-  gate: 39 full-proof-of-work Bitcoin headers that each fail a contextual
-  consensus rule. Exact `(height, hash)` membership and
+  gate: 43 full-proof-of-work Bitcoin headers with locally verified contextual
+  or independently verified body-rule failures. Exact `(height, hash)` membership and
   `classification=error_block` remove these candidates from every public stale
   surface.
 - `error-blocks/error_block_observations.csv` - the recovered child-observation
   ledger for every catalogued parent.
+- `error-blocks/body_evidence.csv` - commit-pinned external verdicts and full-body
+  digests for the four body-invalid parents. Required bodies are authenticated
+  locally; invalidity is established independently in invalid-blocks.
 - `error-blocks/mtp_context.csv` - the median-time-past sidecar: the
   canonical parent's median-time-past for each time-rule error block, keyed
   by `(height, hash)`, so the offline validator can re-derive time-rule

@@ -5,11 +5,10 @@ merge-mining evidence, that *would have been* a stale/orphan contender except
 that the block itself violates a consensus rule. It lost no race; it was never
 eligible to race. The proof of work is real (the header hash meets the Bitcoin
 target in force at the claimed position), the merge-mining commitments are
-authentic, but the block is consensus-invalid for a specific, mechanically
-re-checkable reason.
+authentic, but the block is consensus-invalid for a specific rule, verified locally or
+by independently reviewed external evidence.
 
-The category is defined by three necessary conditions, all re-derived from
-committed bytes:
+The category is defined by three necessary conditions:
 
 1. **Full proof of work.** The 80-byte header's sha256d digest meets the
    Bitcoin target in force at the claimed position. A header that merely fails
@@ -20,11 +19,10 @@ committed bytes:
 2. **Merge-mining-witnessed.** The header is recovered from merge-mining
    evidence embedded in a sibling chain's block, including two blocks recovered
    from merge-mining-monitor live captures of the same commitments.
-3. **At least one named, mechanically re-checkable consensus violation.** The
-   block fails a rule that can be re-derived offline from the committed header
-   and coinbase bytes plus committed canonical-chain context. Rules that
-   require live network state are not sufficient on their own (see the
-   future-limit note below).
+3. **At least one verified consensus violation.** Header/coinbase and context
+   rules are re-derived locally. Body rules may use a reviewed, commit-pinned
+   invalid-blocks verdict, with matching body identity authenticated locally.
+   A source classification alone never establishes invalidity.
 
 Error blocks are catalogued in `data/error-blocks/error_blocks.csv` and carry
 the primary `classification` value `error_block` (see
@@ -195,7 +193,7 @@ instead of overwriting one another.
 
 ### Composition and per-rule counts
 
-The dataset holds **39 rows** (39 distinct `(height, hash)` blocks), spanning
+The dataset holds **43 rows** (43 distinct `(height, hash)` blocks), spanning
 Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
 957,780 (`time_below_mtp`), height 717,696
 (`nbits_retarget_not_applied`), height 649,674
@@ -215,11 +213,13 @@ Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
 | `median_time_past_violation` | 1 |
 | `time_below_mtp` | 2 |
 | `nbits_retarget_not_applied` | 1 |
-| **Total** | **39** |
+| `bad-txns-inputs-missingorspent` | 2 |
+| `bad-blk-sigops` | 2 |
+| **Total** | **43** |
 
-Because one invalid block is witnessed by several sibling chains, the 39
-blocks produce 88 per-chain observations: namecoin 37, devcoin 18, ixcoin 15,
-rsk 5, syscoin 3, elastos 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
+Because one invalid block is witnessed by several sibling chains, the 43
+blocks produce 100 per-chain observations: namecoin 41, devcoin 18, ixcoin 15,
+rsk 7, syscoin 5, elastos 4, xaya 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
 i0coin 3, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
@@ -246,61 +246,39 @@ Height 656,478 is not an error block. Its predecessor is a trusted stale root,
 so it is represented as a valid `stale_descendant` in
 `data/stale_descendants.csv`.
 
-## Externally attested body-invalid stales
+## Externally verified body-invalid blocks
 
-Two accepted VALID direct stales are known to be consensus-invalid on a
-**body** rule: the F2Pool blocks at heights 783,426
-(`00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4`) and
-784,121
-(`000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d`), each
-rejected by Bitcoin Core as `bad-blk-sigops` with a sigop cost of 80,003
-against the 80,000 limit
-([b10c's P2P observation](https://b10c.me/observations/11-invalid-blocks-783426-and-784121/)).
-Their headers were merge-mined and are witnessed by five sibling chains each
-(namecoin, syscoin, elastos, xaya, rsk), which is why they appear in
-`data/validated-stales/` at all.
+Four parents passed the available header/coinbase profile but are invalid on
+body rules: heights 474,294 (`missing_unconfirmed_parent`), 477,115
+(`bad-txns-inputs-missingorspent`), and the F2Pool pair 783,426 and 784,121
+(`bad-blk-sigops`). Their independent verdicts are pinned to merged
+[invalid-blocks PR #5](https://github.com/bitcoin-data/invalid-blocks/pull/5),
+commit `4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25`. The sidecar names the exact
+JSONL row for each verdict. invalid-blocks establishes invalidity without using
+Research's classification; references back here support merge-mining witnesses.
 
-They are deliberately **not** catalogue rows, and this is the sharp example of
-what an accepted status means: `VALID` asserts that the declared
-header/coinbase publication profile passed, never that the complete block was
-consensus-valid (see [`data-validity.md`](data-validity.md)). The sigop rule
-cannot enter this catalogue because it is not re-derivable under the evidence
-standard below — and not merely for want of committed bytes. The full block
-bodies survive in the pinned `bitcoin-data/stale-blocks` archive, and the
-legacy sigops embedded in their own scripts count to 18,630 (783,426) and
-18,051 (784,121), which scale to 74,520 and 72,204: **below** the limit. The
-attested excess to 80,003 lives in P2SH/witness sigops, which require the
-spent prevout scripts that no committed artifact holds. (The arithmetic agrees:
-80,003 is not divisible by the witness scale factor 4, so at least three
-witness-path sigops must contribute.) A `bad-blk-sigops` row would fail the
-catalogue's own offline validator by construction.
+These four parents are catalogue members and no longer accepted stale inputs.
+Their 12 observations remain in `error_block_observations.csv`: four Namecoin
+witnesses and two each from Syscoin, Elastos, Xaya and RSK. Child-identity files
+are unchanged. Source paths beginning `git/<commit>/` preserve the exact prior
+validated-input row and its file digest, so removal from the current loader
+input does not erase provenance. Raw archive classifications remain unchanged.
+The former two-row F2Pool overlay and its validator are retired.
 
-The committed overlay `data/error-blocks/body_invalid_stales.csv` records the
-externally attested invalidity instead: the Core reject family, the attested
-sigop cost, the byte-derivable legacy count, and the SHA-256 of the archived
-full-body artifact. The overlay is an annotation, not a gate: its keys must
-remain accepted direct stales in `data/validated-stales/` and must stay absent
-from `error_blocks.csv`, and it removes nothing from stale publication. The
-sibling-chain witnesses prove only that the headers existed and were mined on;
-the invalidity claim rests on the referenced full-body evidence. Its validator
-(`stale_blocks_analysis.body_invalid_overlay`, run by
-`just validate-body-invalid-stales` and the test suite) enforces the
-membership, disjointness, and rule-vocabulary boundaries, and re-derives the
-file hashes, header hashes, and legacy sigop counts whenever the pinned
-stale-blocks clone is fetched.
+For the F2Pool pair, independent evidence establishes a sigop cost of 80,003
+against the 80,000 limit. The embedded legacy counts, 18,630 and 18,051, scale
+to only 74,520 and 72,204; Research does not repeat the prevout-dependent
+P2SH/witness calculation. It authenticates the complete bodies instead.
 
-The census arithmetic is unchanged: this catalogue holds 39 error blocks, the
-P2P record holds four invalid full blocks (74,638, 783,426, 784,121, and
-809,478), and the two sets remain disjoint — 43 distinct invalid blocks in
-total, of which the two F2Pool blocks are additionally merge-mining-witnessed
-stales. The other two P2P invalids have no merge-mining record: 74,638
-predates Namecoin AuxPoW, and the 809,478 MARA block does not appear in any
-validated-stales input.
+The catalogue now contains 43 blocks. The four-block P2P record overlaps it
+at the F2Pool pair, giving 45 distinct blocks across those two inventories.
+Height 584,802 is a separate unresolved admission and is outside this cutover.
 
 ## Evidence standard
 
-Catalogue membership derives from evidence, not a source bucket label. Every
-violation is re-derived from committed bytes by the offline validator,
+Catalogue membership derives from evidence, not a source bucket label. The
+original 39 entries use local header/coinbase or context-rule verification.
+Those violations are re-derived from committed bytes by the offline validator,
 `scripts/analysis/validate_error_blocks.py`,
 which is wired into `tests/` so it runs in CI. For every row it re-checks,
 with no live RPC:
@@ -319,6 +297,29 @@ sidecar, and exact observation ledger form one reviewed canonical data module.
 Run `just validate-error-blocks` to validate all three without private inputs
 or live RPC. Population sweeps remain diagnostic research tools and fail
 closed when their required private inputs are absent.
+
+The validator also supports externally verified body-rule verdicts through
+`body_evidence.csv`, beside the catalogue. Its columns are `height`, `hash`,
+`rule`, `block_file`, `block_sha256` and `evidence_url`. The reference must name
+an exact row of `bitcoin-data/invalid-blocks` at a full commit hash. Admission
+requires checking that the referenced invalidity evidence is independent of
+Research's classification; links back to Research may establish witnesses only.
+The validator checks the reference's form, not its remote content or CI result.
+
+For these entries, Research checks the body digest, header identity, catalogue coinbase scriptSig, transaction
+merkle root and applicable witness commitment. Before SegWit activation at
+481,824, a commitment-looking output alone does not require witness data.
+Required bodies resolve under the pinned stale-blocks `blocks/` directory
+(`STALE_BLOCKS_DIR` selects the clone); missing bodies fail validation.
+No prevouts are fetched and no body-rule verdict is re-derived here.
+The closed rule set is `missing_unconfirmed_parent`,
+`bad-txns-inputs-missingorspent`, `bad-cb-amount` and `bad-blk-sigops`.
+The first maps to the Core reject family `bad-txns-inputs-missingorspent`;
+the other reject families match their rule tokens. Unknown rules still fail.
+
+The four body-rule catalogue entries and their sidecar are installed. Complete
+validation requires their bodies in the pinned stale-blocks clone; missing
+bodies fail, rather than silently skipping authentication.
 
 The four ancestry-derived errors and their ten authenticated child
 observations are reviewed members of that canonical module. Their observation

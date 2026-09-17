@@ -51,16 +51,10 @@ validate-coinbase-outputs:
 error-blocks-report *ARGS:
     {{python}} scripts/reports/report_error_blocks_by_chain.py {{ARGS}}
 
-# Re-derive every canonical error-block claim from its committed bytes and
-# validate exact catalogue-to-observation-ledger coverage.
+# Validate local error-block rules, any referenced external body evidence,
+# and exact catalogue-to-observation-ledger coverage.
 validate-error-blocks:
     {{python}} scripts/analysis/validate_error_blocks.py
-
-# Validate the body-invalid-stales overlay: accepted VALID direct stales whose
-# body is known consensus-invalid from an externally observed full block. Byte
-# cross-checks run when the pinned stale-blocks clone is fetched.
-validate-body-invalid-stales:
-    {{python}} scripts/analysis/validate_body_invalid_stales.py
 
 # Reconcile and publish the complete stale-descendant parent/observation
 # module. Bitcoin Core RPC credentials may be passed through as arguments or

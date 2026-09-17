@@ -108,8 +108,8 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,813 accepted direct observations covering
-2,161 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
+The committed chain inputs hold 3,801 accepted direct observations covering
+2,157 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
 
@@ -137,7 +137,7 @@ above.
 
 | Child chain | Source and recovered scope | Accepted direct-stale candidates | Strict BTC orphans | Weak BTC orphans | Coverage limit or significance |
 |---|---|---:|---:|---:|---|
-| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,649 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
+| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,645 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
 | [Geistgeld](docs/chains/geistgeld.md) | Complete Nicholas Stifter `getblock` JSON dump; 7.3M records | 0 | 0 | 0 | Most parent headers use targets easier than Bitcoin's and do not link to Bitcoin mainnet, so no direct stales are accepted. |
 | [i0coin](docs/chains/i0coin.md) | Complete March 2026 snapshot; 87 `blk*.dat` files parsed offline | 191 | 2 | 0 | Accepted Bitcoin stales end in August 2020; the later child snapshot contains no further accepted direct stale. |
 | [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 465 | 3 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |
@@ -152,12 +152,12 @@ above.
 | [Argentum](docs/chains/argentum.md) | Local multi-algo node; SHA-256d branch scanned to the recovered tip | 2 | 0 | 0 | Bitcoin-confirmed parent observations are sparse beside the unresolved population; this ratio is not a hashrate estimate. |
 | [Terracoin](docs/chains/terracoin.md) | Local node; full AuxPoW-era scan to the recovered tip | 35 | 0 | 0 | Accepted observations span May 2017 to August 2020. |
 | [Emercoin](docs/chains/emercoin.md) | Local hybrid PoW/PoS node; scanned to the recovered tip | 96 | 0 | 0 | Most post-activation blocks are PoS and cannot preserve this Bitcoin-parent evidence. |
-| [RSK / Rootstock](docs/chains/rsk.md) | RSKj 9.0.1 archive node, child heights 0 through 9,220,904; canonical blocks plus every advertised uncle | 353 | 3 | 0 | The early acquisition gap is accounted for; no pre-139,999 parent passes its own PoW target. The full coinbase cannot be reconstructed, and the 3 strict verdicts come from cross-chain matches. |
+| [RSK / Rootstock](docs/chains/rsk.md) | RSKj 9.0.1 archive node, child heights 0 through 9,220,904; canonical blocks plus every advertised uncle | 351 | 3 | 0 | The early acquisition gap is accounted for; no pre-139,999 parent passes its own PoW target. The full coinbase cannot be reconstructed, and the 3 strict verdicts come from cross-chain matches. |
 | [Doichain](docs/chains/doichain.md) | Local node; block-file survey through the active-chain tip observed at child height 430,684 | 0 | 0 | 0 | Observed-window negative result with no accepted stale or strict/weak evidence. |
 | [Bitmark](docs/chains/bitmark.md) | Synced multi-algo node; SHA-256d branch scanned to the recovered tip | 1 | 0 | 0 | The single accepted candidate cross-confirms an event already seen by other chains. |
-| [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 40 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
-| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through April 2026 | 177 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
-| [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 98 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
+| [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 38 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
+| [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through April 2026 | 175 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
+| [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 96 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
 | [Hathor](docs/chains/hathor.md) | Public REST API; retained corpus through child height 6,593,796 | 6 | 0 | 0 | The unified result covers 6,532,372 version-3 observations and publishes 3,658 canonical parents plus the 6 accepted direct stales. |
 | [Bitcoin Vault](docs/chains/bitcoin-vault.md) | Trezor Blockbook raw-block API; nearly complete AuxPoW lifetime | 9 | 0 | 0 | No node was available, and no later accepted direct stale was found after 2021. |
 | [Electric Cash](docs/chains/elcash.md) | Self-synced local node; standard Namecoin-style AuxPoW | 3 | 0 | 0 | The three accepted stales from June to September 2021 all cross-confirm Bitcoin Vault observations. |
