@@ -111,8 +111,8 @@ def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None
         for row in rows
     } == set(ledger)
     assert inventory["rows"] == len(ledger)
-    assert len(blocks) == 39
-    assert inventory["rows"] == 88
+    assert len(blocks) == 43
+    assert inventory["rows"] == 100
 
 
 def test_error_observation_count_row_has_canonical_publication_shape() -> None:
@@ -417,7 +417,7 @@ def test_rsk_error_observations_carry_semantic_sidecars() -> None:
     rows, _inventory = build_error_observation_rows()
     rsk_rows = [row for row in rows if row["chain"] == "rsk"]
 
-    assert len(rsk_rows) == 5
+    assert len(rsk_rows) == 7
     for row in rsk_rows:
         validate_rsk_sidecar_cells(row, row_id=f"rsk {row['btc_header_hash']}")
 
@@ -614,8 +614,8 @@ def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> Non
         witness["child_block_hash"],
         sibling_hash,
     }
-    assert inventory["parents"] == 39
-    assert inventory["rows"] == 89
+    assert inventory["parents"] == 43
+    assert inventory["rows"] == 101
 
 
 @pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))
@@ -811,3 +811,32 @@ def test_rsk_sidecar_rejects_0x_prefix_and_i32_overflow() -> None:
     underscored["uncle_index"] = "1_0"
     with pytest.raises(ValueError, match="signed 32-bit"):
         validate_rsk_sidecar_cells(underscored, row_id="underscore")
+
+
+def test_body_invalid_witnesses_preserve_full_coinbase_and_exact_children():
+    """Demotion retains every child event and the authenticated output evidence."""
+    rows, _ = build_error_observation_rows()
+    expected = {
+        474294: {("namecoin", 349887)},
+        477115: {("namecoin", 352422)},
+        783426: {
+            ("namecoin", 658973),
+            ("syscoin", 1590668),
+            ("elastos", 1395837),
+            ("xaya", 4720941),
+            ("rsk", 5178853),
+        },
+        784121: {
+            ("namecoin", 659651),
+            ("syscoin", 1593384),
+            ("elastos", 1399199),
+            ("xaya", 4733918),
+            ("rsk", 5191801),
+        },
+    }
+    for height, events in expected.items():
+        selected = [r for r in rows if int(r["btc_height"]) == height]
+        assert {(r["chain"], int(r["child_height"])) for r in selected} == events
+        assert all(r["classification"] == "error_block" for r in selected)
+        assert all(r["full_coinbase_hex"] and r["coinbase_outputs"] for r in selected)
+        assert len({r["full_coinbase_hex"] for r in selected}) == 1

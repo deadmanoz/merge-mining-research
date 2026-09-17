@@ -16,9 +16,12 @@ from .auxpow_chainid import (
 )
 from .auxpow_parse import (
     ChildHeaderValidationError,
+    read_transaction,
     validate_available_child_header_fields,
 )
-from .config import CHAIN_SPECS, DATA_DIR
+from .config import BLOCKS_DIR, CHAIN_SPECS, DATA_DIR, ERROR_BLOCKS_BODY_EVIDENCE_NAME
+from .bitcoin_binary import _varint
+from .body_evidence import load_body_evidence, validate_body_evidence
 from .coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
     parse_coinbase_output_claims,
@@ -480,6 +483,31 @@ def build_error_observation_rows(
         )
         source_evidence_by_coordinate.setdefault(coordinate, []).append(source_row)
 
+    body_evidence = load_body_evidence(
+        data_dir / "error-blocks" / ERROR_BLOCKS_BODY_EVIDENCE_NAME
+    )
+    body_coinbases: dict[str, str] = {}
+    for block in blocks:
+        record = body_evidence.get((block.height, block.block_hash))
+        if record is None:
+            continue
+        failures = validate_body_evidence(
+            {
+                "height": str(block.height),
+                "hash": block.block_hash,
+                "btc_header_hex": block.header_hex,
+            },
+            record["rule"],
+            body_evidence,
+            BLOCKS_DIR,
+        )
+        if failures:
+            raise ValueError("error observation body: " + "; ".join(failures))
+        raw = (BLOCKS_DIR / f"{block.height}-{block.block_hash}.bin").read_bytes()
+        _, start = _varint(raw, 80)
+        _, end = read_transaction(raw, start)
+        body_coinbases[block.block_hash] = raw[start:end].hex()
+
     rows: list[dict[str, str]] = []
     targets = _catalogue_observation_targets(blocks, ledger)
     for key, block in targets.items():
@@ -587,6 +615,15 @@ def build_error_observation_rows(
                 merge_coinbase_output_claim_sets(*claim_sets)
             )
             row["full_coinbase_hex"] = next(iter(full_coinbases), "")
+        if block.block_hash in body_coinbases:
+            # The reviewed full body preserves output evidence after its old
+            # validated-stale row is removed from normal publication inputs.
+            full_coinbase = body_coinbases[block.block_hash]
+            claims = parse_coinbase_output_claims(
+                row["coinbase_outputs"], full_coinbase
+            )
+            row["coinbase_outputs"] = render_coinbase_outputs_column(claims)
+            row["full_coinbase_hex"] = full_coinbase
         rows.append(row)
     _attach_rsk_error_observation_sidecars(rows, data_dir=data_dir)
     rows.sort(

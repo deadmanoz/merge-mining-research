@@ -107,13 +107,11 @@ contract. A monitor release must pin a research commit whose classification
 and rejection-rule vocabulary it already understands; the research dataset
 does not describe a temporary mixed-version state as valid publication.
 
-The body-invalid stales overlay
-(`data/error-blocks/body_invalid_stales.csv`, see
-[`error-blocks.md`](error-blocks.md)) is outside this lockstep contract: it
-adds no `classification` or `validation_status` vocabulary and changes no
-publication surface the importer reads, so it triggers no coordinated monitor
-release. A monitor that wants to surface the annotation consumes the overlay
-as a pinned mirror on its own schedule.
+The body-invalid admissions use the existing `error_block` classification and
+`VALID_ERROR_BLOCK` status. Their rejection families include
+`bad-txns-inputs-missingorspent` and `bad-blk-sigops`; downstream consumers must
+support these before advancing their Research pin. The former annotation-only
+overlay is retired. This change does not update a Monitor pin or deploy it.
 
 ## Contribution and post-merge workflow
 

@@ -70,7 +70,7 @@ columns trail that shared core:
 Chain-specific research columns trail the shared layout where retained:
 namecoin's `nbits_match` / `post_bch_fork` gate detail,
 `btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
-is populated for all 1,649 rows; the 228 historically header-less rows were
+is populated for all 1,645 rows; the 228 historically header-less rows were
 back-filled from the committed monitor evidence, byte-verified against each
 row's committed hash and decoded fields),
 coiledcoin's `eligius_attack_window`, and i0coin's `full_coinbase_hex`.
@@ -155,7 +155,7 @@ Acquisition limitations are not repairable by rendering alone:
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from stale publication surfaces. Every row has
 `classification=error_block`; blank or unknown classifications fail closed
-when the dataset is loaded. The current 39 rows include the 946,213 and 957,780
+when the dataset is loaded. The current 43 rows include the 946,213 and 957,780
 `time_below_mtp` blocks, the 717,696 `nbits_retarget_not_applied` block, the
 Hathor-witnessed 649,674 `bip34_coinbase_height_missing` block, and four
 stale-ancestry candidates at 331,673, 331,674, 402,610, and 422,059 whose bytes
@@ -165,7 +165,8 @@ required BIP34 height, three fail BIP66's minimum version 3 rule, five
 fail BIP65's minimum version 4 rule, one violates median-time-past, two are
 time-too-old against median-time-past (946,213 and 957,780), one carries a
 103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
-apply the difficulty retarget at an epoch boundary. The dataset retains the signed
+apply the difficulty retarget at an epoch boundary. Four further entries have
+independently verified body-rule failures bound by `body_evidence.csv`. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
 than a self-contained merge-mining proof. It is applied by public loaders, upstream
@@ -186,29 +187,27 @@ class (a share/near row), not an error block: the error-block case is
 specifically the retarget-not-applied at an epoch boundary where the header
 still meets full proof of work.
 
-## Body-invalid stales overlay: `data/error-blocks/body_invalid_stales.csv`
+## External body evidence: `data/error-blocks/body_evidence.csv`
 
-Annotations for accepted VALID direct stales whose complete block body is
-known consensus-invalid from an independently observed full block. The
-overlay is not part of the error-block catalogue or its exclusion gate: its
-keys must remain accepted direct stales in `data/validated-stales/` and must
-stay absent from `error_blocks.csv`, and it removes nothing from publication.
-The current two rows are the F2Pool `bad-blk-sigops` blocks at heights
-783,426 and 784,121; see
-[`error-blocks.md`](error-blocks.md) "Externally attested body-invalid
-stales" for the current overlay state and pending catalogue admission. Validated by
-`just validate-body-invalid-stales` and `tests/test_body_invalid_overlay.py`.
+Reviewed external invalidity verdicts for catalogue entries whose body rule
+is not re-derived by Research. The sidecar replaces the former annotation-only
+F2Pool overlay; its parents are excluded from accepted stale publication.
 
 | Column | Notes |
 | --- | --- |
-| `height` | Candidate Bitcoin height, matching the validated-stales row. |
-| `hash` | Header hash, display order, lowercase. |
-| `rule` | The Core reject family attested by the external evidence (`bad-blk-sigops`). Never a `rules_violated` token: a byte-recheckable rule belongs in `error_blocks.csv`, and the validator rejects catalogue vocabulary here. |
-| `attested_sigop_cost` | The externally attested sigop cost (80,003). Not re-derivable from committed bytes; must exceed the 80,000 limit. |
-| `legacy_sigops_from_bytes` | Legacy sigops counted from the archived block's own scripts, re-derived by the validator when the pinned stale-blocks clone is fetched. Must stay at or below the limit when scaled by the witness factor (the premise that the excess is not byte-derivable). |
-| `evidence_source`, `evidence_url` | The external full-body observation the invalidity claim rests on. |
-| `block_file`, `block_sha256` | The archived full-body artifact in the pinned `bitcoin-data/stale-blocks` clone (`blocks/<height>-<hash>.bin`) and its SHA-256, cross-checked when fetched. |
-| `notes` | Free-form audit context. |
+| `height`, `hash` | Exact catalogue parent identity; hash in display order. |
+| `rule` | Registered external body-rule token matching `rules_violated`. |
+| `block_file` | `blocks/<height>-<hash>.bin` in the pinned stale-blocks clone. |
+| `block_sha256` | Digest of the complete body authenticated locally. |
+| `evidence_url` | Exact invalid-blocks JSONL row at a full commit hash. |
+
+`just validate-error-blocks` checks sidecar membership, required body bytes,
+header identity, transaction merkle root and applicable witness commitment.
+Admission review establishes the external verdict's independence; the offline
+validator does not fetch the reference or repeat its consensus-rule checks.
+Observation-ledger paths prefixed `git/<commit>/` identify source bytes in that
+retained repository revision; their row numbers and digests refer to that
+snapshot, even after the current validated input removes the parent.
 
 ## RSK: `data/validated-stales/rsk_validated_stales.csv`
 
@@ -236,8 +235,8 @@ The full stale/unknown inventory (`rsk_stales.csv`, exposed for discovery as
 stale-labelled observations + 37,410 unknown rows after the 2026-09-08
 height-zero acquisition) and its 236,073-row canonical companion are private.
 Four consensus-invalid parents route to the error-block sibling output, and
-the exact-key gate excludes the stale-labelled BTC 789,038, leaving 353
-direct-stale rows in the committed validated file. Three RSK observations of
+the exact-key gate excludes the stale-labelled BTC 789,038, 783,426 and
+784,121, leaving 351 direct-stale rows in the committed validated file. Three RSK observations of
 stale-descendant parents, including BTC 656,478, enter publication through the
 authenticated parent/witness module.
 
@@ -568,8 +567,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 88-row aggregate
-for the 39 catalogue parents. It uses the 34-column union schema: the shared
+`error-block-observations_monitor_evidence.csv` is a separate 100-row aggregate
+for the 43 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
@@ -579,10 +578,10 @@ placement present only for uncles, proof/tail blank or hex) copied from
 `data/child-identity/rsk_child_identity.csv` without replacing the ledger
 child hash. RSK keccak child hashes stay in forward node order; Bitcoin-family
 `child_block_hash_order=display` hashes are exported in internal order. The
-five RSK error-observation parents are excluded from ordinary RSK publication,
+seven RSK error-observation parents are excluded from ordinary RSK publication,
 so this aggregate is the only published place those sidecars live.
 
-Its rows retain the original archive or
+Its rows retain original archive, commit-pinned validated-input or
 live-observation source coordinates but use `classification=error_block` and
 the catalogue's consensus rejection reason. `expected_nbits` is the required
 epoch target, so it can intentionally differ from the header's `btc_bits` for
@@ -597,7 +596,7 @@ ledger row must have the exact canonical field count and identify its child
 either with a well-formed hash or with a serialized child header from which
 that hash can be authenticated. Staged publication applies the ordinary
 parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 88-row
+catalogue/ledger-derived field and identity to match the canonical 100-row
 module exactly; source-derived coinbase output enrichment may add evidence but
 cannot replace it. The release path stages every ordinary artifact, the error
 aggregate, counts, and manifest as one coherent transaction after validating
@@ -676,7 +675,7 @@ header hash so their coverage is explicit:
 
 Namecoin's monitor export previously required partial header hydration for
 its stale rows. The validated loader now carries `btc_header_hex` for all
-1,649 accepted rows (back-filled from the committed monitor evidence), so
+1,645 accepted rows (back-filled from the committed monitor evidence), so
 stale-row hydration has no remaining targets. The complete September Monitor
 rebuild uses those loader headers directly; its manifest no longer carries
 the earlier `namecoin_header_hydration=hydrated:228` note. The 21
@@ -720,16 +719,18 @@ be smaller than the full-evidence or child-header coverage total when a stale
 candidate was rejected. A canonical row present in both the main inventory and
 its canonical companion is likewise counted once, matching the deduplicated
 publication projection. Across the 27 source families represented by both
-producers in the current refresh, only Groupcoin has this difference: 4,867
+producers in the retained comparison before the body-invalid cutover, only
+Groupcoin had this difference: 4,867
 full-evidence source rows versus 4,866 Monitor source rows. This records one
 rejected candidate, not missing source acquisition. Full evidence includes
 that rejected row in its 31 stale-classified Groupcoin rows; `rejected=1` is
 an overlapping diagnostic count, not an additional row.
 
-The aggregate source populations also differ because Monitor includes the
-68-row VCash canonical subset and the separate 88-row error-observation
+In that retained comparison, the aggregate source populations also differed
+because Monitor included the 68-row VCash canonical subset and the separate
+88-row error-observation
 ledger, neither of which appears in full-evidence discovery. Full evidence
-therefore contains 4,560,214 source rows, while Monitor reports 4,560,369:
+therefore contained 4,560,214 source rows, while Monitor reported 4,560,369:
 68 VCash rows plus 88 error observations, less the rejected Groupcoin row.
 These source totals are distinct from final Monitor row counts. Monitor
 admits 34 strict/weak observations from the unknown bucket and projects all

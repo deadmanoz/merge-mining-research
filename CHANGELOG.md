@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-Prepare catalogue validation for commit-pinned external body-rule evidence,
-reusing the existing merkle and witness parser with pre-SegWit handling.
-Exclude catalogue keys from shared and blkdat validated-stale outputs so a
-fresh classifier run cannot restore known invalid parents. Prepare the separate
-four-parent data cutover for heights 474,294, 477,115, 783,426 and 784,121; defer
-height 584,802 independently. This support change does not alter catalogue
-membership, the existing overlay or published counts.
+Move four externally verified body-invalid parents (474,294, 477,115, 783,426
+and 784,121) into the error catalogue, increasing it to 43 entries and 100
+child observations. Pin merged invalid-blocks evidence and authenticate the
+matching bodies locally. Remove their 12 accepted-stale observations and retire
+the annotation-only F2Pool overlay. Preserve child-identity records and raw
+source verdicts. Apply catalogue exclusion in validated-output writers so a
+fresh classification cannot restore these parents. Defer height 584,802.
 
 Align the Qbit node workspace with the profile model the other node workspaces
 use, so the retained node can serve the Monitor's live capture. The base

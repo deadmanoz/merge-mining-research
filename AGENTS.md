@@ -390,12 +390,10 @@ Preserve these distinctions:
   accepted direct-stale statuses are exactly `VALID` and
   `VALID (post-BCH, difficulty matches BTC)`. Either means that this declared
   publication profile passed; neither proves that a complete Bitcoin block was
-  consensus-valid. Two accepted rows (heights 783,426 and 784,121) are known
-  body-invalid from external full-block evidence; they are annotated in the
-  `data/error-blocks/body_invalid_stales.csv` overlay and deliberately keep
-  their accepted statuses — do not "fix" those rows or promote them into the
-  error-block catalogue (see docs/error-blocks.md "Externally attested
-  body-invalid stales"). A descendant whose inferred height has no committed
+  consensus-valid. Externally verified body-invalid parents belong in the
+  error-block catalogue with a commit-pinned `body_evidence.csv` reference.
+  The catalogue excludes them from accepted stale outputs; raw source verdicts
+  remain audit evidence. A descendant whose inferred height has no committed
   canonical `nBits` reference is unpublishable. Loaders read and filter the
   verdict but never recompute the gate.
   RSK does not expose the real parent coinbase and therefore cannot apply the
@@ -642,14 +640,13 @@ Before handing back:
 - Call out unresolved research caveats, missing private inputs, or cache/RPC
   limitations that affect the result.
 
-### Pending body-invalid catalogue cutover
+### External body-invalid evidence
 
-The validator supports the four closed body-rule tokens through a catalogue-adjacent
-`body_evidence.csv`; no such entries are admitted until their independent
-invalid-blocks evidence is reviewed. The pending cutover covers four parents:
-474294, 477115, 783426 and 784121, adding four catalogue entries and 12 child
-observations. Height 584802 is deferred separately and does not block this
-cutover. Keep the existing overlay and publication data until those four
-parents are installed together. Missing bodies fail complete body-evidence validation.
-Shared and blkdat validated-stale writers apply exact catalogue exclusion;
-RSK already does so. Raw classifier buckets retain their source verdicts.
+The four parents at heights 474294, 477115, 783426 and 784121 are catalogue
+entries, supported by merged invalid-blocks evidence and 12 retained child
+observations. Height 584802 is deferred separately. The adjacent
+`body_evidence.csv` binds each external verdict to authenticated body bytes;
+missing bodies fail validation. Source coordinates prefixed `git/<commit>/`
+refer to the exact retained repository snapshot, not a current loader row.
+Shared, blkdat and RSK validated-stale writers apply exact catalogue exclusion.
+Raw classifier buckets retain their source verdicts.

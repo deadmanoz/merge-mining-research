@@ -29,14 +29,18 @@ def write_csv(path, columns, rows):
     params=[
         (474294, "missing_unconfirmed_parent", 34),
         (477115, "bad-txns-inputs-missingorspent", 35),
+        (783426, "bad-blk-sigops", 42),
+        (784121, "bad-blk-sigops", 43),
     ]
 )
 def body_case(request, tmp_path):
-    """Use retained bodies with independent verdicts, without publishing entries."""
+    """Use retained bodies with independent verdicts in an isolated catalogue."""
     height, rule, line = request.param
     block_hash = {
         474294: "00000000000000000182acdf5657c93a0769dc6f9004047496b2e15efc6a4232",
         477115: "0000000000000000013ee4a86822d37a061732e04ee5f41fb77168f193363d1b",
+        783426: "00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4",
+        784121: "000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d",
     }[height]
     name = f"{height}-{block_hash}.bin"
     source_path = BLOCKS_DIR / name
@@ -70,7 +74,7 @@ def body_case(request, tmp_path):
         "block_file": f"blocks/{name}",
         "block_sha256": hashlib.sha256(raw).hexdigest(),
         "evidence_url": "https://github.com/bitcoin-data/invalid-blocks/blob/"
-        f"2ed2222ebf4dc9e52e504d2382fe0597b33f0237/data/invalid-blocks.jsonl#L{line}",
+        f"4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25/data/invalid-blocks.jsonl#L{line}",
     }
     sidecar = tmp_path / "body_evidence.csv"
     write_csv(sidecar, BODY_EVIDENCE_COLUMNS, [record])
@@ -139,7 +143,12 @@ def test_sidecar_requires_unique_matching_rule_membership(body_case, tmp_path):
         "duplicate body-evidence key" in f
         for f in validate_dataset(catalogue, blocks_dir=tmp_path)
     )
-    write_csv(sidecar, BODY_EVIDENCE_COLUMNS, [dict(record, rule="bad-blk-sigops")])
+    mismatched_rule = (
+        "missing_unconfirmed_parent"
+        if record["rule"] == "bad-blk-sigops"
+        else "bad-blk-sigops"
+    )
+    write_csv(sidecar, BODY_EVIDENCE_COLUMNS, [dict(record, rule=mismatched_rule)])
     assert any(
         "does not match" in f for f in validate_dataset(catalogue, blocks_dir=tmp_path)
     )

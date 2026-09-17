@@ -79,9 +79,9 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_error_block_keys(empty)
 
 
-def test_committed_dataset_loads_39_rows() -> None:
+def test_committed_dataset_loads_43_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 39
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 43
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -122,7 +122,7 @@ def test_committed_catalogue_schema_and_row_count() -> None:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 39
+    assert len(rows) == 43
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
@@ -179,9 +179,11 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 39
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 39
+    assert len(rows) == 43
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 43
     assert Counter(row["rejection_reason"] for row in rows) == {
+        "bad-txns-inputs-missingorspent": 2,
+        "bad-blk-sigops": 2,
         "bip34_v2_coinbase_height_mismatch": 12,
         "bip34_coinbase_height_mismatch": 13,
         "bip66_block_version_below_3": 3,
@@ -1109,3 +1111,17 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
     assert rows[0]["coinbase_scriptsig_hex"] == _scriptsig(331737)
     assert rows[0]["btc_header_hex"] == header_hex
     assert bip34_calls == [(header_hex, _scriptsig(331737), 331737)]
+
+
+def test_body_invalid_parents_cannot_be_proposed_against_empty_upstream(tmp_path):
+    module = _load_script(
+        "scripts/reports/build_upstream_stale_sidecar.py", "body_invalid_sidecar_test"
+    )
+    candidates, missing, warnings = module.collect_candidates(REPO / "data")
+    excluded = load_error_block_keys(ERROR_BLOCKS_CSV)
+    assert not (set(candidates) & excluded)
+    # Even a baseline without these parents must not make them contributions.
+    upstream = tmp_path / "stale-blocks.csv"
+    upstream.write_text("height,hash,header\n")
+    assert module.load_upstream_keys(upstream) == set()
+    assert not ((set(candidates) - module.load_upstream_keys(upstream)) & excluded)
