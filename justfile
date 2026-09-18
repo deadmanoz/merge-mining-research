@@ -123,6 +123,14 @@ test-dataset:
 test-markers:
     {{python}} -m pytest tests/test_coinbase_markers.py -v
 
+# Render the committed Terracoin/Fractal Compose profiles and assert their
+# operational policy (noncreating binds, restart defaults, offline isolation,
+# live RPC scoping and resource limits). Requires the Docker Compose CLI;
+# render-only and never starts containers, builds/pulls images, or contacts
+# an RPC endpoint. These tests also run as part of `just test`.
+test-node-infra:
+    {{python}} -m pytest tests/test_node_infra_compose.py
+
 # ── Release hygiene ─────────────────────────────────────────────────────
 
 # Format all Python sources with ruff.

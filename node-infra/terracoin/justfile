@@ -17,6 +17,14 @@ up:
 start:
     docker compose start terracoind
 
+# Adopt verified state using the selected live/offline profile, never rebuild it.
+adopt:
+    docker compose up -d --no-build --pull never
+
+# Validate the selected profile without printing resolved credentials.
+test:
+    docker compose config --quiet
+
 # Stop the retained terracoind container and wait for graceful shutdown.
 stop:
     docker compose stop --timeout -1 terracoind
