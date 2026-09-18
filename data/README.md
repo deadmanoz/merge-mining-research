@@ -33,6 +33,12 @@ by the main analysis package:
   surface.
 - `error-blocks/error_block_observations.csv` - the recovered child-observation
   ledger for every catalogued parent.
+- `error-blocks/ancestry_evidence.csv` - authenticated 80-byte predecessor
+  header paths for the four July 4, 2015 `consensus_invalid_parent` error
+  blocks (`363,732`, `363,733`, `363,735`, and `363,736`) back to the
+  version-2 invalid root at `363,731` and its canonical predecessor receipt at
+  `363,730`. Validated by `just validate-error-blocks`; see
+  [`historical-events.md`](../docs/historical-events.md).
 - `error-blocks/body_evidence.csv` - commit-pinned external verdicts and full-body
   digests for the twelve body-invalid parents. Required bodies are authenticated
   locally; invalidity is established independently in invalid-blocks.
