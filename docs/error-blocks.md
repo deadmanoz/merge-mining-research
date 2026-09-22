@@ -94,8 +94,7 @@ excess over parent time + 2h is normal (a block 2–7 hours after its parent is
 ordinary under the real rule), not proof of a violation. The one exception —
 child-chain commit-time evidence showing the `nTime` more than two hours
 beyond the commit time itself — did not occur in the swept corpus. By
-contrast, `time_below_mtp` and `median_time_past_violation` *are*
-mechanically re-checkable, because the canonical parent's median-time-past is
+contrast, `time_below_mtp` *is* mechanically re-checkable, because the canonical parent's median-time-past is
 committed canonical-chain context. This is why the dataset contains three
 `time_below_mtp` rows (380,992, 946,213 and 957,780) but no `time_beyond_future_limit` rows. The detailed child-chain
 evidence is recorded below.
@@ -184,9 +183,8 @@ bytes and rejects any disagreement.
 `provenance` records the artifact each row's facts came from.
 
 A committed sidecar, `data/error-blocks/mtp_context.csv`, carries the
-canonical parent's median-time-past for the `time_below_mtp` and
-`median_time_past_violation` rows, keyed by `(height, hash)`, so those rules
-re-derive offline. Each key is unique; duplicate context rows fail validation
+canonical parent's median-time-past for the `time_below_mtp` rows, keyed by
+`(height, hash)`, so the rule re-derives offline. Each key is unique; duplicate context rows fail validation
 instead of overwriting one another.
 
 ### Composition and per-rule counts
@@ -284,10 +282,10 @@ The upstream record for 197,438 lists Ixcoin; Research additionally preserves
 its independently retained Devcoin event. Together these admissions bring
 the catalogue to 49 parents and 107 observations. The catalogue parent set
 matches the merge-mining-witnessed subset of the 143-entry upstream pin.
-`median_time_past_violation` at 380,992 is normalised to `time_below_mtp`;
-the validator still accepts the old spelling in historical diagnostic input.
-Publication preservation permits this one-way rename while retaining the
-checks against changed witnesses or different rejection reasons.
+The committed catalogue and publication use `time_below_mtp` at 380,992.
+Validation accepts only that canonical token, and publication preservation
+requires exact rejection-reason equality. The completed data correction does
+not leave a runtime alias or rename exception.
 
 ## Evidence standard
 
@@ -304,7 +302,7 @@ with no live RPC:
    `btc_stale_validation` against the committed header/coinbase bytes;
 3. `expected_nbits` against the committed `data/bitcoin-epoch-reference/`
    retarget table; and
-4. `time_below_mtp` and `median_time_past_violation` against the committed
+4. `time_below_mtp` against the committed
    `mtp_context.csv` sidecar.
 
 A row that fails re-derivation fails the test suite. The catalogue, MTP

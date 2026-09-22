@@ -237,7 +237,6 @@ BIP34_HEIGHT_MISSING_PREFIX = "REJECTED: missing BIP34 coinbase height"
 RETARGET_INTERVAL = 2016
 
 MTP_RULE = "time_below_mtp"
-LEGACY_MTP_RULE = "median_time_past_violation"
 NBITS_RETARGET_RULE = "nbits_retarget_not_applied"
 
 VERSION_RULES = frozenset(

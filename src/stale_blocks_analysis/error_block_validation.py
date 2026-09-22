@@ -63,7 +63,7 @@ using the checks below, with no live RPC:
    no derivable value to compare against, so that specific check is skipped.
 
 Time rules need canonical-chain context that is not available offline.
-``time_below_mtp`` and ``median_time_past_violation`` are re-derived from the
+``time_below_mtp`` is re-derived from the
 committed ``data/error-blocks/mtp_context.csv`` sidecar (the canonical
 parent's median-time-past, keyed by ``(height, hash)``), with the candidate
 nTime derived from the header bytes (bytes 68-72 LE), never trusted from the
@@ -157,8 +157,8 @@ NBITS_BY_EPOCH_JSON = BITCOIN_EPOCH_REFERENCE_DIR / "btc_nbits_by_epoch.json"
 # time) that is not available offline. A token in this set can never be
 # re-derived from the committed bytes, so it can never be a valid committed
 # error block: the validator fails closed on it rather than silently accepting
-# the row. ``time_below_mtp`` and ``median_time_past_violation`` are re-derived
-# from the committed MTP context sidecar and are NOT in this set.
+# the row. ``time_below_mtp`` is re-derived
+# from the committed MTP context sidecar and is NOT in this set.
 TIME_RULES = frozenset(
     {
         "time_beyond_future_limit",
@@ -543,7 +543,7 @@ def validate_row(
                 "committed error block"
             )
             continue
-        if rule in ("time_below_mtp", "median_time_past_violation"):
+        if rule == "time_below_mtp":
             # Special case, not a RULE_GATES entry: median_time_past_error
             # needs a per-row parent_mtp argument the Gate signature
             # (Callable[[dict, int], str | None]) cannot carry.

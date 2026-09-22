@@ -865,7 +865,7 @@ def _mtp_row(header_time: int, column_time: str) -> dict[str, str]:
         "btc_header_hex": header.hex(),
         "coinbase_height": "0",
         "coinbase_scriptsig_hex": "02" + "00" * 30,
-        "rules_violated": "median_time_past_violation",
+        "rules_violated": "time_below_mtp",
     }
 
 
@@ -952,7 +952,7 @@ def test_empty_scriptsig_derives_no_length_violation() -> None:
     row = _version_row(str(height), 4, _bip34_scriptsig(height))
     row["coinbase_scriptsig_hex"] = ""
     row["coinbase_height"] = ""
-    row["rules_violated"] = "median_time_past_violation"  # unrelated claim
+    row["rules_violated"] = "time_below_mtp"  # unrelated claim
     failures = mod.validate_row(row, mtp_context={})
     assert not any(
         "unclaimed violation: coinbase_scriptsig_length" in f for f in failures
@@ -1058,7 +1058,7 @@ def test_mtp_rule_uses_header_ntime_not_btc_time_column() -> None:
     row = _mtp_row(header_time=1_500_000_000, column_time="1500000100")
     mtp_context = {(500000, row["hash"]): parent_mtp}
     assert not any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(row, mtp_context=mtp_context)
     )
     # The reverse split: the header's nTime (1_500_000_100) is above the
@@ -1068,7 +1068,7 @@ def test_mtp_rule_uses_header_ntime_not_btc_time_column() -> None:
     row = _mtp_row(header_time=1_500_000_100, column_time="1500000000")
     mtp_context = {(500000, row["hash"]): parent_mtp}
     assert any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(row, mtp_context=mtp_context)
     )
 

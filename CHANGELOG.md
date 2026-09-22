@@ -7,8 +7,9 @@ Complete the body-invalid catalogue with four P2SH failures and the Eligius
 witnesses, bringing the catalogue to 49 parents and 107 observations, and
 remove those witnesses from accepted-stale outputs. Fetch authenticated bodies
 from a pinned invalid-blocks dependency and normalise 380,992 to
-`time_below_mtp`. Recognise that legacy MTP spelling when comparing retained
-publications. Regenerate the affected publication and novelty outputs.
+`time_below_mtp`. Require that canonical token throughout validation and retain
+strict rejection-reason equality when comparing publications. Regenerate the
+affected publication and novelty outputs.
 
 Move four externally verified body-invalid parents (474,294, 477,115, 783,426
 and 784,121) into the error catalogue, increasing it to 43 entries and 100
