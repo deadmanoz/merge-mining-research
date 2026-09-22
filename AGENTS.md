@@ -62,14 +62,16 @@ The development install includes pytest and Ruff. The core install
 checks are not needed.
 
 `scripts/fetch-data.sh` clones or updates the upstream datasets declared in
-`data-sources.tsv` (`bitcoin-data/stale-blocks` under `data/stale-blocks/` and
-`bitcoin-data/mining-pools` under `data/mining-pools/`) and
+`data-sources.tsv`: `bitcoin-data/stale-blocks`, `bitcoin-data/mining-pools`,
+and `bitcoin-data/invalid-blocks`, each under its corresponding `data/` directory. It
 checks each out at its pinned commit, so recovery inputs are reproducible. Use
 `just upstream-check` to compare the pin with upstream, `just upstream-update`
 to update the pin, and `just upstream-sidecar` to build the contribution
-sidecar. Override the locations with `STALE_BLOCKS_DIR` and
-`LOCAL_MINING_POOLS_DIR`. The script leaves a
-clone that is on a branch or has local edits untouched.
+sidecar. Override the locations with `STALE_BLOCKS_DIR`,
+`LOCAL_MINING_POOLS_DIR`, and `INVALID_BLOCKS_DIR`. The pinned
+`data/invalid-blocks/` dependency supplies authenticated bodies for external
+body-invalid verdicts; it is fetched by the same script and remains ignored.
+The script leaves a clone that is on a branch or has local edits untouched.
 
 ## Common Commands
 
@@ -97,7 +99,7 @@ just child-header-coverage
 just strict-weak-orphans
 just monitor-evidence
 just validate-error-blocks
-just reconcile-stale-ancestry --rpc-source-label bitcoin-01
+just reconcile-stale-ancestry --rpc-source-label core-reference
 just attribute
 just upstream-check
 just upstream-update
@@ -143,7 +145,7 @@ candidate aborts before installation. Do not substitute a partial ancestry
 run or hand-edit either published stale-ancestry CSV.
 Publication requires a stable, non-secret `--rpc-source-label`; use the
 configured Bitcoin Core node's durable inventory name (for example,
-`bitcoin-01`), not a hostname containing credentials or a transient tunnel
+`core-reference`), not a hostname containing credentials or a transient tunnel
 address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
 
 ## Repository Map
@@ -644,7 +646,10 @@ Before handing back:
 
 The four parents at heights 474294, 477115, 783426 and 784121 are catalogue
 entries, supported by merged invalid-blocks evidence and 12 retained child
-observations. Height 584802 is deferred separately. The adjacent
+observations. The subsequent six-parent correction also admits the four P2SH cases,
+197438 and 584802, for 49 catalogue parents and 107 child observations.
+Body authentication reads the pinned invalid-blocks clone via
+`INVALID_BLOCKS_DIR`, not the stale-blocks body directory. The adjacent
 `body_evidence.csv` binds each external verdict to authenticated body bytes;
 missing bodies fail validation. Source coordinates prefixed `git/<commit>/`
 refer to the exact retained repository snapshot, not a current loader row.

@@ -167,19 +167,19 @@ def test_957780_time_below_mtp_revalidates() -> None:
     assert mod.validate_row(row) == []
 
 
-def test_380992_median_time_past_violation_revalidates() -> None:
+def test_380992_time_below_mtp_revalidates() -> None:
     import csv as _csv
 
     mod = _load_validator()
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         row = next(r for r in _csv.DictReader(f) if r["height"] == "380992")
-    assert "median_time_past_violation" in row["rules_violated"]
+    assert "time_below_mtp" in row["rules_violated"]
     assert mod.validate_row(row) == []
     # The rule re-derives from the committed MTP context: the header's nTime
     # (1446052047) is at or below the canonical parent's median-time-past
     # (1446068449). Stripping the sidecar context breaks re-derivation.
     assert any(
-        "median_time_past_violation has no committed MTP context" in f
+        "time_below_mtp has no committed MTP context" in f
         for f in mod.validate_row(row, mtp_context={})
     )
     # The candidate nTime is derived from the header bytes, never the
@@ -203,7 +203,7 @@ def test_380992_median_time_past_violation_revalidates() -> None:
     )
     mtp_context = {(380992, raised_header["hash"]): 1446068449}
     assert any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(raised_header, mtp_context=mtp_context)
     )
 
@@ -865,7 +865,7 @@ def _mtp_row(header_time: int, column_time: str) -> dict[str, str]:
         "btc_header_hex": header.hex(),
         "coinbase_height": "0",
         "coinbase_scriptsig_hex": "02" + "00" * 30,
-        "rules_violated": "median_time_past_violation",
+        "rules_violated": "time_below_mtp",
     }
 
 
@@ -952,7 +952,7 @@ def test_empty_scriptsig_derives_no_length_violation() -> None:
     row = _version_row(str(height), 4, _bip34_scriptsig(height))
     row["coinbase_scriptsig_hex"] = ""
     row["coinbase_height"] = ""
-    row["rules_violated"] = "median_time_past_violation"  # unrelated claim
+    row["rules_violated"] = "time_below_mtp"  # unrelated claim
     failures = mod.validate_row(row, mtp_context={})
     assert not any(
         "unclaimed violation: coinbase_scriptsig_length" in f for f in failures
@@ -1058,7 +1058,7 @@ def test_mtp_rule_uses_header_ntime_not_btc_time_column() -> None:
     row = _mtp_row(header_time=1_500_000_000, column_time="1500000100")
     mtp_context = {(500000, row["hash"]): parent_mtp}
     assert not any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(row, mtp_context=mtp_context)
     )
     # The reverse split: the header's nTime (1_500_000_100) is above the
@@ -1068,7 +1068,7 @@ def test_mtp_rule_uses_header_ntime_not_btc_time_column() -> None:
     row = _mtp_row(header_time=1_500_000_100, column_time="1500000000")
     mtp_context = {(500000, row["hash"]): parent_mtp}
     assert any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(row, mtp_context=mtp_context)
     )
 

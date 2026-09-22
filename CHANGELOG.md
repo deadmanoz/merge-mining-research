@@ -2,13 +2,22 @@
 
 ## Unreleased
 
+Complete the body-invalid catalogue with four P2SH failures and the Eligius
+197,438 and AntPool 584,802 coinbase overpayments. Preserve all seven child
+witnesses, bringing the catalogue to 49 parents and 107 observations, and
+remove those witnesses from accepted-stale outputs. Fetch authenticated bodies
+from a pinned invalid-blocks dependency and normalise 380,992 to
+`time_below_mtp`. Require that canonical token throughout validation and retain
+strict rejection-reason equality when comparing publications. Regenerate the
+affected publication and novelty outputs.
+
 Move four externally verified body-invalid parents (474,294, 477,115, 783,426
 and 784,121) into the error catalogue, increasing it to 43 entries and 100
 child observations. Pin merged invalid-blocks evidence and authenticate the
 matching bodies locally, including their catalogue coinbase scriptSig. Remove their 12 accepted-stale observations and retire
 the annotation-only F2Pool overlay. Preserve child-identity records and raw
 source verdicts. Apply catalogue exclusion in validated-output writers so a
-fresh classification cannot restore these parents. Defer height 584,802.
+fresh classification cannot restore these parents. Height 584,802 is admitted by the subsequent correction above.
 
 Align the Qbit node workspace with the profile model the other node workspaces
 use, so the retained node can serve the Monitor's live capture. The base

@@ -1342,6 +1342,36 @@ def test_semantic_floor_rejects_error_witness_or_reason_substitution(
         _validate_semantic_floor(committed_dir, staged_dir)
 
 
+@pytest.mark.parametrize(
+    ("old_reason", "new_reason"),
+    [
+        ("median_time_past_violation", "time_below_mtp"),
+        ("time_below_mtp", "median_time_past_violation"),
+        ("time_below_mtp", "nbits_retarget_not_applied"),
+        ("time_below_mtp", ""),
+    ],
+)
+def test_semantic_floor_rejects_every_rejection_reason_change(
+    tmp_path: Path, old_reason: str, new_reason: str
+) -> None:
+    committed_dir = tmp_path / "committed"
+    staged_dir = tmp_path / "staged"
+    committed_dir.mkdir()
+    staged_dir.mkdir()
+    source = tmp_path / "source.csv"
+    _write_ordinary_artifact(source)
+    source_row = _read_rows(source)[0]
+    committed = committed_dir / "error-block-observations_monitor_evidence.csv"
+    staged = staged_dir / "error-block-observations_monitor_evidence.csv"
+    _write_error_artifact(committed, source_row)
+    _write_error_artifact(staged, source_row)
+    _rewrite_first_row(committed, rejection_reason=old_reason)
+    _rewrite_first_row(staged, rejection_reason=new_reason)
+
+    with pytest.raises(ValueError, match="rejection_reason"):
+        _validate_semantic_floor(committed_dir, staged_dir)
+
+
 def test_semantic_floor_rejects_staged_error_parent_in_ordinary_artifact(
     tmp_path: Path,
 ) -> None:

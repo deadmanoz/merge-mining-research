@@ -43,14 +43,14 @@ and Namecoin Core revision are not recorded in a committed provenance
 manifest. The ranges below describe the recovered accepted rows, not the
 terminal boundary or completeness of the source snapshot.
 
-The published dataset contains **1,645 distinct direct-stale Bitcoin header
+The published dataset contains **1,641 distinct direct-stale Bitcoin header
 candidates accepted by the declared header-context profile**:
 
 | `validation_status` | Rows |
 |---|---:|
-| `VALID` | 1,351 |
+| `VALID` | 1,347 |
 | `VALID (post-BCH, difficulty matches BTC)` | 294 |
-| **Total** | **1,645** |
+| **Total** | **1,641** |
 
 The rows span:
 
@@ -74,7 +74,7 @@ verified child block hash and timestamp to
 either replay that height -> hash -> block verification against a Namecoin
 node or resolve child hashes directly, as before.
 
-`btc_header_hex` is present for all 1,645 loader rows. The 228 rows that
+`btc_header_hex` is present for all 1,641 loader rows. The 228 rows that
 historically carried no loader header (their keys were already upstream, so
 the original compact input deferred to the upstream record) were hydrated
 from the committed monitor evidence, with each recovered header byte-verified
@@ -83,7 +83,7 @@ against the row's committed hash, `btc_prev_hash`, `btc_time`, and
 row also carries the node-verified Namecoin child block hash and timestamp
 hydrated from `data/child-identity/` (internal byte order, per the
 `child_block_hash` contract). Every row retains the detached parent coinbase
-scriptSig, and all 1,645 retain complete output script vectors. No row retains
+scriptSig, and all 1,641 retain complete output script vectors. No row retains
 the complete serialized parent coinbase transaction, its parent-merkle branch,
 or a self-contained AuxPoW proof. The header hydration is reproducible from the
 committed monitor evidence alone; output recovery uses the private inventory.
@@ -113,7 +113,7 @@ invented. These checks established consistency with the retained inventory, not
 authentication of the detached outputs against the header's merkle root.
 
 The restoration adds **784 outputs across 455 rows**: 306 previously populated
-but incomplete lists and 149 empty lists. There are now **16,610 outputs**.
+but incomplete lists and 149 empty lists. That restoration produced **16,610 outputs**.
 All 1,476 filtered lists become exact, including 1,170 whose output counts were
 already correct. The 1,416 lists carrying recipient-only claims also gain exact
 script evidence. The 24 already-exact rows are unchanged. In total, 1,625 cells change;
@@ -165,10 +165,10 @@ constraints. See
 [attribution impact](../pool-attribution.md#namecoin-output-restoration) for the
 measured label and match-mechanism comparison.
 
-The pinned upstream dataset carries a matching full-block blob for 319 of the
-1,645 direct candidates. The repository confirms that each blob starts with
+The pinned upstream dataset carries a matching full-block blob for 320 of the
+1,641 direct candidates. The repository confirms that each blob starts with
 the expected header, but none has undergone full historical consensus replay
-here. The other 1,326 direct candidates have no matching full block body in the
+here. The other 1,321 direct candidates have no matching full block body in the
 pinned dataset.
 
 Either exact accepted direct-stale status means that the row passed the
@@ -274,13 +274,13 @@ original 1,089-row addition and is retained as provenance:
 
 At the time of the historical contribution, 564 accepted direct Namecoin rows
 were already present upstream and 1,061 were additions. In the pinned upstream
-dataset, all 1,645 accepted
+dataset, all 1,641 accepted
 Namecoin direct rows are
 present, so current isolated novelty versus upstream is zero.
 
 | Current split | Rows |
 |---|---:|
-| Also in effective upstream after the error-blocks gate | 1,645 |
+| Also in effective upstream after the error-blocks gate | 1,641 |
 | Novel versus upstream | 0 |
 | Earlier-chain attribution | 0 |
 | Chronologically novel at this position | 0 |
@@ -336,9 +336,13 @@ in the strict/weak and monitor evidence artifacts.
 - `docs/data-reference.md`: schemas and value vocabularies.
 - `LICENSE-DATA`: data licensing terms.
 
-These 1,645 rows define the accepted Namecoin direct header-candidate set for this
+These 1,641 rows define the accepted Namecoin direct header-candidate set for this
 release. This is not a claim of full Bitcoin block validity or exhaustive chain
 coverage because complete Bitcoin block bodies are generally unavailable and
 the source snapshot boundary is not publicly documented. Full re-extraction
 and the archived unknown-origin investigations still require private source
 inventories and are not reproduced by this repository.
+
+The four P2SH-invalid parents at 173,928, 173,957, 173,998 and 174,605
+are excluded from accepted stales. Their original Namecoin child identities
+and authenticated full-body coinbases are retained in the error publication.

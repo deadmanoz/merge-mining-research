@@ -10,11 +10,15 @@ from stale_blocks_analysis.body_evidence import (
     load_body_evidence,
 )
 from stale_blocks_analysis.config import (
-    BLOCKS_DIR,
+    ERROR_BLOCK_BODIES_DIR,
     BODY_ERROR_REJECTIONS,
 )
 from stale_blocks_analysis.error_block_validation import validate_dataset, validate_row
-from stale_blocks_analysis.auxpow_parse import parse_parent_header, read_transaction
+from stale_blocks_analysis.auxpow_parse import (
+    parse_coinbase_height,
+    parse_parent_header,
+    read_transaction,
+)
 from stale_blocks_analysis.bitcoin_binary import _varint
 
 
@@ -27,6 +31,12 @@ def write_csv(path, columns, rows):
 
 @pytest.fixture(
     params=[
+        (173928, "p2sh_redeem_script_failure", 3),
+        (173957, "p2sh_redeem_script_failure", 5),
+        (173998, "p2sh_redeem_script_failure", 12),
+        (174605, "p2sh_redeem_script_failure", 45),
+        (197438, "bad-cb-amount", 91),
+        (584802, "bad-cb-amount", 135),
         (474294, "missing_unconfirmed_parent", 34),
         (477115, "bad-txns-inputs-missingorspent", 35),
         (783426, "bad-blk-sigops", 42),
@@ -37,15 +47,21 @@ def body_case(request, tmp_path):
     """Use retained bodies with independent verdicts in an isolated catalogue."""
     height, rule, line = request.param
     block_hash = {
+        173928: "000000000000023df73ac98923e2de321db3e3396102ad5dcfe3b25f01a81f64",
+        173957: "00000000000001bd778cffee5b5bae4c7b8d56a9aca955a04c60856b31b11155",
+        173998: "00000000000003bf4a1e491c802eeec3f1fbf3c2c7299e7935c2b0f33b189651",
+        174605: "000000000000068294db0526cb4a5520d21b9d4f271a34012e96784b3b3168c5",
+        197438: "0000000000000307872ec2eb0eae2dca3ed9ce6af9e024412cb3ddfe8afd12a7",
+        584802: "0000000000000000000b47042b90c6a893e6e5cdef70c92beefb88f4c5fa5a69",
         474294: "00000000000000000182acdf5657c93a0769dc6f9004047496b2e15efc6a4232",
         477115: "0000000000000000013ee4a86822d37a061732e04ee5f41fb77168f193363d1b",
         783426: "00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4",
         784121: "000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d",
     }[height]
     name = f"{height}-{block_hash}.bin"
-    source_path = BLOCKS_DIR / name
+    source_path = ERROR_BLOCK_BODIES_DIR / name
     if not source_path.exists():
-        pytest.skip("pinned stale-blocks bodies not fetched")
+        pytest.skip("pinned invalid-blocks bodies not fetched")
     raw = source_path.read_bytes()
     block_path = tmp_path / name
     block_path.write_bytes(raw)
@@ -61,12 +77,19 @@ def body_case(request, tmp_path):
         "btc_bits": header["bits_hex"],
         "expected_nbits": header["bits_hex"],
         "btc_header_hex": header["header_hex"],
-        "coinbase_height": str(height),
+        "coinbase_height": str(
+            parse_coinbase_height(coinbase["vin"][0]["scriptsig"]) or ""
+        ),
         "coinbase_scriptsig_hex": coinbase["vin"][0]["scriptsig"].hex(),
         "classification": "error_block",
         "rejection_reason": BODY_ERROR_REJECTIONS[rule],
         "rules_violated": rule,
     }
+    commit = (
+        "aadce82e948f63bde0befd14f21a84aa45f45cde"
+        if height in {173928, 173957, 173998, 174605, 197438, 584802}
+        else "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25"
+    )
     record = {
         "height": str(height),
         "hash": block_hash,
@@ -74,7 +97,7 @@ def body_case(request, tmp_path):
         "block_file": f"blocks/{name}",
         "block_sha256": hashlib.sha256(raw).hexdigest(),
         "evidence_url": "https://github.com/bitcoin-data/invalid-blocks/blob/"
-        f"4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25/data/invalid-blocks.jsonl#L{line}",
+        f"{commit}/data/invalid-blocks.jsonl#L{line}",
     }
     sidecar = tmp_path / "body_evidence.csv"
     write_csv(sidecar, BODY_EVIDENCE_COLUMNS, [record])

@@ -97,10 +97,10 @@ def test_committed_namecoin_vectors_are_all_exact_and_complete():
     )
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    assert len(rows) == 1645
+    assert len(rows) == 1641
     assert (
         sum(len(parse_coinbase_output_claims(r["coinbase_outputs"])) for r in rows)
-        == 16596
+        == 16592
     )
     for row in rows:
         claims = parse_coinbase_output_claims(row["coinbase_outputs"])

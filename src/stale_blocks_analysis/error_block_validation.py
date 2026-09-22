@@ -63,7 +63,7 @@ using the checks below, with no live RPC:
    no derivable value to compare against, so that specific check is skipped.
 
 Time rules need canonical-chain context that is not available offline.
-``time_below_mtp`` and ``median_time_past_violation`` are re-derived from the
+``time_below_mtp`` is re-derived from the
 committed ``data/error-blocks/mtp_context.csv`` sidecar (the canonical
 parent's median-time-past, keyed by ``(height, hash)``), with the candidate
 nTime derived from the header bytes (bytes 68-72 LE), never trusted from the
@@ -133,7 +133,7 @@ from stale_blocks_analysis.btc_stale_validation import (
 )
 from stale_blocks_analysis.config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
-    BLOCKS_DIR,
+    ERROR_BLOCK_BODIES_DIR,
     BODY_ERROR_REJECTIONS,
     ERROR_BLOCKS_BODY_EVIDENCE_NAME,
     ERROR_BLOCKS_CSV,
@@ -157,8 +157,8 @@ NBITS_BY_EPOCH_JSON = BITCOIN_EPOCH_REFERENCE_DIR / "btc_nbits_by_epoch.json"
 # time) that is not available offline. A token in this set can never be
 # re-derived from the committed bytes, so it can never be a valid committed
 # error block: the validator fails closed on it rather than silently accepting
-# the row. ``time_below_mtp`` and ``median_time_past_violation`` are re-derived
-# from the committed MTP context sidecar and are NOT in this set.
+# the row. ``time_below_mtp`` is re-derived
+# from the committed MTP context sidecar and is NOT in this set.
 TIME_RULES = frozenset(
     {
         "time_beyond_future_limit",
@@ -354,7 +354,7 @@ def validate_row(
     nbits_by_epoch: dict[int, int] | None = None,
     mtp_context: dict[tuple[int, str], int] | None = None,
     body_evidence: dict[tuple[int, str], dict[str, str]] | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Return local-gate or externally attested body-evidence failures."""
     if nbits_by_epoch is None:
@@ -543,7 +543,7 @@ def validate_row(
                 "committed error block"
             )
             continue
-        if rule in ("time_below_mtp", "median_time_past_violation"):
+        if rule == "time_below_mtp":
             # Special case, not a RULE_GATES entry: median_time_past_error
             # needs a per-row parent_mtp argument the Gate signature
             # (Callable[[dict, int], str | None]) cannot carry.
@@ -730,7 +730,7 @@ def validate_dataset(
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
     body_evidence_path: Path | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Validate every catalogue row and its matching body sidecar, if required."""
     nbits_by_epoch = _load_nbits_by_epoch(nbits_by_epoch_path)
@@ -800,7 +800,7 @@ def validate_error_module(
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
     body_evidence_path: Path | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> tuple[list[ErrorBlock], dict[ErrorObservationKey, dict[str, str]]]:
     """Validate consensus claims and exact witness coverage as one module."""
     if ledger_path is None:

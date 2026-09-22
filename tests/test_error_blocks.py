@@ -79,9 +79,9 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_error_block_keys(empty)
 
 
-def test_committed_dataset_loads_43_rows() -> None:
+def test_committed_dataset_loads_49_rows() -> None:
     # The committed dataset is non-empty and loads fine.
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 43
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 49
 
 
 def test_exclude_rows_filters_exact_key() -> None:
@@ -122,13 +122,13 @@ def test_committed_catalogue_schema_and_row_count() -> None:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 43
+    assert len(rows) == 49
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
     assert all(len(r["btc_header_hex"]) == 160 for r in rows)
-    # The 946213 and 957780 time-too-old rows from merge-mining-monitor live evidence.
-    assert sum(1 for r in rows if r["rejection_reason"] == "time_below_mtp") == 2
+    # All three MTP failures share the canonical time_below_mtp token.
+    assert sum(1 for r in rows if r["rejection_reason"] == "time_below_mtp") == 3
     # The 717696 retarget-boundary row from the rejected-row sweep.
     assert (
         sum(1 for r in rows if r["rejection_reason"] == "nbits_retarget_not_applied")
@@ -179,8 +179,8 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 43
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 43
+    assert len(rows) == 49
+    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 49
     assert Counter(row["rejection_reason"] for row in rows) == {
         "bad-txns-inputs-missingorspent": 2,
         "bad-blk-sigops": 2,
@@ -189,14 +189,19 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
         "bip66_block_version_below_3": 3,
         "bip65_block_version_below_4": 5,
         "coinbase_scriptsig_length_above_100": 1,
-        "median_time_past_violation": 1,
-        "time_below_mtp": 2,
+        "time_below_mtp": 3,
+        "block-script-verify-flag-failed": 4,
+        "bad-cb-amount": 2,
         "nbits_retarget_not_applied": 1,
         "bip34_coinbase_height_missing": 1,
     }
     missing_heights = [row for row in rows if not row["coinbase_height"]]
-    assert len(missing_heights) == 1
-    assert missing_heights[0]["rejection_reason"] == "bip34_coinbase_height_missing"
+    assert {int(r["height"]) for r in missing_heights} == {
+        173928,
+        173957,
+        173998,
+        649674,
+    }
     for row in rows:
         height = int(row["height"])
         version = int(row["btc_header_version"])
