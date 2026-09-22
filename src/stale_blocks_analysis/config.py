@@ -35,6 +35,12 @@ STALE_DIR = Path(os.environ.get("STALE_BLOCKS_DIR", DATA_DIR / "stale-blocks"))
 STALE_CSV = STALE_DIR / "stale-blocks.csv"
 BLOCKS_DIR = STALE_DIR / "blocks"
 
+# Reviewed body-invalid evidence, fetched at the data-sources.tsv pin.
+INVALID_BLOCKS_DIR = Path(
+    os.environ.get("INVALID_BLOCKS_DIR", DATA_DIR / "invalid-blocks")
+)
+ERROR_BLOCK_BODIES_DIR = INVALID_BLOCKS_DIR / "blocks"
+
 # Pool identity dataset: a local clone of bitcoin-data/mining-pools, pinned in
 # data-sources.tsv and cloned by scripts/fetch-data.sh (default
 # data/mining-pools under the project root; override with the
@@ -93,6 +99,7 @@ ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
 ERROR_BLOCKS_BODY_EVIDENCE_NAME = "body_evidence.csv"
 SEGWIT_ACTIVATION_HEIGHT = 481824
 BODY_ERROR_REJECTIONS = {
+    "p2sh_redeem_script_failure": "block-script-verify-flag-failed",
     "missing_unconfirmed_parent": "bad-txns-inputs-missingorspent",
     "bad-txns-inputs-missingorspent": "bad-txns-inputs-missingorspent",
     "bad-cb-amount": "bad-cb-amount",

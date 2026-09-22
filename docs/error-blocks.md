@@ -50,8 +50,7 @@ are the constants in `stale_blocks_analysis.config`; the gates are reused from
 | `bip65_block_version_below_4` | BIP65 minimum block version 4 | from height 388,381 |
 | `coinbase_scriptsig_length_above_100` | Coinbase scriptSig serialized length must be 2 to 100 bytes (the historical token name; the gate enforces the full 2–100 bound) | height-independent |
 | `coinbase_scriptsig_length_below_2` | Coinbase scriptSig serialized length below the 2-byte minimum (the same 2–100 gate; vocabulary-only, no committed row uses it yet) | height-independent |
-| `median_time_past_violation` | Block time must be greater than the median-time-past of its parent | height-independent |
-| `time_below_mtp` | Block `nTime` at or below the canonical parent's median-time-past (the 946,213 class) | height-independent |
+| `time_below_mtp` | Block `nTime` at or below the canonical parent's median-time-past (including 380,992, 946,213 and 957,780) | height-independent |
 | `nbits_retarget_not_applied` | At a retarget-boundary height (`height % 2016 == 0`) the block carries the previous epoch's `nBits` instead of the newly retargeted value, while still meeting full proof of work | epoch boundaries |
 | `time_beyond_future_limit` | Block `nTime` more than 2 hours beyond network-adjusted time | **not mechanically re-checkable offline** |
 
@@ -97,9 +96,8 @@ child-chain commit-time evidence showing the `nTime` more than two hours
 beyond the commit time itself — did not occur in the swept corpus. By
 contrast, `time_below_mtp` and `median_time_past_violation` *are*
 mechanically re-checkable, because the canonical parent's median-time-past is
-committed canonical-chain context. This is why the dataset contains two
-`time_below_mtp` rows (946,213 and 957,780) and a `median_time_past_violation`
-row (380,992) but no `time_beyond_future_limit` rows. The detailed child-chain
+committed canonical-chain context. This is why the dataset contains three
+`time_below_mtp` rows (380,992, 946,213 and 957,780) but no `time_beyond_future_limit` rows. The detailed child-chain
 evidence is recorded below.
 
 ### Future-limit follow-up investigation
@@ -193,8 +191,8 @@ instead of overwriting one another.
 
 ### Composition and per-rule counts
 
-The dataset holds **43 rows** (43 distinct `(height, hash)` blocks), spanning
-Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
+The dataset holds **49 rows** (49 distinct `(height, hash)` blocks), spanning
+Bitcoin heights 173,928 through 957,780. They include heights 946,213 and
 957,780 (`time_below_mtp`), height 717,696
 (`nbits_retarget_not_applied`), height 649,674
 (`bip34_coinbase_height_missing`), and the stale-ancestry candidates at
@@ -210,16 +208,17 @@ Bitcoin heights 225,013 through 957,780. They include heights 946,213 and
 | `bip65_block_version_below_4` | 5 |
 | `bip66_block_version_below_3` | 3 |
 | `coinbase_scriptsig_length_above_100` | 1 |
-| `median_time_past_violation` | 1 |
-| `time_below_mtp` | 2 |
+| `time_below_mtp` | 3 |
 | `nbits_retarget_not_applied` | 1 |
 | `bad-txns-inputs-missingorspent` | 2 |
 | `bad-blk-sigops` | 2 |
-| **Total** | **43** |
+| `block-script-verify-flag-failed` | 4 |
+| `bad-cb-amount` | 2 |
+| **Total** | **49** |
 
-Because one invalid block is witnessed by several sibling chains, the 43
-blocks produce 100 per-chain observations: namecoin 41, devcoin 18, ixcoin 15,
-rsk 7, syscoin 5, elastos 4, xaya 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
+Because one invalid block is witnessed by several sibling chains, the 49
+blocks produce 107 per-chain observations: namecoin 45, devcoin 19, ixcoin 16,
+rsk 7, syscoin 5, elastos 5, xaya 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
 i0coin 3, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
@@ -270,9 +269,25 @@ against the 80,000 limit. The embedded legacy counts, 18,630 and 18,051, scale
 to only 74,520 and 72,204; Research does not repeat the prevout-dependent
 P2SH/witness calculation. It authenticates the complete bodies instead.
 
-The catalogue now contains 43 blocks. The four-block P2P record overlaps it
-at the F2Pool pair, giving 45 distinct blocks across those two inventories.
-Height 584,802 is a separate unresolved admission and is outside this cutover.
+A subsequent admission adds six parents from invalid-blocks commit
+`aadce82e948f63bde0befd14f21a84aa45f45cde`: the four P2SH redeem-script failures
+at 173,928, 173,957, 173,998 and 174,605, plus the coinbase overpayments at
+197,438 and 584,802. The P2SH rule maps to Core's
+`block-script-verify-flag-failed` reject family; `bad-cb-amount` retains its
+own name. Independent upstream checks establish the named failures using
+complete bodies and authenticated previous outputs. Research authenticates
+those bodies without repeating the rule verification.
+
+All seven retained child observations survive: four Namecoin events, the
+Ixcoin and Devcoin witnesses of 197,438, and Elastos's witness of 584,802.
+The upstream record for 197,438 lists Ixcoin; Research additionally preserves
+its independently retained Devcoin event. Together these admissions bring
+the catalogue to 49 parents and 107 observations. The catalogue parent set
+matches the merge-mining-witnessed subset of the 143-entry upstream pin.
+`median_time_past_violation` at 380,992 is normalised to `time_below_mtp`;
+the validator still accepts the old spelling in historical diagnostic input.
+Publication preservation permits this one-way rename while retaining the
+checks against changed witnesses or different rejection reasons.
 
 ## Evidence standard
 
@@ -309,16 +324,19 @@ The validator checks the reference's form, not its remote content or CI result.
 For these entries, Research checks the body digest, header identity, catalogue coinbase scriptSig, transaction
 merkle root and applicable witness commitment. Before SegWit activation at
 481,824, a commitment-looking output alone does not require witness data.
-Required bodies resolve under the pinned stale-blocks `blocks/` directory
-(`STALE_BLOCKS_DIR` selects the clone); missing bodies fail validation.
+Required bodies resolve under the pinned invalid-blocks `blocks/` directory
+(`INVALID_BLOCKS_DIR` selects the clone). `scripts/fetch-data.sh` fetches this
+public dependency from `data-sources.tsv`; missing bodies fail validation.
 No prevouts are fetched and no body-rule verdict is re-derived here.
-The closed rule set is `missing_unconfirmed_parent`,
-`bad-txns-inputs-missingorspent`, `bad-cb-amount` and `bad-blk-sigops`.
-The first maps to the Core reject family `bad-txns-inputs-missingorspent`;
-the other reject families match their rule tokens. Unknown rules still fail.
+The closed body-rule set is `p2sh_redeem_script_failure`,
+`missing_unconfirmed_parent`, `bad-txns-inputs-missingorspent`,
+`bad-cb-amount` and `bad-blk-sigops`. P2SH maps to
+`block-script-verify-flag-failed`; `missing_unconfirmed_parent` maps to
+`bad-txns-inputs-missingorspent`. The other reject families match their rule
+tokens. Unknown rules still fail.
 
-The four body-rule catalogue entries and their sidecar are installed. Complete
-validation requires their bodies in the pinned stale-blocks clone; missing
+The ten body-rule catalogue entries and their sidecar are installed. Complete
+validation requires their bodies in the pinned invalid-blocks clone; missing
 bodies fail, rather than silently skipping authentication.
 
 The four ancestry-derived errors and their ten authenticated child

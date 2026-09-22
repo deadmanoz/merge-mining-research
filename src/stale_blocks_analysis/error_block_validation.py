@@ -133,7 +133,7 @@ from stale_blocks_analysis.btc_stale_validation import (
 )
 from stale_blocks_analysis.config import (
     BITCOIN_EPOCH_REFERENCE_DIR,
-    BLOCKS_DIR,
+    ERROR_BLOCK_BODIES_DIR,
     BODY_ERROR_REJECTIONS,
     ERROR_BLOCKS_BODY_EVIDENCE_NAME,
     ERROR_BLOCKS_CSV,
@@ -354,7 +354,7 @@ def validate_row(
     nbits_by_epoch: dict[int, int] | None = None,
     mtp_context: dict[tuple[int, str], int] | None = None,
     body_evidence: dict[tuple[int, str], dict[str, str]] | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Return local-gate or externally attested body-evidence failures."""
     if nbits_by_epoch is None:
@@ -730,7 +730,7 @@ def validate_dataset(
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
     body_evidence_path: Path | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Validate every catalogue row and its matching body sidecar, if required."""
     nbits_by_epoch = _load_nbits_by_epoch(nbits_by_epoch_path)
@@ -800,7 +800,7 @@ def validate_error_module(
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
     body_evidence_path: Path | None = None,
-    blocks_dir: Path = BLOCKS_DIR,
+    blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> tuple[list[ErrorBlock], dict[ErrorObservationKey, dict[str, str]]]:
     """Validate consensus claims and exact witness coverage as one module."""
     if ledger_path is None:

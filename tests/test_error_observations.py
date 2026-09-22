@@ -111,8 +111,8 @@ def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None
         for row in rows
     } == set(ledger)
     assert inventory["rows"] == len(ledger)
-    assert len(blocks) == 43
-    assert inventory["rows"] == 100
+    assert len(blocks) == 49
+    assert inventory["rows"] == 107
 
 
 def test_error_observation_count_row_has_canonical_publication_shape() -> None:
@@ -614,8 +614,8 @@ def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> Non
         witness["child_block_hash"],
         sibling_hash,
     }
-    assert inventory["parents"] == 43
-    assert inventory["rows"] == 101
+    assert inventory["parents"] == 49
+    assert inventory["rows"] == 108
 
 
 @pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))
@@ -817,6 +817,12 @@ def test_body_invalid_witnesses_preserve_full_coinbase_and_exact_children():
     """Demotion retains every child event and the authenticated output evidence."""
     rows, _ = build_error_observation_rows()
     expected = {
+        173928: {("namecoin", 49691)},
+        173957: {("namecoin", 49718)},
+        173998: {("namecoin", 49773)},
+        174605: {("namecoin", 50516)},
+        197438: {("ixcoin", 91289), ("devcoin", 56711)},
+        584802: {("elastos", 419444)},
         474294: {("namecoin", 349887)},
         477115: {("namecoin", 352422)},
         783426: {

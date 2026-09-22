@@ -71,7 +71,7 @@ columns trail that shared core:
 Chain-specific research columns trail the shared layout where retained:
 namecoin's `nbits_match` / `post_bch_fork` gate detail,
 `btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
-is populated for all 1,645 rows; the 228 historically header-less rows were
+is populated for all 1,641 rows; the 228 historically header-less rows were
 back-filled from the committed monitor evidence, byte-verified against each
 row's committed hash and decoded fields),
 coiledcoin's `eligius_attack_window`, and i0coin's `full_coinbase_hex`.
@@ -156,17 +156,17 @@ Acquisition limitations are not repairable by rendering alone:
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from stale publication surfaces. Every row has
 `classification=error_block`; blank or unknown classifications fail closed
-when the dataset is loaded. The current 43 rows include the 946,213 and 957,780
+when the dataset is loaded. The current 49 rows include the 946,213 and 957,780
 `time_below_mtp` blocks, the 717,696 `nbits_retarget_not_applied` block, the
 Hathor-witnessed 649,674 `bip34_coinbase_height_missing` block, and four
 stale-ancestry candidates at 331,673, 331,674, 402,610, and 422,059 whose bytes
 re-derive `bip34_coinbase_height_mismatch`. Of the invalid keys, 25 carry a
 mismatched BIP34 coinbase height, one omits the
 required BIP34 height, three fail BIP66's minimum version 3 rule, five
-fail BIP65's minimum version 4 rule, one violates median-time-past, two are
-time-too-old against median-time-past (946,213 and 957,780), one carries a
+fail BIP65's minimum version 4 rule, three are time-too-old against
+median-time-past (380,992, 946,213 and 957,780), one carries a
 103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
-apply the difficulty retarget at an epoch boundary. Four further entries have
+apply the difficulty retarget at an epoch boundary. Ten further entries have
 independently verified body-rule failures bound by `body_evidence.csv`. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
@@ -198,7 +198,7 @@ F2Pool overlay; its parents are excluded from accepted stale publication.
 | --- | --- |
 | `height`, `hash` | Exact catalogue parent identity; hash in display order. |
 | `rule` | Registered external body-rule token matching `rules_violated`. |
-| `block_file` | `blocks/<height>-<hash>.bin` in the pinned stale-blocks clone. |
+| `block_file` | `blocks/<height>-<hash>.bin` in the pinned invalid-blocks clone (`INVALID_BLOCKS_DIR`). |
 | `block_sha256` | Digest of the complete body authenticated locally. |
 | `evidence_url` | Exact invalid-blocks JSONL row at a full commit hash. |
 
@@ -568,8 +568,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 100-row aggregate
-for the 43 catalogue parents. It uses the 34-column union schema: the shared
+`error-block-observations_monitor_evidence.csv` is a separate 107-row aggregate
+for the 49 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
@@ -597,7 +597,7 @@ ledger row must have the exact canonical field count and identify its child
 either with a well-formed hash or with a serialized child header from which
 that hash can be authenticated. Staged publication applies the ordinary
 parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 100-row
+catalogue/ledger-derived field and identity to match the canonical 107-row
 module exactly; source-derived coinbase output enrichment may add evidence but
 cannot replace it. The release path stages every ordinary artifact, the error
 aggregate, counts, and manifest as one coherent transaction after validating
@@ -676,7 +676,7 @@ header hash so their coverage is explicit:
 
 Namecoin's monitor export previously required partial header hydration for
 its stale rows. The validated loader now carries `btc_header_hex` for all
-1,645 accepted rows (back-filled from the committed monitor evidence), so
+1,641 accepted rows (back-filled from the committed monitor evidence), so
 stale-row hydration has no remaining targets. The complete September Monitor
 rebuild uses those loader headers directly; its manifest no longer carries
 the earlier `namecoin_header_hydration=hydrated:228` note. The 21

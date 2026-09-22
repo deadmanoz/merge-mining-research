@@ -115,6 +115,7 @@ results/analysis/error-blocks/by-chain/
 
 # Upstream public datasets fetched via scripts/fetch-data.sh
 data/stale-blocks/
+data/invalid-blocks/
 data/mining-pools/
 
 # Local planning notes; deliberately untracked (they carry operator infra

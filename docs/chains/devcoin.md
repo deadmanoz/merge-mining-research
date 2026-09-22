@@ -13,7 +13,7 @@
 | Loader | `load_devcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/devcoin_validated_stales.csv` |
 
-Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with the original Namecoin AuxPoW code (Vince Durham's design). The Kraft lineage arrives roughly a decade later: the modern Devcoin Core 22.x codebase carries Daniel Kraft's AuxPoW implementation, ported via Syscoin's fork (`devcoin/core` issue #73). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (468 vs ixcoin's 465 and i0coin's 191) and a leading source of novel-vs-upstream candidates (92 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
+Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining activation order, launched in 2011 (genesis nTime 1311305081 = 2011-07-22 UTC; public introduction cited as 5 Aug 2011) and merge-mining-enabled at DVC block 25,000 on 7 Jan 2012 with the original Namecoin AuxPoW code (Vince Durham's design). The Kraft lineage arrives roughly a decade later: the modern Devcoin Core 22.x codebase carries Daniel Kraft's AuxPoW implementation, ported via Syscoin's fork (`devcoin/core` issue #73). It is the most prolific of the Dec 2011 to Jan 2012 cohort by accepted direct-stale candidate count (467 vs ixcoin's 464 and i0coin's 191) and a leading source of novel-vs-upstream candidates (91 at the current upstream pin; only RSK contributes more). Devcoin's distinctive coinbase structure, a 50,000 DVC reward split 5,000 to the miner and 45,000 to project funds across many output recipients, makes output-based pool attribution a future, separate analysis rather than part of the current loader.
 
 ## 1. Chain data
 
@@ -27,7 +27,7 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 
 - **Pre-AuxPoW** (DVC 0 → 24,999): solo SHA-256 mining, no embedded BTC parent headers.
 - **BIP34 transition**: before height 224,413, height is resolved from the active-chain parent without enforcing a coinbase prefix. From 224,413 through 227,930, the prefix is required for version 2 or newer blocks while version 1 remains valid. From 227,931 it is required for every valid block.
-- **Publication gate**: the committed CSV persists expected `nBits`, median-time-past, historical minimum-version, coinbase scriptSig length, and BIP34 verdicts. Sixteen historical candidates are excluded: 13 for BIP34 height, two post-BIP66 version 2 headers, and one 103-byte coinbase scriptSig, leaving 468 public rows. Passing this gate is not full Bitcoin block validation; see the [data validity contract](../data-validity.md).
+- **Publication gate**: the committed CSV persists expected `nBits`, median-time-past, historical minimum-version, coinbase scriptSig length, and BIP34 verdicts. Seventeen historical candidates are excluded: 13 for BIP34 height, two post-BIP66 version 2 headers, one 103-byte coinbase scriptSig, and the externally verified coinbase overpayment at 197,438, leaving 467 public rows. Passing this gate is not full Bitcoin block validation; see the [data validity contract](../data-validity.md).
 - **Current audit**: on 20 July 2026, all 468 accepted direct rows were replayed against Bitcoin Core tip 958,882 and passed every available header-context check. This was not a full-block consensus replay.
 - **Coinbase output noise**: `coinbase_outputs` is a `|`-delimited list of
   payout entries; the loader preserves them in recipient form for future
@@ -66,14 +66,14 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 | `stale`-labelled candidate | 484 |
 | **Total** | **129,725** |
 
-The normal Monitor publication includes all 54,100 canonical parents, 468
+The normal Monitor publication includes all 54,100 canonical parents, 467
 VALID stales, and the one unknown row with a final strict relevance verdict.
 The remaining unknown and rejected rows stay in the full external evidence.
 The canonical rows were not persisted by the original 2026-04 prototype split
 and were backfilled by the 2026-06-23 canonical refresh; the earlier "75,625 =
 484 stale + 75,141 unknown" figure was that non-canonical subset, not the full
-classifier output. The committed validated file contains 468 rows after the
-error-blocks dataset (`data/error-blocks/error_blocks.csv`) removes 16
+classifier output. The committed validated file contains 467 rows after the
+error-blocks dataset (`data/error-blocks/error_blocks.csv`) removes 17
 consensus-invalid candidates.
 
 **Chain-specific quirks.**
@@ -97,11 +97,11 @@ classification == "stale" and validation_status in {
 }
 ```
 
-The `validation_status` gate is persisted on this CSV. All 468 entries are
+The `validation_status` gate is persisted on this CSV. All 467 entries are
 `validation_status=VALID`; the loader also applies the exact-key error-blocks
 exclusion gate (`data/error-blocks/error_blocks.csv`).
 
-**Post-filter count: 468 accepted direct-stale header candidates.**
+**Post-filter count: 467 accepted direct-stale header candidates.**
 
 **Derived strict/weak relevance: 1 strict, 0 weak observation.** This is an
 unknown row admitted to the separate relevance axis, not a direct-stale
@@ -115,8 +115,8 @@ Generated by `python scripts/compute_chain_novelty.py devcoin`. Per-stale row-le
 
 | Split | Count | % |
 |---|---:|---:|
-| also in upstream | 376 | 80.3 % |
-| novel vs upstream | 92 | 19.7 % |
+| also in upstream | 376 | 80.5 % |
+| novel vs upstream | 91 | 19.5 % |
 
 **(b) Chronological cumulative - layered on upstream + every chronologically-earlier chain**
 
@@ -125,10 +125,10 @@ Devcoin is 6th chronologically. The chronologically-earlier chains with integrat
 | Split | Count |
 |---|---:|
 | also in upstream | 376 |
-| also in earlier-born chain (`namecoin`: 299, `ixcoin`: 95, `i0coin`: 42 - first-claim distribution) | 436 |
+| also in earlier-born chain (`namecoin`: 299, `ixcoin`: 94, `i0coin`: 42 - first-claim distribution) | 435 |
 | **novel at this position** | **21** |
 
-> **Reconciles the historical "76 novel" figure.** A private historical result records 76 hashes flagged as Devcoin-novel during the original recovery analysis, before excluding chains integrated later. The previous chronological result was 32, with 44 of the historical claims assigned to ixcoin, which was integrated after Devcoin but has earlier chronological precedence. Processing the complete March 2026 I0coin snapshot assigns another 11 of those 32 claims to i0coin, leaving **21** chronologically novel Devcoin hashes. The isolated count at the current upstream pin remains 92.
+> **Reconciles the historical "76 novel" figure.** A private historical result records 76 hashes flagged as Devcoin-novel during the original recovery analysis, before excluding chains integrated later. The previous chronological result was 32, with 44 of the historical claims assigned to ixcoin, which was integrated after Devcoin but has earlier chronological precedence. Processing the complete March 2026 I0coin snapshot assigns another 11 of those 32 claims to i0coin, leaving **21** chronologically novel Devcoin hashes. The isolated count at the current upstream pin is 91.
 
 > Novelty precedence rule: earlier-born chain has novelty precedence. This is a simplifying convention for reproducible attribution, **not** a claim about which chain literally observed each stale first in real-world block time.
 
@@ -139,7 +139,7 @@ Devcoin is 6th chronologically. The chronologically-earlier chains with integrat
 exports are committed here. Row-level analysis diagnostics live in the private
 archive.
 
-- `data/validated-stales/devcoin_validated_stales.csv` - 468 publication-gate-accepted direct-stale header candidates (committed; the loader's input).
+- `data/validated-stales/devcoin_validated_stales.csv` - 467 publication-gate-accepted direct-stale header candidates (committed; the loader's input).
 - Private archive split inventories: `devcoin_canonical_blocks.csv` (54,100 canonical, backfilled by the 2026-06-23 canonical refresh), `devcoin_stale_blocks.csv` (484 stale), and `devcoin_unknown_blocks.csv` (75,141 unknown).
 - Private historical novelty result: 76 Devcoin-recovered candidates not in the then-current upstream set. It is a superset of the public chronological-novel 32; later-integrated, earlier-born chains receive precedence for the remainder.
 - Private diagnostics include two candidate multi-block BTC header-chain

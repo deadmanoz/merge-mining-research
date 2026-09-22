@@ -167,19 +167,19 @@ def test_957780_time_below_mtp_revalidates() -> None:
     assert mod.validate_row(row) == []
 
 
-def test_380992_median_time_past_violation_revalidates() -> None:
+def test_380992_time_below_mtp_revalidates() -> None:
     import csv as _csv
 
     mod = _load_validator()
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         row = next(r for r in _csv.DictReader(f) if r["height"] == "380992")
-    assert "median_time_past_violation" in row["rules_violated"]
+    assert "time_below_mtp" in row["rules_violated"]
     assert mod.validate_row(row) == []
     # The rule re-derives from the committed MTP context: the header's nTime
     # (1446052047) is at or below the canonical parent's median-time-past
     # (1446068449). Stripping the sidecar context breaks re-derivation.
     assert any(
-        "median_time_past_violation has no committed MTP context" in f
+        "time_below_mtp has no committed MTP context" in f
         for f in mod.validate_row(row, mtp_context={})
     )
     # The candidate nTime is derived from the header bytes, never the
@@ -203,7 +203,7 @@ def test_380992_median_time_past_violation_revalidates() -> None:
     )
     mtp_context = {(380992, raised_header["hash"]): 1446068449}
     assert any(
-        "median_time_past_violation did not re-derive" in f
+        "time_below_mtp did not re-derive" in f
         for f in mod.validate_row(raised_header, mtp_context=mtp_context)
     )
 

@@ -1231,6 +1231,15 @@ def _observation_refinement(
     for field in _STICKY_OBSERVATION_FIELDS:
         expected = committed.value(field)
         if expected and staged.value(field) != expected:
+            # Retained publications used this older name for the same MTP
+            # gate. Permit its canonical spelling, not a different verdict.
+            if (
+                field == "rejection_reason"
+                and committed.category == staged.category == "error_block"
+                and expected == "median_time_past_violation"
+                and staged.value(field) == "time_below_mtp"
+            ):
+                continue
             return False, field
     committed_child_height = committed.child_height
     if (

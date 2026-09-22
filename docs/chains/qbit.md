@@ -85,7 +85,7 @@ child heights were subsequently corroborated by native active-chain lookups.
 All four pass the pinned Qbit proof-envelope checks. The positive parent is
 `0000000000000000000099c87c5d482e3aa11824a22c101c5f0a0f1b96d987a5`.
 Every native extended header/proof matches the saved explorer bytes exactly.
-Bitcoin Core (`bitcoin-01`) independently supplied the positive parent's full
+Bitcoin Core (`core-reference`) independently supplied the positive parent's full
 3,983-transaction block. Its exact header, non-witness coinbase and coinbase
 Merkle branch match the proof, and recomputing the body's transaction Merkle
 root matches the header. The three lower-work controls remain in the private
@@ -108,7 +108,7 @@ raw-block digest, output digest and captured response digest passed replay.
 | Parents passing their own encoded PoW target | 2,564 |
 | Lower-work parents retained privately | 13,854 |
 
-The shared classifier, queried against `bitcoin-01`, partitions the 2,564
+The shared classifier, queried against `core-reference`, partitions the 2,564
 self-target-passing parents into **2,536 canonical, 4 direct stale and 24
 unknown**. All four direct candidates have `validation_status=VALID`, with no
 header-context rejection or canonical error-catalogue conflict. No error

@@ -213,7 +213,7 @@ def test_active_height_comparison_persists_explicit_rpc_source_label() -> None:
         {candidate: 100},
         FakeRpc(),  # type: ignore[arg-type]
         500,
-        verification_label="bitcoin-01",
+        verification_label="core-reference",
     )
 
     assert result[candidate] == {
@@ -221,7 +221,7 @@ def test_active_height_comparison_persists_explicit_rpc_source_label() -> None:
         "on_mainchain": False,
         "height": 100,
         "active_hash_at_height": active,
-        "verification_source": "bitcoin-core-rpc:bitcoin-01",
+        "verification_source": "bitcoin-core-rpc:core-reference",
     }
 
 

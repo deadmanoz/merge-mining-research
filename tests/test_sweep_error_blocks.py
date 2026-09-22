@@ -726,8 +726,8 @@ def test_load_dataset_keys_fails_closed_on_invalid_catalog_row(
 
 
 def test_load_dataset_keys_loads_committed_dataset() -> None:
-    # The committed 43-row dataset loads fine.
-    assert len(sweep.load_dataset_keys()) == 43
+    # The committed 49-row dataset loads fine.
+    assert len(sweep.load_dataset_keys()) == 49
 
 
 def test_main_refuses_partial_write_to_committed_path(

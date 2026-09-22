@@ -153,7 +153,7 @@ def test_committed_manifest_rows_are_tab_separated_four_columns():
         assert url.startswith("https://")
         assert ref == "HEAD" or (len(ref) == 40 and int(ref, 16) >= 0)
         assert subdir.startswith("data/")
-    assert "stale-blocks" in keys and "mining-pools" in keys
+    assert {"stale-blocks", "mining-pools", "invalid-blocks"} <= set(keys)
 
 
 def test_fetch_leaves_clone_with_untracked_files_untouched(tmp_path: Path):
@@ -173,3 +173,23 @@ def test_fetch_leaves_clone_with_untracked_files_untouched(tmp_path: Path):
     head = run("git", "rev-parse", "HEAD", cwd=clone).stdout.strip()
     assert head == first
     assert "local changes" in out.stdout
+
+
+def test_invalid_blocks_override_is_used_for_fetch_and_pin_update(tmp_path: Path):
+    env, seed, manifest, first = make_fixture(tmp_path)
+    original = Path(env["DATA_SOURCES_ROOT"]) / "data" / "stale-blocks"
+    external = tmp_path / "external-invalid-blocks"
+    original.rename(external)
+    env["INVALID_BLOCKS_DIR"] = str(external)
+    manifest.write_text(manifest.read_text().replace("stale-blocks", "invalid-blocks"))
+    # The fixture remote is still the original repository, not a renamed URL.
+    manifest.write_text(
+        manifest.read_text().replace("invalid-blocks.git", "stale-blocks.git")
+    )
+    latest = commit_and_push(seed, "advance evidence", "height,hash,header\n1,a,b\n")
+    result = run(
+        "bash", str(PIN_SCRIPT), "update", "invalid-blocks", cwd=PROJECT_ROOT, env=env
+    )
+    assert f"updated pin {first} -> {latest}" in result.stdout
+    assert run("git", "rev-parse", "HEAD", cwd=external).stdout.strip() == latest
+    assert not (Path(env["DATA_SOURCES_ROOT"]) / "data" / "invalid-blocks").exists()

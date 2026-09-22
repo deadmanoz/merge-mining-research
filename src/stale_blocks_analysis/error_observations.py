@@ -19,7 +19,12 @@ from .auxpow_parse import (
     read_transaction,
     validate_available_child_header_fields,
 )
-from .config import BLOCKS_DIR, CHAIN_SPECS, DATA_DIR, ERROR_BLOCKS_BODY_EVIDENCE_NAME
+from .config import (
+    ERROR_BLOCK_BODIES_DIR,
+    CHAIN_SPECS,
+    DATA_DIR,
+    ERROR_BLOCKS_BODY_EVIDENCE_NAME,
+)
 from .bitcoin_binary import _varint
 from .body_evidence import load_body_evidence, validate_body_evidence
 from .coinbase_output_claims import (
@@ -500,11 +505,13 @@ def build_error_observation_rows(
             },
             record["rule"],
             body_evidence,
-            BLOCKS_DIR,
+            ERROR_BLOCK_BODIES_DIR,
         )
         if failures:
             raise ValueError("error observation body: " + "; ".join(failures))
-        raw = (BLOCKS_DIR / f"{block.height}-{block.block_hash}.bin").read_bytes()
+        raw = (
+            ERROR_BLOCK_BODIES_DIR / f"{block.height}-{block.block_hash}.bin"
+        ).read_bytes()
         _, start = _varint(raw, 80)
         _, end = read_transaction(raw, start)
         body_coinbases[block.block_hash] = raw[start:end].hex()
