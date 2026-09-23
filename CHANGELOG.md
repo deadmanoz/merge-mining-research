@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Remove the obsolete development Monitor workspace after ownership of both
+production and development deployment moved to a separately managed deployment
+workspace. Keep this repository as a read-only source of published Research
+evidence for the Monitor importer.
+
 Complete the body-invalid catalogue with four P2SH failures and the Eligius
 197,438 and AntPool 584,802 coinbase overpayments. Preserve all seven child
 witnesses, bringing the catalogue to 49 parents and 107 observations, and
@@ -38,11 +43,6 @@ RPC captures through the normal producer, reject oversized commitment pushes
 as height evidence, and integrate Qbit publication with 2,536 canonical and
 four accepted stale observations. Retain all 24 excluded synthetic parents
 privately and preserve the complete existing Monitor evidence baseline.
-
-Provide an on-demand development Monitor workspace with an explicit local
-source checkout, PostgreSQL 16 and a read-only Research bind. Keep the API on
-host loopback and database restoration, migrations and data jobs explicit.
-Exclude private settings and database files from Git and the image context.
 
 Document immutable archive inputs and path-preserving consolidation of exact
 duplicates. Keep original metadata receipts and replace disposable binary
