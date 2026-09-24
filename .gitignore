@@ -93,6 +93,10 @@ data/canonical/
 /node-infra/*/data/
 /node-infra/devcoin/source.bundle
 
+# The retired Monitor development workspace may still contain private config,
+# database backups, or logs in older operator checkouts.
+/node-infra/monitor-dev/
+
 # Full-evidence AuxPoW exports can include bulky/private classifier rows when
 # built with --chain-archive-dir. Regenerate them with
 # scripts/reports/build_auxpow_full_evidence.py instead of committing snapshots

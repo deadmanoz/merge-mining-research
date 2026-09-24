@@ -520,18 +520,16 @@ in its own checkout and follow its `AGENTS.md`; do not restore a duplicate
 runtime here. The dashboard distinguishes transfer verification from research
 coverage and serves only cached metadata.
 
-`node-infra/monitor-dev/` builds the development Monitor from an explicit
-local Monitor checkout and runs it beside PostgreSQL 16. Use its `just config`,
-`just build`, `just db-up` and `just app-up` commands. Keep the app port on host
-loopback and restore databases logically into a separate development bind.
-Startup must not run migrations, imports, Core sync or pollers automatically.
-Keep private environment, configuration, data, backups and logs ignored.
+The separately managed Monitor deployment workspace owns both production and
+development deployments. This repository supplies published Research artifacts
+to the Monitor as a read-only input; do not recreate a Monitor deployment
+workspace under `node-infra/`.
 
 Each `node-infra/<chain>/` directory is its own operational workspace with a
 README and usually a local `justfile`. Read the chain README before building or
 starting a node.
 
-Every project image, including node, research-worker and development images,
+Every Research-owned project image, including node and research-worker images,
 must have its canonical Dockerfile or pinned image reference, required patches,
 Compose configuration and operating instructions in `node-infra/<workspace>/`.
 Add supported build/runtime
