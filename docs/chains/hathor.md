@@ -166,11 +166,7 @@ identifies the executed source snapshot. The projection removes a retired
 diagnostic field while preserving row order, identities, evidence, verdicts,
 and source provenance.
 
-The six accepted direct-stale candidates are already covered by upstream or
-chronologically earlier sibling chains, so Hathor contributes no
-chronologically novel accepted candidate under the project's first-claim
-convention. The convention is a reproducible attribution rule, not a claim
-that the earlier chain observed the event first in real time.
+Current upstream overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
 
 ## 5. References
 

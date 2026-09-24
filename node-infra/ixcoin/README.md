@@ -2,9 +2,9 @@
 
 Build `ixcoind` from `IXCore/IXCoin` at commit `8207734` (the `v0.14.1`
 release-tag commit, "Merge pull request #2 from IXCore/DocUpdate", 2018-01-30) in
-a container for AuxPoW stale-block extraction. Context: 465 accepted direct-stale
-candidates (50 chronologically novel; 478 stale-labelled before the 13-row
-exact-key error-block exclusion gate) from IXC 45,001 to tip.
+a container for AuxPoW stale-block extraction from IXC 45,001 to tip.
+See the [recovery evidence](../../docs/chains/ixcoin.md) and shared
+[novelty report](../../results/novelty.md) for current accounting.
 
 ## Why patches are needed
 

@@ -273,20 +273,9 @@ original 1,089-row addition and is retained as provenance:
 ## Upstream and chronological novelty
 
 At the time of the historical contribution, 564 accepted direct Namecoin rows
-were already present upstream and 1,061 were additions. In the pinned upstream
-dataset, all 1,641 accepted
-Namecoin direct rows are
-present, so current isolated novelty versus upstream is zero.
-
-| Current split | Rows |
-|---|---:|
-| Also in effective upstream after the error-blocks gate | 1,641 |
-| Novel versus upstream | 0 |
-| Earlier-chain attribution | 0 |
-| Chronologically novel at this position | 0 |
-
-This does not mean Namecoin contributed no recoveries. It means its accepted
-contribution has already been incorporated into the pinned upstream dataset.
+were already present upstream and 1,061 were additions. Current upstream
+overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
+Upstream absorption changes these counts without erasing the historical recovery.
 
 ## Private research boundary
 
@@ -323,8 +312,7 @@ in the strict/weak and monitor evidence artifacts.
 - `data/error-blocks/error_blocks.csv`: the consensus-invalid error-blocks
   dataset and exact-key exclusion gate, with raw coinbase scriptSig evidence.
   It is an audit record, not a self-contained AuxPoW proof.
-- `results/per-chain-novelty/namecoin.csv`: row-level upstream and chronology
-  comparison.
+- [Novelty report](../../results/novelty.md).
 - `results/monitor-evidence/namecoin_monitor_evidence.csv`: monitor-facing
   accepted and relevance-classified evidence.
 - `scripts/extract/extract_auxpow_from_blkdat.py`: public `blk*.dat` extractor.

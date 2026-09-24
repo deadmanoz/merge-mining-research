@@ -195,5 +195,5 @@ does not call the result a lifetime or full-chain survey.
 
 A future chain extension, different active chain, or refreshed source archive
 requires a new sync, exact-height normalization, classification, and relevance
-pass. The zero-row novelty CSV is expected because Doichain contributed no
-accepted direct-stale candidates.
+pass. Current upstream overlap and chronological accounting are in the
+[novelty report](../../results/novelty.md).

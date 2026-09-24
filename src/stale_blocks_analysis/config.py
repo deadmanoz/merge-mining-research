@@ -329,9 +329,8 @@ FRACTAL_CSV = VALIDATED_STALES_DIR / "fractal_validated_stales.csv"
 # 2 blocks legitimately solo-mined-without-AuxPoW). Of 169,939 commitments,
 # 167,364 (98.5%) meet only BTCV's lower aux-difficulty target — weak-share
 # submissions, especially in the Binance era post-Sep 2021. 9 stale
-# BTC blocks recovered (original run 8; the June 2026 refresh added the
-# already-upstream h=665,005) - 6 novel vs upstream, zero overlap with
-# earlier chain CSVs. After BTC h=699,616 / BTCV h=100,670 (2021-09-08),
+# BTC blocks recovered (original run 8; the June 2026 refresh added
+# h=665,005). After BTC h=699,616 / BTCV h=100,670 (2021-09-08),
 # zero additional accepted direct-stale candidates were produced despite
 # ~128k more BTCV AuxPoW blocks. Chain ID 0x0666 (1638 dec) — DO NOT confuse with
 # Emercoin's 666 dec (0x029A hex), different by an order of magnitude.
@@ -343,7 +342,7 @@ BITCOIN_VAULT_CSV = VALIDATED_STALES_DIR / "bitcoin-vault_validated_stales.csv"
 # merge-mined from its fresh 2020-12-20 genesis (nAuxpowStartHeight=1).
 # Recovered from a self-synced elcashd node; the three VALID stale parents
 # (BTC 688,349 / 693,118 / 699,616, Jun-Sep 2021) all re-observe headers
-# first-claimed by Bitcoin Vault. Real-difficulty merge-mining ran Jan 2021
+# also witnessed by Bitcoin Vault. Real-difficulty merge-mining ran Jan 2021
 # to Nov 2024 (peak Sep-Oct 2021). The full canonical-plus-stale classified
 # set lives in the private chain archive (no unknown rows).
 ELCASH_CSV = VALIDATED_STALES_DIR / "elcash_validated_stales.csv"
@@ -389,7 +388,7 @@ CANONICAL_ONLY_CHAINS = frozenset({"rod"})
 # formats use the earliest source-confirmed production evidence. An entry does
 # not by itself establish that the observed parent belongs to Bitcoin.
 #
-# Used by per-chain documentation and the chain-novelty helper to attribute
+# Used by the shared novelty report to allocate
 # "first-seen" credit when the same BTC stale appears in multiple chains'
 # validated sets. The rule: earlier-born chain has novelty precedence. This
 # is a simplifying convention for reproducible attribution — NOT a claim

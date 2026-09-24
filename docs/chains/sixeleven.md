@@ -59,9 +59,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-No row passes. The header-only
-`results/per-chain-novelty/sixeleven.csv` consequently records zero upstream or
-chronologically novel direct-stale candidates.
+No row passes the loader gate. Current novelty accounting is in the [novelty report](../../results/novelty.md).
 
 ## 3. Limitations and outputs
 
@@ -75,7 +73,7 @@ chronologically novel direct-stale candidates.
 Public artifacts:
 
 - `data/validated-stales/sixeleven_validated_stales.csv`
-- `results/per-chain-novelty/sixeleven.csv`
+- [Novelty report](../../results/novelty.md).
 - `results/monitor-evidence/sixeleven_monitor_evidence.csv`
 - `results/strict-weak-orphans/sixeleven_strict_weak_orphans.csv`
 - `node-infra/sixeleven/`

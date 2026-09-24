@@ -218,7 +218,6 @@ def test_error_block_keys_are_absent_from_committed_publication_csvs() -> None:
     excluded = load_error_block_keys()
     paths = [
         *sorted((REPO / "data" / "validated-stales").glob("*_validated_stales.csv")),
-        *sorted((REPO / "results" / "per-chain-novelty").glob("*.csv")),
         *(
             path
             for path in sorted(

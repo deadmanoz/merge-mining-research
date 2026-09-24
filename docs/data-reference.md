@@ -760,17 +760,27 @@ the underlying row-level relevance inventory
 (`results/analysis/btc-stale-relevance/btc-stale-relevance-inventory.csv`) is gitignored for
 size.
 
-## Per-chain novelty: `results/per-chain-novelty/<chain>.csv`
+## Novelty: `results/novelty.md`
 
-One row per publication-gate-accepted direct stale for a chain, written by
-`scripts/compute_chain_novelty.py`. Used by the per-chain docs.
+The [generated report](../results/novelty.md) owns current upstream overlap and
+chronological novelty for all registered chains. Run `just novelty` after a
+compact input or upstream-pin change; `just novelty-check` detects drift without
+writing. `scripts/compute_chain_novelty.py --output <path>` writes a disposable
+review copy. The former positional chain and `--no-csv` options are removed.
 
-| Column | Meaning |
-| --- | --- |
-| `btc_height` | Canonical BTC height. |
-| `btc_hash` | Stale block hash, display order. |
-| `in_upstream` | `yes` if the pair is already in `bitcoin-data/stale-blocks`, else `no`. |
-| `first_seen_chain` | The earlier-born chain that first claims this hash under the chronological-novelty convention (`CHAINS_BY_AUXPOW_ACTIVATION`), or empty if this chain is the first. This is a reproducible attribution convention, not a real-time observation claim. |
+The generator requires complete compact inputs, valid CSV schemas and a clean
+upstream clone at the declared `data-sources.tsv` pin. `STALE_BLOCKS_DIR` may
+select another clone at that same pin. Missing or mismatched inputs fail before
+replacement; nothing is fetched automatically. A header-only validated input
+is a verified zero-row result. Canonical-only chains have no validated CSV and
+are labelled separately; an unexpected file requires a registry transition.
+
+The report records the pin and a deterministic fingerprint of validated CSVs,
+the upstream CSV, the error catalogue and ordered chronology. It uses the
+existing gated loaders and exact `(height, hash)` identity. Direct-stale union
+totals exclude descendants; contribution-sidecar totals can therefore differ.
+Row-level evidence remains in the compact inputs, without a second per-chain
+novelty CSV inventory.
 
 ## Value vocabularies
 

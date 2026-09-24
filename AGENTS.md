@@ -104,6 +104,8 @@ just attribute
 just upstream-check
 just upstream-update
 just upstream-sidecar
+just novelty
+just novelty-check
 just lint
 just check-leaks
 ```
@@ -405,6 +407,13 @@ Preserve these distinctions:
 - Hash byte order must be explicit. Use the helpers in
   `stale_blocks_analysis.auxpow_chainid` instead of guessing display vs
   internal order.
+- Current novelty counts belong only in generated `results/novelty.md`. Run
+  `just novelty` after changing compact inputs or the upstream pin, and
+  `just novelty-check` to verify freshness. Other docs link to the report.
+  The generator requires complete inputs and verified upstream Git metadata;
+  canonical-only chains deliberately have no validated-stales CSV.
+  `data_source_provenance.py` shares pin and clone-state inspection with
+  attribution; failed Git inspection returns unknown state, never clean.
 - Chronological novelty follows `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
   This is a reproducible attribution convention, not a real-time observation
   claim.

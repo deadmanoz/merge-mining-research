@@ -2365,8 +2365,8 @@ def test_committed_validated_stales_match_published_stale_rows() -> None:
     else cross-checks them, which is how a regeneration can rewrite a chain's
     validated CSV and leave the publication behind: the artifacts move
     independently and every other check still passes. A mismatch here means a
-    piecemeal regeneration, which `AGENTS.md` forbids -- the loader input,
-    the novelty view and the monitor publication move together or not at all.
+    piecemeal regeneration, which `AGENTS.md` forbids: the loader input and
+    monitor publication must move together.
     """
     mismatches = {}
     for validated_path in sorted(
