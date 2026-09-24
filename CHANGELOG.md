@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Centralise novelty accounting in `results/novelty.md`, generated with
+`just novelty` and verified with `just novelty-check`. Replace per-chain CSVs
+and repeated current novelty claims with report links. Require complete compact
+inputs and a verified upstream pin, preserve the report on failure, and share
+Git provenance helpers with attribution so failed inspection stays unknown.
+
 Remove the obsolete development Monitor workspace after ownership of both
 production and development deployment moved to a separately managed deployment
 workspace. Keep this repository as a read-only source of published Research

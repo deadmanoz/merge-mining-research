@@ -219,32 +219,11 @@ def test_writer_projects_stray_working_keys_and_emits_lf_endings(tmp_path) -> No
     assert rows[1]["attribution_basis"] == "unattributed"
 
 
-def test_clone_state_reports_commit_and_dirty(tmp_path):
-    import subprocess
-
-    repo = tmp_path / "clone"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
-    (repo / "f.txt").write_text("x")
-    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "c"], cwd=repo, check=True)
-
-    state = attribution._clone_state(repo)
-    assert state is not None
-    assert len(state["commit"]) == 40 and state["dirty"] is False
-
-    (repo / "f.txt").write_text("y")
-    assert attribution._clone_state(repo)["dirty"] is True
-    assert attribution._clone_state(tmp_path / "missing") is None
-
-
 def test_write_attribution_meta_records_provenance(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        attribution, "_clone_state", lambda p: {"commit": "a" * 40, "dirty": False}
+        attribution, "clone_state", lambda p: {"commit": "a" * 40, "dirty": False}
     )
-    monkeypatch.setattr(attribution, "_pinned_ref", lambda key: "a" * 40)
+    monkeypatch.setattr(attribution, "read_pinned_ref", lambda manifest, key: "a" * 40)
     monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fingerprint")
     monkeypatch.setattr(attribution, "_stale_inputs_fingerprint", lambda: "stalefp")
     monkeypatch.setattr(attribution, "_repository_inputs_fingerprint", lambda: "repofp")
@@ -480,8 +459,8 @@ def test_sidecar_carries_the_csv_hash_so_mixed_pairs_are_detectable(
 ):
     import hashlib
 
-    monkeypatch.setattr(attribution, "_clone_state", lambda p: None)
-    monkeypatch.setattr(attribution, "_pinned_ref", lambda key: None)
+    monkeypatch.setattr(attribution, "clone_state", lambda p: None)
+    monkeypatch.setattr(attribution, "read_pinned_ref", lambda manifest, key: None)
     monkeypatch.setattr(attribution, "pool_dataset_fingerprint", lambda: "fp")
     monkeypatch.setattr(attribution, "_stale_inputs_fingerprint", lambda: "sfp")
     monkeypatch.setattr(attribution, "_repository_inputs_fingerprint", lambda: "rfp")
@@ -669,3 +648,14 @@ def test_an_unverifiable_archive_is_reported_as_partial(monkeypatch):
         assert archive["missing"] == 0
         assert archive["rejected"] == 0
         assert archive["partial"] is True
+
+
+def test_unknown_registry_state_warns(tmp_path, capsys):
+    import json
+
+    meta = tmp_path / "meta.json"
+    meta.write_text(
+        json.dumps({"mining_pools": {"pinned_ref": "a" * 40, "state": None}})
+    )
+    attribution._warn_on_unpinned_registry(meta)
+    assert "Git metadata unavailable" in capsys.readouterr().err

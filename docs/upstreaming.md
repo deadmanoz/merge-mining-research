@@ -132,7 +132,7 @@ overlay is retired. This change does not update a Monitor pin or deploy it.
    and merged header fills disappear the same way once the upstream row
    carries its header.
 6. Regenerate every result whose membership or ownership depends on the
-   upstream baseline. At minimum this means the per-chain novelty CSVs and
-   their cited documentation. If the known-stale set changed and the private
-   classifier inventories are available, rerun unknown-stale ancestry and its
+   upstream baseline. Run `just novelty` to refresh the shared report;
+   current novelty figures are not copied into other documentation. If the
+   known-stale set changed and the private classifier inventories are available, rerun unknown-stale ancestry and its
    dependent relevance and monitor-evidence exports as well.

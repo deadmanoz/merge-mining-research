@@ -32,6 +32,14 @@ refresh-bitcoin-epoch-reference *ARGS:
 upstream-sidecar:
     {{python}} scripts/reports/build_upstream_stale_sidecar.py
 
+# Generate the single all-chain novelty report from pinned compact inputs.
+novelty *ARGS:
+    {{python}} scripts/compute_chain_novelty.py {{ARGS}}
+
+# Verify the committed report without writing.
+novelty-check:
+    {{python}} scripts/compute_chain_novelty.py --check
+
 # ── AuxPoW evidence exports ─────────────────────────────────────────────
 
 # Qbit acquisition is private and requires an explicit native endpoint.

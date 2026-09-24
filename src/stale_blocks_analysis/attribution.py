@@ -67,6 +67,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import stale_blocks as _stale_loaders
+from .data_source_provenance import clone_state, read_pinned_ref
 from .config import (
     CANONICAL_ONLY_CHAINS,
     ACCEPTED_STALE_VALIDATION_STATUSES,
@@ -440,17 +441,21 @@ def _capture_provenance(allow_partial: bool, rejected: int = 0) -> dict:
     )
     return {
         "mining_pools": {
-            "pinned_ref": _pinned_ref("mining-pools"),
-            "state": _clone_state(LOCAL_MINING_POOLS_DIR),
+            "pinned_ref": read_pinned_ref(
+                PROJECT_ROOT / "data-sources.tsv", "mining-pools"
+            ),
+            "state": clone_state(LOCAL_MINING_POOLS_DIR),
             "dataset_fingerprint": pool_dataset_fingerprint(),
         },
         "repository": {
-            "state": _clone_state(PROJECT_ROOT),
+            "state": clone_state(PROJECT_ROOT),
             "input_fingerprint": _repository_inputs_fingerprint(),
         },
         "stale_blocks": {
-            "pinned_ref": _pinned_ref("stale-blocks"),
-            "state": _clone_state(STALE_DIR),
+            "pinned_ref": read_pinned_ref(
+                PROJECT_ROOT / "data-sources.tsv", "stale-blocks"
+            ),
+            "state": clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
             "archive": {
                 # An empty tracked inventory proves nothing about what
@@ -634,36 +639,6 @@ def _stale_inputs_fingerprint() -> str:
     return h.hexdigest()
 
 
-def _clone_state(path: Path) -> dict | None:
-    """Commit and dirty state of a fetched clone; None when absent/not git."""
-    if not (path / ".git").exists():
-        return None
-
-    def _git(*args: str) -> str | None:
-        proc = subprocess.run(
-            ["git", "-C", str(path), *args], capture_output=True, text=True
-        )
-        return proc.stdout.strip() if proc.returncode == 0 else None
-
-    commit = _git("rev-parse", "HEAD")
-    status = _git("status", "--porcelain")
-    return {"commit": commit, "dirty": bool(status)}
-
-
-def _pinned_ref(key: str) -> str | None:
-    """The commit pinned for *key* in the committed data-sources.tsv."""
-    manifest = PROJECT_ROOT / "data-sources.tsv"
-    if not manifest.exists():
-        return None
-    for line in manifest.read_text().splitlines():
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split("\t")
-        if len(fields) == 4 and fields[0] == key:
-            return fields[2]
-    return None
-
-
 def write_attribution_meta(
     stale: list[dict],
     csv_path: Path,
@@ -718,7 +693,7 @@ def _warn_on_unpinned_registry(meta_path: Path) -> None:
     pin = pools.get("pinned_ref")
     if state is None:
         print(
-            "WARNING: mining-pools clone not found or not a git checkout; "
+            "WARNING: mining-pools clone absent or Git metadata unavailable; "
             "labels are not traceable to the committed pin.",
             file=sys.stderr,
         )

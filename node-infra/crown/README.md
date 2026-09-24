@@ -1,10 +1,11 @@
 # crownd on `<archival-host>` (Docker)
 
 Build `crownd` v0.14.0.4 in a container for AuxPoW stale-block extraction.
-See `../../docs/chains/crown.md` for recovery details.
+See [recovery details](../../docs/chains/crown.md) and the shared
+[novelty report](../../results/novelty.md).
 
 Crown is an integrated stale-output chain: the recovery yielded 23 validated
-BTC stales (5 chronologically novel, 11 new-to-upstream) over the CRW
+BTC stales over the CRW
 453,273 → ~2,330,000 PoW merge-mined era. It was previously a deferred
 candidate - every DNS seed and the hardcoded bootstrap were unreachable - and
 was un-deferred via a Wayback harvest of `monitor.crownplatform.com` that

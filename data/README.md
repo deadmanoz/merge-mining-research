@@ -183,11 +183,11 @@ repository.
 
 If you already have a clone of the data repository somewhere else, point the
 analysis at it via the `STALE_BLOCKS_DIR` environment variable. For example,
-this prints Namecoin novelty without rewriting its committed result:
+this checks the shared novelty report without rewriting it:
 
 ```bash
 STALE_BLOCKS_DIR=/path/to/stale-blocks \
-  python scripts/compute_chain_novelty.py namecoin --no-csv
+  just novelty-check
 ```
 
 The same variable is respected by `scripts/fetch-data.sh`.

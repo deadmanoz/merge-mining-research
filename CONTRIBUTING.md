@@ -103,8 +103,9 @@ When code changes affect a published claim, update the corresponding data and do
 in the same change, or call out what still needs regeneration. For an integrated
 chain that typically means keeping these in sync: `src/stale_blocks_analysis/config.py`,
 `src/stale_blocks_analysis/stale_blocks.py`, `docs/chains/<chain>.md`,
-`docs/auxpow-recovery.md`, `docs/process-data-outcomes.md`, the per-chain novelty
-CSV, the upstream sidecar, `README.md`, and the tests under `tests/`.
+`docs/auxpow-recovery.md`, `docs/process-data-outcomes.md`, the shared
+[novelty report](results/novelty.md) (`just novelty`), the upstream sidecar,
+`README.md`, and the tests under `tests/`.
 
 See `AGENTS.md` for the full set of repository conventions (research semantics,
 code conventions, validation expectations) and `docs/upstreaming.md` for the rules

@@ -19,7 +19,7 @@ campaign that produced them:
 Most row-level diagnostics depend on private full classifier inventories and
 can be large, so they are regenerated or retained in the private chain archive
 rather than committed. Compact public inputs and final outputs remain under
-`data/`, `results/per-chain-novelty/`, `results/strict-weak-orphans/`, and
+`data/`, the [novelty report](../novelty.md), `results/strict-weak-orphans/`, and
 `results/monitor-evidence/`.
 
 These diagnostics do not upgrade `validation_status=VALID` into a full Bitcoin

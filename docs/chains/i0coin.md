@@ -151,16 +151,7 @@ promote an unanchored parent to an accepted direct stale.
 
 ### Novelty
 
-`results/per-chain-novelty/i0coin.csv` compares the 191 accepted observations
-with the exact upstream pin in `data-sources.tsv`. **140 are already upstream
-and 51 are absent upstream**. Under the project's earlier-chain precedence
-rule, all 51 are first-claimed by I0coin. Namecoin also observes 107 of the
-191 headers, overlapping the upstream-known set.
-
-The additional I0coin witnesses change some later chains' chronological
-attribution, but every added header was already known elsewhere in this
-project. Earlier-chain precedence is a reproducible attribution convention,
-not a claim about the order in which miners actually saw a stale block.
+Current upstream overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
 
 ## 4. Reproducible artifacts
 
@@ -168,6 +159,6 @@ The private run retains the raw archive and block-file hashes, original
 extraction, full classifier inventory and splits, full serialized witnesses,
 independent audit scripts and receipts, genesis-linked heights, complete
 source selection, unknown relevance assessment and full-evidence exports.
-The public interfaces are the validated loader CSV, per-chain novelty CSV,
+The public interfaces are the validated loader CSV, shared novelty report,
 Monitor evidence and counts, error catalogue and witness ledger, and derived
 upstream contribution sidecars. Regeneration uses the normal complete-input publication gates.

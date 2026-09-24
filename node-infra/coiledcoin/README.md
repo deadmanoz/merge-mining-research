@@ -5,8 +5,8 @@ commit on the upstream repo, "Add checkpoint at block 438,000") in a
 container, for cross-confirmation of AuxPoW stale blocks against ixcoin and
 devcoin recovery.
 
-See `../../docs/chains/coiledcoin.md` for recovery details - 27 stales,
-zero novel (full overlap with ixcoin + devcoin); retained as cross-evidence.
+See [recovery details](../../docs/chains/coiledcoin.md) for the cross-chain
+evidence and the [novelty report](../../results/novelty.md) for current accounting.
 
 ## Why the unusual base image and fetched Berkeley DB tarball
 

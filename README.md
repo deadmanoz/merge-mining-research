@@ -108,7 +108,9 @@ The recovery pipeline runs per sibling chain:
 The committed chain inputs hold 3,794 accepted direct observations covering
 2,151 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
-[`docs/process-data-outcomes.md`](docs/process-data-outcomes.md).
+[`docs/process-data-outcomes.md`](docs/process-data-outcomes.md). Current upstream
+overlap and chronological allocation live in the [novelty report](results/novelty.md);
+run `just novelty` to regenerate it or `just novelty-check` to verify it.
 
 ## Child-chain coverage
 
@@ -260,7 +262,7 @@ is not an input to stale-block recovery or the committed loader datasets.
 ├── results/                    # committed reference CSVs and final exports
 │   ├── monitor-evidence/       #   Git LFS-backed per-chain payloads + metadata
 │   ├── analysis/               #   regenerable diagnostics grouped by question
-│   ├── per-chain-novelty/      #   row-level upstream and chronological novelty
+│   ├── novelty.md             #   generated upstream and chronological novelty report
 │   ├── strict-weak-orphans/    #   strict/weak BTC-orphan relevance outputs
 │   ├── child-header-coverage.csv # authenticated historical refresh coverage
 │   └── rsk_pool_registry.csv   # historical RSK miner-address label snapshot

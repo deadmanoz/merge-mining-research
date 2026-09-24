@@ -60,9 +60,7 @@ classification == "stale" and validation_status in {
 }
 ```
 
-No row passes. The header-only
-`results/per-chain-novelty/lyncoin.csv` consequently records zero upstream or
-chronologically novel direct-stale candidates.
+No row passes the loader gate. Current novelty accounting is in the [novelty report](../../results/novelty.md).
 
 ## 3. Limitations and outputs
 
@@ -78,7 +76,7 @@ chronologically novel direct-stale candidates.
 Public artifacts:
 
 - `data/validated-stales/lyncoin_validated_stales.csv`
-- `results/per-chain-novelty/lyncoin.csv`
+- [Novelty report](../../results/novelty.md).
 - `results/monitor-evidence/lyncoin_monitor_evidence.csv`
 - `results/strict-weak-orphans/lyncoin_strict_weak_orphans.csv`
 - `node-infra/lyncoin/p2p-capture-manifest.json`
