@@ -118,9 +118,13 @@ RPC read, private listeners, advancing height, memory/disk use and one scoped
 restart. The live profile defaults to no automatic restart during acceptance.
 After these checks pass, set `TERRACOIN_RESTART_POLICY=unless-stopped` in the
 private environment and run `just adopt` again, then verify the container's
-effective restart policy. The live overlay bounds CPU, memory, processes and container logs;
+effective restart policy. The live overlay bounds CPU, memory, processes and
+container logs;
 retain startup and cutover receipts outside the mutable datadir.
 
 The collector uses boolean `getblock HASH false`, chain ID 50 and activation
-height 833,000. Continuous capture and historical backfill use the same raw
-proof path. Node tip alone does not establish extraction completeness.
+height 833,000. Historical coverage comes from the Research publication, whose
+extraction records its scanned interval (see `docs/chains/terracoin.md`). Live
+capture continues from the regenerated publication's proven coverage tip with
+a 64-block overlap; bounded Monitor backfill is a repair tool, not the
+recovery path. Node tip alone does not establish extraction completeness.
