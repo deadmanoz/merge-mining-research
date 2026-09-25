@@ -60,6 +60,8 @@ Override with env vars: `RPCUSER=xxx RPCPASSWORD=yyy just init`.
 
 - `Dockerfile` - multi-stage build of terracoind from source at `v0.12.2.5`
 - `docker-compose.yml` - runtime (volumes, ports, healthcheck)
+- `compose.offline.yml` - network-isolated validation of retained state
+- `compose.live.yml` - private RPC and bounded continuous operation after acceptance
 - `bootstrap.sh` - idempotent data-dir prep (download, verify, render config)
 - `peers.list` - verified-reachable peers from the Chainz nodes API; refresh
   with `just refresh-peers` if peers drift
@@ -89,3 +91,40 @@ The datadir must already contain its existing `terracoin.conf`; do not run
 never`, then use `just height`, verify the recorded historical block anchors, and run
 `just stop`. It disables P2P and keeps RPC on the configured/default loopback
 port. For a new sync, create `./data` explicitly before running `just init`.
+
+## Continuous live operation
+
+Use `compose.live.yml` for an already verified mainnet datadir. Preserve a
+cold checkpoint and verify independent backup before adoption. This profile
+omits bootstrap import and uses the retained image; do not run `init`,
+reindex or rebuild an adopted node. Confirm genesis
+`00000000804bbc6a621a9dbb564ce469f492e1ccf2d70f8a6b241e26a277afa2`,
+read historical anchors and verify zero peers in the offline profile first.
+
+Select the image digest, existing datadir and unique container name in the
+private environment. Set `COMPOSE_FILE=docker-compose.yml:compose.live.yml`,
+`TERRACOIN_RPC_BIND` to the private interface address and
+`TERRACOIN_RPC_CLIENT` to the collector address. Credentials stay in the
+mode-600 node configuration. Keep RPC off public interfaces. Preserve the
+wallet-disabled image. Remove obsolete bind/allow/connect directives from a
+backed-up runtime config, and add verified reachable peers as `addnode`
+entries; the committed peer list is a discovery input, not proof of reachability.
+
+Stop the offline container gracefully before `just adopt`. Never let two
+containers open the same datadir. Use `just test` to validate the overlay.
+Order the host Docker runtime after the data mount and private network
+interface before enabling automatic restart. Verify an authenticated remote
+RPC read, private listeners, advancing height, memory/disk use and one scoped
+restart. The live profile defaults to no automatic restart during acceptance.
+After these checks pass, set `TERRACOIN_RESTART_POLICY=unless-stopped` in the
+private environment and run `just adopt` again, then verify the container's
+effective restart policy. The live overlay bounds CPU, memory, processes and
+container logs;
+retain startup and cutover receipts outside the mutable datadir.
+
+The collector uses boolean `getblock HASH false`, chain ID 50 and activation
+height 833,000. Historical coverage comes from the Research publication, whose
+extraction records its scanned interval (see `docs/chains/terracoin.md`). Live
+capture continues from the regenerated publication's proven coverage tip with
+a 64-block overlap; bounded Monitor backfill is a repair tool, not the
+recovery path. Node tip alone does not establish extraction completeness.

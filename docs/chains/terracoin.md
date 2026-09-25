@@ -41,7 +41,7 @@ Terracoin is the **only Dash-Core-derived chain** in scope (RSK, Elastos, and Ha
 - `scripts/classify/classify_terracoin_stales.py:1` - BTC RPC batch classifier.
 - `python scripts/classify/classify_stales.py --chain terracoin` - the shared thin-classifier entry point; the wrapper above delegates to it.
 - `just novelty` - regenerate the shared [novelty report](../../results/novelty.md).
-- `node-infra/terracoin/{Dockerfile,docker-compose.yml,justfile,README.md}` - build infrastructure.
+- `node-infra/terracoin/{Dockerfile,docker-compose.yml,compose.offline.yml,compose.live.yml,justfile,README.md}` - build infrastructure and retained-state offline/live profiles.
 
 ## 2. Extraction → potential stales
 
@@ -142,7 +142,7 @@ archive.
 - [Novelty report](../../results/novelty.md).
 - Private unknown-origin diagnostics include the per-row H1/H2 evidence and
   the 22 Namecoin-cross-confirmed roots.
-- `node-infra/terracoin/{Dockerfile,docker-compose.yml,justfile,README.md}` - build infrastructure.
+- `node-infra/terracoin/{Dockerfile,docker-compose.yml,compose.offline.yml,compose.live.yml,justfile,README.md}` - build infrastructure and retained-state offline/live profiles.
 
 **External references.**
 
