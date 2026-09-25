@@ -15,6 +15,7 @@ the real profiles and require the policy assertions to reject them; the
 committed profiles themselves are never modified.
 """
 
+import functools
 import json
 import os
 import shutil
@@ -165,15 +166,44 @@ def _mutated_profile(tmp_path, files, filename, old, new):
 # ── Shared policy assertions ──────────────────────────────────────────────
 
 
+@functools.cache
+def rendered_create_host_path(create_host_path):
+    """How this renderer writes a bind declared with an explicit value.
+
+    Compose versions disagree on which value they omit: newer renderers
+    normalize the permissive default (true) away and print an explicit false,
+    while older ones (v2.38 in CI) omit false and print true. Rendering a probe
+    lets the policy check compare like with like on either kind.
+    """
+    value = "true" if create_host_path else "false"
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = Path(tmp) / "docker-compose.yml"
+        probe.write_text(
+            "services:\n"
+            "  probe:\n"
+            "    image: busybox\n"
+            "    volumes:\n"
+            "      - type: bind\n"
+            "        source: /srv/mmr-compose-policy-test/probe\n"
+            "        target: /data\n"
+            "        bind:\n"
+            f"          create_host_path: {value}\n"
+        )
+        service = render_service([probe], {}, "probe")
+    return service["volumes"][0].get("bind", {}).get("create_host_path")
+
+
 def assert_retained_bind_noncreating(service, datadir_target):
     volumes = [v for v in service.get("volumes", []) if v["target"] == datadir_target]
     assert len(volumes) == 1, "exactly one retained datadir bind is expected"
     volume = volumes[0]
     assert volume["type"] == "bind"
     assert volume["target"] == datadir_target
-    # Compose normalizes the permissive default away, so a missing key or a
-    # true value both violate the noncreating-bind policy.
-    assert volume.get("bind", {}).get("create_host_path") is False
+    noncreating = rendered_create_host_path(False)
+    assert noncreating != rendered_create_host_path(True), (
+        "the Compose renderer cannot distinguish creating and noncreating binds"
+    )
+    assert volume.get("bind", {}).get("create_host_path") == noncreating
 
 
 def assert_default_restart_disabled(service):
