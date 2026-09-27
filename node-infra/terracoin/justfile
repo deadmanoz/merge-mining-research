@@ -22,7 +22,7 @@ adopt:
     docker compose up -d --no-build --pull never
 
 # Validate the selected profile without printing resolved credentials.
-test:
+config:
     docker compose config --quiet
 
 # Stop the retained terracoind container and wait for graceful shutdown.

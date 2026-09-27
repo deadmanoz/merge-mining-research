@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -63,33 +64,73 @@ FRACTAL_OFFLINE = [
     FRACTAL_DIR / "compose.offline.yml",
 ]
 
-FOUR_PROFILES = [
-    (
-        "terracoin-offline",
-        TERRACOIN_OFFLINE,
-        TERRACOIN_ENV,
-        "terracoind",
-        TERRACOIN_DATADIR,
-    ),
-    (
-        "terracoin-live",
-        TERRACOIN_LIVE,
-        TERRACOIN_LIVE_ENV,
-        "terracoind",
-        TERRACOIN_DATADIR,
-    ),
-    ("fractal-base", FRACTAL_BASE, FRACTAL_ENV, "fractald", FRACTAL_DATADIR),
-    ("fractal-offline", FRACTAL_OFFLINE, FRACTAL_ENV, "fractald", FRACTAL_DATADIR),
-]
 
-_renderer_checked = False
+class RetainedProfile(NamedTuple):
+    """A retained-state profile combination and the datadir bind it must keep."""
+
+    files: list
+    env_vars: dict
+    service_name: str
+    datadir: str
+    data_dir_var: str
+
+    def service(self):
+        return render_service(self.files, self.env_vars, self.service_name)
 
 
+retained_profiles = pytest.mark.parametrize(
+    "profile",
+    [
+        pytest.param(
+            RetainedProfile(
+                TERRACOIN_OFFLINE,
+                TERRACOIN_ENV,
+                "terracoind",
+                TERRACOIN_DATADIR,
+                "TERRACOIN_DATA_DIR",
+            ),
+            id="terracoin-offline",
+        ),
+        pytest.param(
+            RetainedProfile(
+                TERRACOIN_LIVE,
+                TERRACOIN_LIVE_ENV,
+                "terracoind",
+                TERRACOIN_DATADIR,
+                "TERRACOIN_DATA_DIR",
+            ),
+            id="terracoin-live",
+        ),
+        pytest.param(
+            RetainedProfile(
+                FRACTAL_BASE,
+                FRACTAL_ENV,
+                "fractald",
+                FRACTAL_DATADIR,
+                "FRACTAL_DATA_DIR",
+            ),
+            id="fractal-base",
+        ),
+        pytest.param(
+            RetainedProfile(
+                FRACTAL_OFFLINE,
+                FRACTAL_ENV,
+                "fractald",
+                FRACTAL_DATADIR,
+                "FRACTAL_DATA_DIR",
+            ),
+            id="fractal-offline",
+        ),
+    ],
+)
+
+
+@functools.cache
 def _require_renderer():
-    """Fail loudly when the Docker Compose CLI cannot render configs."""
-    global _renderer_checked
-    if _renderer_checked:
-        return
+    """Fail loudly when the Docker Compose CLI cannot render configs.
+
+    A raised error is not cached, so every render keeps failing loudly.
+    """
     if shutil.which("docker") is None:
         raise RuntimeError(
             "docker is not on PATH: the node-infra Compose policy tests require "
@@ -106,11 +147,10 @@ def _require_renderer():
             "docker compose is unavailable: the node-infra Compose policy tests "
             f"require the Compose CLI: {result.stderr.strip()}"
         )
-    _renderer_checked = True
 
 
 def render(files, env_vars):
-    """Render the ordered Compose files and return the parsed JSON model."""
+    """Render the ordered Compose files and return the completed process."""
     _require_renderer()
     with tempfile.TemporaryDirectory() as tmp:
         empty_env = Path(tmp) / "empty.env"
@@ -194,16 +234,17 @@ def rendered_create_host_path(create_host_path):
 
 
 def assert_retained_bind_noncreating(service, datadir_target):
+    """Assert the single datadir bind is noncreating and return it."""
     volumes = [v for v in service.get("volumes", []) if v["target"] == datadir_target]
     assert len(volumes) == 1, "exactly one retained datadir bind is expected"
     volume = volumes[0]
     assert volume["type"] == "bind"
-    assert volume["target"] == datadir_target
     noncreating = rendered_create_host_path(False)
     assert noncreating != rendered_create_host_path(True), (
         "the Compose renderer cannot distinguish creating and noncreating binds"
     )
     assert volume.get("bind", {}).get("create_host_path") == noncreating
+    return volume
 
 
 def assert_default_restart_disabled(service):
@@ -245,43 +286,25 @@ def assert_rpc_port_loopback(service, rpc_port):
 # ── Shared retained-state rules across all four profiles ──────────────────
 
 
-@pytest.mark.parametrize(
-    "profile,files,env_vars,service_name,datadir",
-    FOUR_PROFILES,
-    ids=[p[0] for p in FOUR_PROFILES],
-)
-def test_retained_bind_is_noncreating(profile, files, env_vars, service_name, datadir):
-    service = render_service(files, env_vars, service_name)
-    assert_retained_bind_noncreating(service, datadir)
-    bind = next(v for v in service["volumes"] if v["target"] == datadir)
-    assert (
-        bind["source"]
-        == env_vars[
-            "TERRACOIN_DATA_DIR" if service_name == "terracoind" else "FRACTAL_DATA_DIR"
-        ]
-    )
+@retained_profiles
+def test_retained_bind_is_noncreating(profile):
+    service = profile.service()
+    bind = assert_retained_bind_noncreating(service, profile.datadir)
+    assert bind["source"] == profile.env_vars[profile.data_dir_var]
     assert service["image"], "profiles select the retained image"
 
 
-@pytest.mark.parametrize(
-    "profile,files,env_vars,service_name,datadir",
-    FOUR_PROFILES,
-    ids=[p[0] for p in FOUR_PROFILES],
-)
-def test_default_restart_is_disabled(profile, files, env_vars, service_name, datadir):
-    assert_default_restart_disabled(render_service(files, env_vars, service_name))
+@retained_profiles
+def test_default_restart_is_disabled(profile):
+    assert_default_restart_disabled(profile.service())
 
 
-@pytest.mark.parametrize(
-    "profile,files,env_vars,service_name,datadir",
-    FOUR_PROFILES,
-    ids=[p[0] for p in FOUR_PROFILES],
-)
-def test_foreground_datadir_command(profile, files, env_vars, service_name, datadir):
-    command = render_service(files, env_vars, service_name)["command"]
+@retained_profiles
+def test_foreground_datadir_command(profile):
+    command = profile.service()["command"]
     assert isinstance(command, list), "command stays an argument array"
     assert "-daemon=0" in command
-    assert f"-datadir={datadir}" in command
+    assert f"-datadir={profile.datadir}" in command
 
 
 # ── Terracoin offline profile ─────────────────────────────────────────────
@@ -311,6 +334,7 @@ def test_terracoin_live_rpc_scoping_and_resource_limits():
     assert f"-rpcallowip={RPC_CLIENT}" in command
     assert "-rpcport=13332" in command
     assert "-printtoconsole" in command
+    assert "-connect=0" not in command, "the live profile keeps outbound peers"
     assert_rpc_loopback_only(command, extra_peers=(RPC_BIND, RPC_CLIENT))
     assert_no_bootstrap_import(command)
     assert_live_resource_limits(service)
@@ -320,16 +344,12 @@ def test_terracoin_live_rpc_scoping_and_resource_limits():
     assert logging["options"]["max-file"] == "3"
 
 
-def test_terracoin_live_missing_required_params_fail():
-    env = {k: v for k, v in TERRACOIN_LIVE_ENV.items() if k != "TERRACOIN_RPC_BIND"}
+@pytest.mark.parametrize("missing", ["TERRACOIN_RPC_BIND", "TERRACOIN_RPC_CLIENT"])
+def test_terracoin_live_missing_required_params_fail(missing):
+    env = {k: v for k, v in TERRACOIN_LIVE_ENV.items() if k != missing}
     result = render(TERRACOIN_LIVE, env)
     assert result.returncode != 0
-    assert "TERRACOIN_RPC_BIND" in result.stderr
-
-    env = {k: v for k, v in TERRACOIN_LIVE_ENV.items() if k != "TERRACOIN_RPC_CLIENT"}
-    result = render(TERRACOIN_LIVE, env)
-    assert result.returncode != 0
-    assert "TERRACOIN_RPC_CLIENT" in result.stderr
+    assert missing in result.stderr
 
 
 def test_terracoin_live_explicit_restart_override():
@@ -379,23 +399,6 @@ def test_fractal_explicit_restart_override():
         "fractald",
     )
     assert service["restart"] == "unless-stopped"
-
-
-# ── Profile differences that must be preserved ────────────────────────────
-
-
-def test_offline_network_modes_differ_by_chain():
-    terracoin = render_service(TERRACOIN_OFFLINE, TERRACOIN_ENV, "terracoind")
-    fractal = render_service(FRACTAL_OFFLINE, FRACTAL_ENV, "fractald")
-    assert terracoin["network_mode"] == "host"
-    assert fractal["network_mode"] == "none"
-
-
-def test_live_keeps_outbound_peers_unlike_offline():
-    live = render_service(TERRACOIN_LIVE, TERRACOIN_LIVE_ENV, "terracoind")
-    offline = render_service(TERRACOIN_OFFLINE, TERRACOIN_ENV, "terracoind")
-    assert "-connect=0" not in live["command"]
-    assert "-connect=0" in offline["command"]
 
 
 # ── Unsafe mutations must fail the policy assertions ──────────────────────

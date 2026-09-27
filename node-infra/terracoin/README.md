@@ -111,7 +111,7 @@ backed-up runtime config, and add verified reachable peers as `addnode`
 entries; the committed peer list is a discovery input, not proof of reachability.
 
 Stop the offline container gracefully before `just adopt`. Never let two
-containers open the same datadir. Use `just test` to validate the overlay.
+containers open the same datadir. Use `just config` to validate the overlay.
 Order the host Docker runtime after the data mount and private network
 interface before enabling automatic restart. Verify an authenticated remote
 RPC read, private listeners, advancing height, memory/disk use and one scoped
