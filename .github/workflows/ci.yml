@@ -51,6 +51,12 @@ jobs:
       - name: Fetch pinned public datasets
         run: bash scripts/fetch-data.sh
 
+      # The node-infra Compose policy tests render real profiles with
+      # `docker compose config`; verify the renderer explicitly so the
+      # coverage fails loudly rather than silently degrading.
+      - name: Verify Compose renderer for node-infra policy tests
+        run: docker compose version
+
       - name: Test without LFS publication payloads
         run: python -m pytest tests/ -m "not dataset"
 

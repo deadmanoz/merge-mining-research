@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Add a private live Terracoin node profile for verified retained state, with
+bounded resources, no bootstrap import, and restart disabled by default until
+the node is accepted.
+
+Add maintained render-only Compose policy tests, run by `just test-node-infra`
+and the default pytest suite, for the Terracoin offline and live profiles and
+the Fractal base and offline profiles. They check noncreating retained binds,
+the disabled default restart, offline port resets and isolation flags, the
+omitted bootstrap import, live RPC scoping and resource limits,
+required-variable failures, and rejection of mutated profiles. The Docker
+Compose CLI becomes a test prerequisite, verified explicitly in CI.
+
 Centralise novelty accounting in `results/novelty.md`, generated with
 `just novelty` and verified with `just novelty-check`. Replace per-chain CSVs
 and repeated current novelty claims with report links. Require complete compact

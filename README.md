@@ -304,6 +304,13 @@ Git LFS, a checkout contains pointer files instead of the evidence payloads.
 run from that pointer-only checkout. `just test-dataset`, and therefore
 `just test`, requires the payloads to be materialized first.
 
+The node-infra Compose policy tests (`tests/test_node_infra_compose.py`, part
+of the default pytest suite) require the Docker Compose CLI. They only render
+the committed Terracoin/Fractal profiles with `docker compose config`. They
+never start containers, build or pull images, or contact a node, and fail
+loudly when the renderer is unavailable. Run them alone with
+`just test-node-infra`.
+
 `fetch-data.sh` checks out `bitcoin-data/stale-blocks` at the exact commit
 pinned in [`data-sources.tsv`](data-sources.tsv), so stale-block membership and
 novelty results are reproducible. Run `just upstream-check` to compare the pin
@@ -325,6 +332,7 @@ just lint
 just test
 just test-unit
 just test-dataset
+just test-node-infra
 just upstream-check
 just refresh-bitcoin-epoch-reference
 just full-evidence

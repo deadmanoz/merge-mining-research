@@ -1,0 +1,27 @@
+# Adopt an authenticated, populated datadir without replaying bootstrap.dat.
+# Linux host networking: RPC binds only loopback and the selected private IP.
+services:
+  terracoind:
+    network_mode: host
+    ports: !reset []
+    restart: ${TERRACOIN_RESTART_POLICY:-no}
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+    command:
+      - "-datadir=/home/terracoin/.terracoincore"
+      - "-daemon=0"
+      - "-server=1"
+      - "-printtoconsole"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-rpcbind=127.0.0.1"
+      - "-rpcbind=${TERRACOIN_RPC_BIND:?set a private RPC bind address}"
+      - "-rpcallowip=127.0.0.1"
+      - "-rpcallowip=${TERRACOIN_RPC_CLIENT:?set the collector private IP}"
+      - "-rpcport=13332"

@@ -57,6 +57,13 @@ full local test run must materialize the Git LFS payloads first. CI runs the
 remaining tests across the Python matrix without LFS and runs the publication
 dataset checks once with the payloads materialized.
 
+The node-infra Compose policy tests (`tests/test_node_infra_compose.py`, part
+of the default pytest suite) require the Docker Compose CLI. They only render
+the committed Terracoin/Fractal profiles with `docker compose config`. They never
+start containers, build or pull images, or contact a node, and
+fail loudly when the renderer is unavailable. Run them alone with
+`just test-node-infra`; CI verifies the renderer explicitly before the suite.
+
 The development install includes pytest and Ruff. The core install
 (`pip install -e .`) covers the acquisition/recovery pipeline when development
 checks are not needed.
@@ -93,6 +100,7 @@ just test
 just test-unit
 just test-dataset
 just test-markers
+just test-node-infra
 just validate-coinbase-outputs
 just full-evidence
 just child-header-coverage
@@ -464,6 +472,7 @@ when behavior crosses module boundaries.
 - Parser, loader, or helper change: run the relevant `python -m pytest ...`
   target under `tests/`.
 - Coinbase marker registry change: run `just test-markers`.
+- Compose profile change under `node-infra/`: run `just test-node-infra`.
 - Chain classifier or extraction change: run focused script-level checks and
   any chain-specific tests. If committed loader inputs change, regenerate the
   dependent novelty or recovery outputs that the docs cite.
@@ -579,10 +588,15 @@ Terracoin and Unobtanium also support an explicit `compose.offline.yml` overlay 
 image/datadir selections. Adopt preserved data with the verified existing
 image first, without rebuilding, reindexing, loading bootstrap files or
 running an initialization recipe. Validate tip and historical block reads,
-then stop the retained container. Automatic restart is disabled; ordinary
-online configurations remain available for explicit use. Check each
+then stop the retained container. Automatic restart defaults to disabled;
+ordinary online configurations remain available for explicit use. Check each
 workspace's README rather than assuming every historical node has identical
 flags, credentials or RPC ports.
+Terracoin also has a private `compose.live.yml` overlay for verified populated
+state. It omits bootstrap loading, requires private RPC bind and client
+selections, and stays separate from the offline research profile. Set
+`TERRACOIN_RESTART_POLICY=unless-stopped` only after live acceptance and host
+startup ordering are verified; the live profile defaults to no restart.
 Bitmark's legacy daemon ignores `rpcbind`; any `rpcallowip` selects wildcard
 listening. Its offline profile relies on omitting both and removing both
 from the copied config so only IPv4/IPv6 loopback sockets are opened.

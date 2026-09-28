@@ -29,6 +29,11 @@ provides a view of storage, locations, verified transfers and research gaps.
 Its source, Docker image recipe and read-only collector now live in that
 repository; `archive-dashboard/` here is only a pointer.
 
+Terracoin also supports `terracoin/compose.live.yml` for continuous operation
+of verified retained state, private RPC and bounded resources. Its restart
+policy remains disabled until acceptance; follow the Terracoin workspace
+README before setting `TERRACOIN_RESTART_POLICY=unless-stopped`.
+
 Argentum, Bitmark, Crown, Devcoin, Doichain, Elcash, Emercoin, IXCoin,
 Myriadcoin, Terracoin and Unobtanium have `compose.offline.yml` overlays for reading preserved
 datadirs on Linux with peer connections disabled and RPC on loopback. Use
