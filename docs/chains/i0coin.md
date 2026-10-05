@@ -137,16 +137,24 @@ stale and orphan publication despite appearing in the classifier's unknown
 bucket. The directly classified BIP66 failure at **367,047** was already
 catalogued. Its existing child witness height is corrected from 1,546,542
 to **1,546,541**, independently confirmed by counting links to genesis.
-No new invalid Bitcoin parent was discovered. The error module now records
-three I0coin witnesses, with complete coinbase evidence retained.
+No new invalid Bitcoin parent was discovered in that September scan. It
+recorded three I0coin error witnesses, with complete coinbase evidence retained.
+The Kraft ancestry review adds three retained I0coin witnesses of the invalid
+BIP66 fork at Bitcoin 363,733, 363,735 and 363,736; the error ledger now holds
+six I0coin events. Their child heights are authenticated by the retained
+genesis-linked audit. Original source classifications remain unchanged.
 
-The normalized private full-evidence export contains **189,649** observations
-after excluding those three catalogued invalid parents: 27,661 canonical,
+The September normalized private full-evidence export contained **189,649** observations
+after excluding those three then-catalogued invalid parents: 27,661 canonical,
 191 accepted direct stale and 161,797 unknown observations. An independent
 comparison verified every retained source observation and its normalized fields.
+The current Kraft generation excludes six catalogue parents and contains
+**189,646** observations: 27,661 canonical, 191 accepted direct stale and
+161,794 unknown observations.
 
-The complete relevance pass identifies **2 strict and 0 weak** I0coin unknown
-observations. Unknown relevance is a separate classification axis; it does not
+The former two strict observations at Bitcoin 363,733 and 363,735 now
+publish as errors. The current projection contains **0 strict and 0 weak**
+I0coin observations. Unknown relevance is a separate classification axis; it does not
 promote an unanchored parent to an accepted direct stale.
 
 ### Novelty

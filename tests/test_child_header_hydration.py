@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import importlib.util
 import json
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,6 +25,40 @@ from stale_blocks_analysis.evidence_hydration import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    "script,source_flag,magic",
+    [
+        ("extract_huntercoin_auxpow.py", "--blocks-dir", "f9beb4fe"),
+        ("extract_xaya_auxpow.py", "--blocks-dir", "ccbeb4fe"),
+    ],
+)
+def test_native_cli_fails_without_replacing_output_on_incomplete_frame(
+    tmp_path, script, source_flag, magic
+):
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    (blocks / "blk00000.dat").write_bytes(bytes.fromhex(magic))
+    output = tmp_path / "rows.csv"
+    output.write_text("last good output\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/extract" / script),
+            source_flag,
+            str(blocks),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode != 0
+    assert "invalid native framing" in result.stderr
+    assert output.read_text() == "last good output\n"
+    assert not list(tmp_path.glob(".rows.csv.*.tmp"))
 
 
 def _identity_index(
@@ -1227,21 +1263,49 @@ def _minimal_coinbase(height: int) -> bytes:
     )
 
 
-def _xaya_block_with_child_coinbase(mod, child_coinbase: bytes) -> bytes:
+def _xaya_block_with_child_coinbase(
+    mod, child_coinbase: bytes, *, parent_prevout: bytes = b"\0" * 32
+) -> bytes:
     pure_header = (
         struct.pack("<i", 0x100)
         + b"\x11" * 32
         + b"\x22" * 32
         + struct.pack("<III", 1_700_000_000, 0, 7)
     )
-    parent_header = (
+    commitment = (
+        bytes.fromhex("fabe6d6d")
+        + hashlib.sha256(hashlib.sha256(pure_header).digest()).digest()[::-1]
+        + struct.pack("<II", 1, 0)
+    )
+    parent_coinbase = (
+        struct.pack("<i", 1)
+        + b"\x01"
+        + parent_prevout
+        + struct.pack("<I", 0xFFFFFFFF)
+        + bytes([len(commitment)])
+        + commitment
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"\x01"
+        + struct.pack("<Q", 1)
+        + b"\x00"
+        + struct.pack("<I", 0)
+    )
+    txid = hashlib.sha256(hashlib.sha256(parent_coinbase).digest()).digest()
+    prefix = (
         struct.pack("<i", 1)
         + b"\x33" * 32
-        + b"\x44" * 32
-        + struct.pack("<III", 1_700_000_001, 0x1D00FFFF, 8)
+        + txid
+        + struct.pack("<II", 1_700_000_001, 0x207FFFFF)
     )
+    nonce = 0
+    while True:
+        parent_header = prefix + struct.pack("<I", nonce)
+        digest = hashlib.sha256(hashlib.sha256(parent_header).digest()).digest()
+        if int.from_bytes(digest, "little") <= 0x7FFFFF << (8 * 29):
+            break
+        nonce += 1
     auxpow = (
-        _minimal_coinbase(500_000)
+        parent_coinbase
         + b"\x00" * 32
         + b"\x00"
         + struct.pack("<i", 0)
@@ -1252,7 +1316,7 @@ def _xaya_block_with_child_coinbase(mod, child_coinbase: bytes) -> bytes:
     return (
         pure_header
         + bytes([mod.FLAG_MERGE_MINED])
-        + struct.pack("<I", 0x1B123456)
+        + struct.pack("<I", 0x207FFFFF)
         + auxpow
         + b"\x01"
         + child_coinbase
@@ -1311,7 +1375,7 @@ def _set_xaya_main_argv(
     )
 
 
-def test_xaya_main_publishes_exact_height(
+def test_xaya_main_publishes_exact_height_from_numbered_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     mod = _load_script("extract_xaya_auxpow")
@@ -1323,6 +1387,7 @@ def test_xaya_main_publishes_exact_height(
         mod,
         _xaya_block_with_child_coinbase(mod, _minimal_coinbase(valid_height)),
     )
+    (blocks_dir / "blkindex.dat").write_bytes(b"not a native block record")
     output_path = tmp_path / "xaya.csv"
     _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
 
@@ -1330,7 +1395,46 @@ def test_xaya_main_publishes_exact_height(
 
     with output_path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    assert [row["child_height"] for row in rows] == [str(valid_height)]
+    assert [row["xaya_height"] for row in rows] == [str(valid_height)]
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        ("parent_merkle", "parent transaction merkle mismatch"),
+        ("child_commitment", "child commitment missing or misplaced"),
+        ("child_target", "parent misses Xaya PowData target"),
+        ("non_coinbase", "parent transaction is not a Bitcoin coinbase"),
+    ],
+)
+def test_xaya_main_authenticates_proof_before_publication(
+    tmp_path, monkeypatch, damage, message
+):
+    mod = _load_script("extract_xaya_auxpow")
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    block = bytearray(
+        _xaya_block_with_child_coinbase(
+            mod,
+            _minimal_coinbase(1),
+            parent_prevout=b"\x55" * 32 if damage == "non_coinbase" else b"\0" * 32,
+        )
+    )
+    if damage == "parent_merkle":
+        _, proof_end = mod.read_auxpow(block, mod.AUXPOW_OFFSET)
+        block[proof_end - 80 + 36] ^= 1
+    elif damage == "child_commitment":
+        block[76] ^= 1
+    elif damage == "child_target":
+        struct.pack_into("<I", block, 81, 0x1D00FFFF)
+    _write_xaya_blkdat(blocks / "blk00000.dat", mod, bytes(block))
+    output = tmp_path / "xaya.csv"
+    output.write_text("last good output\n")
+    _set_xaya_main_argv(monkeypatch, blocks, output)
+    with pytest.raises(ChildHeaderValidationError, match=message):
+        mod.main()
+    assert output.read_text() == "last good output\n"
+    assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
 
 
 def test_xaya_main_fails_closed_after_malformed_height(
@@ -1362,262 +1466,39 @@ def test_xaya_main_fails_closed_after_malformed_height(
     assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
 
 
-def test_xaya_main_preserves_output_on_child_header_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+@pytest.mark.parametrize("damage", [b"broken framing", b"\0" * 8 + b"x"])
+def test_xaya_main_refuses_damaged_framing(tmp_path, monkeypatch, damage):
     mod = _load_script("extract_xaya_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    _write_xaya_blkdat(blocks_dir / "blk00000.dat", mod, b"candidate")
-    output_path = tmp_path / "xaya.csv"
-    output_path.write_text("last good output\n")
-    _set_xaya_main_argv(monkeypatch, blocks_dir, output_path)
-
-    def fail(_block_data: bytes):
-        raise ChildHeaderValidationError("corrupt child header")
-
-    monkeypatch.setattr(mod, "parse_xaya_block", fail)
-    with pytest.raises(ChildHeaderValidationError, match="corrupt child header"):
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    _write_xaya_blkdat(
+        blocks / "blk00000.dat",
+        mod,
+        _xaya_block_with_child_coinbase(mod, _minimal_coinbase(1)),
+    )
+    with (blocks / "blk00000.dat").open("ab") as handle:
+        handle.write(damage)
+    output = tmp_path / "xaya.csv"
+    output.write_text("last good output\n")
+    _set_xaya_main_argv(monkeypatch, blocks, output)
+    with pytest.raises(ChildHeaderValidationError, match="invalid native framing"):
         mod.main()
-
-    assert output_path.read_text() == "last good output\n"
+    assert output.read_text() == "last good output\n"
     assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
 
 
-def _set_huntercoin_main_argv(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    blocks_dir: Path,
-    index_path: Path,
-    output_path: Path,
-    failures_path: Path | None = None,
-) -> None:
-    argv = [
-        "extract_huntercoin_auxpow.py",
-        "--blocks-dir",
-        str(blocks_dir),
-        "--index",
-        str(index_path),
-    ]
-    if failures_path is not None:
-        argv.extend(["--failures", str(failures_path)])
-    argv.extend(["--output", str(output_path)])
-    monkeypatch.setattr(sys, "argv", argv)
-
-
-def test_huntercoin_main_reports_height_and_file_on_hash_contradiction(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    block_path = blocks_dir / "block-7.bin"
-    block_path.write_bytes(
-        struct.pack("<i", (mod.HUC_CHAIN_ID_SHA256 << 16) | mod.VERSION_AUXPOW)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
-    )
-    index_path = tmp_path / "index.csv"
-    index_path.write_text("height,block_hash\n7," + "00" * 32 + "\n")
-    output_path = tmp_path / "output.csv"
-    output_path.write_text("last good output\n")
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        output_path=output_path,
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match=r"Huntercoin h=7 \(block-7\.bin\): child header hash mismatch",
-    ):
+def test_xaya_main_refuses_missing_powdata(tmp_path, monkeypatch):
+    mod = _load_script("extract_xaya_auxpow")
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    _write_xaya_blkdat(blocks / "blk00000.dat", mod, b"\0" * 80)
+    output = tmp_path / "xaya.csv"
+    output.write_text("last good output\n")
+    _set_xaya_main_argv(monkeypatch, blocks, output)
+    with pytest.raises(ChildHeaderValidationError, match="1 malformed Xaya blocks"):
         mod.main()
-    assert output_path.read_text() == "last good output\n"
-
-
-def test_huntercoin_main_requires_source_index(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=tmp_path / "missing-index.csv",
-        output_path=tmp_path / "output.csv",
-    )
-
-    assert mod.main() == 1
-
-
-def test_huntercoin_main_rejects_malformed_source_index_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    index_path = tmp_path / "index.csv"
-    index_path.write_text("height,block_hash\nnot-a-height," + "00" * 32 + "\n")
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        output_path=tmp_path / "output.csv",
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match="Huntercoin source index row 2 has invalid height",
-    ):
-        mod.main()
-
-
-def test_huntercoin_main_rejects_source_height_missing_from_index(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    (blocks_dir / "block-7.bin").write_bytes(
-        struct.pack("<i", (mod.HUC_CHAIN_ID_SHA256 << 16) | mod.VERSION_AUXPOW)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
-    )
-    index_path = tmp_path / "index.csv"
-    index_path.write_text("height,block_hash\n")
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        output_path=tmp_path / "output.csv",
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match="source index has no block hash for this height",
-    ):
-        mod.main()
-
-
-def test_huntercoin_main_rejects_index_height_missing_block_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    index_path = tmp_path / "index.csv"
-    index_path.write_text("height,block_hash\n7," + "00" * 32 + "\n")
-    output_path = tmp_path / "output.csv"
-    output_path.write_text("last good output\n")
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        output_path=output_path,
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match="source index contains 1 heights without block binaries",
-    ):
-        mod.main()
-
-    assert output_path.read_text() == "last good output\n"
-
-
-def test_huntercoin_main_accepts_exact_documented_acquisition_gap(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    index_path = tmp_path / "index.csv"
-    index_path.write_text(
-        "height,txid,block_hash\n7,arweave-transaction," + "00" * 32 + "\n"
-    )
-    failures_path = tmp_path / "failures.csv"
-    failures_path.write_text(
-        "height,txid,error\n7,arweave-transaction,all gateways failed\n"
-    )
-    output_path = tmp_path / "output.csv"
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        failures_path=failures_path,
-        output_path=output_path,
-    )
-
-    assert mod.main() == 0
-    assert (
-        "Authenticated 1 documented Arweave acquisition gaps" in capsys.readouterr().out
-    )
-    with output_path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        assert reader.fieldnames == mod.CSV_COLUMNS
-        assert list(reader) == []
-
-
-def test_huntercoin_main_rejects_failure_manifest_txid_contradiction(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    index_path = tmp_path / "index.csv"
-    index_path.write_text(
-        "height,txid,block_hash\n7,index-transaction," + "00" * 32 + "\n"
-    )
-    failures_path = tmp_path / "failures.csv"
-    failures_path.write_text(
-        "height,txid,error\n7,different-transaction,all gateways failed\n"
-    )
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        failures_path=failures_path,
-        output_path=tmp_path / "output.csv",
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match="failure manifest transaction ID contradicts",
-    ):
-        mod.main()
-
-
-def test_huntercoin_authenticates_non_auxpow_block_before_skipping(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    mod = _load_script("extract_huntercoin_auxpow")
-    blocks_dir = tmp_path / "blocks"
-    blocks_dir.mkdir()
-    block_path = blocks_dir / "block-7.bin"
-    block_path.write_bytes(
-        struct.pack("<i", 1)
-        + b"\x11" * 32
-        + b"\x22" * 32
-        + struct.pack("<III", 1_700_000_000, 0x1D00FFFF, 7)
-    )
-    index_path = tmp_path / "index.csv"
-    index_path.write_text("height,block_hash\n7," + "00" * 32 + "\n")
-    _set_huntercoin_main_argv(
-        monkeypatch,
-        blocks_dir=blocks_dir,
-        index_path=index_path,
-        output_path=tmp_path / "output.csv",
-    )
-
-    with pytest.raises(
-        ChildHeaderValidationError,
-        match=r"Huntercoin h=7 \(block-7\.bin\): child header hash mismatch",
-    ):
-        mod.main()
+    assert output.read_text() == "last good output\n"
+    assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
 
 
 def test_terracoin_rejects_malformed_rpc_child_header(tmp_path: Path):
@@ -1916,3 +1797,211 @@ def test_coverage_report_keeps_previous_output_on_contradiction(
 
     assert output.read_text() == "last good report\n"
     assert not list(tmp_path.glob(".coverage.csv.*.tmp"))
+
+
+_HUC_GENESIS_HEADER = bytes.fromhex(
+    "010000000000000000000000000000000000000000000000000000000000000000000000"
+    "54a734ce46cdec8cbc1f4c59092b56b8be0b532d43824745fabfb0fc6f94eec4"
+    "2406ec52ffff001d32e6a171"
+)
+
+
+def _fixture_sha256d(data: bytes) -> bytes:
+    return hashlib.sha256(hashlib.sha256(data).digest()).digest()
+
+
+def _native_huc_block(
+    prev: bytes,
+    *,
+    nonce: int = 1,
+    broken_parent_root: bool = False,
+    parent_prevout: bytes = b"\0" * 32,
+) -> bytes:
+    child = (
+        struct.pack("<i", (6 << 16) | 0x100)
+        + prev
+        + b"\x22" * 32
+        + struct.pack("<III", 1_700_000_000, 0x207FFFFF, nonce)
+    )
+    script = (
+        bytes.fromhex("fabe6d6d")
+        + _fixture_sha256d(child)[::-1]
+        + struct.pack("<II", 1, 0)
+    )
+    coinbase = (
+        struct.pack("<i", 1)
+        + b"\x01"
+        + parent_prevout
+        + struct.pack("<I", 0xFFFFFFFF)
+        + bytes([len(script)])
+        + script
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"\x01"
+        + struct.pack("<Q", 1)
+        + b"\x00"
+        + struct.pack("<I", 0)
+    )
+    root = b"\x33" * 32 if broken_parent_root else _fixture_sha256d(coinbase)
+    parent = (
+        struct.pack("<i", 1)
+        + b"\x44" * 32
+        + root
+        + struct.pack("<II", 1_700_000_001, 0x207FFFFF)
+    )
+    parent_nonce = 0
+    while True:
+        mined = parent + struct.pack("<I", parent_nonce)
+        if int.from_bytes(_fixture_sha256d(mined), "little") <= 0x7FFFFF << (8 * 29):
+            break
+        parent_nonce += 1
+    proof = (
+        coinbase
+        + b"\x00" * 32
+        + b"\x00"
+        + struct.pack("<i", 0)
+        + b"\x00"
+        + struct.pack("<i", 0)
+        + mined
+    )
+    return child + proof
+
+
+def _run_native_huc(
+    monkeypatch,
+    tmp_path: Path,
+    blocks: list[bytes],
+    *,
+    xor: bool = False,
+    suffix: bytes = b"",
+    gap: bytes = b"",
+):
+    mod = _load_script("extract_huntercoin_auxpow")
+    blocks_dir = tmp_path / "native-blocks"
+    blocks_dir.mkdir()
+    data = (
+        gap.join(
+            bytes.fromhex("f9beb4fe") + struct.pack("<I", len(block)) + block
+            for block in blocks
+        )
+        + suffix
+    )
+    if xor:
+        key = bytes.fromhex("0011223344556677")
+        (blocks_dir / "xor.dat").write_bytes(key)
+        data = bytes(value ^ key[i % len(key)] for i, value in enumerate(data))
+    (blocks_dir / "blk00000.dat").write_bytes(data)
+    output = tmp_path / "native.csv"
+    output.write_text("last good output\n")
+    argv = [
+        "extract_huntercoin_auxpow.py",
+        "--blocks-dir",
+        str(blocks_dir),
+        "--output",
+        str(output),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    return mod, output
+
+
+@pytest.mark.parametrize("xor", [False, True])
+def test_native_huntercoin_links_out_of_order_headers_and_retains_proofs(
+    tmp_path, monkeypatch, xor
+):
+    first = _native_huc_block(_fixture_sha256d(_HUC_GENESIS_HEADER))
+    second = _native_huc_block(_fixture_sha256d(first[:80]), nonce=2)
+    mod, output = _run_native_huc(
+        monkeypatch,
+        tmp_path,
+        [_HUC_GENESIS_HEADER, second, first],
+        xor=xor,
+        suffix=b"\x00" * 32,
+        gap=b"\0" * 8,
+    )
+    assert mod.main() == 0
+    rows = list(csv.DictReader(output.open()))
+    assert [row["huc_height"] for row in rows] == ["2", "1"]
+    assert [row["child_block_hash"] for row in rows] == [
+        _fixture_sha256d(block[:80]).hex() for block in (second, first)
+    ]
+    assert rows[0]["source_file"] == "blk00000.dat"
+    assert rows[0]["source_offset"] == "96"
+    assert bytes.fromhex(rows[0]["auxpow_hex"]) == second[80:]
+    assert rows[0]["full_coinbase_hex"]
+
+
+def test_native_huntercoin_missing_predecessor_preserves_output(tmp_path, monkeypatch):
+    disconnected = struct.pack("<i", 1) + b"\x55" * 32 + _HUC_GENESIS_HEADER[36:]
+    mod, output = _run_native_huc(
+        monkeypatch, tmp_path, [_HUC_GENESIS_HEADER, disconnected]
+    )
+    with pytest.raises(ChildHeaderValidationError, match="missing native predecessor"):
+        mod.main()
+    assert output.read_text() == "last good output\n"
+
+
+def test_native_huntercoin_retains_noncoinbase_parent_as_control(tmp_path, monkeypatch):
+    child = _native_huc_block(
+        _fixture_sha256d(_HUC_GENESIS_HEADER), parent_prevout=b"\x11" * 32
+    )
+    mod, output = _run_native_huc(monkeypatch, tmp_path, [_HUC_GENESIS_HEADER, child])
+    assert mod.main() == 0
+    row = next(csv.DictReader(output.open()))
+    assert row["huc_height"] == "1"
+    assert row["parent_tx_is_coinbase"] == "0"
+    assert row["parent_transaction_hex"]
+    assert row["auxpow_hex"]
+    # A position-zero proof alone does not make its transaction a coinbase.
+    # Leave Bitcoin coinbase fields absent so the Bitcoin gates cannot use it.
+    assert row["full_coinbase_hex"] == ""
+    assert row["coinbase_scriptsig_hex"] == ""
+    assert row["coinbase_outputs"] == ""
+
+
+def test_native_huntercoin_workers_link_headers_across_files(tmp_path, monkeypatch):
+    first = _native_huc_block(_fixture_sha256d(_HUC_GENESIS_HEADER))
+    second = _native_huc_block(_fixture_sha256d(first[:80]), nonce=2)
+    mod, output = _run_native_huc(monkeypatch, tmp_path, [_HUC_GENESIS_HEADER])
+    frames = b"".join(
+        bytes.fromhex("f9beb4fe") + struct.pack("<I", len(b)) + b
+        for b in (second, first)
+    )
+    (tmp_path / "native-blocks" / "blk00001.dat").write_bytes(frames)
+    sys.argv.extend(["--workers", "2"])
+    assert mod.main() == 0
+    rows = list(csv.DictReader(output.open()))
+    assert [r["huc_height"] for r in rows] == ["2", "1"]
+    assert [r["child_block_hash"] for r in rows] == [
+        _fixture_sha256d(b[:80]).hex() for b in (second, first)
+    ]
+    assert [r["source_file"] for r in rows] == ["blk00001.dat", "blk00001.dat"]
+    parallel_bytes = output.read_bytes()
+    del sys.argv[-2:]
+    assert mod.main() == 0
+    assert output.read_bytes() == parallel_bytes
+
+
+def test_native_huntercoin_rejects_truncated_record(tmp_path, monkeypatch):
+    suffix = bytes.fromhex("f9beb4fe") + struct.pack("<I", 500)
+    mod, output = _run_native_huc(
+        monkeypatch, tmp_path, [_HUC_GENESIS_HEADER], suffix=suffix
+    )
+    with pytest.raises(
+        ChildHeaderValidationError,
+        match="truncated native block",
+    ):
+        mod.main()
+    assert output.read_text() == "last good output\n"
+
+
+def test_native_huntercoin_rejects_substituted_parent_coinbase_proof(
+    tmp_path, monkeypatch
+):
+    child = _native_huc_block(
+        _fixture_sha256d(_HUC_GENESIS_HEADER), broken_parent_root=True
+    )
+    mod, output = _run_native_huc(monkeypatch, tmp_path, [_HUC_GENESIS_HEADER, child])
+    with pytest.raises(
+        ChildHeaderValidationError, match="parent transaction merkle mismatch"
+    ):
+        mod.main()
+    assert output.read_text() == "last good output\n"

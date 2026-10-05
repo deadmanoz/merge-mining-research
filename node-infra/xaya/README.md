@@ -3,13 +3,13 @@
 Build `xayad` v1.13 in a container for AuxPoW stale-block extraction. See
 [`../../docs/chains/xaya.md`](../../docs/chains/xaya.md) for recovery details.
 
-Status note: Xaya is an integrated stale-output chain (chronological position
-19 of 26; 40 accepted direct-stale candidates). It was recovered offline from
-Xaya's open `blocks.zip` snapshot rather than from a live node (the legacy P2P network is
-dead; see `peers.list`). See
-[`../../docs/chains/xaya.md`](../../docs/chains/xaya.md) for the recovery writeup and
-provenance. This directory's node scaffold is retained for a future tail
-top-up if a live peer or updated dump becomes available.
+Xaya is an integrated research source with 42 accepted direct-stale
+observations. The Kraft native dump extends offline recovery beyond the
+earlier `blocks.zip` snapshot and the migration height. No daemon was started;
+this directory remains an unverified node scaffold. See
+[`../../docs/chains/xaya.md`](../../docs/chains/xaya.md) for stored-ancestry
+coverage, unlinked side headers and provenance, and the
+[`../../results/novelty.md`](../../results/novelty.md) report for chronology.
 
 ## Why ubuntu:24.04
 

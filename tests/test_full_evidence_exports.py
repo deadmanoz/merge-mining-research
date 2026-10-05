@@ -368,6 +368,29 @@ def test_offline_classifier_sources_declare_scan_order_height_untrusted(
     assert canonical.child_height_semantics == "unauthenticated_scan_order"
 
 
+def test_xaya_native_canonical_height_survives_normalized_roundtrip(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "archive"
+    child = _child_fields()
+    raw = bytes.fromhex(child["child_header_hex"])
+    raw = raw[:72] + b"\0" * 4 + raw[76:]
+    child["child_header_hex"] = raw.hex()
+    child["child_block_hash"] = hash_from_header_bytes(raw).hex()
+    row = {
+        "xaya_height": "902",
+        "btc_header_hash": "11" * 32,
+        "classification": "canonical",
+        **child,
+    }
+    _write_csv(archive / "xaya/classified/xaya_canonical_blocks.csv", [row])
+    source = discover_canonical_sources(tmp_path / "data", [archive])["xaya"]
+    normalized, _ = normalize_evidence_row(source, row, list(row), 2)
+    assert normalized["child_height"] == "902"
+    replayed, _ = normalize_evidence_row(source, normalized, list(normalized), 3)
+    assert replayed["child_height"] == "902"
+
+
 def test_namecoin_scan_order_is_blank_before_verified_identity_hydration(
     tmp_path: Path,
 ) -> None:

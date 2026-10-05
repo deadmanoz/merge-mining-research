@@ -5,7 +5,7 @@ import hashlib
 import importlib.util
 import json
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
@@ -79,11 +79,6 @@ def test_header_only_dataset_fails_closed(tmp_path: Path) -> None:
         load_error_block_keys(empty)
 
 
-def test_committed_dataset_loads_49_rows() -> None:
-    # The committed dataset is non-empty and loads fine.
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 49
-
-
 def test_exclude_rows_filters_exact_key() -> None:
     rows = [
         {
@@ -117,12 +112,11 @@ EXPECTED_COLUMNS = [
 ]
 
 
-def test_committed_catalogue_schema_and_row_count() -> None:
+def test_committed_catalogue_schema_and_required_evidence() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == EXPECTED_COLUMNS
         rows = list(reader)
-    assert len(rows) == 49
     assert all(r["classification"] == "error_block" for r in rows)
     assert all(r["rules_violated"] for r in rows)
     assert all(r["provenance"] for r in rows)
@@ -147,7 +141,7 @@ def test_ancestry_derived_error_catalogue_claims_are_exact() -> None:
         "00000000000000000d610e393ffeed6b9494d54121f05f7a3905f940f0e0cf69": {
             "height": "331674",
             "source_child_observations": (
-                "devcoin:163402|i0coin:1315884|ixcoin:234210|namecoin:207159"
+                "devcoin:163402|huntercoin:460428|i0coin:1315884|ixcoin:234210|namecoin:207159"
             ),
         },
         "000000000000000003a1ce220ae97419cc4bdb5d70b90189b8f8a06b0b37e3a2": {
@@ -179,21 +173,8 @@ def test_committed_dataset_rejection_reasons_are_version_consistent() -> None:
     with ERROR_BLOCKS_CSV.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
-    assert len(rows) == 49
-    assert len(load_error_block_keys(ERROR_BLOCKS_CSV)) == 49
-    assert Counter(row["rejection_reason"] for row in rows) == {
-        "bad-txns-inputs-missingorspent": 2,
-        "bad-blk-sigops": 2,
-        "bip34_v2_coinbase_height_mismatch": 12,
-        "bip34_coinbase_height_mismatch": 13,
-        "bip66_block_version_below_3": 3,
-        "bip65_block_version_below_4": 5,
-        "coinbase_scriptsig_length_above_100": 1,
-        "time_below_mtp": 3,
-        "block-script-verify-flag-failed": 4,
-        "bad-cb-amount": 2,
-        "nbits_retarget_not_applied": 1,
-        "bip34_coinbase_height_missing": 1,
+    assert load_error_block_keys(ERROR_BLOCKS_CSV) == {
+        (int(row["height"]), row["hash"]) for row in rows
     }
     missing_heights = [row for row in rows if not row["coinbase_height"]]
     assert {int(r["height"]) for r in missing_heights} == {

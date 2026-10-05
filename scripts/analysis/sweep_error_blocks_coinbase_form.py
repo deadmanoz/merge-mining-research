@@ -113,7 +113,7 @@ from _sweep_common import (  # noqa: E402
     STALE_INVENTORY_BASELINE_ROWS,
     VALIDATED_STALE_INVENTORY_BASELINE_ROWS,
     VALIDATED_STALES_GLOB,
-    _REGEN_CHAINS,
+    AUTHORITATIVE_HEIGHT_CHAINS,
     add_common_sweep_args,
     check_sweep_coverage,
     choose_inventory_reader,
@@ -859,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
     dataset_keys = load_dataset_keys()
 
     reports: list[ChainReport] = []
-    # Source 1/2: the archive stale inventories (regen chains authoritative,
+    # Source 1/2: the archive stale inventories (classified chains authoritative,
     # scratch chains length-check-only).
     for chain, path in STALE_INVENTORIES.items():
         reports.append(
@@ -867,7 +867,7 @@ def main(argv: list[str] | None = None) -> int:
                 chain,
                 "stale",
                 path,
-                authoritative_height=chain in _REGEN_CHAINS,
+                authoritative_height=chain in AUTHORITATIVE_HEIGHT_CHAINS,
                 reader=reader,
                 dataset_keys=dataset_keys,
             )

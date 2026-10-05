@@ -4,7 +4,7 @@
 |---|---|
 | Ticker | HUC |
 | AuxPoW activation | 2014-01-31 (genesis; merge-mined from block 0 - see §2 quirks) |
-| Network status | **Dead** - no reachable live node or explorer; data only available via the Arweave permaweb archive |
+| Network status | Current recovery from the Daniel Kraft native dump; earlier live-node probes were unsuccessful |
 | Chronological position | 8 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin; before unobtanium) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Huntercoin's February–March 2014 window is inside the paper's period but it was not a sampled data source) |
 | AuxPoW chain ID | 6 (SHA-256d branch; the Scrypt branch with chain ID 2 / LTC parent is out of scope) |
@@ -12,46 +12,111 @@
 | Source tag (in code) | `huntercoin` |
 | Loader | `load_huntercoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/huntercoin_validated_stales.csv` |
-| Full stale/unknown inventory | Private chain archive (13 stale + 29 unknown rows) |
+| Full stale/unknown inventory | Private Kraft generation: 78 stale + 150,853 unknown rows |
 
-Huntercoin (HUC) was a dual-PoW chain (SHA-256d merge-mined with Bitcoin and Scrypt merge-mined with Litecoin in parallel) launched February 2014 by Andrew Colosimo and Mikhail Syndeev (Sindeyev); Daniel Kraft has maintained the core code since 2014 (Xaya legacy page, https://xaya.io/huntercoin-legacy; bitcointalk ANN, https://bitcointalk.org/index.php?topic=435170.0). The chain is **dead**: although the maintainers describe a limited-support phase, no block explorer returned a current tip and no live node was reachable during review, so recovery relies on an Arweave permaweb archive of the first ~100k HUC blocks (`domob1812/arblockstore`). The publication-gate-accepted set contains 13 direct-stale candidates spanning February–March 2014, one of the smaller in-scope accepted sets.
+Huntercoin (HUC) was a dual-PoW chain (SHA-256d merge-mined with Bitcoin and Scrypt merge-mined with Litecoin in parallel) launched February 2014 by Andrew Colosimo and Mikhail Syndeev (Sindeyev); Daniel Kraft has maintained the core code since 2014 (Xaya legacy page, https://xaya.io/huntercoin-legacy; bitcointalk ANN, https://bitcointalk.org/index.php?topic=435170.0). Earlier live-node and explorer probes were unsuccessful. The native dump
+supplied by Daniel Kraft now extends recovery beyond the first ~100k blocks
+available through `domob1812/arblockstore`. The current accepted set contains
+78 direct-stale candidates; the earlier 13 are all preserved.
 
 ## 1. Chain data
 
-**Source.** Arweave permaweb archive at `domob1812/arblockstore`, fetched via `scripts/prep/fetch_huntercoin_arweave.py`. The archive covers the first ~100,000 HUC blocks (genesis → ~March 2014 endpoint). No live Huntercoin node or explorer was reachable during review, so the archive is the only usable data source.
+### Native dump received in October 2026
 
-**Provenance.** Fetched once to `<archival-host>` (or local), parsed by `scripts/extract/extract_huntercoin_auxpow.py`, classified by `scripts/classify/classify_huntercoin_stales.py`. The raw extractor output is kept in the private chain archive (43,288 HUC AuxPoW SHA-256d-branch headers, including rows that fail their encoded self-target). The standard classifier output is also preserved privately (857 canonical + 13 stale-labelled candidates + 29 unknown rows = 899).
+The operator received `huntercoin-chain.tar.bz2` from Daniel Kraft. Its
+23,830,581,664 bytes have SHA-256
+`4f8b7fe2357e69a1b97c300eaf65062925f5408b7ed228293968e3bfd1dcb6b3`.
+The source and archive-copy digests match, the complete bzip2 stream passes its
+integrity check, and the safe member inventory contains 3,908 files expanding
+to 40,167,613,773 bytes. Originals, metadata receipts and earlier recoveries
+remain private and immutable. There was no sender checksum or declared tip;
+this digest identifies received bytes, while attribution rests on the
+operator's report.
 
-**Coverage.** Validated stales span BTC heights **285,130 → 290,178** (2014-02-10 → 2014-03-12; 7 rows February, 6 rows March). HUC heights **43,156 → 88,274** (early chain only - the Arweave archive doesn't extend to the chain's actual tip). The chain ran until at least 2018, so anything after this window is not in scope for this extraction unless a new archive surfaces.
+A separate working copy contains 163 numbered block files with mainnet magic
+`f9beb4fe`. All 3,938,028 unique stored headers link to the retained genesis,
+through maximum height 3,937,953 at 2021-07-27 16:18:22 UTC, hash
+`3ce9f58cf05956c4b7c9c21e7bba205c168d99c87cdb9bc9640ea2e95311e277`.
+All 99,012 retained Arweave height/hash anchors match, including the heights
+whose Arweave payloads were unavailable. Stored side branches explain why the
+header count exceeds the maximum height plus one. No daemon was started and
+neither active-chain membership nor complete native consensus was replayed.
 
-**Holes.**
+The normal native producer authenticates SHA-256d child targets, parent
+transaction Merkle inclusion and child commitments/chain slots before atomically
+emitting 1,952,084 raw SHA proofs. It accounts separately for 1,970,861 Scrypt
+proofs and 15,083 non-AuxPoW records. Classification yields 161,558 unique
+self-target-PoW-passing parents: 10,627 canonical, 78 accepted direct stales and
+150,853 unknowns. The other 1,790,526 lower-work observations remain private.
+The accepted window spans BTC 285,130 to 488,624 and HUC 43,156 to 1,950,115;
+all 78 rows pass the available Bitcoin publication profile with `VALID`.
 
-- **Post-Arweave-archive (HUC > ~100,000 / BTC > 290,178)**: not extracted. The Arweave archive is the only source and ends there.
-- **Scrypt branch (chain ID 2, LTC parent)**: explicitly out of scope. This doc covers only the SHA-256d branch with `chain_id == 6`.
-- **Dummy blocks**: Huntercoin's early genesis-window blocks don't carry meaningful AuxPoW headers; the chain-id filter (`chain_id == 6` for SHA-256d) drops these naturally.
-- **`validation_status` / `expected_nbits` gate columns**: the validated CSV now persists the nBits gate. Coverage is February–March 2014, **pre-BCH (Aug 2017)** and **pre-BSV (Nov 2018)**, so contamination isn't a concern; all 13 stales are `validation_status=VALID` (0 REJECTED).
-- **Schema standardisation history**: the original Huntercoin recovery output used a non-standard schema (`btc_parent_hash` instead of `btc_header_hash`, `btc_timestamp` instead of `btc_time`, `pow_valid` for Huntercoin target validity, and a three-way `canonical / stale-novel / stale-known` vocabulary). The project-wide unknown-inventory pass rewrote the full inventory to the shared schema with `classification == "stale" | "unknown"`. The follow-up pool-attribution pass also removed the redundant `huntercoin_orphan_stales.csv` shortcut sidecar - the 29 unknown rows live under `classification == "unknown"` in the split unknown inventory (`huntercoin_unknown_blocks.csv`), matching every other chain's file layout.
+All 13 preceding accepted events remain. The 65 additional Huntercoin
+witnesses include four Bitcoin headers absent from the preceding compact
+inputs and pinned upstream dataset, at heights 302,118, 375,604, 377,506 and
+488,624. Two authenticated observations of the invalid BIP66 fork and another of the
+known BIP34-invalid parent at 331,674 are retained separately in the reviewed
+error ledger. The latter is witnessed at native child height 460,428; its full
+AuxPoW matches the catalogue header and coinbase bytes.
 
-**Reference scripts.**
+One authenticated position-zero parent transaction has a non-null prevout.
+Its raw transaction and AuxPoW are retained, while Bitcoin coinbase evidence
+fields are empty. Its parent and predecessor are absent from the queried
+Bitcoin Core node, and it remains unknown. Merkle inclusion alone does not
+make that transaction a Bitcoin coinbase or establish its parent network.
 
-- `scripts/prep/fetch_huntercoin_arweave.py:1` - Arweave fetcher; pulls the `domob1812/arblockstore` archive into local block data.
-- `scripts/extract/extract_huntercoin_auxpow.py:1` - AuxPoW extractor; parses both SHA-256d and Scrypt branches but only the SHA-256d branch (chain ID 6) feeds our pipeline.
-- `scripts/classify/classify_huntercoin_stales.py:1` - chain-specific classifier; applies the self-target PoW filter and emits the shared stale/unknown inventory schema.
+### Earlier Arweave generation
 
-The extractor requires the source index produced by the fetcher so every block
-binary is authenticated against its recorded display hash:
+The original `domob1812/arblockstore` acquisition covers the first ~100,000
+HUC blocks. Its retained raw extraction contains 43,288 SHA-256d proof rows;
+the classifier produced 857 canonical, 13 accepted stale and 29 unknown rows.
+Its accepted BTC window is 285,130 to 290,178 (February to March 2014).
+The historical counts and pool diagnostics below describe that bounded
+sample, not the expanded native generation.
+
+**Remaining coverage limits.** Scrypt/Litecoin evidence remains out of scope.
+The observed July 2021 endpoint is a dump boundary, not proof of the chain's
+final block. Two initially strict-looking observations at BTC 363,732 and
+363,733 extend the known BIP66-invalid version-2 root at 363,731. Complete
+header paths, full Bitcoin work and the root violation are authenticated by
+`data/error-blocks/ancestry_evidence.csv`; their two Huntercoin witnesses are
+published as `error_block`, leaving no strict/weak Huntercoin observations.
+The source unknown bucket remains unchanged as audit evidence.
+The historical 29-row pool audit cannot
+be extrapolated to the expanded population. Full Bitcoin block-body validity is generally unproven by AuxPoW.
+
+**Current workflow.** The Kraft dump is the sole foundation input. The retired
+Arweave fetcher, per-height binary route, index comparison and failure-manifest
+handling are no longer part of the pipeline. Historical inputs and their
+acquisition receipts remain private provenance; they are not required to rerun
+current recovery. Install the current private classifier family at
+`<chain-archive>/huntercoin/classified/`, using the ordinary archive layout;
+retain the former family in a dated provenance directory outside discovery.
 
 ```bash
-python scripts/extract/extract_huntercoin_auxpow.py \
-  --blocks-dir <arweave-blocks-dir> \
-  --index <arweave-index.csv> \
-  --failures <arweave-failures.csv> \
+just extract-huntercoin \
+  --blocks-dir <working-blocks-dir> \
+  --workers 6 \
   --output <staged-raw-output.csv>
 ```
 
+The producer scans both algorithms and non-AuxPoW headers to reconstruct stored predecessor
+links to the known genesis, rather than assigning heights by file order.
+It authenticates the SHA-256d child's encoded target, the parent coinbase
+Merkle branch, the child commitment and its chain-ID slot. Missing ancestry,
+malformed proofs, unsupported AuxPoW chain IDs or changing inputs prevent atomic replacement of the raw CSV.
+
+Native files may contain zero-filled reserve gaps. The reader accounts for
+those gaps without skipping nonzero bytes. Raw native rows retain their
+file and record offset, `full_coinbase_hex` and `auxpow_hex`, preserving the
+complete parent transaction and proof. These are private
+acquisition fields, not additions to the shared Monitor schema. Stored
+header ancestry does not establish active-chain membership, replay the
+complete child consensus rules, or prove full Bitcoin block validity.
+
 ## 2. Extraction → potential stales
 
-**Method.** Arweave-archive fetch → AuxPoW parse (SHA-256d branch only, chain_id == 6) → BTC RPC classification on `<archival-host>`. AuxPoW format is Vince Durham / Daniel Kraft serialisation, byte-identical to Namecoin's - the existing binary parser is reused.
+**Historical Arweave method.** The superseded workflow used Arweave-archive fetch → AuxPoW parse (SHA-256d branch only, chain_id == 6) → BTC RPC classification on `<archival-host>`. AuxPoW format is Vince Durham / Daniel Kraft serialisation, byte-identical to Namecoin's - the existing binary parser is reused.
 
 **Phases.**
 
@@ -68,7 +133,7 @@ A missing source-index entry or hash contradiction terminates extraction. It is
 not counted as a recoverable mismatch in the final statistics because no
 partial output is publishable after the authentication contract fails.
 
-**Counts.** The raw extractor holds **43,288** SHA-256d-branch AuxPoW rows - every row is `chain_id == 6` and Huntercoin-PoW-valid, and all 43,288 parent-header hashes are distinct. The self-target PoW filter (phase 3) is the dominant cut: **899 rows meet the Bitcoin target encoded in their parent header** (`SHA256d(header) ≤ target(nBits)`, recomputed directly from `btc_header_hex`). Bitcoin RPC then classifies those 899:
+**Historical Arweave counts.** The raw extractor holds **43,288** SHA-256d-branch AuxPoW rows - every row is `chain_id == 6` and Huntercoin-PoW-valid, and all 43,288 parent-header hashes are distinct. The self-target PoW filter (phase 3) is the dominant cut: **899 rows meet the Bitcoin target encoded in their parent header** (`SHA256d(header) ≤ target(nBits)`, recomputed directly from `btc_header_hex`). Bitcoin RPC then classifies those 899:
 
 | Classification (self-target-PoW-valid rows) | Rows |
 |---|---:|
@@ -77,7 +142,7 @@ partial output is publishable after the authentication contract fails.
 | `unknown` (parent + prev both off-chain) | 29 |
 | **Total PoW-valid** | **899** |
 
-The committed loader admits only the publication-gate-accepted stale rows (all 13 pass).
+The earlier loader admitted the 13 publication-gate-accepted rows; the current input contains 78.
 
 An earlier diagnostic instead RPC-classified *every* raw row before the PoW filter, to gauge how many are stale-shaped: 857 parent-canonical, **42,208** with an off-chain parent but a canonical `prev` (stale-shaped), and 211 with both off-chain. The 42,208 stale-shaped rows are overwhelmingly sub-BTC-difficulty AuxPoW noise - only 13 survive the self-target filter - which is the substance of the H2 reading in §3. (Those three provisional categories sum to 43,276; the ~12-row difference from the 43,288 raw total is unresolved RPC-probe remainder in the recovered 2026-05-14 diagnostics, all of it sub-difficulty, so it touches none of the 899 PoW-valid rows or any committed count.)
 
@@ -85,7 +150,7 @@ An earlier diagnostic instead RPC-classified *every* raw row before the PoW filt
 
 - **Dual-PoW chain**: SHA-256d branch (chain ID 6, BTC parent) AND Scrypt branch (chain ID 2, LTC parent), both source-confirmed (`chronokings/huntercoin` `main.cpp`: `chain_id[NUM_ALGOS] = { 0x0006, 0x0002 }`). The extraction filters to chain ID 6 only; the Scrypt branch is out of scope for this project. Target spacing is `nTargetSpacing = 60 * NUM_ALGOS` = 120 s per algorithm (~60 s combined; the dev comment reads "A block every minute for all algos in total"), and the empirical rate across the sampled HUC range is ~57 s/block.
 - **Genesis is the AuxPoW activation.** Genesis `nTime` 1391199780 = 2014-01-31 20:23 UTC, merge-mined from block 0: the genesis coinbase names both parents (`Bitcoin block 283440: …` and `Litecoin block 506479: …`) and the source sets `fStrictChainId = true` with no delayed AuxPoW start height. So 2014-01-31 is the real genesis/activation date, not merely a catalogue value.
-- **Dead network, Arweave archive**: the only chain in scope whose data source is a third-party permaweb archive. No live node or explorer was reachable during review; if the Arweave archive becomes unavailable, no further extraction is possible.
+- **Offline sources**: the retained Arweave archive independently anchors the early native dump. Neither recovery needs a live peer.
 - **Standard classifier output schema**: the private full inventory now uses the project-wide schema (`btc_header_hash`, `btc_time`, `classification`) and contains only self-target-PoW-valid non-canonical rows. `pow_valid`, `chain_id`, and `btc_merkle_root` remain in the raw extractor output, not in the standard inventory.
 
 ## 3. Filtering → accepted direct-stale candidates
@@ -99,9 +164,9 @@ classification == "stale" and validation_status in {
 }
 ```
 
-All 13 entries pass (the committed CSV is VALID-only).
+All 78 current entries pass (the compact CSV is VALID-only).
 
-**Post-filter count: 13 accepted direct-stale header candidates.**
+**Post-filter count: 78 accepted direct-stale header candidates.**
 
 Namecoin, I0coin, IXCoin, Devcoin and Groupcoin independently witness members
 of Huntercoin's accepted set.
@@ -110,7 +175,7 @@ of Huntercoin's accepted set.
 
 Current upstream overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
 
-### Unknown inventory
+### Historical Arweave unknown inventory
 
 The 29 self-target-PoW-passing **unknowns-by-our-standard** (parent not in BTC mainchain, prev_hash also not in BTC mainchain) live in the private unknown-inventory bucket (`huntercoin_unknown_blocks.csv`) under `classification == "unknown"`. These rows are evidence of an isolated chain segment that **no other AuxPoW chain in scope captured**:
 
@@ -148,31 +213,35 @@ Private-archive outputs from this audit (not committed in this repository):
 exports are committed here. The pool-attribution diagnostics live in the
 private archive.
 
-- `data/validated-stales/huntercoin_validated_stales.csv` - 13 validated stales (loader input; committed). Standard schema.
+- `data/validated-stales/huntercoin_validated_stales.csv` - 78 validated stales (loader input). Standard schema.
 - [Novelty report](../../results/novelty.md).
 **Private archive artifacts.**
 
-- `huntercoin_auxpow_raw.csv` - raw extractor output (43,288 SHA-256d-branch AuxPoW rows).
-- Split inventories: `huntercoin_stale_blocks.csv` (13 stale) and `huntercoin_unknown_blocks.csv` (29 unknown).
+- `huntercoin_auxpow_raw.csv` - current native raw output (1,952,084 SHA-256d proof rows); the earlier 43,288-row Arweave output is retained separately.
+- Split inventories: `huntercoin_stale_blocks.csv` (78 stale) and `huntercoin_unknown_blocks.csv` (150,853 unknown).
 - `huntercoin-unknown-pool-attribution.csv` and its summary JSON - historical
   pool-attribution diagnostics.
 
 The classifier requires `huntercoin_auxpow_raw.csv` from the current extractor.
+It projects the native acquisition schema for the shared driver; SHA-256d branch
+selection and proof authentication belong to the native producer.
 The historical normalized inventory is an output, not a fallback acquisition
 source, because it cannot reproduce the authenticated child-header bundle.
 
 **External references.**
 
-- `domob1812/arblockstore` on Arweave - sole data source for the chain.
+- `domob1812/arblockstore` on Arweave - independent early-chain acquisition and native-dump anchor.
 - `docs/auxpow-recovery.md` - cross-chain summary table (Huntercoin row).
 
 **Remaining work.**
 
-None on the AuxPoW-recovery side. The three follow-ups are closed:
+The native dump extends the earlier bounded recovery. Its observed endpoint
+and available-evidence limits remain explicit above. The three historical
+Arweave follow-ups were closed:
 
 - **Item 1 - pool-tag audit on the 29 unknowns**: resolved. 0/29 recognisable BTC pool tags vs 13/13 in the validated stales. See §3.
 - **Item 2 - unknown-inventory schema rewrite**: resolved. Full inventory at standard schema; redundant `huntercoin_orphan_stales.csv` removed. See §1.
-- **Item 3 - Arweave archive extension search**: closed with a documented null result on 2026-05-14. The `domob1812/arblockstore` Arweave archive maxes at HUC block 100,000 (Arweave GraphQL `Block-Height` tag confirmed via `sort: HEIGHT_DESC` - newest indexed records carry HUC heights 99,389-100,000, with Arweave indexing timestamps in October 2021 - and the fetched payloads are preserved in the private archive). No longer archive exists at any of the checked vectors: `chronokings/huntercoin` and `domob1812/huntercore` have empty GitHub-releases listings (no `bootstrap.dat`); `huntercoin/huntercoin` returns 404; `chainz.cryptoid.info/huc/` is delisted (HTTP 307 → root, and HUC is absent from the 109-chain `/api.dws?q=summary` index); archive.org returns 0 hits for "huntercoin blockchain" or "huntercoin bootstrap.dat"; Wayback CDX shows no octet-stream captures of huntercoin.org. Per the project's rules, no third-party outreach was attempted.
+- **Item 3 - Arweave archive extension search**: closed with a documented null result on 2026-05-14. The `domob1812/arblockstore` Arweave archive maxes at HUC block 100,000 (Arweave GraphQL `Block-Height` tag confirmed via `sort: HEIGHT_DESC` - newest indexed records carry HUC heights 99,389-100,000, with Arweave indexing timestamps in October 2021 - and the fetched payloads are preserved in the private archive). No longer archive was found at the checked vectors in that review: `chronokings/huntercoin` and `domob1812/huntercore` have empty GitHub-releases listings (no `bootstrap.dat`); `huntercoin/huntercoin` returns 404; `chainz.cryptoid.info/huc/` is delisted (HTTP 307 → root, and HUC is absent from the 109-chain `/api.dws?q=summary` index); archive.org returns 0 hits for "huntercoin blockchain" or "huntercoin bootstrap.dat"; Wayback CDX shows no octet-stream captures of huntercoin.org. No third-party outreach was attempted in that historical search; the operator subsequently obtained the Kraft dump.
 
 ## 5. Integration history
 
@@ -181,3 +250,5 @@ None on the AuxPoW-recovery side. The three follow-ups are closed:
 - **2026-06** - Pool-tag H1/H2 audit run: 0/29 recognisable BTC pool tags on the unknowns vs 13/13 on the validated stales (F2Pool 7, Eligius 4, CloudHashing 2), supporting H2. Founder/launch facts were corrected (launch February 2014; founders Colosimo + Syndeev; Kraft maintainer since 2014).
 - **2026-06-24** - Canonical refresh / full-evidence build (857 canonical + 13 stale + 29 unknown = 899).
 - **2026-07** - Published in merge-mining-research: `orphan`→`unknown` terminology, the redundant `huntercoin_orphan_stales.csv` sidecar removed, and the private diagnostics renamed `huntercoin-unknown-pool-attribution*`.
+
+- **2026-10-05** - Native Kraft dump ingested offline, with all Arweave anchors verified. The accepted set expands from 13 to 78; historical attribution findings remain bounded to their original sample.

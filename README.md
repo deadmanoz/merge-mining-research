@@ -105,8 +105,8 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,794 accepted direct observations covering
-2,151 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
+The committed chain inputs hold 3,863 accepted direct observations covering
+2,155 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md). Current upstream
 overlap and chronological allocation live in the [novelty report](results/novelty.md);
@@ -136,14 +136,14 @@ above.
 
 | Child chain | Source and recovered scope | Accepted direct-stale candidates | Strict BTC orphans | Weak BTC orphans | Coverage limit or significance |
 |---|---|---:|---:|---:|---|
-| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,641 | 11 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
+| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,641 | 8 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
 | [Geistgeld](docs/chains/geistgeld.md) | Complete Nicholas Stifter `getblock` JSON dump; 7.3M records | 0 | 0 | 0 | Most parent headers use targets easier than Bitcoin's and do not link to Bitcoin mainnet, so no direct stales are accepted. |
-| [i0coin](docs/chains/i0coin.md) | Complete March 2026 snapshot; 87 `blk*.dat` files parsed offline | 191 | 2 | 0 | Accepted Bitcoin stales end in August 2020; the later child snapshot contains no further accepted direct stale. |
-| [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 464 | 3 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |
+| [i0coin](docs/chains/i0coin.md) | Complete March 2026 snapshot; 87 `blk*.dat` files parsed offline | 191 | 0 | 0 | Accepted Bitcoin stales end in August 2020; the later child snapshot contains no further accepted direct stale. |
+| [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 464 | 0 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |
 | [CoiledCoin](docs/chains/coiledcoin.md) | Recovered archival node; January to July 2012 BTC-parent window | 27 | 0 | 0 | The window includes the January 2012 Eligius attack; all 27 accepted candidates cross-confirm earlier sources. |
 | [Devcoin](docs/chains/devcoin.md) | Local node; AuxPoW range scanned to the recovered tip | 467 | 1 | 0 | One of the largest early-chain accepted sets, spanning January 2012 to December 2020. |
 | [Groupcoin](docs/chains/groupcoin.md) | Nicholas Stifter `getblock` JSON dump through child height 235,751 | 30 | 0 | 0 | The network is dead, and no source is known beyond the dump's July 2018 endpoint. |
-| [Huntercoin](docs/chains/huntercoin.md) | Arweave `domob1812/arblockstore` archive; SHA-256d branch | 13 | 0 | 0 | The network is dead and the archive ends early, so lifetime coverage is incomplete. |
+| [Huntercoin](docs/chains/huntercoin.md) | Kraft native dump through stored height 3,937,953; all retained Arweave anchors match | 78 | 0 | 0 | Observed endpoint July 2021; two invalid-fork witnesses are catalogued separately. Native active-chain membership and full consensus were not replayed. |
 | [Unobtanium](docs/chains/unobtanium.md) | Local node; continuous AuxPoW scan to the recovered chain tip | 43 | 0 | 0 | Accepted direct stales end in August 2020 despite the roughly 11-year scan. |
 | [Crown](docs/chains/crown.md) | Local node; complete SHA-256d proof-of-work era | 23 | 0 | 0 | Coverage ends at the full proof-of-stake transition; most stales overlap other sources. |
 | [Myriadcoin](docs/chains/myriadcoin.md) | Local multi-algo node; SHA-256d branch scanned to the recovered tip | 40 | 0 | 0 | Other proof-of-work algorithms do not carry Bitcoin-parent evidence. |
@@ -154,7 +154,7 @@ above.
 | [RSK / Rootstock](docs/chains/rsk.md) | RSKj 9.0.1 archive node, child heights 0 through 9,220,904; canonical blocks plus every advertised uncle | 351 | 3 | 0 | The early acquisition gap is accounted for; no pre-139,999 parent passes its own PoW target. The full coinbase cannot be reconstructed, and the 3 strict verdicts come from cross-chain matches. |
 | [Doichain](docs/chains/doichain.md) | Local node; block-file survey through the active-chain tip observed at child height 430,684 | 0 | 0 | 0 | Observed-window negative result with no accepted stale or strict/weak evidence. |
 | [Bitmark](docs/chains/bitmark.md) | Synced multi-algo node; SHA-256d branch scanned to the recovered tip | 1 | 0 | 0 | The single accepted candidate cross-confirms an event already seen by other chains. |
-| [Xaya](docs/chains/xaya.md) | Official `blocks.zip` snapshot dated 2024-11-15 | 38 | 0 | 0 | The legacy network is dead, and the snapshot misses the tail to AuxPoW deprecation. |
+| [Xaya](docs/chains/xaya.md) | Kraft native dump; stored ancestry reaches height 7,312,209 | 42 | 0 | 0 | Extends past the migration height; ten unlinked stored side headers remain explicit coverage limitations. |
 | [Elastos](docs/chains/elastos.md) | Local ELA node plus public API tail; accepted evidence through April 2026 | 174 | 3 | 0 | One of the largest post-2018 direct-stale contributions. |
 | [Syscoin](docs/chains/syscoin.md) | Local node; fresh-genesis chain launched in 2019 | 96 | 1 | 0 | The retired 2016 to 2019 Syscoin chain was not extracted. |
 | [Hathor](docs/chains/hathor.md) | Public REST API; retained corpus through child height 6,593,796 | 6 | 0 | 0 | The unified result covers 6,532,372 version-3 observations and publishes 3,658 canonical parents plus the 6 accepted direct stales. |
@@ -200,9 +200,11 @@ sync path for them would be a first.
 **Partial or bounded coverage.** VCash, i0coin, Huntercoin, Xaya, Syscoin, and
 Bitcoin Vault carry the coverage limits stated in their table rows, and more
 history would extend or firm up each result. Two limits are worth stating
-precisely: the Xaya snapshot misses the tail to that chain's roughly 7.3M
-AuxPoW deprecation height, and Bitcoin Vault's post-2021 era is weak-share
-only, so it yields no further accepted candidates.
+precisely: the Kraft dump closes Xaya's former snapshot tail gap in stored
+ancestry, while ten unlinked side headers and no native active-chain replay
+remain explicit limits. Huntercoin's observed dump endpoint is July 2021.
+Bitcoin Vault's post-2021 era is weak-share only, so it yields no further
+accepted candidates.
 
 Raw block data, snapshots, node datadirs, peer addresses, or archive locations
 for any of these are welcome even without running the pipeline. See
@@ -246,7 +248,8 @@ is not an input to stale-block recovery or the committed loader datasets.
 ```
 .
 ├── src/stale_blocks_analysis/  # importable recovery package:
-│                               #   loaders, AuxPoW modules, validation, CHAIN_SPECS
+│                               #   loaders, native framing/ancestry, AuxPoW commitments,
+│                               #   validation, CHAIN_SPECS
 ├── scripts/                    # extraction, classification, and analysis tooling
 │   ├── extract/ classify/ analysis/ reports/ prep/
 │   └── fetch-data.sh           # clones pinned public datasets into data/
@@ -267,15 +270,25 @@ is not an input to stale-block recovery or the committed loader datasets.
 │   ├── child-header-coverage.csv # authenticated historical refresh coverage
 │   └── rsk_pool_registry.csv   # historical RSK miner-address label snapshot
 ├── docs/                       # methodology, research directions, per-chain
-│                               #   provenance, investigations, visual artefacts
+│                               #   provenance, pipeline contracts, node operations,
+│                               #   investigations and visual artefacts
 ├── node-infra/                 # Chain nodes and the one-off research worker
 ├── tests/                      # pytest suite
 ├── justfile                    # common commands (just test / full-evidence / ...)
-├── AGENTS.md                   # repo conventions (CLAUDE.md is a symlink to it)
+├── AGENTS.md                   # concise entry point (CLAUDE.md links to it)
 ├── pyproject.toml
 ├── LICENSE                     # MIT: project-authored software and documentation
 └── LICENSE-DATA                # CC BY 4.0: datasets and visual artefacts
 ```
+
+Huntercoin and Xaya use the Kraft native dumps as their foundation inputs.
+Earlier Arweave/CDN recoveries are historical provenance, not fallback workflows.
+
+Documentation for contributors and agents lives in `docs/`, including the
+[pipeline reference](docs/pipeline-reference.md),
+[research contracts](docs/research-contracts.md) and
+[node operations](docs/node-operations.md). `AGENTS.md` is the concise agent
+entry point and links to that same documentation.
 
 ## Setup
 

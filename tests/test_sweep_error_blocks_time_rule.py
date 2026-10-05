@@ -1051,3 +1051,46 @@ def test_main_does_not_copy_prior_follow_up_through_rewrite(
     assert "## Follow-up investigation" not in text
     assert "old-output-only sentinel" not in text
     assert sweep.FOLLOW_UP_DOC_LINK in text
+
+
+@pytest.mark.parametrize(
+    ("chain", "retained_rows"), [("huntercoin", 30), ("xaya", 17_643)]
+)
+def test_main_refuses_truncated_foundation_unknown_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chain: str, retained_rows: int
+) -> None:
+    # These samples exceed the retired floor, but cannot establish coverage of
+    # the Kraft generation. Isolate unknown coverage from other populations.
+    stale_path = sweep.STALE_INVENTORIES[chain]
+    unknown_path = sweep.UNKNOWN_INVENTORY_GLOB[chain]
+    monkeypatch.setattr(sweep, "STALE_INVENTORIES", {chain: stale_path})
+    monkeypatch.setattr(sweep, "UNKNOWN_INVENTORY_GLOB", {chain: unknown_path})
+    monkeypatch.setattr(
+        sweep,
+        "INVENTORY_BASELINE_ROWS",
+        {
+            f"{chain}:stale": 0,
+            f"{chain}:unknown": sweep.UNKNOWN_INVENTORY_BASELINE_ROWS[chain],
+        },
+    )
+    mirror = tmp_path / "mirror" / chain
+    mirror.mkdir(parents=True)
+    (mirror / Path(stale_path).name).write_text(_inventory([]))
+    (mirror / Path(unknown_path).name).write_text(_inventory([{}] * retained_rows))
+    output = tmp_path / "report.md"
+    output.write_text("last good report\n")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sweep_error_blocks_time_rule.py",
+            "--chain-archive-root",
+            str(mirror.parent),
+            "--mtp-cache",
+            str(tmp_path / "mtp.json"),
+            "--output",
+            str(output),
+        ],
+    )
+    assert sweep.main() == 1
+    assert output.read_text() == "last good report\n"

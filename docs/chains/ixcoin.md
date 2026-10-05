@@ -88,13 +88,19 @@ exclusion gate (`data/error-blocks/error_blocks.csv`).
 
 **Post-filter count: 464 accepted direct-stale header candidates.**
 
-**Derived strict/weak relevance: 3 strict, 0 weak observations.** These are
+**Derived strict/weak relevance: 0 strict, 0 weak observations.** These are
 unknown rows admitted to the separate relevance axis, not direct-stale
 promotions. They remain `classification=unknown` in the monitor evidence.
 
 ### Novelty
 
 Current upstream overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
+
+The Kraft ancestry review authenticates four retained IXCoin witnesses of
+Bitcoin 363,732, 363,733, 363,735 and 363,736 through the known BIP66-invalid
+root. All four now belong to the error ledger, including the three former
+strict observations. The original unknown source rows remain audit evidence;
+accepted direct-stale counts do not change.
 
 ## 4. Outputs & references
 
@@ -113,7 +119,7 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 - Unknown-chain origin (H1 vs H2). Namecoin's current publication analysis does
   not support the broad deep-reorganisation hypothesis. The 253,974 ixcoin
-  unknowns yield 3 strict observations under the separate relevance axis; the
+  unknowns formerly yielded 3 strict observations under the separate relevance axis; the
   remaining population is still useful for characterising the unidentified
   parent-header substrate without presuming a Bitcoin origin.
 - Extending coverage past BTC 422,212. The chain's IXC tip extends well past where accepted direct-stale candidates stop; understanding why would close the picture.

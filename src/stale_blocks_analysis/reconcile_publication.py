@@ -27,6 +27,7 @@ from stale_blocks_analysis.config import (
     BIP34_VERSION_2_HEIGHT,
     CHAIN_SPECS,
     DATA_DIR,
+    CONSENSUS_INVALID_PARENT_RULE,
 )
 from stale_blocks_analysis.coinbase_output_claims import (
     merge_coinbase_output_claim_sets,
@@ -104,8 +105,6 @@ DESCENDANT_UNJUDGEABLE_FAILURES = frozenset(
         "missing_expected_nbits",
     }
 )
-
-CONSENSUS_INVALID_PARENT_RULE = "consensus_invalid_parent"
 
 
 def descendant_consensus_rules(

@@ -1,678 +1,159 @@
 # AGENTS.md
 
-Instructions for AI agents working in this repository. These rules apply to the
-whole repo unless a more specific `AGENTS.md` is added in a subdirectory.
+This repository extracts Bitcoin merge-mining evidence from sibling chains for
+research. Its outputs are claims, datasets and methodology, so code changes
+must keep the affected data and documentation consistent. `AGENTS.md` is the
+canonical entry point; `CLAUDE.md` links to it.
 
-## Project Purpose
+## Architecture
 
-This is a Bitcoin merge-mining research repo. When a sibling chain merge-mines
-Bitcoin, it records on an independent ledger what a Bitcoin miner was building
-on: the Bitcoin block it extended (usually canonical, sometimes stale), that
-block's coinbase where exposed, and the time. Pool identity is a later
-inference, not a field recorded directly by every sibling chain. This repo
-mines that evidence for questions about Bitcoin mining generally: mining pools,
-propagation, and the canonical-versus-stale record. The remit is broad. The most
-developed strand is stale-block recovery; a tested marker registry supports
-future canonical-chain census work.
-See `docs/research-directions.md` for the strands and further directions.
+`src/stale_blocks_analysis/` owns shared extraction, classification, evidence
+normalization and publication logic. `scripts/` contains thin CLI wrappers.
+Pool attribution is a separate pass over recovered evidence; acquisition and
+classification never import it. Extend existing owners before adding a new
+script, package or abstraction. Pipeline details are in
+[docs/pipeline-reference.md](docs/pipeline-reference.md).
 
-The stale-block-recovery strand combines the upstream
-`bitcoin-data/stale-blocks` dataset with AuxPoW and merge-mining evidence from
-other chains, validates recovered stale events, preserves coinbase and miner
-evidence for later attribution research, and publishes compact recovery
-evidence and diagnostics.
+The Kraft native dumps are the foundation sources for Huntercoin and Xaya.
+Their former Arweave and CDN recoveries are historical provenance, not fallback
+inputs or parallel workflows. Keep originals privately; do not maintain legacy
+acquisition or scan-position compatibility for these chains.
 
-Treat this as a research pipeline, not a normal app. The important outputs are
-claims, datasets, recovery diagnostics, and methodology docs. When code changes
-affect those claims, update the corresponding data and docs in the same change
-or call out what still needs regeneration.
+## Build & Test
 
-## First Read
-
-Before non-trivial edits, read the relevant local docs:
-
-- `README.md` for setup, main commands, and the layout.
-- `docs/research-directions.md` for the repo's scope and direction framing.
-- `docs/auxpow-recovery.md` for the cross-chain recovery model.
-- `docs/process-data-outcomes.md` for current integrated counts and caveats.
-- `docs/upstreaming.md` for contribution rules to `bitcoin-data`.
-- `docs/chains/<chain>.md` before changing a chain-specific extractor,
-  classifier, loader, or CSV.
-
-## Setup
-
-Use Python 3.10 or newer.
+Use Python 3.10+ and activate the project `.venv` before every Python command.
+Install with `python -m pip install -e ".[dev]"` after activation. Prefer the
+root or workspace `justfile` when it covers the task.
 
 ```bash
+source .venv/bin/activate
 git lfs install --local
 git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
 ./scripts/fetch-data.sh
-```
-
-The `dataset`-marked tests read the committed monitor-evidence baseline, so a
-full local test run must materialize the Git LFS payloads first. CI runs the
-remaining tests across the Python matrix without LFS and runs the publication
-dataset checks once with the payloads materialized.
-
-The node-infra Compose policy tests (`tests/test_node_infra_compose.py`, part
-of the default pytest suite) require the Docker Compose CLI. They only render
-the committed Terracoin/Fractal profiles with `docker compose config`. They never
-start containers, build or pull images, or contact a node, and
-fail loudly when the renderer is unavailable. Run them alone with
-`just test-node-infra`; CI verifies the renderer explicitly before the suite.
-
-The development install includes pytest and Ruff. The core install
-(`pip install -e .`) covers the acquisition/recovery pipeline when development
-checks are not needed.
-
-`scripts/fetch-data.sh` clones or updates the upstream datasets declared in
-`data-sources.tsv`: `bitcoin-data/stale-blocks`, `bitcoin-data/mining-pools`,
-and `bitcoin-data/invalid-blocks`, each under its corresponding `data/` directory. It
-checks each out at its pinned commit, so recovery inputs are reproducible. Use
-`just upstream-check` to compare the pin with upstream, `just upstream-update`
-to update the pin, and `just upstream-sidecar` to build the contribution
-sidecar. Override the locations with `STALE_BLOCKS_DIR`,
-`LOCAL_MINING_POOLS_DIR`, and `INVALID_BLOCKS_DIR`. The pinned
-`data/invalid-blocks/` dependency supplies authenticated bodies for external
-body-invalid verdicts; it is fetched by the same script and remains ignored.
-The script leaves a clone that is on a branch or has local edits untouched.
-
-## Common Commands
-
-RSK extraction accepts `RSK_RPC_URL` for a remote archive endpoint; the default
-is loopback port 4444. Long runs pin a settled endpoint as documented in
-`docs/chains/rsk.md`.
-
-Staged regeneration keeps Monitor's preservation baseline in the runtime
-checkout's materialised
-`results/monitor-evidence/`; install the complete prior generation there
-before a staged rebuild. `--data-dir` can select the new publication inputs
-while the runtime retains original dependency bytes bound by a classifier
-manifest. See `docs/data-reference.md` for the source-family contract.
-
-Prefer the `justfile` recipes when they cover the task:
-
-```bash
-just test
-just test-unit
-just test-dataset
-just test-markers
-just test-node-infra
-just validate-coinbase-outputs
-just full-evidence
-just child-header-coverage
-just strict-weak-orphans
-just monitor-evidence
-just validate-error-blocks
-just reconcile-stale-ancestry --rpc-source-label core-reference
-just attribute
-just upstream-check
-just upstream-update
-just upstream-sidecar
-just novelty
-just novelty-check
+just format-check
 just lint
+just test
+just validate-error-blocks
+just validate-coinbase-outputs
+just novelty-check
 just check-leaks
 ```
 
-`just monitor-evidence` is a publication build and fails closed unless the
-private archive and relevance inputs are complete. Diagnostic
-builds must pass `--allow-partial` with an explicit disposable `--output-dir`;
-`--skip-canonical` is diagnostic-only, and normal publication includes every
-available canonical row for every chain. Never point a partial build at the
-committed monitor-evidence directory. Both modes stage the complete generated
-artifact set before replacing the publication; unrelated files already in the
-output directory are preserved. Complete exports may use an external final
-destination. When output is staged for later installation elsewhere, pass
-`--reported-output-dir` with that final destination; otherwise the output
-directory itself is the reported destination. Completeness gates do not
-require installation into the repository's default results directory.
+The complete suite includes the materialized LFS dataset tests and Docker
+Compose policy tests. Compose tests only render configuration; the CLI is
+required, and tests never start nodes. Use focused tests first, then the full
+suite when behavior crosses boundaries. State checks run and skipped.
 
-Useful direct commands:
+Run `just novelty` after compact inputs or the upstream pin change. Current
+novelty counts belong only in the generated `results/novelty.md`. Do not
+regenerate unrelated reference outputs.
 
-```bash
-python -m pytest tests/
-```
+## Conventions
 
-The low-level ancestry CLI is diagnostic and staging-only. Incomplete runs
-must pass `--allow-partial` together with explicit disposable
-`--results-dir`, `--parent-verdicts-csv`, `--observations-csv`, and
-`--error-candidates-csv` paths. No generated output may resolve under the
-canonical `data/` tree or a committed `results/` surface; the dedicated ignored
-`results/analysis/stale-ancestry/` namespace is the only in-repository
-diagnostic destination.
+- Shared paths, protocol constants, chain chronology and relevance vocabulary
+  belong in `config.py`. Imports must not create output directories.
+- Use existing binary parsers and explicit hash byte-order helpers. Do not
+  infer display/internal order or use ad hoc wire slicing.
+- Use `csv.DictReader`/`DictWriter`, stable schemas and deterministic ordering.
+  Evidence writers emit LF explicitly for reproducible LFS bytes.
+- Standard AuxPoW extractors use `standard_auxpow_extraction_columns()`.
+  Source-specific acquisition fields normalize into the shared evidence schema.
+- Keep dependencies modest. Change normal producers to perform the final
+  workflow; remove obsolete repair paths and test-only seams.
+- Update the changelog and affected methodology with code/data changes. Avoid
+  broad documentation reflow; counts and caveats may be audit evidence.
 
-`just validate-error-blocks` validates the reviewed canonical error catalogue,
-MTP sidecar, and exact child-observation ledger. `just reconcile-stale-ancestry`
-is the complete stale-ancestry publication workflow. It validates that error
-module first, then rebuilds the 21 accepted parent verdicts in
-`data/stale_descendants.csv` and their 33 authenticated witnesses in
-`data/stale_descendant_observations.csv`. Any uncatalogued consensus-invalid
-candidate aborts before installation. Do not substitute a partial ancestry
-run or hand-edit either published stale-ancestry CSV.
-Publication requires a stable, non-secret `--rpc-source-label`; use the
-configured Bitcoin Core node's durable inventory name (for example,
-`core-reference`), not a hostname containing credentials or a transient tunnel
-address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
+## Research Safeguards
 
-## Repository Map
+Read [docs/research-contracts.md](docs/research-contracts.md) before
+changing evidence or publication behavior. In particular:
 
-- `src/stale_blocks_analysis/`: importable recovery package for the
-  stale-block-recovery direction. Shared core modules back the chain scripts:
-  `auxpow_parse` (CAuxPow deserializer plus nBits/difficulty helpers), `btc_rpc`
-  (batched JSON-RPC client),   `btc_classify` (`classify_candidates` and the
-  `run_classifier` driver), `classifier_cli` (the thin-chain classify
-  command: `scripts/classify/classify_stales.py --chain <key>`),
-  `extract_driver` (batched raw-hex extraction plus the thin-adopter CLI
-  lifecycle; wrappers keep child-RPC construction and the version gate),
-  `btc_nbits_validation` (the contamination gate),
-  `btc_stale_validation` (the combined expected-`nBits`, active-parent,
-  median-time-past, historical minimum-version, coinbase scriptSig-length, and
-  BIP34 coinbase-height gates),
-  `error_blocks` (the exact-key consensus-invalid exclusion gate, reading
-  `data/error-blocks/error_blocks.csv`), `block_body` (shared body/merkle/witness
-  authentication) and `body_evidence` (commit-pinned external verdict references
-  and body authentication, without re-deriving body-rule invalidity), and the
-  `CHAIN_SPECS` registry in `config.py`. The extraction, classification, loaders
-  in `stale_blocks.py`, and evidence exports form the public recovery pipeline.
-  `evidence_sources.py` owns source discovery, `evidence_normalization.py`
-  owns the shared row contract, and `evidence_hydration.py` owns Namecoin
-  and child-identity hydration. `rsk_extraction.py` owns RSK's durable raw
-  CSV, fallback-ledger, checkpoint, digest, and classifier-input contract;
-  `rsk_fallback.py` recognizes the variable-width RLP fallback signature
-  representation without independently verifying the recovered signing key.
-  `rsk_classifier_artifacts.py` stages and verifies the private classifier
-  family, binding repository dependencies by checkout-relative path and digest;
-  custom external dependencies remain manifest-relative. `rsk_sidecar.py` owns
-  its Monitor-sidecar cell contract.
-  `full_evidence.py` assembles full-evidence
-  generation and re-exports the established helper surface.
-  `monitor_exports.py` owns the final-category monitor projection and its
-  publication constants; `monitor_publication.py` owns fail-closed
-  publication validation and staged writes.
-  The pool-attribution layer (`pool_identification`, `stale_merge`,
-  `template_producers`, `attribution`; see `docs/pool-attribution.md`) is a
-  separate pass over already-loaded records — the acquisition/recovery side
-  never imports it.
-  Prefer adding shared logic here over re-inlining it in a script. Future
-  research directions get their own packages.
-- `scripts/`: extraction, classification, analysis, and utility scripts,
-  organized into family subdirectories: `extract/`, `classify/`, `analysis/`,
-  `reports/`, `prep/`. `compute_chain_novelty.py` and `fetch-data.sh` stay at
-  the `scripts/` root. Unknown-ancestry reconciliation is coordinated by
-  `scripts/analysis/reconcile_unknown_stale_ancestry.py`; observation loading,
-  ancestry traversal, and report publication live in
-  `reconcile_observations.py`, `ancestry_walk.py`, and
-  `reconcile_publication.py` in the installed package. The supported publisher
-  is `scripts/prep/publish_stale_ancestry.py`. Error blocks are a reviewed,
-  canonical data module validated by
-  `scripts/analysis/validate_error_blocks.py` and CI. Four population sweeps under `scripts/analysis/`
-  sharing `scripts/analysis/_sweep_common.py`, and
-  `scripts/reports/report_error_blocks_by_chain.py` (per-chain diagnostic
-  views). Thin AuxPoW classification is `scripts/classify/classify_stales.py
-  --chain <key>` (a `CHAIN_SPECS` row, not a new sibling script). Thin
-  raw-hex AuxPoW extractors that already use `run_extraction` keep a short
-  wrapper for child-RPC construction and the version gate; CLI lifecycle
-  and row construction live in `extract_driver`. A new thin raw-hex chain
-  adds a `CHAIN_SPECS` row, a `_gate`, and that wrapper — not a copied
-  `main()`. Hathor uses
-  a range-neutral metadata ledger plus one sealed acquisition dataset, which
-  `scripts/classify/classify_hathor.py` classifies directly without persisted
-  classifier phases. RSK uses an explicit half-open extraction range, a
-  coupled private fallback ledger, and an atomic checkpoint that content-binds
-  each committed byte segment and both pinned chain endpoints. Its classifier
-  accepts only a completed content-addressed checkpoint from a clean Git
-  worktree, records that exact HEAD and the original dependency fingerprints,
-  rechecks them immediately before promotion, stages the complete output
-  family, emits a hash manifest last, and keeps the private
-  `rsk_canonical_blocks.csv` companion alongside the stale/unknown inventory.
-  ROD's publication input is a canonical-only companion built by
-  `scripts/prep/build_rod_canonical.py`. The producer requires the complete
-  private extraction audit and independently reviewed child and Bitcoin bodies,
-  plus the audit-bound complete classification summary supplied with
-  `--classification-summary`. It verifies the selected chunk and receipt
-  against that summary's input manifest, validates the whole special-candidate
-  inventory, and executes only verified frozen parser source bytes. It
-  validates the pinned body digests and PowData proof, and writes to a fresh
-  private output directory. Do not create an empty `rod_validated_stales.csv`.
-  Scripts import the installed package and many default to
-  `data/` paths for operator convenience.
-- `data/`: committed compact loader inputs plus gitignored fetched/scratch data.
-- `results/`: committed reference CSVs and recovery diagnostics.
-- `docs/`: research directions, methodology, and per-chain provenance.
-- `node-infra/`: Dockerized legacy chain nodes and operational notes.
-- `cache/`: runtime cache, never committed.
+- Distinguish canonical, direct stale, stale descendant, unknown, near and
+  consensus-invalid error evidence. Source bucket labels are not verdicts.
+- Keep unknown relevance on its separate `btc_stale_relevance` axis; never
+  fold strict/weak orphan buckets into primary `classification`.
+- Deduplicate Bitcoin events by `(height, hash)`, not height alone. Preserve
+  distinct child witnesses. Do not turn missing evidence into an empty dataset.
+- Keep all publication validation gates and exact error-catalogue exclusions.
+  Accepted stale verdicts prove the declared available-evidence profile, not
+  complete Bitcoin body or UTXO consensus validity.
+- Authenticate every stale/invalid predecessor path and endpoint. Admit
+  catalogue entries only with genuine full-work violations and child witnesses;
+  keep the catalogue, evidence sidecars and observation ledger together.
+- Stored native ancestry and AuxPoW commitments do not establish native
+  active-chain membership or full child consensus.
+- Pool identity is a later inference. RSK lacks the real parent coinbase; its
+  historical labels are not a current attribution result.
+- Schema and classification vocabulary changes must coordinate with Monitor.
+  Research supplies read-only artifacts; Monitor deployment is separately owned.
 
-## Data Boundaries
+## Publication & Data Boundaries
 
-Be strict about what belongs in git:
+Commit compact accepted inputs, canonical error/ancestry modules and the
+complete Monitor projection, with payload CSVs in Git LFS. Keep raw extracts,
+full classifier inventories, node datadirs, credentials and bulky research
+exports in the private archive. Fetched upstream dependencies stay ignored.
+See the reference for exact public surfaces and retained-input contracts.
 
-- Commit canonical compact loader inputs such as
-  `data/validated-stales/*_validated_stales.csv` (RSK included: `rsk_validated_stales.csv`)
-  and the stale-descendant module:
-  `data/stale_descendants.csv` for accepted parent verdicts and
-  `data/stale_descendant_observations.csv` for authenticated child-chain
-  witnesses. Commit
-  `data/error-blocks/error_blocks.csv`, the consensus-invalid error-blocks
-  dataset that is also the exact-key exclusion gate preventing invalid
-  upstream or archived candidates from entering public outputs, along
-  with its `data/error-blocks/mtp_context.csv` sidecar. Commit the recovered
-  witness ledger `data/error-blocks/error_block_observations.csv`. Ancestry
-  reconciliation may emit disposable error-candidate diagnostics, but those
-  reports are never publication inputs or committed datasets. Do not commit
-  private source inventories.
-- Do not commit fetched upstream data under `data/stale-blocks/` or
-  `data/mining-pools/`.
-- Do not commit attribution run outputs. `just attribute` labels the
-  merge-mining-recovered stales and writes
-  `results/analysis/pool-attribution/*`, covered by the existing
-  `results/analysis/*/` ignore; the export is a regenerable run product
-  (see `docs/pool-attribution.md`).
-- Do not commit raw extracts, PoW-passing intermediates, full classifier
-  outputs (including `data/*_canonical_blocks.csv`), rejection scratch files,
-  marker SQLite/Parquet outputs, or node data directories unless a doc
-  explicitly says that exact artifact is public.
-- RSK raw checkpoints, fallback ledgers, classifier-family manifests, and
-  staged temporary files are private run artifacts. Keep the checkpoint and
-  its two content-bound CSVs together; the classifier intentionally refuses a
-  raw CSV without its complete matching checkpoint.
-- VCash's partial explorer recovery follows the same canonical-companion
-  contract: `scripts/prep/hydrate_vcash_canonical.py` writes the gitignored
-  `data/vcash_canonical_blocks.csv` by default, and monitor publication
-  discovers that filename under `data/` or a supplied chain archive.
-- Commit the complete final-category projection under
-  `results/monitor-evidence/`: every available canonical row, accepted direct
-  stale and descendant, and strict/weak unknown-row observation. Do not
-  introduce per-chain publication allowlists. The per-chain
-  `*_monitor_evidence.csv` payloads are tracked uniformly through Git LFS;
-  `monitor-evidence-counts.csv` and `monitor-evidence-manifest.json` remain
-  ordinary Git files. The JSON manifest owns the per-chain inventories for the
-  canonical error-block and stale-descendant observation ledgers consumed by
-  downstream importers; consumers must not reconstruct them from the lower-level
-  ledgers. Run `git lfs pull` before consuming or regenerating the committed
-  payloads.
-- The largest consolidated datasets (full per-chain evidence exports,
-  unknown-origin inventories over ~100 MB) are intended for future external
-  publication and are not tracked in git. Private or bulky per-chain artifacts
-  belong in the private archive, not in this repo.
-- `results/` contains reference snapshots. Do not casually regenerate broad
-  output sets as part of an unrelated code change.
+`just monitor-evidence` fails closed on incomplete private inputs and publishes
+all available canonical rows. Its staging is atomic and unrelated output files
+are preserved. Never put diagnostic partial output in committed results.
+`--allow-partial` and `--skip-canonical` require explicit disposable destinations.
 
-If a script writes ignored scratch data to `data/`, leave it ignored. If a new
-workflow needs a committed artifact, document why it is canonical and consumed
-by the public pipeline.
+Use `just reconcile-stale-ancestry` for complete ancestry publication; validate
+the error module first. Do not hand-edit accepted ancestry CSVs or replace them
+with a partial run. Use a stable non-secret RPC source label such as
+`core-reference`, never credentials, a private hostname or a transient tunnel.
 
-## Research Semantics
+RSK classifier families bind exact dependency bytes and require a completed
+checkpoint from a clean checkout. Staged publication can select new inputs
+with `--data-dir` while retaining those runtime-bound dependencies. Read the
+pipeline reference before regenerating either family.
 
-Preserve these distinctions:
+## Operational Safety
 
-- A direct stale is a recovered BTC parent header whose `btc_prev_hash` is a
-  canonical Bitcoin block. Per-chain loader CSVs represent these.
-- A stale descendant is a BTC stale-fork continuation whose ancestry walks back
-  to a trusted stale root. `data/stale_descendants.csv` is the parent-verdict
-  table and contains only `classification=stale_descendant`,
-  `validation_status=VALID_STALE_DESCENDANT` rows.
-- `data/stale_descendant_observations.csv` is the authenticated witness ledger.
-  Its source classification records which archive bucket held the observation;
-  that value is audit evidence, not the parent verdict. Parent classification
-  comes only from the ancestry and consensus gates.
-- Reconciliation considers every authenticated candidate, starts only from the
-  declared trusted-root set, and verifies the complete predecessor path. The
-  canonical parent loader requires the stored root height and fork depth to
-  agree, authenticates both path endpoints, and checks every path edge against
-  the serialized predecessor header of its parent verdict. The loader also
-  requires the exact parent schema, matching `expected_nbits`, true PoW/header
-  flags, and an accepting BIP34 verdict. It requires the terminal identity to
-  occur in the selected data tree's accepted per-chain or pinned upstream
-  direct-stale inputs, after that tree's canonical error-block exclusion. A
-  purported root is direct stale only when its predecessor is on Bitcoin's
-  active main chain. The witness ledger assigns each authenticated child event
-  to exactly one Bitcoin parent while preserving distinct same-chain events
-  that witness the same parent. Consensus-invalid candidates route to
-  `error_block` before stale-descendant publication. A catalogued error block is
-  an explicit invalid ancestry terminal: every child or deeper descendant
-  inherits that invalid verdict and blocks publication through the ancestry
-  diagnostic. Correct
-  incomplete or low-work source evidence; admit only an authenticated full-PoW
-  violation to the canonical error module. Never promote a row from its source
-  bucket label alone.
-- Raw classifier rows retain their source classification in source artifacts.
-  Monitor publication joins exact authenticated witnesses to the accepted
-  parent verdict and emits `classification=stale_descendant`,
-  `validation_status=VALID_STALE_DESCENDANT`, and
-  `relevance_reason=valid_stale_descendant`. It does not turn unrelated unknown
-  or canonical rows into descendants.
-- The word "orphan" is reserved for the strict/weak relevance buckets
-  (`strict_btc_orphan`/`weak_btc_orphan`), matching the merge-mining-monitor's
-  vocabulary. The broad evidence state is `unknown`. Historical private
-  inventories may use `orphan` in the
-  `classification` column; writers emit `unknown` and readers accept both.
-- The taxonomy has two axes and they must not be conflated: the primary
-  `classification` (`canonical`/`stale`/`unknown`/`stale_descendant`/`near`/`error_block`)
-  is the evidence state, and the derived `btc_stale_relevance` refines unknown
-  rows into `strict_btc_orphan`/`weak_btc_orphan`/`excluded`/`pending`
-  (constants in `config.py`). `error_block` is a consensus-invalid
-  full-proof-of-work Bitcoin block witnessed via merge mining (catalogued in
-  `data/error-blocks/error_blocks.csv`); it was never a stale/orphan contender,
-  and blocks that merely fail the PoW target stay `near`. `stale`/`stale_descendant` rows already carry
-  their confirmation on the primary axis (a VALID `validation_status`), so
-  they carry an EMPTY `btc_stale_relevance` and a `relevance_reason` of
-  `valid_direct_stale`/`valid_stale_descendant`; the derived axis holds only
-  the unknown-row refinement values. The merge-mining-monitor's BTC-orphan
-  classifier is a port of `scripts/analysis/classify_btc_stale_relevance.py`
-  and its importer reads the `btc_stale_relevance`/`relevance_reason` columns
-  verbatim, so renames of those columns, the bucket strings, or the
-  `classification` vocabulary (including adding `error_block`) must land in
-  lockstep with the monitor, and
-  strict/weak never fold into the primary `classification` column. See
-  `docs/data-reference.md` "Value vocabularies".
-- Deduplicate stale events by `(height, hash)`, not by height alone. Competing
-  same-height stale hashes are real data.
-- Preserve upstream rows on exact duplicates while carrying AuxPoW coinbase
-  evidence for later attribution research.
-- RSK is special: its proof does not expose the real parent coinbase. Preserve
-  `rsk_miner` as evidence, but do not treat historical `pool_label` values as a
-  current attribution result. The attribution layer may surface those labels
-  only with `attribution_basis=rsk_historical`.
-- Pool attribution is dual: every attributed record carries `pool` (tag owner)
-  plus `template_producer` (the dated proxy-cluster fold in
-  `template_producers.py`). The attribution export covers only the
-  merge-mining-recovered stales; labelling the combined
-  census-plus-recovered set, the observed-vs-expected analysis, and
-  the propagation-era scheme live in the companion `stale_rate_analysis` repo;
-  this repo deliberately carries no era constants or era vocabulary, and the
-  attribution API takes `min_height` as a caller-supplied parameter.
-- Post-2017 contamination from BCH/BSV-like parent headers is filtered with
-  self-target PoW and expected-`nBits` checks. Before classification, the shared
-  driver corroborates the published hash, previous hash, time, and `nBits`
-  against the serialized 80-byte header and checks its self-target proof of
-  work. Direct stale candidates also apply Bitcoin's contemporaneous minimum
-  block versions (2 from BIP34 height
-  227,931, 3 from BIP66 height 363,725, and 4 from BIP65 height 388,381) and
-  BIP34's two-stage coinbase-height rule: version 2 or newer from height
-  224,413, then every valid block from height 227,931. Do not weaken these
-  gates, plus active-parent placement, median-time-past, and the coinbase
-  scriptSig's 2-to-100-byte limit where the real parent coinbase is available.
-  The necessary available-evidence profile runs once at classification time
-  and its verdict is persisted per row in the committed
-  `*_validated_stales.csv` as `validation_status` / `expected_nbits`. The only
-  accepted direct-stale statuses are exactly `VALID` and
-  `VALID (post-BCH, difficulty matches BTC)`. Either means that this declared
-  publication profile passed; neither proves that a complete Bitcoin block was
-  consensus-valid. Externally verified body-invalid parents belong in the
-  error-block catalogue with a commit-pinned `body_evidence.csv` reference.
-  The catalogue excludes them from accepted stale outputs; raw source verdicts
-  remain audit evidence. A descendant whose inferred height has no committed
-  canonical `nBits` reference is unpublishable. Loaders read and filter the
-  verdict but never recompute the gate.
-  RSK does not expose the real parent coinbase and therefore cannot apply the
-  two coinbase-dependent checks independently. The exact-key error-blocks
-  exclusion gate (`data/error-blocks/error_blocks.csv`)
-  protects every publication surface from consensus-invalid candidates.
-- Hash byte order must be explicit. Use the helpers in
-  `stale_blocks_analysis.auxpow_chainid` instead of guessing display vs
-  internal order.
-- Current novelty counts belong only in generated `results/novelty.md`. Run
-  `just novelty` after changing compact inputs or the upstream pin, and
-  `just novelty-check` to verify freshness. Other docs link to the report.
-  The generator requires complete inputs and verified upstream Git metadata;
-  canonical-only chains deliberately have no validated-stales CSV.
-  `data_source_provenance.py` shares pin and clone-state inspection with
-  attribution; failed Git inspection returns unknown state, never clean.
-- Chronological novelty follows `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
-  This is a reproducible attribution convention, not a real-time observation
-  claim.
+Read [docs/node-operations.md](docs/node-operations.md) before node
+or archive work, then the workspace README. Read the ignored
+`docs/private/infra-access.md` in the operator's primary checkout for private
+locations; keep those details out of tracked files and logs.
 
-## Code Conventions
+- Treat archive payloads as immutable. Historical paths may be hardlinked.
+  Work on separate copies; never write preserved inputs in place.
+- Adopt populated historical datadirs with retained verified images and
+  documented offline profiles. Do not initialize, reindex or upgrade them.
+- Require noncreating data/config binds. Keep RPC scoped privately, restart
+  disabled until acceptance, and startup ordered after mounts/interfaces.
+- Research-owned images and variants live in `node-infra/<workspace>/`.
+  The archive dashboard and Monitor each have separate owning repositories.
+- Use `docker compose` v2. Do not build, start or synchronize nodes as an
+  incidental consequence of a research or publication command.
 
-Build toward the final rerunnable workflow. Put the complete desired behavior
-in the normal producers, rather than requiring operators to replay successive
-repair or migration scripts. Remove completed one-off repair code and obsolete
-compatibility branches. Preserve weaker evidence semantics only where actual
-retained inputs still require them; never upgrade missing evidence by relabelling it.
-The blkdat classifier requires complete exact output scripts and emits the
-canonical rendering in every split directly, including P2PK and nulldata.
-Monitor baseline comparisons use the same chain-aware output normalization as
-source ingestion; retained projections cannot establish exact output positions.
+## Repository Etiquette
 
-- Keep shared paths, protocol constants, the relevance vocabulary, and chain
-  chronology in `src/stale_blocks_analysis/config.py`. Importing that
-  registry must not create directories. Writers create `results/`, `cache/`,
-  and other output parents when they write.
-- Loader functions in `stale_blocks.py` should return the established row shape:
-  `height`, `hash`, `source`, and when available `_scriptsig_hex` and
-  `_outputs_str`. The current recovery pipeline does not return pool labels.
-- Use `csv.DictReader` and `csv.DictWriter` for CSV work. Preserve stable column
-  names and deterministic row ordering. Evidence writers emit LF explicitly so
-  LFS-backed CSVs remain byte-reproducible without Git text normalization.
-- Use binary parsers and existing helpers for Bitcoin wire data. Avoid ad hoc
-  slicing unless the surrounding code already uses that exact convention.
-- Standard Bitcoin-family RPC extractors must obtain their column order from
-  `standard_auxpow_extraction_columns()` in `auxpow_parse.py`. Source-specific
-  acquisition formats such as Huntercoin, Xaya, and the generic `blk*.dat`
-  inventory may retain extra provenance fields, but their classifiers must
-  normalize into the shared evidence schema.
-- For coinbase marker additions, prefer adding data entries in
-  `coinbase_markers.py` over changing parser logic. Add or update tests with
-  pinned fixtures.
-- Keep dependencies modest. Core analysis is intentionally mostly stdlib plus
-  the runtime dependencies in `pyproject.toml`; development checks use the
-  optional `dev` extra.
-- Do not perform broad formatting or doc reflow in research docs. Their counts,
-  caveats, and wording are often audit evidence.
+Inspect `git status --short` before edits and preserve unrelated user changes.
+Commit only when requested. Never push, post to GitHub or publish externally
+without explicit authorization. Follow `CONTRIBUTING.md` and
+`docs/upstreaming.md`; in-progress research additionally uses local Beads.
 
-## Validation
+Redact infrastructure with placeholders such as `<archival-host>` and
+`<chain-data-dir>`. Run `just check-leaks` before committing. Keep credentials
+and node database files outside Git.
 
-Run the narrowest meaningful checks for the files you touched, then broaden
-when behavior crosses module boundaries.
+Before handoff, recheck status, explain code changes separately from regenerated
+data/docs, report validation and state research caveats or missing inputs.
 
-- Parser, loader, or helper change: run the relevant `python -m pytest ...`
-  target under `tests/`.
-- Coinbase marker registry change: run `just test-markers`.
-- Compose profile change under `node-infra/`: run `just test-node-infra`.
-- Chain classifier or extraction change: run focused script-level checks and
-  any chain-specific tests. If committed loader inputs change, regenerate the
-  dependent novelty or recovery outputs that the docs cite.
-- Docs-only changes usually do not need tests, but fact-check counts against
-  the CSVs or JSON summaries they cite.
+## Documentation
 
-Always state which commands were run and which were skipped.
+- [Pipeline reference](docs/pipeline-reference.md): producer and package contracts.
+- [Research contracts](docs/research-contracts.md): evidence and publication semantics.
+- [Node operations](docs/node-operations.md): archive and legacy-node runbooks.
+- `README.md`: setup, supported commands and layout.
+- `docs/research-directions.md`: research scope.
+- `docs/auxpow-recovery.md`: cross-chain model.
+- `docs/process-data-outcomes.md`: current integrated results and caveats.
+- `docs/chains/<chain>.md`: read before changing a chain-specific workflow.
+- `docs/data-reference.md`, `docs/data-validity.md`, `docs/error-blocks.md`:
+  schemas and evidence methodology.
 
-## Node Infrastructure
-
-`node-infra/qbit/` owns the pinned Qbit archival build and explicit acquisition
-worker and uses the same profile model as the other node workspaces: the base
-Compose file publishes RPC only on the selected host address in
-`QBIT_RPC_BIND` (loopback by default) with the restart policy in
-`QBIT_RESTART_POLICY` (enable only after acceptance), and
-`compose.offline.yml` serves networkless reads. Keep `prune=0`,
-`prunewitnesses=0`, `assumevalid=0` and `txindex=1`, noncreating data/config
-binds, and `rpcauth` for any remote poller in the private config; `just up`
-and `just start` never build or pull.
-`qbit.py` validates its distinct header/proof envelope using existing bounded
-wire helpers; `qbit_acquisition.py` accounts for every native active-chain
-height and writes private receipts. `--from-acquisition` authenticates sealed
-captures and replays the same producer into a fresh generation. Failed runs
-remain incomplete. Qbit uses the shared classifier, loader and publication
-registry; leading arbitrary commitment pushes are not Bitcoin height evidence.
-Its 24 zero-predecessor synthetic parents remain unknown and are excluded by
-Bitcoin epoch targets. See `docs/chains/qbit.md`.
-
-`node-infra/rod/` owns the pinned SpaceXpanse ROD archival build. Keep its
-source archive ignored and digest-verified, use noncreating data/config binds,
-and retain `prune=0`, `txindex=1` and `assumevalid=0` for comprehensive recovery.
-RPC stays inside the container. Node sync and complete parent-evidence
-extraction are separate from Research publication and Monitor registration. The tracked
-`download-window.patch` is an archival throughput variant: it changes only the
-per-peer in-flight block cap after source digest verification, keeps the global
-download window and native consensus validation unchanged, and must use its
-distinct image tag or an explicit `ROD_IMAGE` rollback selection.
-
-`node-infra/research-worker/` defines the one-off research container. It installs
-Python dependencies in a venv and includes Git/Git LFS for classifier provenance
-checks. `just build` uses the explicit selected checkout; `just run` mounts that
-checkout and the private archive read-only at `/repo` and `/archive`, with
-disposable output under `/work`. Use a clean standalone clone owned by UID 1000
-for provenance-checked classification. Git LFS scratch objects belong under
-`/work/.git-lfs`; the source bind
-must remain read-only. Rebuild when the checkout or dependencies
-change. Never start extraction or publication automatically, and keep private
-inputs out of the Docker build context. Read the workspace README for RPC
-environment forwarding and the optional Linux host-network overlay.
-
-Treat private archive payloads as immutable. Historical paths may share storage
-through hardlinks; an in-place write could alter several retained runs. Copy
-inputs into a working directory before editing or regenerating them. Replace
-disposable build inputs instead of overwriting preserved binaries in place.
-Keep original path and metadata receipts when consolidating exact duplicates.
-
-The archive dashboard is maintained in the separate private
-`deadmanoz/mmr-archive-dashboard` repository, including its Dockerfile,
-collector, Compose recipes and operating instructions. This is the explicit
-exception to MMR's image-ownership policy below. The directory
-`node-infra/archive-dashboard/` contains only a pointer. Make dashboard changes
-in its own checkout and follow its `AGENTS.md`; do not restore a duplicate
-runtime here. The dashboard distinguishes transfer verification from research
-coverage and serves only cached metadata.
-
-The separately managed Monitor deployment workspace owns both production and
-development deployments. This repository supplies published Research artifacts
-to the Monitor as a read-only input; do not recreate a Monitor deployment
-workspace under `node-infra/`.
-
-Each `node-infra/<chain>/` directory is its own operational workspace with a
-README and usually a local `justfile`. Read the chain README before building or
-starting a node.
-
-Every Research-owned project image, including node and research-worker images,
-must have its canonical Dockerfile or pinned image reference, required patches,
-Compose configuration and operating instructions in `node-infra/<workspace>/`.
-Add supported build/runtime
-variants there rather than maintaining private recipe forks. Keep generated
-image exports, source bundles, datadirs and host-specific settings private.
-
-Host runtime startup must wait for required data mounts and private network
-interfaces before automatically starting containers whose RPC endpoints bind
-those addresses. Verify this ordering in the normal reboot acceptance check.
-
-Namecoin and Syscoin use preserved native Linux binaries, verified by hash
-at image build time. Their ignored `binaries/` inputs come from the private
-source archive. Keep the separate config bind read-only and both bind sources
-noncreating. Review old host-specific settings before offline starts. Preserve
-the observed index state, and enable live restart only after acceptance.
-
-Elastos packages preserved release binaries and mounts the complete node root
-at `/data`, keeping the daemon's database in its `elastos` child. RSK packages
-the preserved JAR and matching Java runtime, with one noncreating data bind
-containing the active `mainnet/database/unitrie` directory. Preserve those path
-relationships, keep logs inside the data binds, and use networkless overlays for initial reads. Image defaults must
-exit harmlessly without initializing node state. The RSK JSON-RPC recipe uses
-quoted positional arguments so JSON values retain their argument boundaries.
-
-Fractal adoption uses the retained image and existing datadir with an explicit
-`bitcoin.conf`, a noncreating bind and initial networkless reads. Do not run
-initialization or rebuild/reindex the node while adopting a disk. Set the live
-restart policy and private RPC publish address only after acceptance.
-
-Devcoin is operated on demand as a retained historical container. Its
-workspace uses `just stop` / `just start` to preserve the container, disables
-automatic restart, and excludes node data from the Docker build context.
-Its Dockerfile supports upstream and local-bundle builds; `compose.offline.yml`
-provides offline Linux operation. Keep host paths and selections in `.env`.
-
-Argentum, Bitmark, Crown, Doichain, Elcash, Emercoin, IXCoin, Myriadcoin,
-Terracoin and Unobtanium also support an explicit `compose.offline.yml` overlay and private
-image/datadir selections. Adopt preserved data with the verified existing
-image first, without rebuilding, reindexing, loading bootstrap files or
-running an initialization recipe. Validate tip and historical block reads,
-then stop the retained container. Automatic restart defaults to disabled;
-ordinary online configurations remain available for explicit use. Check each
-workspace's README rather than assuming every historical node has identical
-flags, credentials or RPC ports.
-Terracoin also has a private `compose.live.yml` overlay for verified populated
-state. It omits bootstrap loading, requires private RPC bind and client
-selections, and stays separate from the offline research profile. Set
-`TERRACOIN_RESTART_POLICY=unless-stopped` only after live acceptance and host
-startup ordering are verified; the live profile defaults to no restart.
-Bitmark's legacy daemon ignores `rpcbind`; any `rpcallowip` selects wildcard
-listening. Its offline profile relies on omitting both and removing both
-from the copied config so only IPv4/IPv6 loopback sockets are opened.
-
-CoiledCoin and SixEleven use `network_mode: none` in their archival overlays
-and retain CLI access through `docker compose exec`. Keep SixEleven's wrapper
-that suppresses upstream credential output; its image runs the daemon as UID
-999, and generic version/help probes may try to initialize a database. Do not
-substitute newer daemon assumptions or run initialization against preserved
-data. Missing-config errors require restoring its private configuration.
-
-All historical and surveyed node workspaces default to no automatic restart,
-including Doichain, Blast, Jincoin, Lyncoin and Xaya. Their ordinary online
-recipes may still contact peers when explicitly started. Apply a documented
-offline profile where one exists and distinguish a scaffold from a verified
-recovered node. Live sources enable their restart policy only after acceptance.
-
-Keep generated node datadirs, RPC credentials, logs, block indexes, and
-chainstate files out of git. Some chain directories already have local
-`.gitignore` files for `data/`; if you introduce a new generated datadir, add
-an ignore rule before running long-lived node commands.
-
-## Issue Tracking
-
-Use GitHub issues and pull requests for bug reports and contributions; see
-`CONTRIBUTING.md`. (In-progress research tasks are additionally tracked in a
-local issue database that is not part of this repository.)
-
-## Shell and Git Safety
-
-- The working tree may contain user edits. Inspect `git status --short` before
-  editing and do not revert unrelated changes.
-- Never run `git push`, post to GitHub, or publish externally without explicit
-  user permission.
-- Keep credentials and private hostnames out of committed files and logs.
-  Redact private infrastructure to angle-bracket placeholders (for example
-  `<archival-host>`, `<chain-data-dir>`) rather than naming real hosts, LAN IPs,
-  or `/mnt` paths. `just check-leaks` greps tracked files for a built-in LAN-IP
-  baseline plus any operator tokens listed in the gitignored `.leak-tokens`
-  file (see `.leak-tokens.example`), and fails if any reappear.
-  The real values behind the placeholders (the archival host's name, its
-  archive layout, related hosts) are documented in the gitignored
-  `docs/private/infra-access.md` on the operator's machines. Read that file
-  before asking the operator where the private archive or a chain datadir
-  lives; keep its contents out of anything committed.
-- Prefer `rg` and `rg --files` for search.
-- Use non-interactive command forms where aliases might prompt:
-
-```bash
-cp -f source dest
-mv -f source dest
-rm -f file
-ssh -o BatchMode=yes host command
-```
-
-## Pre-Handoff Checklist
-
-Before handing back:
-
-- Confirm the changed files are limited to the task.
-- Run appropriate validation or explain why it was not run.
-- Re-check `git status --short`.
-- Summarize data/result/doc regeneration separately from code edits.
-- Call out unresolved research caveats, missing private inputs, or cache/RPC
-  limitations that affect the result.
-
-### External body-invalid evidence
-
-The four parents at heights 474294, 477115, 783426 and 784121 are catalogue
-entries, supported by merged invalid-blocks evidence and 12 retained child
-observations. The subsequent six-parent correction also admits the four P2SH cases,
-197438 and 584802, for 49 catalogue parents and 107 child observations.
-Body authentication reads the pinned invalid-blocks clone via
-`INVALID_BLOCKS_DIR`, not the stale-blocks body directory. The adjacent
-`body_evidence.csv` binds each external verdict to authenticated body bytes;
-missing bodies fail validation. Source coordinates prefixed `git/<commit>/`
-refer to the exact retained repository snapshot, not a current loader row.
-Shared, blkdat and RSK validated-stale writers apply exact catalogue exclusion.
-Raw classifier buckets retain their source verdicts.
+Update the relevant documentation alongside code changes. Keep detailed
+references and runbooks in `docs/`; keep only agent instructions and links here.

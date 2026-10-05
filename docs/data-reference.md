@@ -4,8 +4,8 @@ Column-level reference for the committed datasets that the analysis package
 loads and the reference outputs under `results/`. Fetched upstream data
 (`data/stale-blocks/`), raw extracts, and other scratch artifacts are not
 committed and are out of scope here; see the [input data notes](../data/README.md)
-for the data-boundary rules and [repository guidance](../AGENTS.md) for the
-research semantics these columns encode.
+for the data-boundary rules and [research contracts](research-contracts.md#research-semantics)
+for the research semantics these columns encode.
 
 ## Conventions
 
@@ -156,7 +156,7 @@ Acquisition limitations are not repairable by rendering alone:
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from stale publication surfaces. Every row has
 `classification=error_block`; blank or unknown classifications fail closed
-when the dataset is loaded. The current 49 rows include the 946,213 and 957,780
+when the dataset is loaded. The current 53 rows include the 946,213 and 957,780
 `time_below_mtp` blocks, the 717,696 `nbits_retarget_not_applied` block, the
 Hathor-witnessed 649,674 `bip34_coinbase_height_missing` block, and four
 stale-ancestry candidates at 331,673, 331,674, 402,610, and 422,059 whose bytes
@@ -166,7 +166,8 @@ required BIP34 height, three fail BIP66's minimum version 3 rule, five
 fail BIP65's minimum version 4 rule, three are time-too-old against
 median-time-past (380,992, 946,213 and 957,780), one carries a
 103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
-apply the difficulty retarget at an epoch boundary. Ten further entries have
+apply the difficulty retarget at an epoch boundary. Four entries at 363,732, 363,733, 363,735 and 363,736 inherit the invalid
+BIP66 root at 363,731 through authenticated header paths. Ten further entries have
 independently verified body-rule failures bound by `body_evidence.csv`. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
@@ -187,6 +188,32 @@ rejection at a non-boundary height, which is the contamination gate's target
 class (a share/near row), not an error block: the error-block case is
 specifically the retarget-not-applied at an epoch boundary where the header
 still meets full proof of work.
+
+## Invalid ancestry evidence: `data/error-blocks/ancestry_evidence.csv`
+
+The `consensus_invalid_parent` rule requires a reviewed complete header path
+from the catalogue parent to a root whose minimum-version violation can be
+re-derived. Each exact `(height, hash)` sidecar row contains
+`path_header_hexes` (own header through root, pipe-separated), the root
+identity/height/rule, and its canonical predecessor's identity, height,
+serialized header and stable `bitcoin-core-rpc:<label>` receipt source.
+`root_evidence_url` identifies the exact commit-pinned invalid-blocks JSONL
+record. Missing, duplicate, malformed or unused sidecar records fail closed.
+
+Validation binds the first header to the catalogue, authenticates every edge
+and endpoint, checks height placement and full Bitcoin work with the required
+epoch targets, and re-derives the root's contemporaneous minimum-version
+failure. Canonical placement of the root predecessor rests on the reviewed
+Bitcoin Core receipt; offline validation checks its serialized identity and
+context rather than replaying the active chain. No body/UTXO validation is
+asserted. The root is not published as a child observation without a genuine
+merge-mining witness. The four current rows admit 13 child events at Bitcoin
+363,732, 363,733,
+363,735 and 363,736. The frozen BTC Relay fixture supplies intermediate
+363,734, without fabricating a child witness. Eight prior strict observations
+move to errors, and three formerly private 363,736 witnesses are added.
+The original source `unknown` classifications remain intact while Monitor
+publishes the stronger invalid verdict.
 
 ## External body evidence: `data/error-blocks/body_evidence.csv`
 
@@ -568,8 +595,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 107-row aggregate
-for the 49 catalogue parents. It uses the 34-column union schema: the shared
+`error-block-observations_monitor_evidence.csv` is a separate 121-row aggregate
+for the 53 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
@@ -597,13 +624,14 @@ ledger row must have the exact canonical field count and identify its child
 either with a well-formed hash or with a serialized child header from which
 that hash can be authenticated. Staged publication applies the ordinary
 parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 107-row
+catalogue/ledger-derived field and identity to match the canonical 121-row
 module exactly; source-derived coinbase output enrichment may add evidence but
 cannot replace it. The release path stages every ordinary artifact, the error
 aggregate, counts, and manifest as one coherent transaction after validating
 them against the current schemas and source contracts.
 
-I0coin contributes three exact error observations. The recovered snapshot
+The September I0coin snapshot initially supplied three exact error
+observations. The recovered snapshot
 adds witnesses at Bitcoin heights 331,673 and 331,674, with child heights
 1,315,879 and 1,315,884, and corrects the existing height-367,047 witness's
 child height from 1,546,542 to 1,546,541. The latter is the same authenticated
@@ -665,6 +693,16 @@ as heights. Height columns remain present uniformly. Any non-empty export with
 no exact child height records `child_height=unavailable`; downstream importers
 that require a height must skip those rows until an exact height source becomes
 available.
+Huntercoin and Xaya use the Kraft native classifier families as their foundation
+inputs. Previous Arweave/CDN families are historical provenance and are not
+fallback sources. Xaya's `xaya_height` records the coinbase-derived native
+height; ordinary shared height resolution publishes it as `child_height`.
+Both current classifier families use the ordinary
+`<chain-archive>/<chain>/classified/` layout. Xaya uses the existing
+`canonical_blocks` source kind. Current exact heights remain
+protected by the normal publication checks; there is no scan-position repair
+or preservation exception for superseded Xaya inputs.
+
 The child-header coverage report
 cross-references those accepted observations by source chain and Bitcoin
 header hash so their coverage is explicit:
@@ -734,7 +772,7 @@ ledger, neither of which appears in full-evidence discovery. Full evidence
 therefore contained 4,560,214 source rows, while Monitor reported 4,560,369:
 68 VCash rows plus 88 error observations, less the rejected Groupcoin row.
 These source totals are distinct from final Monitor row counts. Monitor
-admits 34 strict/weak observations from the unknown bucket and projects all
+now admits 26 strict/weak observations from the unknown bucket and projects all
 33 accepted descendant witnesses into their observing chains, alongside the
 separate 21-row descendant parent table.
 

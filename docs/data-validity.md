@@ -103,7 +103,8 @@ Bitcoin Core context review under RSK's available-evidence profile. The
 10 September Qbit scan adds four independently witnessed direct stales that
 pass the complete coinbase-bearing available-evidence profile; all four
 headers already occur upstream and in RSK. The current
-committed direct set contains 3,794 observations and 2,151 unique header hashes.
+committed direct set contains 3,863 observations and 2,155 unique header hashes,
+including the accepted observations from the Kraft Huntercoin/Xaya dumps.
 
 The evidence limitations remain part of that result. Namecoin's 228
 historically loader-absent headers are now embedded in the loader CSV,
@@ -149,7 +150,11 @@ locally reproducible consensus failures, including MTP and coinbase rules,
 and authenticates the bodies and pinned-reference format of the ten
 externally verified body-invalid records. Admission review establishes the
 upstream verdicts; this preflight does not fetch or re-run them. The canonical module contains
-49 parents and 107 observations, with MTP and body-evidence sidecars. The staged error
+53 parents and 121 observations, with MTP, body-evidence and
+`ancestry_evidence.csv` sidecars. For `consensus_invalid_parent`,
+`error_ancestry.py` authenticates the complete predecessor path, canonical
+root-parent receipt, expected targets and full proof of work, then re-derives
+the reviewed root's minimum-version violation. The staged error
 aggregate must then match every canonical ledger identity and derived field.
 Any full-coinbase enrichment is parsed and must authenticate the published
 coinbase scriptSig. A release stages all ordinary artifacts, that verified

@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+Use the Kraft native dumps as the foundation inputs for Huntercoin and Xaya.
+Remove Huntercoin's superseded Arweave fetcher, binary/index/failure workflow
+and native overlap option, with their retired tests. Use normal shared height
+resolution for the current Xaya canonical family without legacy scan-position
+handling or a separate canonical source label. Use the ordinary archive layout
+for both current classifier families, with historical source acquisitions
+retained as dated private provenance only. Consolidate duplicated catalogue
+counts and mocked failure tests while retaining exact-key and real-input checks.
+Decode each Huntercoin proof once in its native scanner, share the transaction
+coinbase predicate with Xaya, and use numbered native-file selection for both
+extractors. Preserve the acquisition CSV columns and non-coinbase evidence
+dispositions. Replace remaining copied catalogue totals with exact relationships.
+Remove the retired mixed-chain classifier filter; the native producer selects the Bitcoin
+branch before its raw output reaches classification. Route invalid-block
+diagnostic sweeps through the current Kraft families and raise their completeness
+floors while preserving authenticated height semantics. Align current validity,
+contribution and node-source guidance with the replacement data and retained
+ancestry evidence.
+
+Reduce `AGENTS.md` to the entry point and essential safeguards, routing detailed
+pipeline, evidence and node contracts into the shared `docs/` tree. Keep a
+single documentation hierarchy for contributors and agents, without a separate
+agent reference index or commit-baseline tracker.
+
+Add foundational native Huntercoin block-file acquisition. Authenticate genesis-linked heights, SHA-256d child targets
+and the child-to-parent AuxPoW commitment, retain complete parent coinbase
+and proof bytes privately, and refuse incomplete or contradictory inputs.
+Enforce the same commitment and effective child-target profile in Xaya.
+Share exact native framing with Xaya, accepting zero-filled reserve gaps
+while rejecting unexplained nonzero bytes and truncated records. Add explicit
+offline extraction recipes for both chains.
+
+Publish the Kraft native-dump recovery with 78 accepted Huntercoin and 42
+accepted Xaya direct-stale observations, preserving every previously accepted
+event. Authenticate the two Huntercoin-witnessed continuations of the
+BIP66-invalid fork through complete header paths and a reviewed canonical-root
+placement receipt. Preserve the additional sibling-chain witnesses of four
+invalid parents, including eight previously strict observations and the
+upstream-listed 363,736 parent. Add the narrow ancestry-evidence sidecar and
+fail-closed validator, bringing the error catalogue to 53 parents and 121 child witnesses.
+Retain the additional Huntercoin witness of the known BIP34-invalid 331,674
+parent. Keep original source buckets and private proof bytes for reproducibility.
+
 Add a private live Terracoin node profile for verified retained state, with
 bounded resources, no bootstrap import, and restart disabled by default until
 the node is accepted.

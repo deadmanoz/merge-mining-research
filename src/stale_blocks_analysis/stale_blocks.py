@@ -418,8 +418,8 @@ def load_huntercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
     Returns records in the same shape as load_unobtanium_stales() with
     source="huntercoin". Only loads entries with classification "stale".
 
-    Huntercoin's data was sourced via Arweave from the domob1812/arblockstore
-    permaweb archive — the network itself is dead. The validated CSV holds
+    Huntercoin's current data comes from the Kraft native dump. Earlier
+    Arweave recovery is documented as history. The validated CSV holds
     only the SHA-256d branch (chain ID 6, BTC parent); the Scrypt branch
     (chain ID 2, LTC parent) is out of scope. ``coinbase_outputs`` follows the shared
     rendering contract (docs/data-reference.md) and is preserved unchanged

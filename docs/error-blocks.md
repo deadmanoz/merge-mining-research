@@ -37,8 +37,9 @@ via `src/stale_blocks_analysis/error_blocks.py`.
 
 Every rule below is a necessary Bitcoin consensus condition, so a single
 failure is conclusive evidence that the block is invalid. Enforcement heights
-are the constants in `stale_blocks_analysis.config`; the gates are reused from
-`stale_blocks_analysis.btc_stale_validation`, never reimplemented.
+are the constants in `stale_blocks_analysis.config`; header and coinbase gates
+are reused from `stale_blocks_analysis.btc_stale_validation`. Inherited invalidity
+requires the complete reviewed header-path contract in `error_ancestry.py`.
 
 | Rule token | Rule | Enforcement |
 |---|---|---|
@@ -52,6 +53,7 @@ are the constants in `stale_blocks_analysis.config`; the gates are reused from
 | `coinbase_scriptsig_length_below_2` | Coinbase scriptSig serialized length below the 2-byte minimum (the same 2–100 gate; vocabulary-only, no committed row uses it yet) | height-independent |
 | `time_below_mtp` | Block `nTime` at or below the canonical parent's median-time-past (including 380,992, 946,213 and 957,780) | height-independent |
 | `nbits_retarget_not_applied` | At a retarget-boundary height (`height % 2016 == 0`) the block carries the previous epoch's `nBits` instead of the newly retargeted value, while still meeting full proof of work | epoch boundaries |
+| `consensus_invalid_parent` | Complete full-work predecessor path reaches a reviewed minimum-version-invalid root | root rule at its declared height |
 | `time_beyond_future_limit` | Block `nTime` more than 2 hours beyond network-adjusted time | **not mechanically re-checkable offline** |
 
 BIP34's two-stage rule is applied explicitly because modern Bitcoin Core buries
@@ -189,7 +191,7 @@ instead of overwriting one another.
 
 ### Composition and per-rule counts
 
-The dataset holds **49 rows** (49 distinct `(height, hash)` blocks), spanning
+The dataset holds **53 rows** (53 distinct `(height, hash)` blocks), spanning
 Bitcoin heights 173,928 through 957,780. They include heights 946,213 and
 957,780 (`time_below_mtp`), height 717,696
 (`nbits_retarget_not_applied`), height 649,674
@@ -212,12 +214,13 @@ Bitcoin heights 173,928 through 957,780. They include heights 946,213 and
 | `bad-blk-sigops` | 2 |
 | `block-script-verify-flag-failed` | 4 |
 | `bad-cb-amount` | 2 |
-| **Total** | **49** |
+| `consensus_invalid_parent` | 4 |
+| **Total** | **53** |
 
-Because one invalid block is witnessed by several sibling chains, the 49
-blocks produce 107 per-chain observations: namecoin 45, devcoin 19, ixcoin 16,
+Because one invalid block is witnessed by several sibling chains, the 53
+blocks produce 121 per-chain observations: namecoin 49, devcoin 19, ixcoin 20,
 rsk 7, syscoin 5, elastos 5, xaya 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
-i0coin 3, and unobtanium 1.
+i0coin 6, huntercoin 3, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
 views" below).
 
@@ -280,12 +283,52 @@ All seven retained child observations survive: four Namecoin events, the
 Ixcoin and Devcoin witnesses of 197,438, and Elastos's witness of 584,802.
 The upstream record for 197,438 lists Ixcoin; Research additionally preserves
 its independently retained Devcoin event. Together these admissions bring
-the catalogue to 49 parents and 107 observations. The catalogue parent set
-matches the merge-mining-witnessed subset of the 143-entry upstream pin.
+the catalogue to 49 parents and 107 observations. The catalogue parent set at that admission
+matched the merge-mining-witnessed subset of the 143-entry upstream pin.
 The committed catalogue and publication use `time_below_mtp` at 380,992.
 Validation accepts only that canonical token, and publication preservation
 requires exact rejection-reason equality. The completed data correction does
 not leave a runtime alias or rename exception.
+
+## Huntercoin witnesses of the BIP66-invalid fork
+
+The Kraft dump supplies genuine Huntercoin witnesses of Bitcoin headers
+363,732 (`0000000000000000155f2519d35cd5d2869900bcc5093594b27763a0315390b4`)
+and 363,733 (`00000000000000000cb7a20ee4e199e347ad7369936abae53a1518efa531ec61`),
+at child heights 772,341 and 772,368. Both headers use version 3, but their
+predecessor path reaches the version-2 invalid root at 363,731. The reviewed
+root record is pinned to [invalid-blocks JSONL line 115](https://github.com/bitcoin-data/invalid-blocks/blob/aadce82e948f63bde0befd14f21a84aa45f45cde/data/invalid-blocks.jsonl#L115).
+Bitcoin Core confirmed its predecessor at canonical height 363,730; that
+serialized parent and the stable source label are retained in the sidecar.
+
+`ancestry_evidence.csv` binds each new catalogue key to its complete path.
+The normal validator authenticates every predecessor edge, required target
+and full proof of work, then re-derives the root's BIP66 minimum-version
+violation. The complete source screen also authenticates the later parents at 363,735
+and 363,736 through the frozen six-header BTC Relay fixture at commit
+`1cf676d387c4514770b91e4ca15094194f446677`. The intermediate 363,734 header
+is an ancestry anchor without a recovered child witness. Four sidecar rows
+admit 13 genuine child events: two Huntercoin, three I0coin, four IXCoin and
+four Namecoin witnesses. Native Namecoin header/AuxPoW reads authenticate the
+previously unpublished 363,736 witness at child height 237,737.
+
+All four descendants carry `consensus_invalid_parent`. Eight previously
+published strict observations move to the error aggregate, and three
+previously private 363,736 witnesses enter it. That last parent occurs in the
+pinned stale-blocks CSV and is now excluded by the exact catalogue key.
+Original unknown source buckets remain unchanged. None of these parents is an
+accepted stale descendant.
+The root itself has no recovered child witness and is only an ancestry anchor.
+All 49 preceding parent identities, header evidence and rules, and all 107
+preceding witness identities and evidence are preserved. Catalogue source
+summaries gain genuine new witnesses; ledger catalogue-row coordinates shift
+after sorting.
+This check does not replay block bodies or the native active chain.
+
+The same dump adds a Huntercoin witness of the already catalogued BIP34-invalid
+parent at 331,674, at child height 460,428. Its complete native AuxPoW authenticates
+the parent header, coinbase Merkle inclusion and child commitment. This adds
+one genuine observation without changing the parent verdict or exclusion key.
 
 ## Evidence standard
 
@@ -305,10 +348,10 @@ with no live RPC:
 4. `time_below_mtp` against the committed
    `mtp_context.csv` sidecar.
 
-A row that fails re-derivation fails the test suite. The catalogue, MTP
-sidecar, and exact observation ledger form one reviewed canonical data module.
-Run `just validate-error-blocks` to validate all three without private inputs
-or live RPC. Population sweeps remain diagnostic research tools and fail
+A row that fails re-derivation fails the test suite. The catalogue, context and evidence
+sidecars, and exact observation ledger form one reviewed canonical data module.
+Run `just validate-error-blocks` to validate the complete module using the
+pinned public body dependency, without private archive inputs or live RPC. Population sweeps remain diagnostic research tools and fail
 closed when their required private inputs are absent.
 
 The validator also supports externally verified body-rule verdicts through
@@ -437,6 +480,16 @@ Four sweeps under `scripts/analysis/`, sharing
 `scripts/analysis/_sweep_common.py`, audit archived populations for additional
 error blocks. Each re-verifies full proof of work per row and writes a dated report to
 `results/analysis/error-blocks/`, including negative results.
+
+Current Huntercoin/Xaya sweeps read the Kraft classified families from the
+ordinary `<chain-archive>/<chain>/classified/` layout. Set
+`ERROR_BLOCKS_CHAIN_ARCHIVE_ROOT` to that private chain root for SSH reads;
+`--chain-archive-root` instead selects a local `<root>/<chain>/<filename>` mirror.
+Completeness floors use the current source buckets: Huntercoin 78 stale and
+150,853 unknown rows; Xaya 44 source-labelled stale and 19,294 unknown rows.
+Accepted-loader floors are 78 and 42 respectively, retaining the two catalogued
+Xaya body-invalid parents only in the source-labelled bucket. The dated reports
+below remain historical reference snapshots.
 
 - **Rejected-row sweep** (`sweep_error_blocks_rejected_rows.py`;
   [report](../results/analysis/error-blocks/rejected-rows-report.md)):

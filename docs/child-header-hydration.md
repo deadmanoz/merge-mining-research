@@ -29,7 +29,7 @@ omits hostnames, mount paths, credentials, and operator-specific locations.
 | Groupcoin | Original decoded `getblock` JSON dump | Regenerated and authenticated. |
 | CoiledCoin | Original `blk*.dat` blocks scanned by embedded BTC parent | Regenerated and authenticated. |
 | Geistgeld | Original decoded `getblock` JSON dump | Regenerated and authenticated. |
-| Huntercoin | Original per-height block binaries plus hash index | Regenerated and authenticated. |
+| Huntercoin | Kraft native `blk*.dat` dump with genesis-linked stored heights, corroborated by the retained Arweave index | Header bundle authenticated; full native consensus and active-chain membership were not replayed. |
 | Bitmark | Copied datadir or raw blocks through the normal RPC extractor | Regenerated and authenticated. |
 | Terracoin | Copied datadir through decoded `getblock` RPC | Regenerated and authenticated. |
 | Emercoin | Copied datadir through PoW-only decoded `getblock` RPC | Regenerated and authenticated. |
@@ -38,7 +38,7 @@ omits hostnames, mount paths, credentials, and operator-specific locations.
 | Argentum | Raw RPC block, SHA-256d branch only | Regenerated and authenticated. |
 | Crown | Raw RPC block by true height and source hash | Regenerated and authenticated. |
 | Electric Cash | Raw RPC block by true height and source hash | Regenerated and authenticated. |
-| Xaya | Original `blocks.zip` / `blk*.dat` snapshot | Regenerated and authenticated. |
+| Xaya | Kraft native `blk*.dat` dump, independently anchored by the earlier `blocks.zip` snapshot | Header bundle authenticated; ten stored side headers remain unlinked. |
 | Bitcoin Vault | Authoritative raw Blockbook response by height/hash | Regenerated and authenticated. |
 
 The regeneration read archives without modifying them. Node-based recovery ran
