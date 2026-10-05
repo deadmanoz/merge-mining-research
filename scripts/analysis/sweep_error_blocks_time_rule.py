@@ -94,8 +94,7 @@ from _sweep_common import (  # noqa: E402
     STALE_INVENTORIES,
     STALE_INVENTORY_BASELINE_ROWS,
     UNKNOWN_INVENTORY_BASELINE_ROWS,
-    _REGEN_CHAINS,
-    _REGEN_STAGING,
+    AUTHORITATIVE_HEIGHT_CHAINS,
     add_common_sweep_args,
     check_sweep_coverage,
     choose_inventory_reader,
@@ -118,12 +117,12 @@ from stale_blocks_analysis.config import BIP34_HEIGHT  # noqa: E402
 # is the canonical parent's block time (see module docstring).
 MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60
 
-# Unknown-row inventories sit next to the stale ones for the regen chains;
+# Unknown-row inventories sit next to the stale ones for the classified chains;
 # the canonical-fill scratch chains (syscoin/elastos/fractal) have no
 # classified unknown inventory.
 UNKNOWN_INVENTORY_GLOB: dict[str, str] = {
-    chain: f"{_REGEN_STAGING}/{chain}/classified/{chain}_unknown_blocks.csv"
-    for chain in _REGEN_CHAINS
+    chain: str(Path(STALE_INVENTORIES[chain]).with_name(f"{chain}_unknown_blocks.csv"))
+    for chain in UNKNOWN_INVENTORY_BASELINE_ROWS
 }
 
 DEFAULT_REPORT = Path("results/analysis/error-blocks/time-rule-report.md")
@@ -519,11 +518,13 @@ def collect_candidates(
                     block_hash=block_hash,
                     n_time=n_time,
                     meets_full_pow=True,
-                    # Only the 16 regen-chain stale inventories carry an
+                    # The classified stale inventories carry an
                     # authoritative canonical height (classifier-derived from
                     # an active-chain prev). Unknown rows and the scratch
                     # stale inventories do not.
-                    authoritative_height=(source == "stale" and chain in _REGEN_CHAINS),
+                    authoritative_height=(
+                        source == "stale" and chain in AUTHORITATIVE_HEIGHT_CHAINS
+                    ),
                     meets_expected_pow=reverify_against_canonical_target(
                         row.get("btc_header_hex") or "", row, height, nbits_by_epoch
                     ),

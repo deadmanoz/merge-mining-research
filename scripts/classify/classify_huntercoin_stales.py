@@ -3,24 +3,18 @@
 
 Huntercoin's extractor emits all SHA-256d-branch AuxPoW parent headers. Most
 of those headers satisfy only Huntercoin's child-chain target, not Bitcoin's
-full target. Classification now uses the shared classifier helpers
-(``run_classifier``), with a thin per-chain ``main()`` that preserves the one
-Huntercoin-specific input concern the shared driver does not know about:
+full target. The native producer selects the Bitcoin branch and authenticates
+its proofs before writing the raw CSV. This wrapper projects that acquisition
+schema onto the shared classifier input, without another chain-ID filter.
 
-  1. A chain-id pre-filter that keeps only ``chain_id == 6`` (the SHA-256d /
-     BTC branch) and drops ``chain_id == 2`` (Scrypt / LTC). The extractor
-     already filters to chain_id 6, so this is a defensive validation of the
-     refreshed raw input.
-
-``main()`` requires the refreshed raw extraction, writes a normalized/filtered
-temp CSV, and hands that to ``run_classifier`` for the Phase 1 PoW filter,
+``main()`` requires the native raw extraction, writes a normalized temporary
+CSV, and hands that to ``run_classifier`` for the Phase 1 PoW filter,
 Phase 2 Bitcoin Core classification, and the non-skippable Phase 3 nBits gate.
 
 The primary output is ``data/huntercoin_stale_blocks.csv`` in the shared
 unknown-inventory schema. The stale-only loader input
 (``data/validated-stales/huntercoin_validated_stales.csv``) is written by the same driver. The
-redundant unknown shortcut sidecar was removed once the full inventory's
-standard schema landed — the 29 unknown rows live in the full inventory under
+unknown bucket is written on the shared schema with
 ``classification == "unknown"``.
 """
 
@@ -46,11 +40,7 @@ DEFAULT_VALIDATED_OUTPUT = (
     REPO_ROOT / "data" / "validated-stales" / "huntercoin_validated_stales.csv"
 )
 
-# Bitcoin Core RPC
-
-BATCH_SIZE = 200
-
-# Columns of the normalized/filtered temp CSV handed to ``run_classifier``.
+# Columns of the normalized temp CSV handed to ``run_classifier``.
 # These are the input columns the shared Phase 1/2 pipeline reads
 # (``btc_header_hex`` / ``btc_header_hash`` / ``btc_prev_hash`` / ``btc_bits`` /
 # ``btc_time`` / coinbase fields) plus the per-chain ``huc_height`` carried
@@ -72,7 +62,7 @@ NORMALIZED_COLUMNS = [
     "classification",
 ]
 
-# ── input normalization + chain-id filter ─────────────────────────────────
+# ── input normalization ─────────────────────────────────────────────────
 
 
 def standardize_row(row: dict[str, str]) -> dict[str, str]:
@@ -95,16 +85,9 @@ def standardize_row(row: dict[str, str]) -> dict[str, str]:
     }
 
 
-def _write_normalized_input(input_path: Path, dest_path: Path) -> tuple[int, int]:
-    """Normalize + chain-id-filter ``input_path`` into ``dest_path``.
-
-    Drops ``chain_id`` rows that are present but not the SHA-256d branch
-    (``chain_id == 6``) and rewrites every surviving row through
-    ``standardize_row`` before ``run_classifier`` reads the file. Returns
-    ``(total_rows, skipped_chain)``.
-    """
+def _write_normalized_input(input_path: Path, dest_path: Path) -> int:
+    """Project native acquisition rows onto the classifier schema; return count."""
     total = 0
-    skipped_chain = 0
     with input_path.open(newline="") as src, dest_path.open("w", newline="") as dst:
         reader = csv.DictReader(src)
         writer = csv.DictWriter(
@@ -113,11 +96,8 @@ def _write_normalized_input(input_path: Path, dest_path: Path) -> tuple[int, int
         writer.writeheader()
         for row in reader:
             total += 1
-            if row.get("chain_id") and row["chain_id"] != "6":
-                skipped_chain += 1
-                continue
             writer.writerow(standardize_row(row))
-    return total, skipped_chain
+    return total
 
 
 def main() -> int:
@@ -158,9 +138,8 @@ def main() -> int:
     print(f"Reading {args.input}…")
     with tempfile.TemporaryDirectory() as tmpdir:
         normalized = Path(tmpdir) / "huntercoin_normalized.csv"
-        total, skipped_chain = _write_normalized_input(args.input, normalized)
+        total = _write_normalized_input(args.input, normalized)
         print(f"  Total rows scanned:    {total:,}")
-        print(f"  Dropped chain_id != 6:  {skipped_chain:,}")
 
         summary = run_classifier(
             CHAIN_SPECS["huntercoin"],

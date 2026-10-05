@@ -300,10 +300,17 @@ committed Monitor projection.
 The public loader therefore continues to exclude `classification == "unknown"`
 rows. No public claim is made here that those rows are deep Bitcoin
 reorganisations or that they belong to a particular Bitcoin-derived chain.
-The publication-facing relevance pass retains 21 of them as observations: 11
+The publication-facing relevance pass retains 18 of them as observations: 8
 meet the strict BTC-orphan relevance rule and 10 meet the weak rule. They remain
 `classification == "unknown"`, are not direct-stale promotions, and appear only
 in the strict/weak and monitor evidence artifacts.
+
+The Kraft ancestry review moves the three formerly strict observations at
+Bitcoin 363,732, 363,733 and 363,735 into the error aggregate and adds the
+retained 363,736 witness. A fresh native header/AuxPoW read authenticates that
+last parent at Namecoin height 237,737, including its serialized child identity
+and parent commitment. The source unknown bucket stays unchanged. All four
+parents extend the known BIP66-invalid root; none is an accepted stale event.
 
 ## Public artifacts
 

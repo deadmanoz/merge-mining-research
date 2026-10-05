@@ -504,51 +504,6 @@ def test_bitmark_wrapper_honors_btc_rpc_url_env(monkeypatch):
     assert call.get("bits_source_is_decimal", False) is False
 
 
-def test_huntercoin_normalizer_and_chain_id_filter(tmp_path):
-    mod = _load("classify_huntercoin_stales")
-    src = tmp_path / "raw.csv"
-    dst = tmp_path / "norm.csv"
-    # Two refreshed extractor rows: a SHA-256d (chain_id 6) row and a Scrypt
-    # (chain_id 2) row that must be dropped.
-    with src.open("w", newline="") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "btc_header_hash",
-                "btc_prev_hash",
-                "btc_time",
-                "btc_bits",
-                "huc_height",
-                "classification",
-                "chain_id",
-            ],
-        )
-        w.writeheader()
-        w.writerow(
-            {
-                "btc_header_hash": "aa" * 32,
-                "btc_prev_hash": "bb" * 32,
-                "btc_time": "1700000000",
-                "btc_bits": "1a0d69d7",
-                "huc_height": "100",
-                "classification": "stale",
-                "chain_id": "6",
-            }
-        )
-        w.writerow({"btc_header_hash": "cc" * 32, "chain_id": "2"})
-
-    total, skipped = mod._write_normalized_input(src, dst)
-    assert total == 2
-    assert skipped == 1  # the chain_id 2 (Scrypt/LTC) row dropped
-
-    with dst.open(newline="") as f:
-        rows = list(csv.DictReader(f))
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["btc_header_hash"] == "aa" * 32
-    assert row["btc_time"] == "1700000000"
-
-
 def test_huntercoin_classifier_requires_refreshed_input(monkeypatch, tmp_path):
     mod = _load("classify_huntercoin_stales")
     missing = tmp_path / "huntercoin_auxpow_raw.csv"

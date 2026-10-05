@@ -4,7 +4,7 @@
 |---|---|
 | Ticker | CHI |
 | AuxPoW activation | 2018-07-13 (chain genesis; SHA256D-AuxPoW accepted from genesis, although the genesis block itself is NEOSCRYPT) |
-| Network status | Dead. The legacy Xaya Core P2P network is fully down (DNS seeds removed, fixed seeds unreachable; see `node-infra/xaya/peers.list`), and the CHI to WCHI migration (announced 2025-09-12, snapshot taken at Xaya Core block height 7,300,000 on 26 Oct 2025) wound the chain down. Recovered offline from Xaya's own open `blocks.zip` snapshot, not from a live node. |
+| Network status | Dead. The legacy Xaya Core P2P network is fully down (DNS seeds removed, fixed seeds unreachable; see `node-infra/xaya/peers.list`), and the CHI to WCHI migration (announced 2025-09-12, snapshot taken at Xaya Core block height 7,300,000 on 26 Oct 2025) wound the chain down. Current recovery uses the native dump supplied by Daniel Kraft; the earlier open `blocks.zip` snapshot is historical provenance. |
 | Chronological position | 19 of 27 (after namecoin, geistgeld, i0coin, ixcoin, coiledcoin, devcoin, groupcoin, huntercoin, unobtanium, crown, myriadcoin, SixEleven, argentum, terracoin, emercoin, rsk, doichain, bitmark; before elastos) |
 | In Stifter et al. 2018 baseline | **No** (not among the paper's seven measured chains; Xaya launched 2018-07-13, just after the paper's mid-2018 data cutoff) |
 | AuxPoW chain ID | `1829` (`0x0725`); no `fStrictChainId` flag (the AuxPoW parent is a plain Bitcoin `CPureBlockHeader` that carries no chain ID) |
@@ -15,7 +15,7 @@
 | Loader | `load_xaya_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/xaya_validated_stales.csv` |
 
-Xaya (CHI) is Daniel Kraft's blockchain-gaming platform and the successor to Huntercoin, built on a `namecoin-29.x` (Bitcoin Core 29.x lineage) base with Kraft's own Namecoin-style AuxPoW. It is the **19th chain by AuxPoW-activation date**, slotting between Bitmark (2018-06-07) and Elastos (2018-08-26). Two things make it notable. First, 26.7% of the 6.34M scanned blocks carry a SHA256D merge-mining parent, yielding 38,483 self-target-PoW-valid candidates. Second, it is the **first node-less full-history recovery driven by a chain's own published block dump**: the legacy P2P network is dead, but Xaya openly serves a raw `xayad` `blocks/` directory as a single `blocks.zip`, which is all the extractor needs.
+Xaya (CHI) is Daniel Kraft's blockchain-gaming platform and the successor to Huntercoin, built on a `namecoin-29.x` (Bitcoin Core 29.x lineage) base with Kraft's own Namecoin-style AuxPoW. It is the **19th chain by AuxPoW-activation date**, slotting between Bitmark (2018-06-07) and Elastos (2018-08-26). Two things make the earlier recovery notable. First, in that snapshot, 26.7% of the 6.34M scanned blocks carry a SHA256D merge-mining parent, yielding 38,483 self-target-PoW-valid candidates. Second, it is the **first node-less full-history recovery driven by a chain's own published block dump**: the legacy P2P network is dead, but Xaya openly serves a raw `xayad` `blocks/` directory as a single `blocks.zip`, which is all the extractor needs.
 
 The 2026-06-24 refresh recovered **40 accepted direct-stale candidates**,
 reclassifying six previously canonical headers as stale. The original 34 rows
@@ -25,6 +25,61 @@ distribution. Cross-chain overlap does not, by itself, establish a shared miner
 population.
 
 ## 1. Chain data
+
+### Foundation native dump received in October 2026
+
+The operator received `xaya-chain.tar.bz2` from Daniel Kraft. Its
+5,646,688,068 bytes have SHA-256
+`16be729013c4d9108d4cf0c251e397c33baacd44b0d01b253419be9cda70521c`.
+The archive copy matches, the complete bzip2 stream passes integrity checks,
+and its safe inventory contains 596 files expanding to 9,381,860,340 bytes.
+Originals and earlier recoveries remain private and immutable. No sender
+checksum or declared tip was supplied; the digest identifies received bytes.
+
+The 46 numbered block files contain 7,312,222 unique stored headers and an
+all-zero eight-byte XOR key. The independently retained 2024 snapshot anchors
+genesis. Stored ancestry links 7,312,212 headers to it, through height
+7,312,209, beyond the 7,300,000 migration snapshot. The maximum stored timestamp
+is 2025-11-03 01:02:49 UTC. Ten stored side headers reference three missing
+predecessors; four carry SHA proofs. Their child heights remain source-BIP34
+evidence and are not claimed to have genesis-linked ancestry. No active-chain
+tip or complete native consensus replay was established.
+
+All 1,939,508 SHA proofs pass parent-transaction Merkle inclusion, child
+commitment/chain-slot and effective child-target checks. Six parents with the
+existing unparseable encoded-target sentinels are accounted for but omitted
+from the 1,939,502-row raw classifier input. There are zero parse or child-height
+errors. Classification produces 42,880 unique self-target-PoW-passing parents:
+23,542 canonical, 44 stale-labelled and 19,294 unknown. The two known
+body-invalid parents remain excluded, leaving 42 accepted direct stales;
+1,896,622 lower-work rows remain private. All 38 prior accepted events are
+preserved, and their output claims are refined with exact amounts. The four
+additional stale witnesses extend the accepted BTC window to height 910,525
+but refer to events already recorded by other sources.
+
+The former 2024-snapshot tail gap is closed in stored genesis-linked coverage.
+The unlinked side headers and lack of an active-chain replay are separate
+limits; a stored block count does not prove active-chain completeness.
+
+The retained canonical companion carried historical scan positions in its
+`child_height` column. For 19,610 preceding canonical observations those
+positions disagree with the authenticated heights; every child header is
+unchanged. The normal extractor and classifier now use the distinct
+`xaya_height` source column. The Kraft classifier family replaces the prior
+snapshot family; publication does not read or reconcile old scan positions.
+Normalization publishes its exact value as `child_height` under the ordinary
+`canonical_blocks` source family. The preservation gate protects those exact
+heights. The native ancestry audit corroborates the coinbase-derived heights
+for every genesis-linked SHA observation.
+
+The current private classifier family belongs at
+`<chain-archive>/xaya/classified/`, using the ordinary archive layout.
+Pass that archive root to `just monitor-evidence --chain-archive-dir
+<chain-archive>`; no height-specific source root or discovery override is needed.
+Retain the former snapshot family in a dated provenance directory, outside
+current source discovery.
+
+### Earlier published snapshot and recovery
 
 **Source.** Xaya's own CDN openly serves `https://downloads.xaya.io/blocks.zip` (4.19 GiB, no auth, range-resumable), a raw `xayad` `blocks/` directory dump. Verified at acquisition: HTTP 200, content-length 4,501,429,021, last-modified 2024-11-15, PK zip magic (the CDN origin has since been intermittently unreachable). Every other acquisition path is dead: DNS and fixed seeds decommissioned, ElectrumX closed, explorer origins return Cloudflare 503, third-party explorers expired, and the official CHI to WCHI migration snapshot is UTXO/balances-only (not block history). The dead-network probe is recorded in `node-infra/xaya/peers.list`.
 
@@ -37,9 +92,9 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 
 **Holes.**
 
-- **Snapshot tail gap** (Xaya ~6.34M to ~7.3M): the published `blocks.zip` is dated 2024-11-15 and stops at roughly Xaya height 6.34M, short of the ~7,300,000 deprecation block where the chain wound down. This tail is a documented coverage gap and a future top-up if a live peer or an updated dump becomes available (an outreach email to Daniel Kraft for the tail is drafted but unsent).
+- **Historical snapshot tail gap** (Xaya ~6.34M to ~7.3M): the published `blocks.zip` is dated 2024-11-15 and stops at roughly Xaya height 6.34M, short of the ~7,300,000 deprecation block where the chain wound down. The Kraft dump closes this bounded-snapshot gap in stored ancestry; the earlier snapshot remains retained as independent provenance.
 - **NEOSCRYPT branch out of scope** (73.3% of blocks): NEOSCRYPT blocks are solo-mined and carry no Bitcoin parent, so they contribute nothing to BTC stale recovery. Only the 26.7% SHA256D branch is read.
-- **No live node**: the legacy P2P network is fully down, so a node sync was impossible. The offline snapshot is the only data path.
+- **No live node**: the legacy P2P network is fully down, so a node sync was impossible. Offline snapshots and the received native dump provide the data path.
 - **Possible altchain contamination** in the raw candidate pool: Xaya spans 2018 to 2024, so unknown rows may include BCH/BSV-family or other SHA-256 parents. Unknown does not identify a particular source. These rows do not enter the accepted direct-stale set, and the non-skippable expected-`nBits` gate checks stale-labelled candidates.
 
 **Reference scripts.**
@@ -47,15 +102,25 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 - `scripts/extract/extract_xaya_auxpow.py:1` - parses Xaya's `PowData` block-header wrapper, keys on the `0x80` merge-mined flag, and reuses the shared AuxPoW/header helpers. The historical helper name `hash_meets_btc_difficulty` performs only the encoded self-target check described in the [validity contract](../data-validity.md). Emits the canonical `run_classifier` input schema.
 - `scripts/classify/classify_xaya_stales.py:1` - thin `run_classifier(CHAIN_SPECS["xaya"])` wrapper (self-target PoW filter + dedup + `getblockheader` lookups + the expected-`nBits` gate). Exposes `--validated-output` so all outputs can be written into the offline archive directory.
   The equivalent shared invocation is `python scripts/classify/classify_stales.py --chain xaya`.
-- `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain for `xayad` v1.13), retained for a future tail top-up.
+- `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain for `xayad` v1.13), retained as an unverified node scaffold.
 
 ## 2. Extraction → potential stales
 
-**Method.** Offline `blk*.dat` parse on `<archival-host>`. For each block, read the 80-byte `CPureBlockHeader`, then the `PowData` `algo` byte at offset 80. If `(algo & 0x80)` is clear the block is solo-mined (NEOSCRYPT) and is skipped. Otherwise the block is merge-mined (SHA256D) and the standard Namecoin `CAuxPow` begins at offset 85 (80 header + 1 algo + 4 nBits), parsed by `read_auxpow()`. The extractor emits `child_header_hex`, `child_block_hash`, and `child_block_time` from `CPureBlockHeader`; `child_nbits` comes from the little-endian `PowData` uint32 at offsets 81 through 84, not the pure header's bytes 72 through 75. The parent header is then validated against Bitcoin difficulty. Keying on the `0x80` merge-mined flag rather than the exact `PowAlgo` integers mirrors the source's own `isMergeMined()` test (`algo & FLAG_MERGE_MINED`, `FLAG_MERGE_MINED = 0x80`); the full enum (`SHA256D=1, NEOSCRYPT=2, FLAG_MERGE_MINED=0x80`) is defined in `src/interfaces/mining.h`. It is validated by the clean extraction (0 parse errors).
+**Method.** Offline `blk*.dat` parse on `<archival-host>`. For each block, read the 80-byte `CPureBlockHeader`, then the `PowData` `algo` byte at offset 80. If `(algo & 0x80)` is clear the block is solo-mined (NEOSCRYPT) and is skipped. Otherwise the block is merge-mined (SHA256D) and the standard Namecoin `CAuxPow` begins at offset 85 (80 header + 1 algo + 4 nBits), parsed by `read_auxpow()`. The extractor emits `child_header_hex`, `child_block_hash`, and `child_block_time` from `CPureBlockHeader`; `child_nbits` comes from the little-endian `PowData` uint32 at offsets 81 through 84, not the pure header's bytes 72 through 75. The parent header is then checked against its encoded self-target unless `--all-headers` is selected. Keying on the `0x80` merge-mined flag rather than the exact `PowAlgo` integers mirrors the source's own `isMergeMined()` test (`algo & FLAG_MERGE_MINED`, `FLAG_MERGE_MINED = 0x80`); the full enum (`SHA256D=1, NEOSCRYPT=2, FLAG_MERGE_MINED=0x80`) is defined in `src/interfaces/mining.h`. It is validated by the clean extraction (0 parse errors).
 
 The extractor requires the pure header's own `nBits` field to be zero and the
 effective `PowData` target to be non-zero. A contradiction aborts extraction
 at the source block rather than emitting a row for later rejection.
+
+`just extract-xaya --blocks-dir <working-blocks-dir> --all-headers --output
+<private-raw-output.csv>` retains lower-work observations for downstream
+classification. Native framing accepts zero-filled reserve gaps and rejects
+unexplained nonzero bytes or truncated records instead of resynchronising
+past them. A repeating `xor.dat` key is decoded before framing. The producer also verifies the parent transaction's Merkle inclusion, the
+child commitment and chain slot, and the parent hash against the effective
+child target. It refuses a non-coinbase parent transaction rather than treating
+its script as Bitcoin coinbase evidence. These checks do not replay complete
+Xaya consensus or establish the active tip.
 
 **Phases.**
 
@@ -80,7 +145,7 @@ The 26.7% merge-mined share (1,695,912 of 6,344,114) confirms a dense AuxPoW env
 
 - **`PowData` block-header wrapper.** Xaya is the only chain in the pipeline whose on-disk block prepends a `PowData` structure after the 80-byte header. The custom outer parse is the one piece of Xaya-specific logic; the embedded `CAuxPow` is byte-identical to the Namecoin family, so the shared modules port across unchanged.
 - **SHA256D <=> merge-mined.** Because the source enforces "SHA256D must be merge-mined", the merge-mined flag is a proxy for carrying an AuxPoW parent header. It does not by itself prove that the parent is Bitcoin.
-- **Exact offline `child_height`.** Xaya activates BIP34 at height 1, so every merge-mined block in scope carries its consensus height at the start of the child coinbase scriptSig. The extractor reads that height after the `PowData`/`CAuxPow` wrapper and emits no scan-order field, so the classifier and monitor use the same exact `(source, child_height, child_block_hash)` identity as the other chains. A nonzero child-height parse-error count fails the output transaction rather than silently dropping Bitcoin-parent evidence. The exact-height regeneration retained all 38,483 prior Bitcoin parent hashes and the same 20,801 canonical, 40 stale, and 17,642 unknown classifications.
+- **Exact offline child height.** Xaya activates BIP34 at height 1, so every merge-mined block in scope carries its consensus height at the start of the child coinbase scriptSig. The current extractor reads that height after the `PowData`/`CAuxPow` wrapper and emits `xaya_height`; normalization publishes the authenticated value as `child_height`. A nonzero child-height parse-error count fails the output transaction rather than silently dropping Bitcoin-parent evidence. The earlier exact-height regeneration retained all 38,483 prior Bitcoin parent hashes and the same 20,801 canonical, 40 stale, and 17,642 unknown classifications, but its retained canonical companion still held scan positions. The October generation corrects those canonical heights as described above.
 - **Chain ID 1829 (`0x0725`); no `fStrictChainId` flag.** Xaya's AuxPoW parent is a plain Bitcoin `CPureBlockHeader` that encodes no chain ID, so the Namecoin-style strict-chain-ID rule does not apply (the modern `xaya/xaya` tree has no such flag; the chain ID feeds only the AuxPoW merkle-index derivation). It does not establish Bitcoin parent identity; Bitcoin Core classification and the later validation gates do that work.
 
 ## 3. Filtering → accepted direct-stale candidates
@@ -97,12 +162,12 @@ classification == "stale" and validation_status in {
 `coinbase_outputs` follows the shared canonical rendering (Bitcoin address for address-bearing standard templates, raw scriptPubKey hex otherwise; see [`data-reference.md`](../data-reference.md)); the loader passes it through, semicolon-joined
 (matches the crown / myriadcoin / ixcoin format). The extractor preserves the
 parent-coinbase outputs from their own scripts so they remain
-available for later attribution research. All 38 remaining entries pass the filter.
+available for later attribution research. All 42 current entries pass the filter.
 The witnesses for Bitcoin heights 783,426 and 784,121 now belong to
 the error-block catalogue and are excluded from accepted stale outputs.
 See `docs/error-blocks.md` "Externally verified body-invalid blocks".
 
-**Post-filter count: 38 accepted direct-stale header candidates (after body-invalid exclusion; the original run committed 34).**
+**Post-filter count: 42 accepted direct-stale header candidates (after body-invalid exclusion; the earlier snapshot supplied 38).**
 
 ### Novelty
 
@@ -112,12 +177,16 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 **In-repo artifacts.**
 
-- `data/validated-stales/xaya_validated_stales.csv` - 38 accepted direct-stale candidates
-  (committed; the loader's input; 34 in the original run).
-- Private archive `xaya_btc_valid.csv` - 38,483 self-target-PoW-valid unique parent rows (intermediate, before classification; on `<archival-host>` only).
-- Private archive split inventories (2026-06-24 refresh): `xaya_canonical_blocks.csv` (20,801 canonical), `xaya_stale_blocks.csv` (40 stale), and `xaya_unknown_blocks.csv` (17,642 unknown; on `<archival-host>` only, plus a local gitignored scratch copy); these reconcile to the 38,483 self-target-PoW-valid parents. All 17,642 unknown rows were included in the complete multi-chain ancestry reconciliation on 9 September 2026. The published descendant set remains at 21 parents and 33 authenticated witnesses.
+- `data/validated-stales/xaya_validated_stales.csv` - 42 accepted direct-stale candidates
+  (the loader's input; 38 before the Kraft dump).
+- Current private Kraft classifier family: `xaya_canonical_blocks.csv`
+  (23,542 canonical), `xaya_stale_blocks.csv` (44 source-labelled stale rows,
+  including the two excluded body-invalid parents), and
+  `xaya_unknown_blocks.csv` (19,294 unknown).
+- Prior snapshot extracts and classifier inventories are retained only as
+  historical provenance. They are not current fallback or publication inputs.
 - [Novelty report](../../results/novelty.md).
-- `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain), retained for a future tail top-up.
+- `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain), retained as an unverified node scaffold.
 
 **External references.**
 
@@ -127,4 +196,8 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 **Methodological note.**
 
-Xaya is the project's first **node-less full-history recovery driven by a chain's own published block dump**. Where Bitcoin Vault demonstrated node-less recovery via a third-party Blockbook REST explorer, Xaya goes further: the chain operator openly serves the raw `xayad` `blocks/` directory, so the entire history is one unauthenticated download away even though the P2P network is dead. Any wound-down chain whose team still hosts a `blocks.zip`, `bootstrap.dat`, or raw block tarball is a candidate for the same approach. The current accepted set contains 38 direct-stale candidates over 2018 to 2024.
+Xaya is the project's first **node-less full-history recovery driven by a chain's own published block dump**. Where Bitcoin Vault demonstrated node-less recovery via a third-party Blockbook REST explorer, Xaya goes further: the chain operator openly serves the raw `xayad` `blocks/` directory, so the entire history is one unauthenticated download away even though the P2P network is dead. Any wound-down chain whose team still hosts a `blocks.zip`, `bootstrap.dat`, or raw block tarball is a candidate for the same approach. The Kraft generation contains 42 accepted direct-stale candidates; the historical snapshot counts above remain provenance for the earlier generation.
+
+The October 2026 native generation is retained separately from the 2024
+snapshot, with sealed acquisition receipts, raw inventories, proof audit and
+classified families. Both are reproducible offline.

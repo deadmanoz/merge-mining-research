@@ -111,8 +111,9 @@ def test_recovered_witness_ledger_exactly_covers_the_current_catalogue() -> None
         for row in rows
     } == set(ledger)
     assert inventory["rows"] == len(ledger)
-    assert len(blocks) == 49
-    assert inventory["rows"] == 107
+    assert {(int(row["btc_height"]), row["btc_header_hash"]) for row in rows} == {
+        (block.height, block.block_hash) for block in blocks
+    }
 
 
 def test_error_observation_count_row_has_canonical_publication_shape() -> None:
@@ -614,8 +615,10 @@ def test_error_observation_preserves_same_height_sibling_events(tmp_path) -> Non
         witness["child_block_hash"],
         sibling_hash,
     }
-    assert inventory["parents"] == 49
-    assert inventory["rows"] == 108
+    assert inventory["parents"] == len(
+        {(row["btc_height"], row["btc_header_hash"]) for row in rows}
+    )
+    assert inventory["rows"] == len(rows)
 
 
 @pytest.mark.parametrize("alias", ("whitespace", "dot", "separator", "parent"))

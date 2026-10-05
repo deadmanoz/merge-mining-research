@@ -1301,6 +1301,27 @@ def test_semantic_floor_allows_only_declared_scan_height_replacement(
         _validate_semantic_floor(committed_dir, staged_dir)
 
 
+def test_xaya_native_canonical_height_cannot_change(
+    tmp_path: Path,
+) -> None:
+    committed_dir = tmp_path / "committed"
+    staged_dir = tmp_path / "staged"
+    committed_dir.mkdir()
+    staged_dir.mkdir()
+    committed = committed_dir / "xaya_monitor_evidence.csv"
+    staged = staged_dir / "xaya_monitor_evidence.csv"
+    _write_ordinary_artifact(committed)
+    _rewrite_first_row(
+        committed,
+        source_kind="canonical_blocks",
+        classification="canonical",
+    )
+    shutil.copy2(committed, staged)
+    _rewrite_first_row(staged, child_height="999")
+    with pytest.raises(ValueError, match="child_height"):
+        _validate_semantic_floor(committed_dir, staged_dir)
+
+
 def test_semantic_floor_allows_authenticated_error_promotion(tmp_path: Path) -> None:
     committed_dir = tmp_path / "committed"
     staged_dir = tmp_path / "staged"

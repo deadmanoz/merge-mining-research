@@ -5,7 +5,7 @@ The four error-block sweeps (``sweep_error_blocks_rejected_rows.py``,
 ``sweep_error_blocks_time_rule.py``, ``sweep_error_blocks_version_bip.py``,
 ``sweep_error_blocks_coinbase_form.py``) share an identical mechanical
 substrate: dataset-key loading, inventory reading over ssh/local mirrors,
-the regen-chain inventory maps, the claimed-height plausibility bound, and
+the retained/current inventory maps, the claimed-height plausibility bound, and
 the ``--allow-partial`` / ``--output-dir`` fail-closed output guard (a
 partial sweep's ``--output-dir`` must be a disposable directory outside the
 committed artifact locations). That
@@ -80,6 +80,9 @@ from stale_blocks_analysis.error_blocks import load_error_block_keys
 # the real host; the placeholder default fails closed (the ssh reader errors
 # with a clear message) when the env var is unset.
 ARCHIVE_HOST = os.environ.get("ERROR_BLOCKS_ARCHIVE_HOST", "<chain-archive-host>")
+CHAIN_ARCHIVE_ROOT = os.environ.get(
+    "ERROR_BLOCKS_CHAIN_ARCHIVE_ROOT", "<chain-archive>"
+)
 
 # Generous forward margin over the canonical tip (~900k at sweep time): a
 # claimed height above this is contamination (these inventories carry
@@ -97,30 +100,33 @@ _REGEN_CHAINS = (
     "emercoin",
     "geistgeld",
     "groupcoin",
-    "huntercoin",
     "i0coin",
     "ixcoin",
     "myriadcoin",
     "terracoin",
     "unobtanium",
-    "xaya",
 )
 
 # Authoritative stale-classified inventories on the chain archive host: the
-# 16 regen-staging chains plus syscoin/elastos/fractal from canonical-fill
+# 14 retained regen-staging chains, current Kraft families, and the three
+# syscoin/elastos/fractal inventories from canonical-fill
 # scratch (height-trust caveat: the scratch inventories' btc_height is not
-# canonical-verified; see the sweep module docstrings). Verified 2026-07-30.
+# canonical-verified; see the sweep module docstrings). The retained paths
+# were verified in July 2026; Kraft families now use the ordinary archive layout.
 STALE_INVENTORIES: dict[str, str] = {
     **{
         chain: f"{_REGEN_STAGING}/{chain}/classified/{chain}_stale_blocks.csv"
         for chain in _REGEN_CHAINS
     },
+    "huntercoin": f"{CHAIN_ARCHIVE_ROOT}/huntercoin/classified/huntercoin_stale_blocks.csv",
+    "xaya": f"{CHAIN_ARCHIVE_ROOT}/xaya/classified/xaya_stale_blocks.csv",
     "syscoin": "~/canonical-fill-scratch/syscoin/syscoin_stale_blocks.csv",
     "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
     "fractal": "~/canonical-fill-scratch/fractal/fractal_stale_blocks.csv",
 }
 
-# Minimum row counts from the complete 2026-07-30 error-block sweep inputs.
+# Minimum row counts from the complete retained sweep inputs, with Huntercoin
+# and Xaya replaced by the Kraft foundation generation.
 # A completed publication sweep may grow beyond these values, but it may not
 # silently replace a committed report with fewer rows: that would make an
 # empty/header-only or truncated inventory look like a clean negative result.
@@ -136,13 +142,13 @@ STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "emercoin": 97,
     "geistgeld": 0,
     "groupcoin": 32,
-    "huntercoin": 13,
+    "huntercoin": 78,
     "i0coin": 176,
     "ixcoin": 478,
     "myriadcoin": 40,
     "terracoin": 35,
     "unobtanium": 44,
-    "xaya": 40,
+    "xaya": 44,
     "syscoin": 18_381,
     "elastos": 9_182,
     "fractal": 534,
@@ -158,13 +164,13 @@ UNKNOWN_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "emercoin": 16_545,
     "geistgeld": 2_290,
     "groupcoin": 2_713,
-    "huntercoin": 29,
+    "huntercoin": 150_853,
     "i0coin": 86_249,
     "ixcoin": 253_974,
     "myriadcoin": 166_844,
     "terracoin": 523_315,
     "unobtanium": 430_931,
-    "xaya": 17_642,
+    "xaya": 19_294,
 }
 
 VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
@@ -182,7 +188,7 @@ VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "geistgeld": 0,
     "groupcoin": 30,
     "hathor": 6,
-    "huntercoin": 13,
+    "huntercoin": 78,
     "i0coin": 166,
     "ixcoin": 465,
     "lyncoin": 0,
@@ -193,13 +199,14 @@ VALIDATED_STALE_INVENTORY_BASELINE_ROWS: dict[str, int] = {
     "syscoin": 98,
     "terracoin": 35,
     "unobtanium": 43,
-    "xaya": 40,
+    "xaya": 42,
 }
 
 # The scratch stale inventories carry a btc_height that is NOT verified
 # against the canonical chain, so a height-dependent check against it is
 # uninterpretable there.
 _SCRATCH_CHAINS = ("syscoin", "elastos", "fractal")
+AUTHORITATIVE_HEIGHT_CHAINS = frozenset(STALE_INVENTORIES).difference(_SCRATCH_CHAINS)
 
 # Committed accepted-stale loader inputs (local): the cross-check that no
 # accepted VALID stale is actually an error block. Their btc_height passed

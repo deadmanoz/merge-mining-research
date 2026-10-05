@@ -35,6 +35,13 @@ STALE_DIR = Path(os.environ.get("STALE_BLOCKS_DIR", DATA_DIR / "stale-blocks"))
 STALE_CSV = STALE_DIR / "stale-blocks.csv"
 BLOCKS_DIR = STALE_DIR / "blocks"
 
+# Native Huntercoin dump framing, corroborated with the retained Arweave genesis.
+HUNTERCOIN_NETWORK_MAGIC = bytes.fromhex("f9beb4fe")
+HUNTERCOIN_SCRYPT_CHAIN_ID = 2
+HUNTERCOIN_GENESIS_HASH = (
+    "00000000db7eb7a9e1a06cf995363dcdc4c28e8ae04827a961942657db9a1631"
+)
+
 # Reviewed body-invalid evidence, fetched at the data-sources.tsv pin.
 INVALID_BLOCKS_DIR = Path(
     os.environ.get("INVALID_BLOCKS_DIR", DATA_DIR / "invalid-blocks")
@@ -97,6 +104,8 @@ ERROR_BLOCKS_CSV = ERROR_BLOCKS_DIR / "error_blocks.csv"
 ERROR_BLOCKS_MTP_CONTEXT_CSV = ERROR_BLOCKS_DIR / "mtp_context.csv"
 # Body-rule verdicts are externally verified; these are Core reject families.
 ERROR_BLOCKS_BODY_EVIDENCE_NAME = "body_evidence.csv"
+ERROR_BLOCKS_ANCESTRY_EVIDENCE_NAME = "ancestry_evidence.csv"
+CONSENSUS_INVALID_PARENT_RULE = "consensus_invalid_parent"
 SEGWIT_ACTIVATION_HEIGHT = 481824
 BODY_ERROR_REJECTIONS = {
     "p2sh_redeem_script_failure": "block-script-verify-flag-failed",
@@ -172,14 +181,9 @@ COILEDCOIN_CSV = VALIDATED_STALES_DIR / "coiledcoin_validated_stales.csv"
 # See docs/chains/groupcoin.md for methodology.
 GROUPCOIN_CSV = VALIDATED_STALES_DIR / "groupcoin_validated_stales.csv"
 
-# AuxPoW-recovered stale blocks (Huntercoin SHA-256d branch merged mining
-# side channel). Huntercoin is dead with no reachable live node; data
-# sourced via fetch_huntercoin_arweave.py from the domob1812/arblockstore
-# permaweb archive (first ~100k HUC blocks). Chronological position 8:
-# AuxPoW activation 2014-01-31. 13 validated stales (Feb-Mar 2014, BTC
-# 285,130 -> 290,178). AuxPoW chain ID = 6 for the SHA-256 branch
-# (BTC parent); 2 for the Scrypt branch (LTC parent) which is out of scope.
-# See docs/chains/huntercoin.md for methodology.
+# Huntercoin SHA-256d AuxPoW evidence comes from the foundational Kraft native
+# dump. The Scrypt/Litecoin branch is out of scope. Measured coverage and prior
+# Arweave recovery history are documented in docs/chains/huntercoin.md.
 HUNTERCOIN_CSV = VALIDATED_STALES_DIR / "huntercoin_validated_stales.csv"
 
 # AuxPoW-recovered stale blocks (Elastos merged mining side channel).
@@ -363,12 +367,10 @@ DOICHAIN_CSV = VALIDATED_STALES_DIR / "doichain_validated_stales.csv"
 # the extractor (extract_xaya_auxpow.py) parses that wrapper and reuses the
 # shared Namecoin-style CAuxPow parser, keying purely on the 0x80 merge-mined
 # flag. AuxPoW chain ID 1829 (0x0725); SHA256D-AuxPoW active from genesis
-# (2018-07-13; the genesis block itself is NEOSCRYPT). Recovered offline from
-# Xaya's open blocks.zip dump (2024-11-15 snapshot, ~6.34M blocks):
-# 1,695,912 merge-mined blocks -> 38,483 self-target-PoW-valid parent headers
-# -> classified. The legacy P2P network is fully down (see
-# node-infra/xaya/peers.list), so the snapshot, not a live node, is the data
-# path; the 6.34M -> ~7.3M deprecation-height tail is a documented coverage gap.
+# (2018-07-13; the genesis block itself is NEOSCRYPT). The foundational Kraft
+# native dump provides stored ancestry beyond the migration height;
+# see docs/chains/xaya.md for measured coverage and unlinked side headers.
+# Offline source bytes remain the data path; no live node is required.
 XAYA_CSV = VALIDATED_STALES_DIR / "xaya_validated_stales.csv"
 
 # SpaceXpanse ROD stores the effective target beside the pure child header in
@@ -723,7 +725,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
         display_name="Huntercoin",
         height_column="huc_height",
         chain_id=6,  # SHA-256d branch; Scrypt branch (chain ID 2 / LTC) out of scope
-        activation_height=None,  # Arweave-archive parse; no numeric activation constant
+        activation_height=None,  # native dual-algo scan; no RPC activation gate
         attribution_mode="coinbase",
         input_csv=_chain_input_csv("huntercoin"),
         output_csv=_chain_output_csv("huntercoin"),
@@ -842,7 +844,7 @@ CHAIN_SPECS: dict[str, ChainSpec] = {
     "xaya": ChainSpec(
         key="xaya",
         display_name="Xaya",
-        height_column="child_height",  # exact BIP34 height from the child coinbase
+        height_column="xaya_height",  # exact BIP34 height from the native child coinbase
         chain_id=1829,  # 0x0725; no fStrictChainId flag (AuxPoW parent carries no chain ID)
         activation_height=1,  # SHA256D-AuxPoW accepted from genesis (genesis block itself is NEOSCRYPT)
         attribution_mode="coinbase",

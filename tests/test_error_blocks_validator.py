@@ -23,6 +23,55 @@ def test_every_committed_row_revalidates() -> None:
     assert failures == [], f"rows failed re-derivation: {failures}"
 
 
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        ("missing", "invalid ancestry evidence"),
+        ("edge", "broken ancestry predecessor edge"),
+        ("root_rule", "root minimum-version violation did not re-derive"),
+        ("parent_receipt", "invalid canonical-parent header placement"),
+        ("reference", "commit-pinned invalid-blocks reference"),
+        ("unused", "ancestry evidence has no matching catalogue ancestry rule"),
+    ],
+)
+def test_invalid_ancestry_admission_requires_complete_reviewed_path(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    """The BIP66 fork witnesses cannot be admitted on their source label alone."""
+    staged = tmp_path / "error-blocks"
+    shutil.copytree(ERROR_BLOCKS_CSV.parent, staged)
+    evidence = staged / "ancestry_evidence.csv"
+    if damage == "missing":
+        evidence.unlink()
+    else:
+        with evidence.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            columns, rows = reader.fieldnames, list(reader)
+        # The second witness extends through the first to the invalid root.
+        row = next(row for row in rows if row["height"] == "363733")
+        if damage == "edge":
+            path = row["path_header_hexes"].split("|")
+            path[1] = row["root_parent_header_hex"]
+            row["path_header_hexes"] = "|".join(path)
+        elif damage == "root_rule":
+            row["root_rule"] = "bip34_block_version_below_2"
+        elif damage == "parent_receipt":
+            row["root_parent_hash"] = "00" * 32
+        elif damage == "reference":
+            row["root_evidence_url"] = (
+                "https://github.com/bitcoin-data/invalid-blocks/blob/main/"
+                "data/invalid-blocks.jsonl#L115"
+            )
+        else:
+            row["height"] = "99999999"
+        with evidence.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+    failures = error_block_validation.validate_dataset(staged / "error_blocks.csv")
+    assert any(message in failure for failure in failures), failures
+
+
 def test_validator_main_fails_when_observation_ledger_is_invalid(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

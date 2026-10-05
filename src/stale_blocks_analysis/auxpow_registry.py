@@ -206,7 +206,7 @@ CHAINS: tuple[AuxPoWChain, ...] = (
         chain_id=1829,
         activation_date="2018-07-13",
         slot_enforcement="consensus",
-        scope_notes="SHA256D-AuxPoW from genesis (multi-algo; NEOSCRYPT solo branch out of scope). Integrated from an offline blocks.zip snapshot.",
+        scope_notes="SHA256D-AuxPoW from genesis (multi-algo; NEOSCRYPT solo branch out of scope). Recovered from the foundational Kraft native dump.",
     ),
     AuxPoWChain(
         slug="elastos",

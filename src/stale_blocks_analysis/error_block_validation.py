@@ -3,6 +3,10 @@
 Body-rule verdicts use reviewed commit-pinned invalid-blocks evidence. Their
 bodies are authenticated locally; the consensus failures are not re-derived
 here. Header/coinbase rules retain the local checks described below.
+The ``consensus_invalid_parent`` rule instead authenticates a complete header
+path and the root's minimum-version violation through ``ancestry_evidence.csv``.
+Canonical placement of that root's predecessor is a reviewed RPC receipt;
+its serialized identity and target context are rechecked offline.
 
 Every row in ``data/error-blocks/error_blocks.csv`` claims to be a
 consensus-invalid full-PoW Bitcoin block. This validator re-checks each claim
@@ -138,6 +142,12 @@ from stale_blocks_analysis.config import (
     ERROR_BLOCKS_BODY_EVIDENCE_NAME,
     ERROR_BLOCKS_CSV,
     ERROR_BLOCKS_MTP_CONTEXT_CSV,
+    ERROR_BLOCKS_ANCESTRY_EVIDENCE_NAME,
+    CONSENSUS_INVALID_PARENT_RULE,
+)
+from stale_blocks_analysis.error_ancestry import (
+    load_ancestry_evidence,
+    validate_ancestry_evidence,
 )
 from stale_blocks_analysis.body_evidence import (
     load_body_evidence,
@@ -354,6 +364,7 @@ def validate_row(
     nbits_by_epoch: dict[int, int] | None = None,
     mtp_context: dict[tuple[int, str], int] | None = None,
     body_evidence: dict[tuple[int, str], dict[str, str]] | None = None,
+    ancestry_evidence: dict[tuple[int, str], dict[str, str]] | None = None,
     blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Return local-gate or externally attested body-evidence failures."""
@@ -529,6 +540,11 @@ def validate_row(
             f"rule of rules_violated ({rules[0]})"
         )
     for rule in rules:
+        if rule == CONSENSUS_INVALID_PARENT_RULE:
+            failures.extend(
+                validate_ancestry_evidence(row, ancestry_evidence or {}, nbits_by_epoch)
+            )
+            continue
         if rule in BODY_ERROR_REJECTIONS:
             failures.extend(
                 validate_body_evidence(row, rule, body_evidence or {}, blocks_dir)
@@ -730,6 +746,7 @@ def validate_dataset(
     nbits_by_epoch_path: Path = NBITS_BY_EPOCH_JSON,
     mtp_context_path: Path = ERROR_BLOCKS_MTP_CONTEXT_CSV,
     body_evidence_path: Path | None = None,
+    ancestry_evidence_path: Path | None = None,
     blocks_dir: Path = ERROR_BLOCK_BODIES_DIR,
 ) -> list[str]:
     """Validate every catalogue row and its matching body sidecar, if required."""
@@ -737,11 +754,15 @@ def validate_dataset(
     mtp_context = _load_mtp_context(mtp_context_path)
     if body_evidence_path is None:
         body_evidence_path = path.parent / ERROR_BLOCKS_BODY_EVIDENCE_NAME
+    if ancestry_evidence_path is None:
+        ancestry_evidence_path = path.parent / ERROR_BLOCKS_ANCESTRY_EVIDENCE_NAME
     try:
         body_evidence = load_body_evidence(body_evidence_path)
+        ancestry_evidence = load_ancestry_evidence(ancestry_evidence_path)
     except ValueError as exc:
         return [str(exc)]
     body_keys: set[tuple[int, str]] = set()
+    ancestry_keys: set[tuple[int, str]] = set()
     failures: list[str] = []
     seen_keys: set[tuple[int, str]] = set()
     row_count = 0
@@ -773,16 +794,25 @@ def validate_dataset(
                 & BODY_ERROR_REJECTIONS.keys()
             ):
                 body_keys.add(key)
+            if key is not None and CONSENSUS_INVALID_PARENT_RULE in row.get(
+                "rules_violated", ""
+            ).split("|"):
+                ancestry_keys.add(key)
             for failure in validate_row(
                 row,
                 nbits_by_epoch=nbits_by_epoch,
                 mtp_context=mtp_context,
                 body_evidence=body_evidence,
+                ancestry_evidence=ancestry_evidence,
                 blocks_dir=blocks_dir,
             ):
                 failures.append(f"{row_id}: {failure}")
     for unused in sorted(body_evidence.keys() - body_keys):
         failures.append(f"body evidence has no matching catalogue body rule: {unused}")
+    for unused in sorted(ancestry_evidence.keys() - ancestry_keys):
+        failures.append(
+            f"ancestry evidence has no matching catalogue ancestry rule: {unused}"
+        )
     if row_count == 0:
         # Fail closed: a header-only or empty dataset yields an empty failure
         # list, which the CLI would otherwise report as success — a truncated

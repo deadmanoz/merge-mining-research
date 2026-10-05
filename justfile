@@ -42,6 +42,13 @@ novelty-check:
 
 # ── AuxPoW evidence exports ─────────────────────────────────────────────
 
+# Offline retained-dump extraction. All destinations must remain private.
+extract-huntercoin *ARGS:
+    {{python}} scripts/extract/extract_huntercoin_auxpow.py {{ARGS}}
+
+extract-xaya *ARGS:
+    {{python}} scripts/extract/extract_xaya_auxpow.py {{ARGS}}
+
 # Qbit acquisition is private and requires an explicit native endpoint.
 acquire-qbit *ARGS:
     {{python}} scripts/extract/extract_qbit_auxpow.py {{ARGS}}

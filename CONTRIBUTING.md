@@ -29,10 +29,12 @@ holes where more history would extend or firm up the result:
   remain unresolved, and no VCash blockchain has been recovered.
 - **i0coin** is bounded by a January 2018 third-party snapshot, so its committed
   counts are provisional.
-- **Huntercoin** is recovered from an Arweave archive that ends early, so it is
-  not full-lifetime coverage.
-- **Xaya** is bounded by a 2024-11-15 snapshot whose tail to the roughly 7.3M
-  deprecation height is missing.
+- **Huntercoin** uses the Kraft native dump with an observed July 2021
+  endpoint; later history and native active-chain validation would extend the
+  current evidence.
+- **Xaya** uses the Kraft dump with the former snapshot tail gap closed in
+  stored ancestry. Ten side headers remain unlinked, and native active-chain
+  membership and full consensus were not replayed.
 - **Syscoin** covers only the fresh-genesis 2019 chain; the retired 2016 to 2019
   Syscoin chain was not extracted.
 - **Bitcoin Vault** was recovered from a third-party Blockbook API with no node
@@ -107,9 +109,10 @@ chain that typically means keeping these in sync: `src/stale_blocks_analysis/con
 [novelty report](results/novelty.md) (`just novelty`), the upstream sidecar,
 `README.md`, and the tests under `tests/`.
 
-See `AGENTS.md` for the full set of repository conventions (research semantics,
-code conventions, validation expectations) and `docs/upstreaming.md` for the rules
-on contributing recovered headers back to `bitcoin-data/stale-blocks`.
+See [research contracts](docs/research-contracts.md) for evidence semantics,
+[the pipeline reference](docs/pipeline-reference.md#code-conventions) for
+implementation conventions, and [upstreaming](docs/upstreaming.md) for contributing
+recovered headers to `bitcoin-data/stale-blocks`. `AGENTS.md` is the agent entry point.
 
 ## Use of AI and LLM tools
 

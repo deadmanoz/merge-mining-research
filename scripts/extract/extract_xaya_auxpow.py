@@ -24,7 +24,7 @@ The CAuxPow tail at offset 85 is the standard Namecoin CAuxPow, so the shared
 parser is reused unchanged.
 
 The output CSV uses the canonical ``run_classifier`` input schema
-(``btc_header_hash`` / ``btc_bits`` plus exact ``child_height``). Xaya enforces
+(``btc_header_hash`` / ``btc_bits`` plus exact ``xaya_height``). Xaya enforces
 BIP34 from child height 1, so the extractor reads the consensus height from the
 child coinbase after the ``PowData`` wrapper.
 
@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import os
 import struct
 import sys
@@ -47,6 +46,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes  # noqa: E402
+from stale_blocks_analysis.auxpow_commitment import (  # noqa: E402
+    transaction_is_coinbase,
+    validate_auxpow_commitment,
+)
 from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     CHILD_HEADER_FIELDS,
     ChildHeaderValidationError,
@@ -60,6 +63,12 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
     validate_child_header_fields,
 )
 from stale_blocks_analysis.bitcoin_binary import format_outputs_canonical  # noqa: E402
+from stale_blocks_analysis.config import CHAIN_SPECS  # noqa: E402
+from stale_blocks_analysis.native_headers import (  # noqa: E402
+    decode_block_file,
+    framed_blocks,
+    native_block_files,
+)
 
 # Xaya mainnet message-start bytes (src/kernel/chainparams.cpp). Verify against
 # the first 4 bytes of blk00000.dat before trusting a zero-block run.
@@ -83,7 +92,7 @@ def _atomic_csv_writer(output_path: Path, fieldnames: list[str]):
     temporary_path = Path(temporary_name)
     try:
         with os.fdopen(output_fd, "w", newline="") as output:
-            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
             writer.writeheader()
             yield writer
             output.flush()
@@ -103,36 +112,6 @@ def _atomic_csv_writer(output_path: Path, fieldnames: list[str]):
         raise
 
 
-def _deobfuscate(data: bytes, key: bytes) -> bytes:
-    """XOR-decode ``data`` against a repeating ``xor.dat`` key. No-op if ``key`` is empty."""
-    if not key:
-        return data
-    k = bytearray(key)
-    out = bytearray(data)
-    for i in range(len(out)):
-        out[i] ^= k[i % len(k)]
-    return bytes(out)
-
-
-def iter_blocks_from_file(filepath: Path, magic: bytes, xor_key: bytes = b""):
-    """Yield raw block bytes from a blk*.dat file (magic + 4-byte LE size framing)."""
-    data = filepath.read_bytes()
-    if xor_key:
-        data = _deobfuscate(data, xor_key)
-    pos, size = 0, len(data)
-    while pos < size - 8:
-        if data[pos : pos + 4] != magic:
-            nxt = data.find(magic, pos)
-            if nxt == -1:
-                break
-            pos = nxt
-        block_size = struct.unpack_from("<I", data, pos + 4)[0]
-        if block_size == 0 or pos + 8 + block_size > size:
-            break
-        yield data[pos + 8 : pos + 8 + block_size]
-        pos += 8 + block_size
-
-
 def _child_height_from_coinbase(block_data: bytes, offset: int) -> int:
     """Return Xaya's consensus-enforced BIP34 height from the first child tx."""
     try:
@@ -145,11 +124,7 @@ def _child_height_from_coinbase(block_data: bytes, offset: int) -> int:
             "cannot decode Xaya child coinbase after PowData"
         ) from exc
     vins = coinbase["vin"]
-    if (
-        len(vins) != 1
-        or vins[0]["prev_hash"] != b"\x00" * 32
-        or vins[0]["prev_idx"] != 0xFFFFFFFF
-    ):
+    if not transaction_is_coinbase(coinbase):
         raise XayaChildHeightError(
             "Xaya child transaction vector does not begin with a coinbase"
         )
@@ -198,12 +173,12 @@ def main() -> None:
     parent headers to the output CSV.
 
     Auto-detects an ``xor.dat`` deobfuscation key in ``--blocks-dir``,
-    iterates every ``blk*.dat`` file in sorted order, and for each
+    iterates numbered ``blk*.dat`` files in sorted order, and for each
     merge-mined block parses the CAuxPow tail and BTC parent header. Rows
     with an all-zero or all-ones ``bits`` field are dropped as
     unparseable; by default (``--all-headers`` unset) rows are further
     filtered to those whose parent hash meets the target encoded in its header. The
-    emitted ``child_height`` is the exact consensus height encoded by the
+    emitted ``xaya_height`` is the exact consensus height encoded by the
     BIP34 child coinbase. Prints periodic progress and a final scan summary.
     """
     ap = argparse.ArgumentParser(description=__doc__)
@@ -223,13 +198,11 @@ def main() -> None:
         xor_key = xor_path.read_bytes()
         print(f"Detected XOR key {xor_key.hex()} from {xor_path}")
 
-    blk_files = sorted(glob.glob(str(args.blocks_dir / "blk*.dat")))
-    if not blk_files:
-        sys.exit(f"ERROR: no blk*.dat in {args.blocks_dir}")
+    blk_files = native_block_files(args.blocks_dir)
     print(f"Found {len(blk_files)} blk*.dat files; magic={XAYA_MAGIC.hex()}")
 
     fields = [
-        "child_height",
+        "xaya_height",
         *CHILD_HEADER_FIELDS,
         "btc_header_hash",
         "btc_prev_hash",
@@ -253,7 +226,9 @@ def main() -> None:
     with _atomic_csv_writer(args.output, fields) as writer:
         for blk_file in blk_files:
             p = Path(blk_file)
-            for block_data in iter_blocks_from_file(p, XAYA_MAGIC, xor_key):
+            for _, block_data in framed_blocks(
+                decode_block_file(p, xor_key), XAYA_MAGIC
+            ):
                 st["scanned"] += 1
                 try:
                     parsed = parse_xaya_block(block_data)
@@ -276,10 +251,23 @@ def main() -> None:
                 if auxpow is None:
                     st["errors"] += 1
                     continue
+                validate_auxpow_commitment(
+                    block_data[:80], auxpow, CHAIN_SPECS["xaya"].chain_id
+                )
+                if not hash_meets_btc_difficulty(
+                    hash_from_header_bytes(auxpow["parent_header_raw"]),
+                    int(parsed["child_fields"]["child_nbits"], 16),
+                ):
+                    raise ChildHeaderValidationError(
+                        "parent misses Xaya PowData target"
+                    )
+                cb = auxpow["coinbase_tx"]
+                if not transaction_is_coinbase(cb):
+                    raise ChildHeaderValidationError(
+                        "Xaya parent transaction is not a Bitcoin coinbase"
+                    )
                 st["auxpow_ok"] += 1
                 raw80 = auxpow["parent_header_raw"]
-                if len(raw80) != 80:
-                    continue
                 parent = parse_parent_header(raw80)
                 if parent["bits"] in (0, 0x7FFFFFFF):
                     continue
@@ -288,12 +276,11 @@ def main() -> None:
                 ):
                     continue
                 st["btc_valid"] += 1
-                cb = auxpow["coinbase_tx"]
-                scriptsig = cb["vin"][0]["scriptsig"] if cb["vin"] else b""
+                scriptsig = cb["vin"][0]["scriptsig"]
                 bip34 = parse_coinbase_height(scriptsig)
                 writer.writerow(
                     {
-                        "child_height": parsed["child_height"],
+                        "xaya_height": parsed["child_height"],
                         **parsed["child_fields"],
                         "btc_header_hash": parent["hash"],
                         "btc_prev_hash": parent["prev_hash"],
@@ -321,6 +308,11 @@ def main() -> None:
             raise XayaChildHeightError(
                 f"{st['height_errors']:,} merge-mined Xaya blocks lacked an exact "
                 "BIP34 child height; refusing to replace the extraction output"
+            )
+        if st["errors"]:
+            raise ChildHeaderValidationError(
+                f"{st['errors']:,} malformed Xaya blocks; refusing to replace "
+                "the extraction output"
             )
     dt = time.time() - t0
     print("\n=== Xaya AuxPoW extraction summary ===")

@@ -99,7 +99,7 @@ ran a node:
   no node ran.
 - **Geistgeld and Groupcoin** survive only as complete `getblock`-JSON
   dumps; there is no network left to sync.
-- **Huntercoin** was recovered from the Arweave permaweb archive.
+- **Huntercoin** uses Daniel Kraft's native dump parsed offline; no node ran.
 - **Bitcoin Vault and Hathor** were recovered over public REST APIs
   without running a node.
 - **Lyncoin** was ultimately recovered from a live peer's raw P2P extended
