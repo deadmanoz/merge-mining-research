@@ -3367,10 +3367,17 @@
     "bits": "17021ec5"
   },
   {
-    "height": 967961,
-    "hash": "0000000000000000000135fe8b0ac5d2b8430fd56735adc1c45b6fff8b1a0a42",
-    "time": 1789974865,
-    "mediantime": 1789971622,
-    "bits": "17021ec5"
+    "height": 969696,
+    "hash": "000000000000000000001e39df127cbab82a824ac43cfcdbf62e59f6a08b9f0b",
+    "time": 1791011796,
+    "mediantime": 1791010706,
+    "bits": "17021ef0"
+  },
+  {
+    "height": 969992,
+    "hash": "0000000000000000000027dd45f51e69e70a776281b31b4afa0cfc76a903922b",
+    "time": 1791193324,
+    "mediantime": 1791191649,
+    "bits": "17021ef0"
   }
 ]
