@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+Authenticate upstream-only intermediate headers when loading descendant paths,
+without adding unwitnessed blocks to the accepted parent or child-witness tables.
+
+Refresh the pinned upstream snapshots and regenerate the complete publication,
+ancestry, strict/weak views and contribution sidecars from matching inputs.
+Add three authenticated Namecoin descendants and withdraw the unsupported
+234,108 acceptance while retaining its raw observation as unresolved.
+Correct current accounting and preserve dated recovery receipts. Treat bulky
+private exports and unchanged historical coverage reports as on-demand outputs
+rather than prerequisites for each publication refresh.
+
+Remove fixed ancestry totals from workflow documentation and redundant
+dataset smoke tests. Retain exact schema and manifest-inventory checks, and
+document archive-root priority for selecting matching source inventories.
+
+Keep ancestry source coordinates stable when inputs move between staged data
+trees, preserving selected aliases and redacting external archive paths.
+
+Limit default pytest discovery to the Research suite so fetched upstream
+repositories do not add unrelated tests or development dependencies.
+
+Leave paths without a serialized root header unresolved during normal ancestry
+reconciliation. Reject contradictory supplied headers and preserve the committed
+coverage gate; hash-only upstream membership cannot establish a stale root.
+
+Authenticate encountered stale roots against their active-chain predecessors
+and retain full ancestry when upstream adds stale-fork continuations.
+
+Allow complete ancestry publication from a selected data tree, validating and
+installing its matching error, epoch and ancestry inputs together. Keep retained
+classifier dependency bytes separate from refreshed publication inputs.
+
+Refresh upstream default-branch metadata on every pin check or update so a
+retired cached branch cannot hide new stale-block or invalid-block evidence.
+
+Select Huntercoin and Xaya classifier inventories and companions as one complete
+family in publication, relevance classification and ancestry reconciliation.
+Reject missing or ambiguous
+members before using a fallback source.
+
+Authenticate Xaya child heights against the complete child transaction body,
+including Merkle and witness commitments and the canonical BIP34 prefix.
+Move the normal producer into the recovery package and keep its CLI thin.
+Reuse the existing body authenticator at the Xaya transaction offset.
+
 Use the Kraft native dumps as the foundation inputs for Huntercoin and Xaya.
 Remove Huntercoin's superseded Arweave fetcher, binary/index/failure workflow
 and native overlap option, with their retired tests. Use normal shared height

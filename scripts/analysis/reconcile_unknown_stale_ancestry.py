@@ -17,14 +17,19 @@ from stale_blocks_analysis.ancestry_walk import (
     path_for,
 )
 from stale_blocks_analysis.btc_rpc import BtcRpc, get_btc_auth
-from stale_blocks_analysis.config import BITCOIN_EPOCH_REFERENCE_DIR
+from stale_blocks_analysis.config import (
+    BITCOIN_EPOCH_REFERENCE_DIR,
+    COHERENT_CLASSIFIER_FAMILY_CHAINS,
+)
 from stale_blocks_analysis.error_blocks import load_error_block_keys
+from stale_blocks_analysis.evidence_sources import select_foundation_classifier_family
 from stale_blocks_analysis.full_evidence import (
     int_or_none,
     is_hash,
     normalize_hash,
 )
 from stale_blocks_analysis.reconcile_observations import (
+    authenticate_stale_root,
     discover_canonical_files,
     discover_chain_names,
     fetch_active_hashes_by_height,
@@ -122,26 +127,32 @@ def main(argv: list[str] | None = None) -> None:
                 "active hash at its exact height"
             )
         try:
-            publication_baseline = load_publication_baseline(PARENT_VERDICTS_CSV)
+            publication_baseline = load_publication_baseline(
+                args.data_dir / "stale_descendants.csv", data_dir=args.data_dir
+            )
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
 
-    chain_names, full_files, unknown_files, validated_files = discover_chain_names(
-        args.data_dir
-    )
-    canonical_files = discover_canonical_files(args.data_dir)
-    chain_names.update(canonical_files)
-    if publication_baseline is not None:
-        validate_publication_discovery(
-            publication_baseline,
-            full_files,
-            unknown_files,
-            canonical_files,
-            parser,
-        )
-    epoch_bits = load_epoch_bits(args.epoch_reference_dir / "btc_nbits_by_epoch.json")
-    error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
     try:
+        for chain in sorted(COHERENT_CLASSIFIER_FAMILY_CHAINS):
+            select_foundation_classifier_family(args.data_dir, [], chain)
+        chain_names, full_files, unknown_files, validated_files = discover_chain_names(
+            args.data_dir
+        )
+        canonical_files = discover_canonical_files(args.data_dir)
+        chain_names.update(canonical_files)
+        if publication_baseline is not None:
+            validate_publication_discovery(
+                publication_baseline,
+                full_files,
+                unknown_files,
+                canonical_files,
+                parser,
+            )
+        epoch_bits = load_epoch_bits(
+            args.epoch_reference_dir / "btc_nbits_by_epoch.json"
+        )
+        error_blocks_path = args.data_dir / "error-blocks" / "error_blocks.csv"
         error_block_keys = load_error_block_keys(error_blocks_path)
         state = load_observations(
             data_dir=args.data_dir,
@@ -202,64 +213,98 @@ def main(argv: list[str] | None = None) -> None:
                 mainchain_cache.update(fetched)
                 mainchain_cache_dirty = True
                 walk_results = classify_walks(**walk_args)
-        comparison_heights: dict[str, int] = {}
-        for block_hash, result in walk_results.items():
-            if result.category not in {"direct_stale_child", "stale_descendant"}:
-                continue
-            root_heights = {
-                int(observation.btc_height)
-                for observation in state["stale_by_hash"][result.terminal_hash]
-                if int_or_none(observation.btc_height) is not None
-            }
-            if len(root_heights) != 1:
-                parser.error(
-                    "cannot authenticate active-chain exclusion with an "
-                    f"ambiguous trusted-root height for {result.terminal_hash}"
+        qualified_roots: set[str] = set()
+        confirmed_active: set[str] = set()
+        while True:
+            root_placements: dict[str, tuple[int, str]] = {}
+            comparison_heights: dict[str, int] = {}
+            unavailable_roots: set[str] = set()
+            for block_hash, result in walk_results.items():
+                if result.category not in {"direct_stale_child", "stale_descendant"}:
+                    continue
+                try:
+                    placement = authenticate_stale_root(
+                        result.terminal_hash,
+                        state["stale_by_hash"][result.terminal_hash],
+                        state["unknown_observations_by_hash"].get(
+                            result.terminal_hash, []
+                        ),
+                    )
+                except ValueError as exc:
+                    parser.error(str(exc))
+                if placement is None:
+                    unavailable_roots.add(result.terminal_hash)
+                    continue
+                root_height, root_prev = placement
+                root_placements[result.terminal_hash] = (root_height, root_prev)
+                inferred_height = root_height + result.depth
+                prior_height = comparison_heights.setdefault(
+                    block_hash, inferred_height
                 )
-            root_height = next(iter(root_heights))
-            inferred_height = root_height + result.depth
-            prior_height = comparison_heights.setdefault(block_hash, inferred_height)
-            if prior_height != inferred_height:
-                parser.error(f"conflicting inferred heights for {block_hash}")
-            comparison_heights.setdefault(result.terminal_hash, root_height)
-        compared = fetch_active_hashes_by_height(
-            comparison_heights,
-            rpc,
-            args.rpc_batch_size,
-            verification_label=args.rpc_source_label,
-        )
-        if compared:
-            mainchain_cache.update(compared)
-            mainchain_cache_dirty = True
-            active_hashes = {
-                block_hash
-                for block_hash, status in compared.items()
-                if status.get("on_mainchain")
-            }
-            # A source incorrectly placed in the validated-stale set cannot
-            # remain a trusted root after the exact height comparison proves
-            # it active. Rewalk with those roots removed. The generic walker
-            # checks predecessors, so mark an active start node explicitly as
-            # mainchain too; its descendants are caught naturally when they
-            # encounter it as their predecessor.
-            state["known_stale_hashes"] = state["known_stale_hashes"] - active_hashes
-            state["auxpow_stale_hashes"] = state["auxpow_stale_hashes"] - active_hashes
+                if prior_height != inferred_height:
+                    parser.error(f"conflicting inferred heights for {block_hash}")
+                comparison_heights.setdefault(result.terminal_hash, root_height)
+                if result.terminal_hash not in qualified_roots:
+                    prior_height = comparison_heights.setdefault(
+                        root_prev, root_height - 1
+                    )
+                    if prior_height != root_height - 1:
+                        parser.error(f"conflicting inferred heights for {root_prev}")
+            compared = fetch_active_hashes_by_height(
+                comparison_heights,
+                rpc,
+                args.rpc_batch_size,
+                verification_label=args.rpc_source_label,
+            )
+            if compared:
+                mainchain_cache.update(compared)
+                mainchain_cache_dirty = True
+                active_hashes = {
+                    block_hash
+                    for block_hash, status in compared.items()
+                    if status.get("on_mainchain")
+                }
+                # A source incorrectly placed in the validated-stale set cannot
+                # remain a trusted root after the exact height comparison proves
+                # it active. Rewalk with those roots removed. The generic walker
+                # checks predecessors, so mark an active start node explicitly as
+                # mainchain too; its descendants are caught naturally when they
+                # encounter it as their predecessor.
+                state["known_stale_hashes"] = (
+                    state["known_stale_hashes"] - active_hashes
+                )
+                state["auxpow_stale_hashes"] = (
+                    state["auxpow_stale_hashes"] - active_hashes
+                )
+                confirmed_active.update(active_hashes)
+            continuations = set()
+            for root_hash, (_height, root_prev) in root_placements.items():
+                if root_hash in qualified_roots:
+                    continue
+                if mainchain_lookup(root_prev):
+                    qualified_roots.add(root_hash)
+                else:
+                    continuations.add(root_hash)
+                    # Retain the authenticated edge even when upstream alone
+                    # supplies it. It supplies no child-chain witness.
+                    state["unknown_prev_by_hash"][root_hash] = root_prev
+            # Unavailable headers supply no trusted endpoint. Rewalking leaves
+            # their candidates in the existing unresolved ancestry buckets.
+            state["known_stale_hashes"] -= continuations | unavailable_roots
+            state["auxpow_stale_hashes"] -= continuations | unavailable_roots
             walk_args["known_stale_hashes"] = state["known_stale_hashes"]
             walk_results = classify_walks(**walk_args)
-            for block_hash in active_hashes & set(walk_results):
+            for block_hash in confirmed_active & set(walk_results):
                 walk_results[block_hash] = WalkResult("mainchain", block_hash, 0)
+            if not (continuations | unavailable_roots):
+                break
 
     if publication_baseline is not None:
         unverified: list[tuple[str, str]] = []
         for block_hash, result in sorted(walk_results.items()):
             if result.category not in {"direct_stale_child", "stale_descendant"}:
                 continue
-            root_heights = {
-                int(observation.btc_height)
-                for observation in state["stale_by_hash"][result.terminal_hash]
-                if int_or_none(observation.btc_height) is not None
-            }
-            root_height = next(iter(root_heights)) if len(root_heights) == 1 else -1
+            root_height = root_placements[result.terminal_hash][0]
             for role, candidate_hash, expected_height in (
                 ("candidate", block_hash, root_height + result.depth),
                 ("trusted_root", result.terminal_hash, root_height),

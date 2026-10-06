@@ -389,10 +389,13 @@ does not contain those private inputs.
 `just validate-error-blocks` validates the reviewed canonical error-block
 catalogue, its median-time-past sidecar, and the exact child-observation
 ledger that covers it. `just reconcile-stale-ancestry` requires the complete
-staged ancestry inventories. It validates that canonical error module first,
+staged ancestry inventories. The --data-dir option selects a complete staged
+tree, including its error catalogue, epoch reference and pinned invalid-block
+bodies, while runtime classifier bindings remain intact. It validates the
+canonical error module first,
 excludes its known parent hashes, evaluates the complete candidate population
-against trusted stale roots, and publishes 21 accepted parent verdicts in
-`data/stale_descendants.csv` plus 33 authenticated witnesses in
+against trusted stale roots, and publishes accepted parent verdicts in
+`data/stale_descendants.csv` with their authenticated witnesses in
 `data/stale_descendant_observations.csv`. Any consensus-invalid candidate not
 already admitted to the canonical error catalogue fails the workflow before
 either stale-ancestry artifact is installed.

@@ -368,6 +368,53 @@ def test_offline_classifier_sources_declare_scan_order_height_untrusted(
     assert canonical.child_height_semantics == "unauthenticated_scan_order"
 
 
+@pytest.mark.parametrize("chain", ("huntercoin", "xaya"))
+@pytest.mark.parametrize(
+    "missing", ("stale_blocks", "canonical_blocks", "unknown_blocks")
+)
+def test_foundation_family_cannot_fill_missing_member_from_fallback(
+    tmp_path: Path, chain: str, missing: str
+) -> None:
+    selected = tmp_path / "selected"
+    fallback = tmp_path / "fallback"
+    data = tmp_path / "data"
+    suffixes = ("stale_blocks", "canonical_blocks", "unknown_blocks")
+    for suffix in suffixes:
+        if suffix != missing:
+            _write_csv(
+                selected / chain / "classified" / f"{chain}_{suffix}.csv",
+                [{"marker": "selected"}],
+            )
+        _write_csv(
+            fallback / chain / "classified" / f"{chain}_{suffix}.csv",
+            [{"marker": "superseded"}],
+        )
+        _write_csv(data / f"{chain}_{suffix}.csv", [{"marker": "repo-fallback"}])
+    with pytest.raises(ValueError, match="incomplete.*classifier family"):
+        discover_canonical_sources(data, [selected, fallback])
+
+    _write_csv(
+        selected / chain / "classified" / f"{chain}_{missing}.csv",
+        [{"marker": "selected"}],
+    )
+    for discover, suffix in zip(
+        (
+            discover_evidence_sources,
+            discover_canonical_sources,
+            discover_unknown_sources,
+        ),
+        suffixes,
+    ):
+        source = discover(data, [selected, fallback])[chain]
+        assert _read_csv(source.path) == [{"marker": "selected"}]
+
+    _write_csv(
+        selected / chain / f"{chain}_canonical_blocks.csv", [{"marker": "ambiguous"}]
+    )
+    with pytest.raises(ValueError, match="ambiguous.*classifier family"):
+        discover_evidence_sources(data, [selected, fallback])
+
+
 def test_xaya_native_canonical_height_survives_normalized_roundtrip(
     tmp_path: Path,
 ) -> None:
@@ -384,6 +431,11 @@ def test_xaya_native_canonical_height_survives_normalized_roundtrip(
         **child,
     }
     _write_csv(archive / "xaya/classified/xaya_canonical_blocks.csv", [row])
+    for suffix in ("stale_blocks", "unknown_blocks"):
+        _write_csv(
+            archive / f"xaya/classified/xaya_{suffix}.csv",
+            [{"classification": "unknown"}],
+        )
     source = discover_canonical_sources(tmp_path / "data", [archive])["xaya"]
     normalized, _ = normalize_evidence_row(source, row, list(row), 2)
     assert normalized["child_height"] == "902"

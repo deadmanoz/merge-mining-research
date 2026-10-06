@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from stale_blocks_analysis import xaya_extraction
 from stale_blocks_analysis.auxpow_chainid import hash_from_header_bytes
 from stale_blocks_analysis.auxpow_parse import ChildHeaderValidationError
 from stale_blocks_analysis.evidence_hydration import (
@@ -1205,7 +1206,7 @@ def test_json_classifiers_preserve_child_header_authentication_errors(
 
 
 def test_xaya_child_fields_use_pure_header_and_powdata_nbits():
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     header_nbits = 0
     powdata_nbits = 0x1B123456
     pure_header = (
@@ -1233,7 +1234,7 @@ def test_xaya_child_fields_use_pure_header_and_powdata_nbits():
 
 
 def test_xaya_non_merge_mined_prefix_has_no_child_evidence_row():
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     pure_header = b"\x00" * 80
     parsed = mod.parse_xaya_block(pure_header + b"\x00" + b"\x00" * 4)
 
@@ -1245,9 +1246,16 @@ def test_xaya_non_merge_mined_prefix_has_no_child_evidence_row():
     }
 
 
-def _minimal_coinbase(height: int) -> bytes:
-    height_bytes = height.to_bytes(3, "little")
-    scriptsig = bytes([len(height_bytes)]) + height_bytes
+def _minimal_coinbase(height: int, *, prefix: bytes | None = None) -> bytes:
+    if height <= 16:
+        scriptsig = bytes([0x50 + height]) + b"\x00"
+    else:
+        height_bytes = height.to_bytes((height.bit_length() + 7) // 8, "little")
+        if height_bytes[-1] & 0x80:
+            height_bytes += b"\x00"
+        scriptsig = bytes([len(height_bytes)]) + height_bytes
+    if prefix is not None:
+        scriptsig = prefix + b"\x00"
     return (
         struct.pack("<i", 1)
         + b"\x01"
@@ -1269,7 +1277,7 @@ def _xaya_block_with_child_coinbase(
     pure_header = (
         struct.pack("<i", 0x100)
         + b"\x11" * 32
-        + b"\x22" * 32
+        + hashlib.sha256(hashlib.sha256(child_coinbase).digest()).digest()
         + struct.pack("<III", 1_700_000_000, 0, 7)
     )
     commitment = (
@@ -1323,9 +1331,53 @@ def _xaya_block_with_child_coinbase(
     )
 
 
-def test_xaya_child_height_comes_from_consensus_coinbase_not_scan_order():
-    mod = _load_script("extract_xaya_auxpow")
-    child_height = 2_840_038
+def test_xaya_cli_authenticates_native_child_height_before_replacing_output(tmp_path):
+    # Independent native audit pins height 902, vector offset 949 and the
+    # SegWit coinbase scriptSig at 994. Change only its claim from 902 to 903.
+    block = (REPO_ROOT / "tests/fixtures/xaya/height902.bin").read_bytes()
+    blocks = tmp_path / "blocks"
+    blocks.mkdir()
+    native_file = blocks / "blk00000.dat"
+    output = tmp_path / "xaya.csv"
+    command = [
+        sys.executable,
+        str(REPO_ROOT / "scripts/extract/extract_xaya_auxpow.py"),
+        "--blocks-dir",
+        str(blocks),
+        "--output",
+        str(output),
+    ]
+
+    def write_frame(payload):
+        native_file.write_bytes(
+            bytes.fromhex("ccbeb4fe") + struct.pack("<I", len(payload)) + payload
+        )
+
+    write_frame(block)
+    valid = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    assert valid.returncode == 0, valid.stderr
+    with output.open(newline="") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["xaya_height"] == "902"
+    assert (
+        row["btc_header_hash"]
+        == "00000000000000000033ee726f0e7d55a5c2cc7e4aead173e925130c68977595"
+    )
+    preserved = output.read_bytes()
+    changed = bytearray(block)
+    assert changed[994:999] == bytes.fromhex("0286030101")
+    changed[995] = 0x87
+    write_frame(changed)
+    rejected = subprocess.run(command, capture_output=True, text=True, timeout=10)
+    assert rejected.returncode != 0
+    assert "merkle-authenticate" in rejected.stderr
+    assert output.read_bytes() == preserved
+    assert not list(tmp_path.glob(".xaya.csv.*.tmp"))
+
+
+@pytest.mark.parametrize("child_height", [1, 16, 17, 128, 2_840_038])
+def test_xaya_child_height_comes_from_consensus_coinbase_not_scan_order(child_height):
+    mod = xaya_extraction
 
     parsed = mod.parse_xaya_block(
         _xaya_block_with_child_coinbase(mod, _minimal_coinbase(child_height))
@@ -1337,7 +1389,7 @@ def test_xaya_child_height_comes_from_consensus_coinbase_not_scan_order():
 
 
 def test_xaya_rejects_child_transaction_without_bip34_height():
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     malformed_child_coinbase = bytearray(_minimal_coinbase(1))
     malformed_child_coinbase[42] = 0
 
@@ -1378,7 +1430,7 @@ def _set_xaya_main_argv(
 def test_xaya_main_publishes_exact_height_from_numbered_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     blocks_dir = tmp_path / "blocks"
     blocks_dir.mkdir()
     valid_height = 2_840_038
@@ -1405,18 +1457,21 @@ def test_xaya_main_publishes_exact_height_from_numbered_files(
         ("child_commitment", "child commitment missing or misplaced"),
         ("child_target", "parent misses Xaya PowData target"),
         ("non_coinbase", "parent transaction is not a Bitcoin coinbase"),
+        ("noncanonical_height", "noncanonical BIP34 height prefix"),
     ],
 )
 def test_xaya_main_authenticates_proof_before_publication(
     tmp_path, monkeypatch, damage, message
 ):
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     blocks = tmp_path / "blocks"
     blocks.mkdir()
     block = bytearray(
         _xaya_block_with_child_coinbase(
             mod,
-            _minimal_coinbase(1),
+            _minimal_coinbase(
+                1, prefix=b"\x01\x01" if damage == "noncanonical_height" else None
+            ),
             parent_prevout=b"\x55" * 32 if damage == "non_coinbase" else b"\0" * 32,
         )
     )
@@ -1440,7 +1495,7 @@ def test_xaya_main_authenticates_proof_before_publication(
 def test_xaya_main_fails_closed_after_malformed_height(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     blocks_dir = tmp_path / "blocks"
     blocks_dir.mkdir()
     malformed_coinbase = bytearray(_minimal_coinbase(1))
@@ -1468,7 +1523,7 @@ def test_xaya_main_fails_closed_after_malformed_height(
 
 @pytest.mark.parametrize("damage", [b"broken framing", b"\0" * 8 + b"x"])
 def test_xaya_main_refuses_damaged_framing(tmp_path, monkeypatch, damage):
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     blocks = tmp_path / "blocks"
     blocks.mkdir()
     _write_xaya_blkdat(
@@ -1488,7 +1543,7 @@ def test_xaya_main_refuses_damaged_framing(tmp_path, monkeypatch, damage):
 
 
 def test_xaya_main_refuses_missing_powdata(tmp_path, monkeypatch):
-    mod = _load_script("extract_xaya_auxpow")
+    mod = xaya_extraction
     blocks = tmp_path / "blocks"
     blocks.mkdir()
     _write_xaya_blkdat(blocks / "blk00000.dat", mod, b"\0" * 80)

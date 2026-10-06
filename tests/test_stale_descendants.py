@@ -8,8 +8,6 @@ import pytest
 
 from stale_blocks_analysis import stale_descendants
 from stale_blocks_analysis.stale_descendants import (
-    OBSERVATION_FIELDS,
-    PARENT_VERDICT_FIELDS,
     load_stale_descendant_observations,
     load_stale_descendant_parents,
 )
@@ -37,25 +35,6 @@ def _copy_module(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copy2(PARENTS, parents)
     shutil.copy2(OBSERVATIONS, observations)
     return parents, observations
-
-
-@pytest.mark.dataset
-def test_committed_stale_descendant_module_is_exact_and_correction_free() -> None:
-    parents = load_stale_descendant_parents()
-    observations = load_stale_descendant_observations()
-
-    assert len(parents) == 21
-    assert len(observations) == 33
-    removed_overlay = "stale_descendant" + "_corrections.csv"
-    assert not (REPO / "data" / removed_overlay).exists()
-    with PARENTS.open(newline="") as handle:
-        fields = csv.DictReader(handle).fieldnames or []
-    assert fields == PARENT_VERDICT_FIELDS
-    assert "source_rows" not in fields
-    assert "unknown_rows" not in fields
-    with OBSERVATIONS.open(newline="") as handle:
-        observation_fields = csv.DictReader(handle).fieldnames or []
-    assert observation_fields == list(OBSERVATION_FIELDS)
 
 
 @pytest.mark.parametrize("role", ["candidate", "root"])
@@ -369,15 +348,17 @@ def test_parent_verdict_rejects_path_predecessor_disagreement(
         load_stale_descendant_parents(parents)
 
 
-def test_parent_verdict_requires_every_intermediate_path_node(
+def test_parent_verdict_requires_authentication_for_every_intermediate_path_node(
     tmp_path: Path,
 ) -> None:
     parents, _observations = _copy_module(tmp_path)
+    missing_keys: set[tuple[int, str]] = set()
 
     def mutate(rows: list[dict[str, str]]) -> None:
         descendant = next(row for row in rows if row["stale_fork_depth"] == "2")
         intermediate_hash = descendant["path_hashes"].split(">")[1]
         intermediate_height = str(int(descendant["btc_height"]) - 1)
+        missing_keys.add((int(intermediate_height), intermediate_hash))
         rows[:] = [
             row
             for row in rows
@@ -388,9 +369,22 @@ def test_parent_verdict_requires_every_intermediate_path_node(
         ]
 
     _rewrite(parents, mutate)
+    upstream = tmp_path / "upstream.csv"
+    shutil.copy2(stale_descendants.STALE_CSV, upstream)
+    _rewrite(
+        upstream,
+        lambda rows: rows.__setitem__(
+            slice(None),
+            [
+                row
+                for row in rows
+                if (int(row["height"]), row["hash"]) not in missing_keys
+            ],
+        ),
+    )
 
     with pytest.raises(ValueError, match="has no authenticated parent verdict"):
-        load_stale_descendant_parents(parents)
+        load_stale_descendant_parents(parents, upstream_path=upstream)
 
 
 def test_parent_verdict_path_must_end_at_a_trusted_stale_root(

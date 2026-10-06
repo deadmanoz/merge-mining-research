@@ -60,6 +60,7 @@ target-version = "py310"
 select = ["E9", "F63", "F7", "F82", "F401", "F841"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "dataset: requires materialized Git LFS publication payloads",
 ]

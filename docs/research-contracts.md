@@ -85,7 +85,10 @@ Preserve these distinctions:
   declared trusted-root set, and verifies the complete predecessor path. The
   canonical parent loader requires the stored root height and fork depth to
   agree, authenticates both path endpoints, and checks every path edge against
-  the serialized predecessor header of its parent verdict. The loader also
+  its parent-verdict header or an exact height/hash-bound 80-byte header from
+  the selected pinned upstream census. Upstream-only intermediate nodes supply
+  path evidence without invented child witnesses or accepted parent rows.
+  The loader also
   requires the exact parent schema, matching `expected_nbits`, true PoW/header
   flags, and an accepting BIP34 verdict. It requires the terminal identity to
   occur in the selected data tree's accepted per-chain or pinned upstream

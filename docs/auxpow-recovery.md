@@ -129,14 +129,32 @@ root's minimum-version failure. Loaders and upstream-derived
 reports apply the gate by exact `(height, hash)` key.
 
 Accepted stale descendants use a separate two-table module:
-`data/stale_descendants.csv` contains 21 parent verdicts and
-`data/stale_descendant_observations.csv` contains their 33 authenticated
+`data/stale_descendants.csv` contains accepted parent verdicts and
+`data/stale_descendant_observations.csv` contains their authenticated
 child-chain witnesses. Reconciliation evaluates all authenticated candidates,
 walks only from declared trusted stale roots, requires active-mainchain
 placement for a direct stale root, and routes consensus-invalid candidates to
 the error-block catalogue first. A witness's source bucket is audit evidence,
 not a classification authority. Height 656,478 is therefore represented as a
 valid stale descendant because its predecessor is a trusted stale root.
+
+Upstream census membership alone does not establish a direct stale root: the
+census also includes stale-fork continuations. Reconciliation authenticates each
+encountered root's serialized header and compares its predecessor with Core's
+active hash at the preceding height. A continuation retains its authenticated
+predecessor edge and the walk continues to the ultimate direct root. A hash-only
+root leaves its path unresolved and cannot produce an accepted verdict. Supplied
+conflicting root evidence aborts reconciliation. The publication coverage gate
+still rejects loss of a previously accepted verdict. A reviewed retraction is a
+separate data correction: preserve the original generation, use an ephemeral
+script to prepare separate baseline copies with only the identified accepted
+claim and its witnesses removed, and record the evidence, exact deltas and file
+hashes. Preserve raw observations and all unrelated evidence. Run the complete
+normal producer against that corrected staged data tree, compare its outputs
+independently, and install the matching generated family. Routine refreshes then
+use the current committed baseline, with the coverage gate unchanged. The
+[Namecoin correction record](chains/namecoin.md#accepted-baseline-correction)
+documents the completed transition. An upstream edge supplies no child witness.
 
 A separate generated evidence layer serves downstream consumers that need more
 than the stale census. Run `just full-evidence` to write normalized per-chain
@@ -163,8 +181,8 @@ Rows follow the documented **merge-mining evidence chronology**, matching
 `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
 
 One derived contribution sits outside the per-chain direct-stale counts. The
-stale-descendant module stores 21 accepted parent verdicts in
-`data/stale_descendants.csv` and 33 authenticated child-chain witnesses in
+stale-descendant module stores accepted parent verdicts in
+`data/stale_descendants.csv` and authenticated child-chain witnesses in
 `data/stale_descendant_observations.csv`. Reconciliation considers every
 authenticated candidate bucket, starts only from declared trusted stale roots,
 excludes active-mainchain parents from the descendant class, and gives

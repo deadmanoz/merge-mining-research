@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal
 
-from .config import CHAIN_SPECS, DATA_DIR
+from .config import CHAIN_SPECS, COHERENT_CLASSIFIER_FAMILY_CHAINS, DATA_DIR
 
 CHILD_HEIGHT_AUTHENTICATED = "authenticated_consensus"
 CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER = "unauthenticated_scan_order"
@@ -103,6 +103,50 @@ def first_existing(paths: Iterable[Path]) -> Path | None:
     return None
 
 
+def select_foundation_classifier_family(
+    data_dir: Path, archive_dirs: list[Path], chain: str
+) -> dict[str, Path] | None:
+    """Select one complete foundation family, never cross-fill its members."""
+    if chain not in COHERENT_CLASSIFIER_FAMILY_CHAINS:
+        return None
+    suffixes = ("stale_blocks", "canonical_blocks", "unknown_blocks")
+    # Root order remains the operator's explicit priority. Once any member is
+    # found, that root must supply the entire family in one directory.
+    for root in [*archive_dirs, data_dir]:
+        members = {
+            suffix: [
+                path
+                for path in (
+                    [data_dir / f"{chain}_{suffix}.csv"]
+                    if root == data_dir
+                    else archive_candidates(root, chain, suffix, "classified")
+                )
+                if path.exists()
+            ]
+            for suffix in suffixes
+        }
+        if not any(members.values()):
+            continue
+        if any(len(paths) > 1 for paths in members.values()):
+            raise ValueError(f"ambiguous {chain} classifier family in {root}")
+        missing = [suffix for suffix, paths in members.items() if not paths]
+        if missing:
+            raise ValueError(
+                f"incomplete {chain} classifier family in {root}: missing {', '.join(missing)}"
+            )
+        selected = {suffix: paths[0] for suffix, paths in members.items()}
+        if len({path.parent for path in selected.values()}) != 1:
+            raise ValueError(
+                f"ambiguous {chain} classifier family spans directories in {root}"
+            )
+        if not all(path.is_file() for path in selected.values()):
+            raise ValueError(
+                f"incomplete {chain} classifier family contains a non-file in {root}"
+            )
+        return selected
+    return None
+
+
 def discover_evidence_sources(
     data_dir: Path = DATA_DIR,
     chain_archive_dirs: Iterable[Path] = (),
@@ -119,7 +163,8 @@ def discover_evidence_sources(
                 archive_candidates(root, chain, "validated_stales", "validated")
             )
 
-        full_path = first_existing(archive_full)
+        family = select_foundation_classifier_family(data_dir, archive_dirs, chain)
+        full_path = family["stale_blocks"] if family else first_existing(archive_full)
         if full_path is None:
             full_path = data_dir / f"{chain}_stale_blocks.csv"
             if not full_path.exists():
@@ -212,7 +257,8 @@ def discover_canonical_sources(
                 archive_candidates(root, chain, "canonical_blocks", "classified")
             )
         candidates.append(data_dir / f"{chain}_canonical_blocks.csv")
-        path = first_existing(candidates)
+        family = select_foundation_classifier_family(data_dir, archive_dirs, chain)
+        path = family["canonical_blocks"] if family else first_existing(candidates)
         if path is None:
             continue
         sources[chain] = EvidenceSource(
@@ -254,7 +300,8 @@ def discover_unknown_sources(
                 archive_candidates(root, chain, "unknown_blocks", "classified")
             )
         candidates.append(data_dir / f"{chain}_unknown_blocks.csv")
-        path = first_existing(candidates)
+        family = select_foundation_classifier_family(data_dir, archive_dirs, chain)
+        path = family["unknown_blocks"] if family else first_existing(candidates)
         if path is None:
             continue
         sources[chain] = EvidenceSource(

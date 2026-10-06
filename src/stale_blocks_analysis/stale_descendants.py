@@ -529,6 +529,7 @@ def load_stale_descendant_parents(
         upstream_path=trusted_upstream_path,
         error_blocks_path=data_dir / "error-blocks" / "error_blocks.csv",
     )
+    upstream_headers: dict[tuple[int, str], set[str]] | None = None
     for key, path_hashes in ancestry_paths.items():
         descendant = parents[key]
         root_key = (
@@ -546,12 +547,35 @@ def load_stale_descendant_parents(
             node_height = descendant.height - offset
             node = parents.get((node_height, node_hash))
             if node is None:
-                raise ValueError(
-                    f"{path}:{descendant.row_number}: path_hashes node "
-                    f"{node_hash} at height {node_height} has no authenticated "
-                    "parent verdict"
-                )
-            if node.row["btc_prev_hash"] != predecessor_hash:
+                # Upstream-only continuations prove edges, not child witnesses.
+                # Bind their exact height and serialized header to the selected
+                # census, retaining the same error-catalogue exclusion.
+                if upstream_headers is None:
+                    upstream_headers = {}
+                    with trusted_upstream_path.open(newline="") as handle:
+                        for row in csv.DictReader(handle):
+                            upstream_key = (int(row["height"]), row["hash"])
+                            upstream_headers.setdefault(upstream_key, set()).add(
+                                (row.get("header") or "").strip().lower()
+                            )
+                node_key = (node_height, node_hash)
+                headers = upstream_headers.get(node_key, set())
+                header = next(iter(headers)) if len(headers) == 1 else ""
+                parsed = parse_header_fields(header)
+                if (
+                    node_key not in trusted_root_keys
+                    or len(header) != 160
+                    or parsed.get("hash") != node_hash
+                ):
+                    raise ValueError(
+                        f"{path}:{descendant.row_number}: path_hashes node "
+                        f"{node_hash} at height {node_height} has no authenticated "
+                        "parent verdict or upstream header"
+                    )
+                node_prev = parsed["prev_hash"]
+            else:
+                node_prev = node.row["btc_prev_hash"]
+            if node_prev != predecessor_hash:
                 raise ValueError(
                     f"{path}:{descendant.row_number}: path_hashes predecessor "
                     f"link disagrees at {node_hash}"

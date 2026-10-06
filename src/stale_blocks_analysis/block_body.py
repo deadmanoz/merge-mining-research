@@ -234,7 +234,7 @@ def parse_block_body(raw: bytes) -> tuple[int, bytes]:
 
 
 def authenticate_block_body(
-    raw: bytes, *, segwit_active: bool = True
+    raw: bytes, *, segwit_active: bool = True, transaction_offset: int = 80
 ) -> tuple[int, list[str]]:
     """Fully authenticate a block body; return (legacy sigops, failures).
 
@@ -244,8 +244,12 @@ def authenticate_block_body(
     not be treated as re-derived evidence for the header. Before activation,
     a commitment-looking output alone does not require witness data. Actual
     witness serialization still requires authentication at any claimed height.
+    ``transaction_offset`` selects the vector after a child proof envelope;
+    the Merkle root remains in the first 80-byte pure header.
     """
-    total, merkle_root, witness_error = _walk_block(raw, segwit_active=segwit_active)
+    total, merkle_root, witness_error = _walk_block(
+        raw, segwit_active=segwit_active, transaction_offset=transaction_offset
+    )
     failures: list[str] = []
     if merkle_root != raw[36:68]:
         failures.append(
@@ -258,12 +262,12 @@ def authenticate_block_body(
 
 
 def _walk_block(
-    raw: bytes, *, segwit_active: bool = True
+    raw: bytes, *, segwit_active: bool = True, transaction_offset: int = 80
 ) -> tuple[int, bytes, str | None]:
     """Walk every transaction; return (sigops, txid merkle root, witness error)."""
-    if len(raw) < 81:
-        raise ValueError("serialized block shorter than header plus tx count")
-    pos = 80
+    if not 80 <= transaction_offset < len(raw):
+        raise ValueError("serialized block lacks a transaction vector after its header")
+    pos = transaction_offset
     tx_count, pos = _read_compact_size(raw, pos)
     if tx_count == 0:
         raise ValueError("serialized block carries no transactions")

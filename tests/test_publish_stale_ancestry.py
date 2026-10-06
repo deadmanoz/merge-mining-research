@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -87,7 +89,7 @@ def test_invalid_canonical_error_module_stops_before_ancestry(
     module = _load_module()
     commands: list[list[str]] = []
 
-    def fail_validation() -> None:
+    def fail_validation(**_kwargs) -> None:
         raise RuntimeError("invalid canonical module")
 
     monkeypatch.setattr(
@@ -103,6 +105,7 @@ def test_invalid_canonical_error_module_stops_before_ancestry(
 
 @pytest.mark.parametrize("candidate_count", [0, 1])
 def test_publication_installs_only_descendant_interfaces_after_zero_error_candidates(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     candidate_count: int,
@@ -114,6 +117,11 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     def run_stage(command: list[str]) -> None:
         nonlocal ancestry_calls
         ancestry_calls += 1
+        assert Path(command[command.index("--data-dir") + 1]) == tmp_path
+        assert (
+            Path(command[command.index("--epoch-reference-dir") + 1])
+            == tmp_path / "bitcoin-epoch-reference"
+        )
         candidate_path = Path(command[command.index("--error-candidates-csv") + 1])
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         with candidate_path.open("w", newline="") as handle:
@@ -126,7 +134,7 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     monkeypatch.setattr(
         module.error_block_validation,
         "validate_error_module",
-        lambda: ([object()] * 39, {index: {} for index in range(86)}),
+        lambda **_kwargs: ([object()] * 39, {index: {} for index in range(86)}),
     )
     monkeypatch.setattr(
         module,
@@ -144,7 +152,9 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
         lambda staged: installed.append(staged),
     )
 
-    result = module.main(["--rpc-source-label", "test-node"])
+    result = module.main(
+        ["--data-dir", str(tmp_path), "--rpc-source-label", "test-node"]
+    )
     captured = capsys.readouterr()
     error = captured.err
 
@@ -157,8 +167,31 @@ def test_publication_installs_only_descendant_interfaces_after_zero_error_candid
     else:
         assert result == 0
         assert len(installed) == 1
-        assert set(installed[0]) == {module.PARENTS_PATH, module.OBSERVATIONS_PATH}
+        assert set(installed[0]) == {
+            tmp_path / "stale_descendants.csv",
+            tmp_path / "stale_descendant_observations.csv",
+        }
         assert "39-parent/86-observation error-block module" in captured.out
+
+
+def test_selected_data_tree_fails_closed_without_its_validation_inputs(
+    tmp_path: Path,
+) -> None:
+    parents = tmp_path / "stale_descendants.csv"
+    observations = tmp_path / "stale_descendant_observations.csv"
+    parents.write_text("retained parents\n")
+    observations.write_text("retained observations\n")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--data-dir", str(tmp_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "canonical error-module validation failed" in result.stderr
+    assert str(tmp_path) in result.stderr
+    assert parents.read_text() == "retained parents\n"
+    assert observations.read_text() == "retained observations\n"
 
 
 def test_successful_rollback_cleans_backups_and_allows_next_install(

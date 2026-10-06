@@ -74,6 +74,19 @@ verified child block hash and timestamp to
 either replay that height -> hash -> block verification against a Namecoin
 node or resolve child hashes directly, as before.
 
+The October upstream refresh required one additional child identity for
+Bitcoin parent
+`00000000000000000004a854930ba81092fb42e647b43d8afdb8b91957d77aed`.
+Its retained native witness is Namecoin block
+`b172b52213a43616af60eae2778ddb737822e2087a6a6b23d382b6e08589e491`
+at node-verified height **369,935**, rather than the old file-scan position
+369,950. The existing identity producer verifies the node's child header,
+hash, timestamp, target and AuxPoW parent before adding this row to the
+identity ledger. The retained native block body has SHA-256
+`73930a7bed1bdebc9a88848adfca1a22536b183a7d30410142ace1e235862b0f`.
+This authenticates the child observation; its Bitcoin ancestry verdict is
+established separately by the complete reconciliation workflow.
+
 `btc_header_hex` is present for all 1,641 loader rows. The 228 rows that
 historically carried no loader header (their keys were already upstream, so
 the original compact input deferred to the upstream record) were hydrated
@@ -261,6 +274,14 @@ The current raw source also records height 941,882 as unknown; its authenticated
 Namecoin child observation is published against the shared accepted descendant
 parent verdict.
 
+The earlier accepted stale-descendant verdict for Bitcoin height 234,108 is
+withdrawn. Its authenticated own header points to the upstream-listed root at
+234,107, whose serialized header is missing from the selected evidence. Without
+those bytes, the root's predecessor cannot be authenticated and checked against
+Bitcoin's active chain. The authenticated raw Namecoin observation at child
+height 108,809 remains retained, with Bitcoin ancestry unresolved. This does
+not establish consensus invalidity. Further root-header investigation is deferred.
+
 The witnesses for Bitcoin heights 474,294, 477,115, 783,426 and 784,121 now belong to
 the error-block catalogue and are excluded from accepted stale outputs.
 See `docs/error-blocks.md` "Externally verified body-invalid blocks".
@@ -269,6 +290,38 @@ The historical Namecoin contribution therefore contains **1,061 accepted direct
 additions**, not 1,089. The historical upstream commit still records the
 original 1,089-row addition and is retained as provenance:
 [bitcoin-data/stale-blocks commit `ddba8a4`](https://github.com/bitcoin-data/stale-blocks/commit/ddba8a4c503338151633134e657efb7fd25c85a5).
+
+### Accepted baseline correction
+
+The 6 October 2026 withdrawal was an explicitly reviewed data correction before
+complete regeneration. Reconciliation against the former accepted baseline
+continues to fail its coverage gate, as intended. A private ephemeral
+`prepare_baseline.py` checked the retained 21-parent/33-witness generation,
+upstream commit `7f1e932ccab2673d3177db06f1c673040272d780`, the absent root header,
+the authenticated parent header and the exact Namecoin witness at child 108,809.
+It prepared separate copies containing 20 parents and 32 witnesses, removing
+only the accepted claim for
+`0000000000000043bff8b3fd1519a07fa61d40815c7e8734e31e34b948a2df41`
+and its accepted witness. Surviving witness parent-row coordinates were rebound;
+their evidence cells and all original source files were preserved. The matching
+temporary Monitor baseline omitted the same claim and recomputed its metadata.
+
+The ordinary complete ancestry producer then consumed that corrected staged
+data through `--data-dir` with `--rpc-source-label core-reference`, followed by
+fresh relevance classification and complete Monitor publication. Independent
+comparison verified the final 23 parents/35 witnesses, the exact withdrawal,
+the new authenticated descendants and retention of the raw unknown observation
+at source row 28,806. The generated family became the committed baseline.
+Future refreshes use that baseline directly; the private correction script is
+retained as historical provenance and is not part of the recurring workflow.
+
+The private archive's `research-adoption-20261006` receipts bind this transition:
+
+| Record | SHA-256 |
+| --- | --- |
+| `accepted-baseline-correction-receipt.json` | `a4a831edc22704cdedea071a82f428d4c4f7108044f98a2312790176c847ca4e` |
+| `withdraw-234108-baseline/corrected-baseline/correction-receipt.json` | `711b5ac06be97922acc4ea02e41bc1296b132d7b920c354ad3dffdcc561bf7de` |
+| `corrected-complete-generation-comparison/comparison-receipt.json` | `f481261eae28ec777f5dcf910577e3ab56eab1e6f3518ede1ceb8fd69b7a44dc` |
 
 ## Upstream and chronological novelty
 

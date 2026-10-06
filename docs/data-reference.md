@@ -273,7 +273,7 @@ authenticated parent/witness module.
 The stale-descendant module separates parent verdicts from child-chain witness
 provenance:
 
-- `data/stale_descendants.csv` contains 21 accepted Bitcoin parent verdicts.
+- `data/stale_descendants.csv` contains accepted Bitcoin parent verdicts.
   Loaders require `classification=stale_descendant` and
   `validation_status=VALID_STALE_DESCENDANT`, authenticate the serialized
   parent header, require the exact persisted schema and accepting gate cells
@@ -283,7 +283,11 @@ provenance:
   path endpoints, and serialized predecessor links. The terminal identity must
   also occur in the selected data tree's accepted per-chain or pinned upstream
   direct-stale inputs after the error-block exclusion.
-- `data/stale_descendant_observations.csv` contains 33 authenticated
+  An intermediate node without a recovered parent verdict must have an exact
+  height/hash entry and matching 80-byte predecessor header in that tree's
+  pinned upstream census, after the same error-block exclusion. Such nodes
+  authenticate path edges without adding a child-chain witness or parent row.
+- `data/stale_descendant_observations.csv` contains authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence. The
   canonical loader requires the exact ordered witness schema and complete row
@@ -313,6 +317,10 @@ full-PoW violation is classified for canonical error-module admission. A
 candidate is likewise unpublishable when the committed epoch reference cannot
 supply canonical `expected_nbits` for its inferred height.
 
+An unresolved observation remains in its raw source; withdrawing an unsupported
+accepted verdict removes its parent and witness claims from the accepted tables
+without erasing the observed header or establishing consensus invalidity.
+
 Key columns beyond the standard BTC header fields include
 `active_mainchain_status` and `root_active_mainchain_status` for the placement
 gates; `ancestry_relation`; `root_stale_hash` / `root_stale_height` /
@@ -330,6 +338,17 @@ field. A split `_unknown_blocks.csv` row retains that exact path while its
 `source_kind` identifies the shared `full_inventory` schema family, including
 the family's child-height trust rules. Source paths are publication
 coordinates, not classification rules.
+
+Huntercoin and Xaya use one complete current classifier family. The selected
+archive root must supply `stale_blocks`, `canonical_blocks` and `unknown_blocks`
+CSVs together in one directory, including header-only empty splits. The first
+root containing any family member is authoritative; a missing or ambiguous
+member fails discovery rather than being filled from another archive or the
+local data directory. Compact validated-stale inputs remain usable on their
+own when no classifier family is selected.
+Ancestry reconciliation checks the selected data tree's family before loading
+candidates, including when producing disposable partial diagnostics.
+
 When a never-split inventory and its canonical companion contain the same
 authenticated child event, reconciliation keeps one deterministic source
 coordinate only after their parent evidence is compatible. Conflicting copies
@@ -587,6 +606,13 @@ by a source-family manifest. Keep the complete RSK raw/checkpoint/skip-ledger
 bundle and its classified siblings together, and verify them without
 rewriting their dependency fingerprints.
 
+The complete ancestry publisher also accepts --data-dir. It validates the
+selected tree's error module, epoch reference and pinned invalid-block bodies,
+reconciles the full candidate population, then installs both ancestry CSVs into
+that tree with the existing rollback protection. This lets a normal staged
+rebuild refresh publication inputs without changing retained classifier
+dependencies in the runtime checkout.
+
 The per-chain `*_monitor_evidence.csv` payloads are stored in Git LFS. Run
 `git lfs pull --include="results/monitor-evidence/*_monitor_evidence.csv"`
 before reading or rebuilding them. `monitor-evidence-counts.csv` and
@@ -662,19 +688,19 @@ rather than being inferred. The standalone stale-descendants export contains
 one row per accepted parent and therefore leaves child identity blank. Its
 counts notes are `child_height=unavailable` and
 `parent_verdicts_only_witnesses_in_observation_ledger`. The
-33 exact source-chain witnesses come from
+exact source-chain witnesses come from
 `data/stale_descendant_observations.csv` and enter their chain artifacts once
 with `classification=stale_descendant`,
 `validation_status=VALID_STALE_DESCENDANT`, and
 `relevance_reason=valid_stale_descendant`. Their source-bucket classifications
 remain audit fields in the witness ledger and never override the accepted
-parent verdict. The 30 ordinary artifacts, error-observation aggregate, and
+parent verdict. The ordinary artifacts, error-observation aggregate, and
 both metadata files describe the same source generation. The six historical
 observations carry complete authenticated child headers; live-chain
 observations use the independently verified identities in
 `data/child-identity/`. The committed ledger is the sole witness interface, so
-all 33 observations are projected. A complete publication fails closed when a
-required child identity is missing or disagrees with its generic ledger; a
+all accepted observations are projected. A complete publication fails closed
+when a required child identity is missing or disagrees with its generic ledger; a
 partial diagnostic records that hydration shortfall instead of claiming a
 usable identity.
 
