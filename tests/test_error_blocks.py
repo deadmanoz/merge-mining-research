@@ -34,9 +34,6 @@ from stale_blocks_analysis.reconcile_publication import (
     OUTPUT_SUMMARY,
     descendant_bip34_verdict,
 )
-from stale_blocks_analysis.stale_descendants import (
-    load_stale_descendant_observations,
-)
 
 REPO = Path(__file__).resolve().parents[1]
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
@@ -831,17 +828,6 @@ def test_error_block_is_a_documented_classification() -> None:
 
 
 @pytest.mark.dataset
-def test_published_descendant_ledger_preserves_complete_child_identity() -> None:
-    observations = load_stale_descendant_observations()
-
-    assert len(observations) == 33
-    assert all(len(observation.child_hash) == 64 for observation in observations)
-    assert all(
-        observation.row["child_block_time"].isdigit() for observation in observations
-    )
-
-
-@pytest.mark.dataset
 def test_published_monitor_canonical_rows_have_no_stale_gate_verdict() -> None:
     for path in sorted(
         (REPO / "results" / "monitor-evidence").glob("*_monitor_evidence.csv")
@@ -952,8 +938,22 @@ def test_unknown_ancestry_does_not_treat_mixed_upstream_sidecar_as_roots(
         assert list(csv.DictReader(handle)) == []
 
 
+@pytest.mark.parametrize(
+    ("upstream_intermediate", "root_evidence", "intermediate_observed"),
+    [
+        (False, "valid", True),
+        (True, "valid", True),
+        (True, "valid", False),
+        (True, "missing", True),
+        (True, "mismatch", True),
+    ],
+)
 def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    upstream_intermediate: bool,
+    root_evidence: str,
+    intermediate_observed: bool,
 ) -> None:
     module = _load_script(
         "scripts/analysis/reconcile_unknown_stale_ancestry.py",
@@ -963,10 +963,28 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
     upstream_dir = data_dir / "stale-blocks"
     upstream_dir.mkdir(parents=True)
     upstream = upstream_dir / "stale-blocks.csv"
-    _write_upstream(upstream)
+    active_parent = "77" * 32
+    root_header, root_hash = _easy_pow_header(active_parent)
+    intermediate_header, intermediate_hash = _easy_pow_header(root_hash)
+    with upstream.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["height", "hash", "header"])
+        writer.writeheader()
+        writer.writerow(
+            dict(
+                height=331735,
+                hash=root_hash,
+                header=root_header
+                if root_evidence == "valid"
+                else ("" if root_evidence == "missing" else intermediate_header),
+            )
+        )
+        if upstream_intermediate:
+            writer.writerow(
+                dict(height=331736, hash=intermediate_hash, header=intermediate_header)
+            )
     _write_error_catalogue(data_dir, {(0, "00" * 32)})
 
-    header_hex, descendant_hash = _easy_pow_header(INCLUDED_HASH)
+    header_hex, descendant_hash = _easy_pow_header(intermediate_hash)
     inventory = data_dir / "namecoin_stale_blocks.csv"
     with inventory.open("w", newline="") as f:
         writer = csv.DictWriter(
@@ -987,7 +1005,7 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
             {
                 "btc_height": "331737",
                 "btc_hash": descendant_hash,
-                "btc_prev_hash": INCLUDED_HASH,
+                "btc_prev_hash": intermediate_hash,
                 "classification": "stale",
                 "validation_status": "VALID",
                 "nmc_height": "331737",
@@ -995,6 +1013,23 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
                 "btc_header_hex": header_hex,
             }
         )
+
+    # Both headers are real child-chain observations; upstream membership
+    # must not change their ultimate direct root or truncate the path.
+    if intermediate_observed:
+        with inventory.open("a", newline="") as handle:
+            csv.DictWriter(handle, fieldnames=writer.fieldnames).writerow(
+                dict(
+                    btc_height=331736,
+                    btc_hash=intermediate_hash,
+                    btc_prev_hash=root_hash,
+                    classification="stale",
+                    validation_status="VALID",
+                    nmc_height=331736,
+                    coinbase_scriptsig_hex=_scriptsig(331736),
+                    btc_header_hex=intermediate_header,
+                )
+            )
 
     rsk_inventory = data_dir / "rsk_stale_blocks.csv"
     with rsk_inventory.open("w", newline="") as f:
@@ -1016,7 +1051,7 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
             {
                 "btc_height": "331737",
                 "btc_hash": descendant_hash,
-                "btc_prev_hash": INCLUDED_HASH,
+                "btc_prev_hash": intermediate_hash,
                 "classification": "stale",
                 "validation_status": "VALID",
                 "rsk_height": "331737",
@@ -1043,6 +1078,18 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
                 lineterminator="\n",
             )
             writer.writeheader()
+            if chain == "namecoin":
+                writer.writerow(
+                    dict(
+                        chain=chain,
+                        btc_header_hash=intermediate_hash,
+                        child_height=331736,
+                        child_block_hash="aa" * 32,
+                        child_block_time=1700000000,
+                        verification="fixture-parent-match",
+                        note="",
+                    )
+                )
             writer.writerow(
                 {
                     "chain": chain,
@@ -1067,35 +1114,79 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
 
     monkeypatch.setattr(module, "descendant_bip34_verdict", record_bip34)
 
+    class Core:
+        def __init__(self, **_kwargs):
+            pass
+
+        def batch(self, payload):
+            return [
+                dict(
+                    result=active_parent
+                    if request["params"][0] == 331734
+                    else "66" * 32
+                )
+                for request in payload
+            ]
+
+    monkeypatch.setattr(module, "BtcRpc", Core)
+    monkeypatch.setattr(module, "fetch_mainchain_status", lambda *_args: {})
     results_dir = tmp_path / "results"
     parent_verdicts_csv = tmp_path / "stale_descendants.csv"
-    module.main(
-        [
-            "--data-dir",
-            str(data_dir),
-            "--results-dir",
-            str(results_dir),
-            "--cache-dir",
-            str(tmp_path / "cache"),
-            "--parent-verdicts-csv",
-            str(parent_verdicts_csv),
-            "--observations-csv",
-            str(tmp_path / "stale_descendant_observations.csv"),
-            "--error-candidates-csv",
-            str(tmp_path / "error_candidates.csv"),
-            "--allow-partial",
-        ]
-    )
+    args = [
+        "--data-dir",
+        str(data_dir),
+        "--results-dir",
+        str(results_dir),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--parent-verdicts-csv",
+        str(parent_verdicts_csv),
+        "--observations-csv",
+        str(tmp_path / "stale_descendant_observations.csv"),
+        "--error-candidates-csv",
+        str(tmp_path / "error_candidates.csv"),
+        "--allow-partial",
+        "--check-mainchain",
+    ]
+    if root_evidence == "mismatch":
+        with pytest.raises(SystemExit) as failure:
+            module.main(args)
+        assert failure.value.code == 2
+        assert not parent_verdicts_csv.exists()
+        return
+    module.main(args)
 
     with parent_verdicts_csv.open(newline="") as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 1
+    if root_evidence == "missing":
+        assert rows == []
+        summary = json.loads((results_dir / OUTPUT_SUMMARY).read_text())
+        assert summary["category_counts_by_unique_unknown_hash"] == {
+            "dangling_unknown": 2
+        }
+        with (tmp_path / "stale_descendant_observations.csv").open(
+            newline=""
+        ) as handle:
+            assert list(csv.DictReader(handle)) == []
+        return
+    assert len(rows) == (2 if intermediate_observed else 1)
+    rows = [row for row in rows if row["btc_header_hash"] == descendant_hash]
     assert rows[0]["classification"] == "stale_descendant"
     assert rows[0]["btc_header_hash"] == descendant_hash
-    assert rows[0]["root_stale_hash"] == INCLUDED_HASH
+    assert rows[0]["root_stale_hash"] == root_hash
+    assert rows[0]["stale_fork_depth"] == "2"
+    assert rows[0]["path_hashes"] == ">".join(
+        (descendant_hash, intermediate_hash, root_hash)
+    )
     assert rows[0]["coinbase_scriptsig_hex"] == _scriptsig(331737)
     assert rows[0]["btc_header_hex"] == header_hex
-    assert bip34_calls == [(header_hex, _scriptsig(331737), 331737)]
+    expected_calls = {(header_hex, _scriptsig(331737), 331737)}
+    if intermediate_observed:
+        expected_calls.add((intermediate_header, _scriptsig(331736), 331736))
+    assert set(bip34_calls) == expected_calls
+    with (tmp_path / "stale_descendant_observations.csv").open(newline="") as handle:
+        witnesses = list(csv.DictReader(handle))
+    assert len(witnesses) == (3 if intermediate_observed else 2)
 
 
 def test_body_invalid_parents_cannot_be_proposed_against_empty_upstream(tmp_path):

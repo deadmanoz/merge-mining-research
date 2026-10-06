@@ -99,7 +99,7 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 
 **Reference scripts.**
 
-- `scripts/extract/extract_xaya_auxpow.py:1` - parses Xaya's `PowData` block-header wrapper, keys on the `0x80` merge-mined flag, and reuses the shared AuxPoW/header helpers. The historical helper name `hash_meets_btc_difficulty` performs only the encoded self-target check described in the [validity contract](../data-validity.md). Emits the canonical `run_classifier` input schema.
+- `scripts/extract/extract_xaya_auxpow.py:1` - thin CLI for `stale_blocks_analysis.xaya_extraction`, which parses Xaya's `PowData` block-header wrapper, keys on the `0x80` merge-mined flag, and reuses the shared AuxPoW/header helpers. The historical helper name `hash_meets_btc_difficulty` performs only the encoded self-target check described in the [validity contract](../data-validity.md). Emits the canonical `run_classifier` input schema.
 - `scripts/classify/classify_xaya_stales.py:1` - thin `run_classifier(CHAIN_SPECS["xaya"])` wrapper (self-target PoW filter + dedup + `getblockheader` lookups + the expected-`nBits` gate). Exposes `--validated-output` so all outputs can be written into the offline archive directory.
   The equivalent shared invocation is `python scripts/classify/classify_stales.py --chain xaya`.
 - `node-infra/xaya/{Dockerfile,docker-compose.yml,init.sh,justfile,peers.list,README.md}` - node scaffold (`ubuntu:24.04` toolchain for `xayad` v1.13), retained as an unverified node scaffold.
@@ -121,6 +121,15 @@ child commitment and chain slot, and the parent hash against the effective
 child target. It refuses a non-coinbase parent transaction rather than treating
 its script as Bitcoin coinbase evidence. These checks do not replay complete
 Xaya consensus or establish the active tip.
+
+Before emitting a child height, the producer authenticates the complete child
+transaction vector against the pure header Merkle root, checks the witness
+commitment under Xaya's genesis-active SegWit profile, and requires the canonical
+BIP34 prefix. The shared `block_body` authenticator starts after `PowData` and
+`CAuxPow`; Bitcoin callers retain their ordinary offset of 80. Heights 1 through
+16 use the native `OP_n` encoding. A malformed or unauthenticated body aborts
+publication without replacing the prior output. These checks authenticate the
+height-bearing bytes; they do not establish native active-chain membership.
 
 **Phases.**
 

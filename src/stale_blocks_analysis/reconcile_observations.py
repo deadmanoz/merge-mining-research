@@ -25,6 +25,7 @@ from stale_blocks_analysis.full_evidence import (
     int_or_none,
     is_hash,
     normalize_hash,
+    safe_path,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -64,6 +65,7 @@ class StaleObservation:
     child_height: str
     btc_time: str
     bits: str
+    header_hex: str = ""
 
 
 @dataclass(slots=True)
@@ -508,6 +510,7 @@ def scan_upstream_stales(
                 child_height="",
                 btc_time=btc_time,
                 bits=bits,
+                header_hex=row.get("header", "").strip(),
             )
             stale_by_hash[block_hash].append(obs)
             all_hash_chains[block_hash].add(obs.chain)
@@ -515,6 +518,44 @@ def scan_upstream_stales(
                 prevs_by_hash[block_hash].add(prev_hash)
             count += 1
     return count
+
+
+def authenticate_stale_root(
+    block_hash: str,
+    stale_observations: list[StaleObservation],
+    candidate_observations: list[UnknownObservation],
+) -> tuple[int, str] | None:
+    """Authenticate root placement, or return None when no header is available.
+
+    Hash-only source membership cannot anchor a predecessor path. Supplied
+    malformed or contradictory evidence remains an error.
+    """
+    heights = {
+        int(obs.btc_height)
+        for obs in stale_observations
+        if int_or_none(obs.btc_height) is not None
+    }
+    if len(heights) != 1 or next(iter(heights)) < 1:
+        raise ValueError(f"ambiguous trusted-root height for {block_hash}")
+    observations = [*stale_observations, *candidate_observations]
+    headers = {obs.header_hex.strip().lower() for obs in observations if obs.header_hex}
+    if not headers:
+        return None
+    predecessors = set()
+    for header in headers:
+        try:
+            exact_header = len(bytes.fromhex(header)) == 80
+        except ValueError:
+            exact_header = False
+        if not exact_header or header_hash(header) != block_hash:
+            raise ValueError(
+                f"invalid authenticated trusted-root header for {block_hash}"
+            )
+        predecessors.add(parse_header_fields(header)["prev_hash"])
+    predecessors.update(obs.prev_hash for obs in observations if obs.prev_hash)
+    if len(predecessors) != 1:
+        raise ValueError(f"conflicting trusted-root predecessors for {block_hash}")
+    return next(iter(heights)), next(iter(predecessors))
 
 
 def accepted_stale_root(row: dict[str, str]) -> bool:
@@ -648,6 +689,13 @@ def load_observations(
         recovered_prev, hash_col, prev_col, header_col)``.
         """
         source_sha256 = sha256_file(inv_path)
+        try:
+            # Keep selected aliases stable before resolving private archive links.
+            source_path = (
+                Path("data") / inv_path.absolute().relative_to(data_dir.absolute())
+            ).as_posix()
+        except ValueError:
+            source_path = safe_path(inv_path, chain=chain)
         with inv_path.open(newline="") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
@@ -753,7 +801,7 @@ def load_observations(
                             pass
                     obs = UnknownObservation(
                         chain=chain,
-                        source_path=rel(inv_path),
+                        source_path=source_path,
                         row_number=row_number,
                         block_hash=block_hash,
                         prev_hash=prev_hash,
@@ -916,6 +964,9 @@ def load_observations(
                         child_height=child_height,
                         btc_time=btc_time,
                         bits=bits,
+                        header_hex=row.get(header_col, "").strip()
+                        if header_col
+                        else "",
                     )
                 )
                 all_hash_chains[block_hash].add(chain)

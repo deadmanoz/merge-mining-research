@@ -58,14 +58,14 @@
       "chain": "namecoin",
       "error_block": 0,
       "monitor_rows": 458339,
-      "notes": "child_height=unavailable; merged_duplicate_authenticated_child_events=20; publication_exclusions=48; child_identity_hydration=hydrated:1679/canonical_unhydrated:456660",
+      "notes": "child_height=unavailable; merged_duplicate_authenticated_child_events=22; publication_exclusions=48; child_identity_hydration=hydrated:1679/canonical_unhydrated:456660",
       "source_kind": "full_inventory",
       "source_path": "<external>/namecoin_blkdat_classified.csv",
       "source_rows": 466136,
       "stale": 1641,
-      "stale_descendant": 20,
+      "stale_descendant": 22,
       "strict_btc_orphan": 8,
-      "weak_btc_orphan": 10
+      "weak_btc_orphan": 8
     },
     {
       "artifact_path": "results/monitor-evidence/geistgeld_monitor_evidence.csv",
@@ -332,7 +332,7 @@
       "monitor_rows": 0,
       "notes": "",
       "source_kind": "full_inventory",
-      "source_path": "<chain-archive>/doichain/2026-06-24-redo/doichain_stale_blocks.csv",
+      "source_path": "<chain-archive>/doichain/classified/doichain_stale_blocks.csv",
       "source_rows": 50621,
       "stale": 0,
       "stale_descendant": 0,
@@ -533,13 +533,13 @@
       "canonical_evidence_status": "not_applicable",
       "chain": "stale-descendants",
       "error_block": 0,
-      "monitor_rows": 21,
+      "monitor_rows": 23,
       "notes": "child_height=unavailable; parent_verdicts_only_witnesses_in_observation_ledger",
       "source_kind": "stale_descendant_parent_verdicts",
       "source_path": "<external>/stale_descendants.csv",
-      "source_rows": 21,
+      "source_rows": 23,
       "stale": 0,
-      "stale_descendant": 21,
+      "stale_descendant": 23,
       "strict_btc_orphan": 0,
       "weak_btc_orphan": 0
     },
@@ -585,14 +585,14 @@
       "elastos": 2,
       "fractal": 1,
       "ixcoin": 3,
-      "namecoin": 20,
+      "namecoin": 22,
       "rsk": 3,
       "syscoin": 1
     }
   },
   "output_dir": "results/monitor-evidence",
   "relevance_inventory": "<external>/btc-stale-relevance-inventory.csv",
-  "strict_weak_verdicts_loaded": 18,
+  "strict_weak_verdicts_loaded": 16,
   "validation_contracts": {
     "error-block-observations": {
       "documentation": "docs/data-validity.md",

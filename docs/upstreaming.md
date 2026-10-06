@@ -136,3 +136,8 @@ overlay is retired. This change does not update a Monitor pin or deploy it.
    current novelty figures are not copied into other documentation. If the
    known-stale set changed and the private classifier inventories are available, rerun unknown-stale ancestry and its
    dependent relevance and monitor-evidence exports as well.
+
+Pin checks refresh both branch tips and the upstream default-branch selection.
+A cached `origin/HEAD` can outlive a renamed or retired upstream branch; it is
+not sufficient evidence that a dataset is current. Failed refreshes leave
+freshness unknown and do not update the pin.

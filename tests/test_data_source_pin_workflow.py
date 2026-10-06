@@ -99,6 +99,26 @@ def test_check_reports_stale_pin_and_update_records_exact_commit(tmp_path: Path)
     )
 
 
+def test_check_refreshes_a_changed_remote_default_branch(tmp_path: Path):
+    env, seed, manifest, first = make_fixture(tmp_path)
+    remote = tmp_path / "remote.git"
+    run("git", "checkout", "-b", "main", cwd=seed)
+    latest = commit_and_push(
+        seed, "new default evidence", "height,hash,header\n1,a,b\n"
+    )
+    run("git", "push", "origin", "main", cwd=seed)
+    # Keep the previously advertised branch at the pin. Only the new remote
+    # default carries the added evidence; fetching alone does not update HEAD.
+    run("git", "symbolic-ref", "HEAD", "refs/heads/main", cwd=remote)
+    before = manifest.read_bytes()
+    result = run(
+        "bash", str(PIN_SCRIPT), "check", cwd=PROJECT_ROOT, env=env, check=False
+    )
+    assert result.returncode == 1
+    assert f"latest {latest}" in result.stdout
+    assert manifest.read_bytes() == before
+
+
 def test_update_refuses_dirty_clone_without_changing_manifest(tmp_path: Path):
     env, seed, manifest, _first = make_fixture(tmp_path)
     commit_and_push(seed, "new upstream row", "height,hash,header\n1,a,b\n")

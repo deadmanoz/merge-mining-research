@@ -1,16 +1,24 @@
 # Stale recovery process, data volumes, and outcomes
 
-Combined Kraft Huntercoin/Xaya generation with reviewed invalid-fork evidence:
-2026-10-05 (execution began 4 October UTC).
+Current publication refresh: 2026-10-06, using the Kraft Huntercoin/Xaya
+foundation generation and the refreshed upstream snapshots. The foundation
+recovery completed on 5 October (execution began 4 October UTC).
 
 The received native dumps extend Huntercoin beyond its early Arweave sample
-and Xaya beyond the earlier snapshot. Every preceding accepted event remains.
-The new generation adds 65 Huntercoin and four Xaya direct-stale witnesses,
+and Xaya beyond the earlier snapshot. That foundation recovery preserved the
+preceding accepted events.
+The foundation recovery adds 65 Huntercoin and four Xaya direct-stale witnesses,
 with four Bitcoin events absent from the prior combined accepted dataset.
 The Kraft families replace the earlier Huntercoin and Xaya sources; old
 acquisitions are historical provenance rather than current runtime inputs.
 Complete stored-ancestry coverage and its limitations are documented in the
 [Huntercoin](chains/huntercoin.md) and [Xaya](chains/xaya.md) writeups.
+
+The subsequent upstream refresh adds three authenticated Namecoin descendant
+parents. It withdraws the earlier accepted claim at Bitcoin height 234,108
+because its root header is unavailable. Its authenticated raw Namecoin
+observation remains retained with ancestry unresolved; this does not establish
+consensus invalidity. Root-header investigation is deferred.
 
 The expanded ancestry review authenticates four continuations of the
 BIP66-invalid root at 363,731. Eight preceding strict observations move to
@@ -41,7 +49,7 @@ rows). It includes the 946,213 and 957,780 `time_below_mtp` rows, the 717,696
 `bip34_coinbase_height_missing` row, and four stale-ancestry candidates that
 fail `bip34_coinbase_height_mismatch`. Four further entries inherit the known
 BIP66-invalid root through authenticated header paths. Accepted stale-fork continuations are a
-two-table module: 21 parent verdicts in `data/stale_descendants.csv` and 33
+two-table module: 23 parent verdicts in `data/stale_descendants.csv` and 35
 authenticated child-chain witnesses in
 `data/stale_descendant_observations.csv`. Height 656,478 is one of those
 descendants because its predecessor is a trusted stale root.
@@ -87,32 +95,34 @@ characterization records 300,625 canonical-tip commitments matching exact
 Bitcoin `nBits` and BIP34 height, but no row-level canonical export is
 committed.
 
-The Kraft recovery generation contains 1,299,098 rows:
-1,295,034 canonical observations, 3,863 direct stales, 33 descendant child
-observations, the separate 21-row descendant parent table, 121 error
-observations, and 26 strict/weak observations. The last group comprises 16
-strict and 10 weak observations after the strongest available verdict is
+The current publication contains 1,299,100 rows:
+1,295,034 canonical observations, 3,863 direct stales, 35 descendant child
+observations, the separate 23-row descendant parent table, 121 error
+observations, and 24 strict/weak observations. The last group comprises 16
+strict and eight weak observations after the strongest available verdict is
 projected across chains; the source-level relevance results contain 13
-strict and 13 weak observations. These are observation counts, so a header
+strict and 11 weak observations. These are observation counts, so a header
 witnessed on multiple chains can occur more than once.
 
-The recovery preserves every preceding observation, adds 12,586 observations,
-and moves eight previously strict observations into the authenticated error
-aggregate. The accepted stale-descendant module remains 21 parents and 33
-child witnesses. Counts and manifests are rebuilt by the publication workflow.
+The 5 October foundation recovery added 12,586 observations and moved eight
+previously strict observations into the authenticated error aggregate. The
+6 October refresh adds three descendant parent/witness pairs, withdraws the
+unsupported parent/witness pair, and moves two previously weak observations
+into accepted descendants. Canonical, direct-stale and error totals are
+unchanged. Counts and manifests are rebuilt by the publication workflow.
 
 | Layer | Current volume | Notes |
 |---|---:|---|
-| Effective upstream `bitcoin-data/stale-blocks` rows | 3,106 | The pinned CSV contains 3,141 data rows. `data/error-blocks/error_blocks.csv` removes 35 consensus-invalid rows, including the invalid-fork continuation at 363,736 (upstream removed six catalogued rows plus the height-74,638 row in September 2026). No effective row sits below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. |
+| Effective upstream `bitcoin-data/stale-blocks` rows | 3,929 | The selected snapshot contains 3,929 rows and no exact-key overlap with the current error catalogue. Of these, 131 are below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. Error exclusion remains an exact-key gate. |
 | Per-chain accepted direct-stale candidate observations at height >= 0 | 3,863 | Sum of all integrated direct-stale loader functions, including Namecoin's 1,641, Elastos's 174, Syscoin's 96, RSK's 351, Emercoin's 96, Huntercoin's 78, Xaya's 42, Electric Cash's 3, Fractal Bitcoin's 40, and Bitcoin Vault's 9. Cross-chain observations of the same header count once per chain here. |
-| Accepted stale-descendant parent verdicts | 21 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. The complete Kraft Huntercoin/Xaya unknown inventories are included in the current reconciliation. |
-| Merge-mining/derived parent candidates before dedup | 3,884 | Per-chain direct-stale observations plus accepted stale-descendant parent verdicts. |
-| Authenticated historical child-header observations | 3,184,459 | All rows across the 17 regenerated historical sources plus one reviewed ROD canonical observation, verified across 18 source rows. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. |
-| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,440 | Dedup key is `(height, hash)`. The total is unchanged at the epoch-aligned analysis floor of 147,168 because no effective upstream row remains below the floor. |
-| Unique events in post-compact base window | 920 | At `MIN_HEIGHT=421344` with every integrated loader included. |
-| Pending-upstream sidecar rows | 334 | `data/new_stale_blocks_for_upstream.csv`: 317 direct upstream-new rows plus 17 upstream-new stale descendants. |
-| Pending-upstream header fills | 264 | `data/upstream_header_fills.csv`: committed headers for upstream rows recorded hash-only (heights 179,641 through 472,549). |
-| Published Monitor rows including the Kraft recovery | 1,299,098 | The complete projection preserves the prior 1,286,512 observations and adds 12,586. Eight existing strict observations move into the authenticated error aggregate; accepted descendants remain unchanged. |
+| Accepted stale-descendant parent verdicts | 23 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. The complete Kraft Huntercoin/Xaya unknown inventories are included in the current reconciliation. |
+| Merge-mining/derived parent candidates before dedup | 3,886 | Per-chain direct-stale observations plus accepted stale-descendant parent verdicts. |
+| Authenticated historical child-header observations | 3,184,459 | Retained historical coverage snapshot across the 17 regenerated sources plus one reviewed ROD canonical observation, verified across 18 source rows. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. Current publication authenticates required source evidence before filtering. |
+| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,938 | Dedup key is `(height, hash)`. The total at the epoch-aligned analysis floor of 147,168 is 3,807. |
+| Unique events in post-compact base window | 921 | At `MIN_HEIGHT=421344` with every integrated loader included. |
+| Pending-upstream sidecar rows | 9 | `data/new_stale_blocks_for_upstream.csv`: nine direct upstream-new rows; every accepted descendant is already represented upstream. |
+| Pending-upstream header fills | 0 | No committed accepted header fills a hash-only row in the selected upstream snapshot. |
+| Published Monitor rows including the Kraft recovery | 1,299,100 | Includes the subsequent upstream/ancestry refresh. Raw evidence for the withdrawn unsupported claim remains retained outside the accepted projection. |
 
 The RSK publication merged on 9 September 2026 refreshed source coordinates and
 canonical coinbase renderings across the retained publication. Its 1,625
@@ -144,7 +154,9 @@ agree between the split family and the dated inventory. The 9 September
 combined rebuild selects the dated unsplit 50,621-row family at
 `<chain-archive>/doichain/2026-06-24-redo/doichain_stale_blocks.csv` consistently
 for ancestry, relevance, full evidence and Monitor. Both retained layouts
-remain supported, with explicit archive-root order choosing one family.
+remain supported, with explicit archive-root order choosing one family. The
+current October refresh selects the empty primary and 50,621-row unknown
+companion together in the refreshed source view.
 
 Important implementation boundary: downstream cross-source publication views
 deduplicate by `(height, hash)`, so same-height competing stale hashes remain
@@ -195,7 +207,7 @@ Published stale-ancestry accounting:
 
 | Result | Parent verdicts | Authenticated child witnesses |
 |---|---:|---:|
-| Accepted stale descendants | 21 | 33 |
+| Accepted stale descendants | 23 | 35 |
 | Consensus-invalid candidates in the error-block dataset | 4 | 10 |
 
 No accepted stale-rooted path goes deeper than depth 2. Earlier diagnostics
@@ -209,7 +221,7 @@ rows after catalogue-error exclusion. The diagnostic summary retains the
 legacy names `total_unknown_rows` and `unique_unknown_hashes`; those counters
 describe the full ancestry candidate population, not just the unknown bucket.
 
-The separate relevance pass read 68 files and emitted 3,740,783 source rows,
+The 9 September relevance pass read 68 files and emitted 3,740,783 source rows,
 including both full-inventory and compact validated inputs. After catalogue-error
 exclusion, these contain 3,276,465 unknown/orphan observations across 2,110,047
 distinct parent hashes. Of those hashes, 25 already occur in known-stale
@@ -219,10 +231,16 @@ different populations: the ancestry graph includes all source classifications,
 whereas the RPC candidate set excludes known stales from the unknown/orphan
 bucket. Repeated source observations are retained in both row totals.
 
+The fresh 6 October relevance pass reads 71 files and emits 3,893,292 source
+rows. Its uncapped Bitcoin Core check queries all 2,151,623 candidate hashes,
+with no preloaded mainchain-cache entries or truncation and no confirmed-height
+conflicts. Strict and weak computation both use the selected epoch reference.
+These source counts are separate from the final publication projection.
+
 Validation status:
 
-- 21 accepted parent verdicts are published in `data/stale_descendants.csv`.
-- 33 exact witnesses are published in
+- 23 accepted parent verdicts are published in `data/stale_descendants.csv`.
+- 35 exact witnesses are published in
   `data/stale_descendant_observations.csv`.
 - 4 consensus-invalid candidates and their 10 witnesses are published in the
   error-block catalogue and observation ledger.
@@ -241,10 +259,10 @@ Key artifacts:
   child-identity pins, classified error candidates, direct matches, descendant
   paths, root summary, reconciliation summary, and the BIP34 rejection audit.
 
-Monitor publication projects all 33 accepted witnesses into their ordinary
+Monitor publication projects all 35 accepted witnesses into their ordinary
 per-chain artifacts with final `classification=stale_descendant`. It stages all
 29 ordinary artifacts, the error-observation aggregate, counts, and manifest
-as one coherent transaction. The 21-row parent summary artifact records
+as one coherent transaction. The 23-row parent summary artifact records
 parent verdicts and does not substitute for witness membership.
 
 ## Process Sequence
@@ -255,7 +273,7 @@ parent verdicts and does not substitute for witness membership.
 | 2. Per-chain extraction | Child-chain nodes, snapshots, JSON dumps, REST APIs, or RSKj archive RPC | Extract BTC parent header and, for historical Namecoin-family sources, authenticate and preserve the child block hash, 80-byte header, timestamp, and `nBits` from the same source block. Preserve BTC parent coinbase evidence where available. | Raw extractor outputs, mostly private/gitignored. |
 | 3. Self-target PoW filter | Extracted parent headers | Require `sha256d(header) <= target(nBits)` at the header's encoded target. This does not establish Bitcoin's contemporaneous target. | Self-target-PoW-passing candidate parent headers. |
 | 4. BTC Core classification | Self-target-PoW-passing headers | `getblockheader(hash)` with positive confirmations -> canonical; otherwise, `getblockheader(prev_hash)` with positive confirmations -> stale-labelled candidate; otherwise -> unknown. A known side-chain header with non-positive confirmations is not treated as canonical. | Full classifier outputs, private archive convention (RSK included; RSK's committed data satisfies the side-chain rule only from the 2026-09-05 reclassification, since the original May 2026 run predated the active-chain test). |
-| 5. Validation and ancestry reconciliation | Authenticated canonical, stale, and unknown candidate buckets plus the declared trusted-root set | Apply the chain-specific validation profile, exclude active-mainchain parents from descendant consideration, walk complete predecessor paths, and route consensus-invalid candidates to `error_block` before accepting descendants. | Compact direct-stale inputs, 21 accepted parent verdicts, and 33 authenticated descendant witnesses. |
+| 5. Validation and ancestry reconciliation | Authenticated canonical, stale, and unknown candidate buckets plus the declared trusted-root set | Apply the chain-specific validation profile, exclude active-mainchain parents from descendant consideration, walk complete predecessor paths, and route consensus-invalid candidates to `error_block` before accepting descendants. | Compact direct-stale inputs, 23 accepted parent verdicts, and 35 authenticated descendant witnesses. |
 | 6. Error-block module | Reviewed consensus-invalid candidates and exact child witnesses | Admit parent and witness rows through review; `just validate-error-blocks` re-derives local consensus failures, authenticates externally verified body evidence, and checks exact ledger coverage. Stale-ancestry publication aborts on any consensus-invalid candidate absent from the reviewed module. | 53-parent error-block catalogue and 121-row observation ledger. |
 | 7. Full-evidence export | Full classifier inventories, stale-only publication files, and the stale-descendant parent/witness module | `scripts/reports/build_auxpow_full_evidence.py`; normalize all evidence states and record canonical retention and child-header coverage. | Dated external full-evidence artifacts and manifest. |
 | 8. Monitor publication | Full classifier families, validated direct stales, relevance inventory, and the stale-descendant parent/witness module | `scripts/reports/build_monitor_evidence.py`; emit all available canonical rows plus accepted direct stales, descendants, strict/weak unknown observations, and the error-observation aggregate as one coherent transaction. | Committed `results/monitor-evidence/*` artifacts and manifest. |
@@ -294,7 +312,7 @@ maintained in the [novelty report](../results/novelty.md).
 
 | Chain | Input data | Stage volume | Committed loader input | Final outputs and findings |
 |---|---|---|---|---|
-| Namecoin | Offline Namecoin `blk*.dat` parse from full node on `<archival-host>`. | The preserved historical classifier split 466,184 self-target-valid candidates into 456,685 canonical, 1,658 stale-labelled, and 7,841 unknown. The 30 August current-Core reclassification of the same population yields 456,660 canonical, 1,649 accepted direct stales, 32 error blocks, and 7,843 unknown. The accepted rows are 1,353 exact `VALID` plus 296 exact `VALID (post-BCH, difficulty matches BTC)`. The body-invalid cutover removes eight of those accepted rows. Height 656,478 and the recovered 941,882 witness are represented in the stale-descendant module rather than the direct-stale input. | `data/validated-stales/namecoin_validated_stales.csv` (1,641 rows), `data/error-blocks/error_blocks.csv`, `data/stale_descendants.csv`. | Original practical AuxPoW floor from BTC 148,553. The current 7,843 unknown rows yield 8 strict, 10 weak, and 20 accepted descendant observations in the Monitor projection. |
+| Namecoin | Offline Namecoin `blk*.dat` parse from full node on `<archival-host>`. | The preserved historical classifier split 466,184 self-target-valid candidates into 456,685 canonical, 1,658 stale-labelled, and 7,841 unknown. The 30 August current-Core reclassification of the same population yields 456,660 canonical, 1,649 accepted direct stales, 32 error blocks, and 7,843 unknown. The accepted rows are 1,353 exact `VALID` plus 296 exact `VALID (post-BCH, difficulty matches BTC)`. The body-invalid cutover removes eight of those accepted rows. Height 656,478 and the recovered 941,882 witness are represented in the stale-descendant module rather than the direct-stale input. | `data/validated-stales/namecoin_validated_stales.csv` (1,641 rows), `data/error-blocks/error_blocks.csv`, `data/stale_descendants.csv`. | Original practical AuxPoW floor from BTC 148,553. The current 7,843 unknown rows yield 8 strict, 8 weak, and 22 accepted descendant observations in the Monitor projection. |
 | Geistgeld | Archival `getblock` JSON dump shared by Nicholas Stifter. | 7,309,972 streamed records; 2,493,631 AuxPoW-bearing; 2,291 self-target-PoW-passing; 1 canonical, 0 accepted direct-stale candidates, 2,290 unknown. | `data/validated-stales/geistgeld_validated_stales.csv` (0 rows). | Zero accepted direct-stale candidates. Early activity used Geistgeld's own experimental, relaxed-difficulty copy of the Durham AuxPoW implementation, not production BTC merge mining. |
 | i0coin | Complete March 2026 third-party snapshot; 87 `blk*.dat` files parsed offline. | The independent audit verified all 189,652 qualifying observations. Classification yields 27,661 canonical, 191 accepted direct stales, 161,799 unknown and one direct error. The current six catalogue exclusions leave 189,646 full-evidence observations, including 161,794 unknowns. All 166 earlier accepted stales remain; the 25 additional I0coin observations were already known through other chains. | `data/validated-stales/i0coin_validated_stales.csv` (191 rows), and six I0coin witnesses in the error-observation ledger. | Accepted Bitcoin stales span January 2012 to August 2020 despite the March 2026 child-data endpoint. The complete relevance pass identifies no strict or weak unknown observations. |
 | ixcoin | Local `ixcoind`/IXCore node; raw-hex AuxPoW parse. | The historical private classifier has 301,260 rows: 46,808 canonical, 478 stale-labelled candidates, and 253,974 unknowns. Fourteen shared consensus-invalid candidates are excluded via the error-blocks dataset, leaving 464 publication-gate-accepted direct-stale header candidates. | `data/validated-stales/ixcoin_validated_stales.csv` (464 rows). | Large early-chain contribution. The separate relevance axis contains no strict or weak unknown-row observations. |
@@ -338,7 +356,7 @@ Canonical/public loader inputs:
   appears in each observer's file with the per-header verdict; header-only
   when a complete-coverage chain has none; canonical-only partial sources are
   omitted), plus the bucket-count summary in the same
-  directory. Currently 18 unique strict/weak headers observed 26 times
+  directory. Currently 16 unique strict/weak headers observed 24 times
   across 5 chains.
 - `results/monitor-evidence/<chain>_monitor_evidence.csv` plus its counts and
   manifest: the committed final-category exports the merge-mining-monitor
@@ -399,8 +417,10 @@ Generated monitor evidence:
    was regenerated from current committed inputs against the bumped upstream
    pin (which already includes the project's earlier 1,089-row Namecoin
    addition).
-   It now has 334 rows: 317 direct upstream-new stale rows and
-   17 upstream-new stale descendants. The September 2026 pin bump to upstream
+   The current snapshot leaves nine direct upstream-new stale rows and no
+   upstream-new accepted descendants. At the 5 October foundation generation,
+   the sidecar contained 334 rows: 317 direct and 17 descendants.
+   The September 2026 pin bump to upstream
    `102ba00` removed two RSK-recovered rows (heights 903,259 and 927,647) that
    upstream's fork.observer automation had independently added with
    byte-identical headers. The follow-up bump to upstream `d15c8e9` removed a
@@ -455,16 +475,18 @@ hashes to the combined accepted-stale set.
    selection and the resulting ancestry tables. Verify complete source coverage
    and both strict and weak computations before using the inventory in Monitor
    publication.
-5. Run `scripts/reports/build_auxpow_full_evidence.py` against the same selected
-   classifier families and canonical data. Preserve its complete artifacts and
-   source manifest.
+5. Regenerate `scripts/reports/build_auxpow_full_evidence.py` when an
+   investigation or archive consumer requires that export, using the same
+   selected classifier families and canonical data. These dated private run
+   products are not prerequisites for Monitor publication.
 6. Run the normal `scripts/reports/build_monitor_evidence.py` publication with
    the regenerated relevance inventory. Its complete-input gates and transactional
    artifact validation must pass before installing the resulting Monitor files.
-7. Regenerate strict/weak outputs from Monitor evidence and the child-header
-   coverage report from full evidence. Run `just upstream-sidecar` to rebuild
-   both the new-stale contribution and missing-header sidecars from the final
-   direct-stale and descendant inputs, then run the relevant dataset checks.
+7. Regenerate strict/weak outputs from Monitor evidence. Rebuild the historical
+   child-header coverage report when its source families or authentication
+   contract change. Run `just upstream-sidecar` to rebuild both the new-stale
+   contribution and missing-header sidecars from the final direct-stale and
+   descendant inputs, then run the relevant dataset checks.
 8. Refresh `docs/auxpow-recovery.md`, per-chain docs, README output claims,
    and this overview from the verified evidence outputs. Keep novelty figures
    in the generated report rather than copying them into these documents.

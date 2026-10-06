@@ -127,6 +127,40 @@ def _diagnostic_output_args(tmp_path: Path) -> list[str]:
     ]
 
 
+@pytest.mark.parametrize("chain", ("huntercoin", "xaya"))
+def test_ancestry_cli_rejects_incomplete_foundation_family(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], chain: str
+) -> None:
+    module = _load_module()
+    data = tmp_path / "data"
+    data.mkdir()
+    for suffix in ("stale_blocks", "canonical_blocks"):
+        (data / f"{chain}_{suffix}.csv").write_text(
+            "btc_header_hash,btc_prev_hash,classification\n"
+        )
+    (data / "error-blocks").symlink_to(REPO / "data" / "error-blocks")
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main(
+            [
+                "--allow-partial",
+                "--data-dir",
+                str(data),
+                "--results-dir",
+                str(tmp_path / "results"),
+                "--cache-dir",
+                str(tmp_path / "cache"),
+                *_diagnostic_output_args(tmp_path),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    error = capsys.readouterr().err
+    assert f"incomplete {chain} classifier family" in error
+    assert "missing unknown_blocks" in error
+    assert not (tmp_path / "staged" / "stale_descendants.csv").exists()
+
+
 def _header_with_pow_result(
     prev_hash: str, *, bits: str, should_meet_target: bool
 ) -> tuple[str, str]:
@@ -894,9 +928,17 @@ def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writ
 ) -> None:
     module = _load_module()
     parent_verdicts, results = _set_publication_paths(module, monkeypatch, tmp_path)
-    baseline = _copy_committed_baseline(parent_verdicts)
     data_dir = tmp_path / "empty-data"
     data_dir.mkdir()
+    selected_parents = data_dir / "stale_descendants.csv"
+    baseline = _copy_committed_baseline(selected_parents)
+    for directory in (
+        "validated-stales",
+        "error-blocks",
+        "stale-blocks",
+        "child-identity",
+    ):
+        (data_dir / directory).symlink_to(REPO / "data" / directory)
 
     with pytest.raises(SystemExit, match="2"):
         module.main(
@@ -915,7 +957,8 @@ def test_publication_mode_rejects_missing_baseline_chain_inventories_before_writ
         )
 
     assert "missing full, unknown, or canonical inventories" in capsys.readouterr().err
-    assert parent_verdicts.read_text() == baseline
+    assert selected_parents.read_text() == baseline
+    assert not parent_verdicts.exists()
     assert not results.exists()
 
 

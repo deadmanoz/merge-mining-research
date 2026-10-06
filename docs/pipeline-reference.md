@@ -65,6 +65,12 @@ before a staged rebuild. `--data-dir` can select the new publication inputs
 while the runtime retains original dependency bytes bound by a classifier
 manifest. See `docs/data-reference.md` for the source-family contract.
 
+Repeated `--chain-archive-dir` arguments are searched in command-line order.
+Put the refreshed source view before older archive roots and keep its full,
+canonical and unknown inventories together; later roots can otherwise supply
+a superseded companion. Required historical child-header checks run before
+publication filtering, including for rows that will not be published.
+
 Prefer the `justfile` recipes when they cover the task:
 
 ```bash
@@ -122,11 +128,15 @@ diagnostic destination.
 `just validate-error-blocks` validates the reviewed canonical error catalogue,
 MTP sidecar, and exact child-observation ledger. `just reconcile-stale-ancestry`
 is the complete stale-ancestry publication workflow. It validates that error
-module first, then rebuilds the 21 accepted parent verdicts in
-`data/stale_descendants.csv` and their 33 authenticated witnesses in
+module first, then rebuilds the accepted parent verdicts in
+`data/stale_descendants.csv` and their authenticated witnesses in
 `data/stale_descendant_observations.csv`. Any uncatalogued consensus-invalid
 candidate aborts before installation. Do not substitute a partial ancestry
 run or hand-edit either published stale-ancestry CSV.
+Source coordinates beneath the selected `--data-dir` retain their logical
+`data/` paths before archive symlinks are resolved. Moving a staging directory
+does not change witness provenance; genuinely external paths use the shared
+archive redaction convention. Reads and source digests still use the actual files.
 Publication requires a stable, non-secret `--rpc-source-label`; use the
 configured Bitcoin Core node's durable inventory name (for example,
 `core-reference`), not a hostname containing credentials or a transient tunnel
@@ -145,6 +155,9 @@ address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
   coinbase identity, Merkle inclusion and child commitment/chain-slot
   authentication),
   `huntercoin_extraction` (foundational native Huntercoin acquisition),
+  `xaya_extraction` (native Xaya acquisition and body-authenticated child
+  heights, using the shared `block_body` owner at the PowData transaction
+  offset and canonical height encoding from `bitcoin_binary`),
   `extract_driver` (batched raw-hex extraction plus the thin-adopter CLI
   lifecycle; wrappers keep child-RPC construction and the version gate),
   `btc_nbits_validation` (the contamination gate),

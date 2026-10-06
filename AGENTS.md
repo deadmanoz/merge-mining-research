@@ -16,8 +16,10 @@ script, package or abstraction. Pipeline details are in
 
 The Kraft native dumps are the foundation sources for Huntercoin and Xaya.
 Their former Arweave and CDN recoveries are historical provenance, not fallback
-inputs or parallel workflows. Keep originals privately; do not maintain legacy
-acquisition or scan-position compatibility for these chains.
+inputs or parallel workflows. `xaya_extraction` owns the native Xaya producer;
+its height admission reuses `block_body` after the proof envelope. Keep originals
+privately; do not maintain legacy acquisition or scan-position compatibility
+for these chains.
 
 ## Build & Test
 
@@ -101,7 +103,10 @@ are preserved. Never put diagnostic partial output in committed results.
 `--allow-partial` and `--skip-canonical` require explicit disposable destinations.
 
 Use `just reconcile-stale-ancestry` for complete ancestry publication; validate
-the error module first. Do not hand-edit accepted ancestry CSVs or replace them
+the error module first. The --data-dir option selects a complete staged tree
+when original classifier dependencies remain bound to the runtime checkout.
+Its error module, epoch reference and pinned invalid-block bodies must all be
+present in that tree. Do not hand-edit accepted ancestry CSVs or replace them
 with a partial run. Use a stable non-secret RPC source label such as
 `core-reference`, never credentials, a private hostname or a transient tunnel.
 

@@ -402,3 +402,25 @@ def format_outputs_canonical(outputs: Iterable[_Output]) -> str:
     while parts and parts[-1] == "":
         parts.pop()
     return ";".join(parts)
+
+
+def bip34_height_prefix(height: int) -> bytes:
+    """Encode the exact ``CScript() << height`` prefix checked by Core."""
+    if height < 0:
+        raise ValueError("negative BIP34 height")
+    if height == 0:
+        return b"\x00"
+
+    if height <= 16:
+        return bytes([0x50 + height])
+
+    value = height
+    encoded = bytearray()
+    while value:
+        encoded.append(value & 0xFF)
+        value >>= 8
+    if encoded[-1] & 0x80:
+        encoded.append(0)
+    if len(encoded) > 75:  # pragma: no cover - impossible for block heights
+        raise ValueError("BIP34 height encoding exceeds direct-push range")
+    return bytes([len(encoded)]) + bytes(encoded)

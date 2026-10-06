@@ -165,12 +165,12 @@ The normal publication build now emits every available canonical row together
 with accepted direct stales, accepted descendants, and strict/weak unknown-row
 observations for every chain. It does not use a chain allowlist. The committed
 monitor-evidence and strict/weak projections were regenerated from those
-inputs. The stale-descendant publication joins 21 accepted parent verdicts from
-`data/stale_descendants.csv` to 33 authenticated source-chain witnesses from
+inputs. The stale-descendant publication joins accepted parent verdicts from
+`data/stale_descendants.csv` to authenticated source-chain witnesses from
 `data/stale_descendant_observations.csv`. Each witness retains its source bucket
 as audit provenance, while the parent verdict and
 `validation_status=VALID_STALE_DESCENDANT` come from the ancestry and consensus
-gates. All 28 ordinary artifacts, the error-observation aggregate, counts, and
+gates. All ordinary artifacts, the error-observation aggregate, counts, and
 manifest are staged and replaced as one coherent transaction. Complete
 normalized full-evidence and canonical-classifier inventories are retained as
 dated external refreshes because those broad artifacts are too large for the

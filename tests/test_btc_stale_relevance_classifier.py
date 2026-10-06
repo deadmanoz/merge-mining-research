@@ -84,6 +84,29 @@ def _hash(n: int) -> str:
     return f"{n:064x}"
 
 
+@pytest.mark.parametrize("chain", ("huntercoin", "xaya"))
+def test_relevance_rejects_partial_foundation_family(tmp_path: Path, chain: str):
+    data = tmp_path / "data"
+    data.mkdir()
+    selected = tmp_path / "selected"
+    fallback = tmp_path / "fallback"
+    for suffix in ("stale_blocks", "canonical_blocks", "unknown_blocks"):
+        relative = f"{chain}/classified/{chain}_{suffix}.csv"
+        for root in (selected, fallback):
+            if root == selected and suffix == "unknown_blocks":
+                continue
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("classification\n")
+    with pytest.raises(ValueError, match="incomplete.*classifier family"):
+        classifier.discover_sources(data, [selected, fallback])
+    unknown = selected / f"{chain}/classified/{chain}_unknown_blocks.csv"
+    unknown.write_text("classification\n")
+    _, full, unknowns, _, _ = classifier.discover_sources(data, [selected, fallback])
+    assert full[chain] == selected / f"{chain}/classified/{chain}_stale_blocks.csv"
+    assert unknowns[chain] == unknown
+
+
 def _bip34_script(height: int) -> str:
     raw = height.to_bytes(max(1, (height.bit_length() + 7) // 8), "little")
     if raw[-1] & 0x80:
@@ -141,6 +164,13 @@ def _run_classifier(
         if relative.endswith("_validated_stales.csv") and "/" not in relative:
             relative = f"validated-stales/{relative}"
         _write_csv(data_dir / relative, rows)
+    # Synthetic source fixtures use the current complete foundation contract.
+    for chain in ("huntercoin", "xaya"):
+        if any(data_dir.glob(f"{chain}_*_blocks.csv")):
+            for suffix in ("stale_blocks", "canonical_blocks", "unknown_blocks"):
+                companion = data_dir / f"{chain}_{suffix}.csv"
+                if not companion.exists():
+                    companion.write_text("classification\n")
     parents_path = data_dir / "stale_descendants.csv"
     if parents_path.is_file():
         with parents_path.open(newline="") as handle:

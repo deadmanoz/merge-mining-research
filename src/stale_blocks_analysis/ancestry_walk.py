@@ -126,7 +126,9 @@ def classify_walks(
 
     for block_hash in sorted(unknown_row_counts_by_hash):
         resolve(block_hash)
-    return memo
+    # Traversal edges can come from upstream headers without child-chain
+    # observations. Memoize those nodes, but report only requested candidates.
+    return {block_hash: memo[block_hash] for block_hash in unknown_row_counts_by_hash}
 
 
 def path_for(

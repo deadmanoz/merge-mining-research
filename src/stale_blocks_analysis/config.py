@@ -35,6 +35,9 @@ STALE_DIR = Path(os.environ.get("STALE_BLOCKS_DIR", DATA_DIR / "stale-blocks"))
 STALE_CSV = STALE_DIR / "stale-blocks.csv"
 BLOCKS_DIR = STALE_DIR / "blocks"
 
+# Current native foundations publish one complete split classifier family.
+COHERENT_CLASSIFIER_FAMILY_CHAINS = frozenset({"huntercoin", "xaya"})
+
 # Native Huntercoin dump framing, corroborated with the retained Arweave genesis.
 HUNTERCOIN_NETWORK_MAGIC = bytes.fromhex("f9beb4fe")
 HUNTERCOIN_SCRYPT_CHAIN_ID = 2

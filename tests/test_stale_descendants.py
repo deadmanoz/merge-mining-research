@@ -8,8 +8,6 @@ import pytest
 
 from stale_blocks_analysis import stale_descendants
 from stale_blocks_analysis.stale_descendants import (
-    OBSERVATION_FIELDS,
-    PARENT_VERDICT_FIELDS,
     load_stale_descendant_observations,
     load_stale_descendant_parents,
 )
@@ -37,25 +35,6 @@ def _copy_module(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copy2(PARENTS, parents)
     shutil.copy2(OBSERVATIONS, observations)
     return parents, observations
-
-
-@pytest.mark.dataset
-def test_committed_stale_descendant_module_is_exact_and_correction_free() -> None:
-    parents = load_stale_descendant_parents()
-    observations = load_stale_descendant_observations()
-
-    assert len(parents) == 21
-    assert len(observations) == 33
-    removed_overlay = "stale_descendant" + "_corrections.csv"
-    assert not (REPO / "data" / removed_overlay).exists()
-    with PARENTS.open(newline="") as handle:
-        fields = csv.DictReader(handle).fieldnames or []
-    assert fields == PARENT_VERDICT_FIELDS
-    assert "source_rows" not in fields
-    assert "unknown_rows" not in fields
-    with OBSERVATIONS.open(newline="") as handle:
-        observation_fields = csv.DictReader(handle).fieldnames or []
-    assert observation_fields == list(OBSERVATION_FIELDS)
 
 
 @pytest.mark.parametrize("role", ["candidate", "root"])

@@ -37,12 +37,14 @@ latest_commit() {
         return 2
     fi
 
+    # Fetch refreshes branch tips, but not the cached default-branch symref.
+    # Upstream can change its default while the old branch remains locally.
+    if ! git -C "${dest}" remote set-head origin --auto >/dev/null; then
+        echo "${key}: failed to refresh origin's default branch; freshness is unknown" >&2
+        return 2
+    fi
     local latest_ref
     latest_ref="$(git -C "${dest}" symbolic-ref --quiet --short refs/remotes/origin/HEAD || true)"
-    if [ -z "${latest_ref}" ]; then
-        git -C "${dest}" remote set-head origin --auto >/dev/null
-        latest_ref="$(git -C "${dest}" symbolic-ref --quiet --short refs/remotes/origin/HEAD || true)"
-    fi
     if [ -z "${latest_ref}" ]; then
         echo "${key}: cannot determine origin's default branch" >&2
         return 2

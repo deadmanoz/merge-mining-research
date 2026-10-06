@@ -71,11 +71,13 @@ from stale_blocks_analysis.config import (
     BIP34_HEIGHT,
     BITCOIN_EPOCH_REFERENCE_DIR,
     CHAIN_SPECS,
+    COHERENT_CLASSIFIER_FAMILY_CHAINS,
     RELEVANCE_EXCLUDED as EXCLUDED,
     RELEVANCE_PENDING as PENDING,
     RELEVANCE_STRICT_BTC_ORPHAN as STRICT_ORPHAN,
     RELEVANCE_WEAK_BTC_ORPHAN as WEAK_ORPHAN,
 )
+from stale_blocks_analysis.evidence_sources import select_foundation_classifier_family
 from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
@@ -441,7 +443,7 @@ def normalized_chain_archive_dirs(
 def discover_sources(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
-) -> tuple[set[str], dict[str, Path], dict[str, Path], list[Path]]:
+) -> tuple[set[str], dict[str, Path], dict[str, Path], dict[str, Path], list[Path]]:
     """Discover per-chain full-inventory and validated-stales CSVs.
 
     Combines chains found under `data_dir` (via
@@ -460,6 +462,10 @@ def discover_sources(
     )
     chain_names = set(chain_names) - NON_CHAIN_DOC_STEMS
     archive_dirs = normalized_chain_archive_dirs(chain_archive_dirs)
+    foundation_families = {
+        chain: select_foundation_classifier_family(data_dir, archive_dirs, chain)
+        for chain in COHERENT_CLASSIFIER_FAMILY_CHAINS
+    }
     archive_full_selected: set[str] = set()
     archive_full_generic_seen: set[str] = set()
     archive_unknown_selected: set[str] = set()
@@ -514,6 +520,11 @@ def discover_sources(
             if full_path is not None:
                 full_files[chain] = full_path
                 archive_full_selected.add(chain)
+    for chain, family in foundation_families.items():
+        if family is not None:
+            chain_names.add(chain)
+            full_files[chain] = family["stale_blocks"]
+            unknown_files[chain] = family["unknown_blocks"]
     return chain_names, full_files, unknown_files, validated_files, archive_dirs
 
 

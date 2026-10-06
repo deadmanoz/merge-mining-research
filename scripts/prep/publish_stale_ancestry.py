@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import os
 import shutil
@@ -12,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 from stale_blocks_analysis import error_block_validation
-from stale_blocks_analysis.config import DATA_DIR
+from stale_blocks_analysis.config import DATA_DIR, ERROR_BLOCK_BODIES_DIR
 from stale_blocks_analysis.stale_descendants import (
     OBSERVATIONS_PATH,
     PARENTS_PATH,
@@ -143,6 +144,14 @@ def _install_transaction(staged_by_target: dict[Path, Path]) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Stage, validate, and install the two stale-descendant interfaces."""
     passthrough = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(
+        description=__doc__, allow_abbrev=False, add_help=False
+    )
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    options, passthrough = parser.parse_known_args(passthrough)
+    data_dir = options.data_dir.resolve()
+    parent_target = data_dir / PARENTS_PATH.name
+    observations_target = data_dir / OBSERVATIONS_PATH.name
     try:
         _reject_protected_options(passthrough)
     except ValueError as exc:
@@ -151,7 +160,17 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         error_catalogue, error_observations = (
-            error_block_validation.validate_error_module()
+            error_block_validation.validate_error_module(
+                catalogue_path=data_dir / "error-blocks/error_blocks.csv",
+                nbits_by_epoch_path=data_dir
+                / "bitcoin-epoch-reference/btc_nbits_by_epoch.json",
+                mtp_context_path=data_dir / "error-blocks/mtp_context.csv",
+                blocks_dir=(
+                    ERROR_BLOCK_BODIES_DIR
+                    if data_dir == DATA_DIR.resolve()
+                    else data_dir / "invalid-blocks/blocks"
+                ),
+            )
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(
@@ -174,7 +193,9 @@ def main(argv: list[str] | None = None) -> int:
             "--cache-dir",
             str(staged_cache),
             "--data-dir",
-            str(DATA_DIR),
+            str(data_dir),
+            "--epoch-reference-dir",
+            str(data_dir / "bitcoin-epoch-reference"),
             "--results-dir",
             str(staged_results),
             "--parent-verdicts-csv",
@@ -190,12 +211,12 @@ def main(argv: list[str] | None = None) -> int:
 
             parents = load_stale_descendant_parents(
                 staged_parent,
-                data_dir=DATA_DIR,
+                data_dir=data_dir,
             )
             observations = load_stale_descendant_observations(
                 staged_descendant_ledger,
                 parents_path=staged_parent,
-                data_dir=DATA_DIR,
+                data_dir=data_dir,
             )
             parent_count = len(parents)
             observation_count = len(observations)
@@ -212,8 +233,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             _install_transaction(
                 {
-                    OBSERVATIONS_PATH: staged_descendant_ledger,
-                    PARENTS_PATH: staged_parent,
+                    observations_target: staged_descendant_ledger,
+                    parent_target: staged_parent,
                 }
             )
         except (OSError, RuntimeError, ValueError) as exc:

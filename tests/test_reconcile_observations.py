@@ -114,6 +114,10 @@ def test_split_unknown_scan_order_height_uses_authenticated_identity(
             }
         ],
     )
+    retained = tmp_path / "private-archive" / chain / inventory.name
+    retained.parent.mkdir(parents=True)
+    inventory.rename(retained)
+    inventory.symlink_to(retained)
 
     state = _load(
         tmp_path,
@@ -124,7 +128,7 @@ def test_split_unknown_scan_order_height_uses_authenticated_identity(
 
     assert observation.child_height == ""
     assert observation.source_kind == "full_inventory"
-    assert observation.source_path == str(inventory)
+    assert observation.source_path == f"data/{inventory.name}"
     assert len(observation.source_sha256) == 64
 
     monkeypatch.setattr(
@@ -159,6 +163,22 @@ def test_split_unknown_scan_order_height_uses_authenticated_identity(
         "child-identity:test-authenticated-identity"
     )
     assert rows[0]["source_kind"] == "full_inventory"
+    assert rows[0]["source_path"] == f"data/{inventory.name}"
+
+    relocated = tmp_path / "relocated-inputs"
+    relocated.mkdir()
+    relocated_inventory = relocated / inventory.name
+    relocated_inventory.symlink_to(retained)
+    relocated_state = _load(
+        relocated, chain=chain, unknown_files={chain: relocated_inventory}
+    )
+    relocated_rows = build_descendant_observation_rows(
+        [parent],
+        relocated_state["unknown_observations_by_hash"],
+        data_dir=relocated,
+        parser=argparse.ArgumentParser(),
+    )
+    assert relocated_rows == rows
 
 
 def test_split_unknown_keeps_authenticated_height_for_other_chains(
