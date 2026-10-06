@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Authenticate upstream-only intermediate headers when loading descendant paths,
+without adding unwitnessed blocks to the accepted parent or child-witness tables.
+
 Refresh the pinned upstream snapshots and regenerate the complete publication,
 ancestry, strict/weak views and contribution sidecars from matching inputs.
 Add three authenticated Namecoin descendants and withdraw the unsupported

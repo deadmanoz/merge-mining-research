@@ -283,6 +283,10 @@ provenance:
   path endpoints, and serialized predecessor links. The terminal identity must
   also occur in the selected data tree's accepted per-chain or pinned upstream
   direct-stale inputs after the error-block exclusion.
+  An intermediate node without a recovered parent verdict must have an exact
+  height/hash entry and matching 80-byte predecessor header in that tree's
+  pinned upstream census, after the same error-block exclusion. Such nodes
+  authenticate path edges without adding a child-chain witness or parent row.
 - `data/stale_descendant_observations.csv` contains authenticated
   child-chain witnesses for those parents. Exact source coordinates, source
   SHA-256, and child identity bind each row to the recovered evidence. The

@@ -34,6 +34,10 @@ from stale_blocks_analysis.reconcile_publication import (
     OUTPUT_SUMMARY,
     descendant_bip34_verdict,
 )
+from stale_blocks_analysis.stale_descendants import (
+    load_stale_descendant_observations,
+    load_stale_descendant_parents,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 EXCLUDED_HASH = "000000000000000010d43fb3f8d02cab156f333f2bfc172de9e6d87359118a1a"
@@ -1187,6 +1191,32 @@ def test_unknown_ancestry_reclassifies_direct_stale_only_as_descendant(
     with (tmp_path / "stale_descendant_observations.csv").open(newline="") as handle:
         witnesses = list(csv.DictReader(handle))
     assert len(witnesses) == (3 if intermediate_observed else 2)
+    accepted = load_stale_descendant_parents(parent_verdicts_csv, data_dir=data_dir)
+    loaded_witnesses = load_stale_descendant_observations(
+        tmp_path / "stale_descendant_observations.csv",
+        parents_path=parent_verdicts_csv,
+        data_dir=data_dir,
+    )
+    expected_parents = {(331737, descendant_hash)}
+    if intermediate_observed:
+        expected_parents.add((331736, intermediate_hash))
+    assert set(accepted) == expected_parents
+    assert len(loaded_witnesses) == len(witnesses)
+    if not intermediate_observed:
+        with upstream.open(newline="") as handle:
+            upstream_rows = list(csv.DictReader(handle))
+        for invalid_header in ("", header_hex, intermediate_header + "00"):
+            with upstream.open("w", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["height", "hash", "header"])
+                writer.writeheader()
+                writer.writerows(
+                    {**row, "header": invalid_header}
+                    if row["hash"] == intermediate_hash
+                    else row
+                    for row in upstream_rows
+                )
+            with pytest.raises(ValueError, match="authenticated.*upstream header"):
+                load_stale_descendant_parents(parent_verdicts_csv, data_dir=data_dir)
 
 
 def test_body_invalid_parents_cannot_be_proposed_against_empty_upstream(tmp_path):
