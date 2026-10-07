@@ -100,6 +100,13 @@ just extract-huntercoin \
   --output <staged-raw-output.csv>
 ```
 
+Parent inclusion and child script/branch commitments are shared with Xaya,
+Qbit and Lyncoin through `auxpow_commitment`. The native-record adapter keeps
+its transaction completeness and index guards, grouped errors and validation
+order. Authenticated non-coinbase parents remain control evidence. The shared
+rules do not add Huntercoin's historical fork-dependent marker policy or prove
+native active-chain membership or full consensus.
+
 The producer scans both algorithms and non-AuxPoW headers to reconstruct stored predecessor
 links to the known genesis, rather than assigning heights by file order.
 It authenticates the SHA-256d child's encoded target, the parent coinbase

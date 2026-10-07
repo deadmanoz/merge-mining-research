@@ -69,6 +69,12 @@ that header/proof prefix and retains the complete native RPC block separately;
 it does not reimplement Qbit body or contextual consensus. Native chain
 placement must be established separately by the acquisition scan.
 
+The parent inclusion and child script/branch checks use the shared byte-oriented
+helpers in `auxpow_commitment`. Qbit keeps the wire envelope, coinbase identity,
+index/depth guards, child target and exact error messages in its adapter. Its
+chain-index range rejection still precedes parent inclusion, and parent PoW
+still follows the commitment checks.
+
 ## Retained controls
 
 The public fixture `tests/fixtures/qbit_controls.json` records the four

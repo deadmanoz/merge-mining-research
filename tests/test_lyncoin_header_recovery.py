@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import struct
+import re
 import sys
 from pathlib import Path
 
@@ -56,6 +57,9 @@ def _synthetic_auxpow_header(
     version: int | None = None,
     bits: int = lh.POW_LIMIT_BITS,
     parent_merkle_index: int = 0,
+    chain_index: int = 0,
+    commitment_size: int = 1,
+    marker_gap: bytes = b"",
 ) -> bytes:
     if version is None:
         version = (lh.CHAIN_ID << 16) | lh.VERSION_AUXPOW | 1
@@ -66,7 +70,12 @@ def _synthetic_auxpow_header(
         + struct.pack("<III", 1_700_000_001, bits, 7)
     )
     child_hash = lh.sha256d(pure)
-    script_sig = bytes.fromhex("fabe6d6d") + child_hash[::-1] + struct.pack("<II", 1, 0)
+    script_sig = (
+        bytes.fromhex("fabe6d6d")
+        + marker_gap
+        + child_hash[::-1]
+        + struct.pack("<II", commitment_size, 0)
+    )
     coinbase = _coinbase(script_sig)
     coinbase_txid = lh.sha256d(coinbase)
     parent = _mine_parent_header(coinbase_txid, bits)
@@ -76,7 +85,7 @@ def _synthetic_auxpow_header(
         + b"\x00"
         + struct.pack("<i", parent_merkle_index)
         + b"\x00"
-        + struct.pack("<i", 0)
+        + struct.pack("<i", chain_index)
         + parent
     )
     return pure + auxpow
@@ -306,3 +315,51 @@ def test_version_parser_exposes_peer_provenance():
     assert parsed.user_agent == "/Lyncoin Core:4.0.0/"
     assert parsed.start_height == 1_364_059
     assert parsed.relay is True
+
+
+@pytest.mark.parametrize(
+    "options,message",
+    [
+        (
+            {"marker_gap": b"x", "commitment_size": 2},
+            "merged-mining magic not adjacent to root",
+        ),
+        (
+            {"commitment_size": 2, "chain_index": 1},
+            "commitment tree size 2 does not match 1",
+        ),
+        ({"chain_index": 1}, "AuxPoW chain index 1 does not match 0"),
+    ],
+)
+def test_commitment_diagnostics_keep_height_mismatches_and_first_failure(
+    options, message
+):
+    # Rebuild and mine the parent so inclusion/PoW cannot mask commitment errors.
+    parsed = lh.parse_extended_header(_synthetic_auxpow_header(**options))
+    with pytest.raises(
+        lh.RecoveryValidationError, match="^" + re.escape("height 42: " + message) + "$"
+    ):
+        lh.validate_auxpow(parsed, 42)
+
+
+def test_oversized_chain_index_does_not_preempt_parent_inclusion():
+    raw = bytearray(_synthetic_auxpow_header(chain_index=1))
+    raw[-80 + 36] ^= 1
+    parsed = lh.parse_extended_header(bytes(raw))
+    with pytest.raises(
+        lh.RecoveryValidationError,
+        match="^height 42: parent coinbase merkle proof mismatch$",
+    ):
+        lh.validate_auxpow(parsed, 42)
+
+
+def test_parent_chain_id_rejection_precedes_inclusion():
+    raw = bytearray(_synthetic_auxpow_header())
+    struct.pack_into("<I", raw, len(raw) - 80, lh.CHAIN_ID << 16)
+    raw[-80 + 36] ^= 1
+    parsed = lh.parse_extended_header(bytes(raw))
+    with pytest.raises(
+        lh.RecoveryValidationError,
+        match="^height 42: AuxPoW parent reuses Lyncoin chain ID$",
+    ):
+        lh.validate_auxpow(parsed, 42)

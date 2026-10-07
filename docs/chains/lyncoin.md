@@ -35,6 +35,12 @@ source-pinned genesis, checkpoints, header continuity, child proof of work,
 AuxPoW chain commitment, parent proof against the child target, and the 260,500
 Flex boundary before emitting parent candidates.
 
+Parent inclusion and child script/branch commitments use `auxpow_commitment`.
+Lyncoin keeps pre-Flex identity, parent chain-ID rejection, target validation
+and `RecoveryValidationError` height/mismatch context. Its chain-index upper
+bound is diagnosed by the final slot check, after parent inclusion and script
+checks; it does not adopt Qbit's earlier range rejection.
+
 ## 2. Bitcoin classification and publication result
 
 | Stage | Count |
