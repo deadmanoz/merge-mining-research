@@ -100,6 +100,11 @@ just extract-huntercoin \
   --output <staged-raw-output.csv>
 ```
 
+Parent inclusion and child commitments use the
+[shared AuxPoW helpers](../pipeline-reference.md#shared-auxpow-commitment-checks).
+Authenticated non-coinbase parents remain control evidence; the historical
+fork-dependent marker policy remains outside this evidence profile.
+
 The producer scans both algorithms and non-AuxPoW headers to reconstruct stored predecessor
 links to the known genesis, rather than assigning heights by file order.
 It authenticates the SHA-256d child's encoded target, the parent coinbase

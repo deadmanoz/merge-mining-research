@@ -23,7 +23,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-from .auxpow_chainid import auxpow_lcg_index, fold_merkle_branch
+from .auxpow_commitment import child_commitment_failure, parent_merkle_matches
 from .bitcoin_binary import format_outputs_canonical, sha256d
 from .auxpow_parse import (
     VERSION_AUXPOW,
@@ -648,71 +648,37 @@ def validate_auxpow(header: ParsedHeader, height: int) -> None:
             f"height {height}: AuxPoW parent reuses Lyncoin chain ID"
         )
 
-    parent_merkle_root = auxpow.parent_header_raw[36:68]
-    calculated_parent_root = fold_merkle_branch(
+    if not parent_merkle_matches(
         auxpow.coinbase.txid_internal,
         auxpow.parent_merkle_branch,
         0,
-    )
-    if calculated_parent_root != parent_merkle_root:
+        auxpow.parent_header_raw[36:68],
+    ):
         raise RecoveryValidationError(
             f"height {height}: parent coinbase merkle proof mismatch"
         )
     if not auxpow.coinbase.inputs:
         raise RecoveryValidationError(f"height {height}: AuxPoW coinbase has no inputs")
 
-    child_hash = header.pre_flex_hash_internal
-    chain_root = fold_merkle_branch(
-        child_hash,
+    failure = child_commitment_failure(
+        header.pre_flex_hash_internal,
         auxpow.chain_merkle_branch,
         auxpow.chain_index,
-    )
-    committed_root = chain_root[::-1]
-    script_sig = auxpow.coinbase.inputs[0].script_sig
-    root_offset = script_sig.find(committed_root)
-    if root_offset < 0:
-        raise RecoveryValidationError(
-            f"height {height}: child merkle root missing from parent coinbase"
-        )
-
-    merge_magic = bytes.fromhex("fabe6d6d")
-    magic_offset = script_sig.find(merge_magic)
-    if magic_offset >= 0:
-        if script_sig.find(merge_magic, magic_offset + 1) >= 0:
-            raise RecoveryValidationError(
-                f"height {height}: duplicate merged-mining magic"
-            )
-        if root_offset != magic_offset + len(merge_magic):
-            raise RecoveryValidationError(
-                f"height {height}: merged-mining magic not adjacent to root"
-            )
-    elif root_offset > 20:
-        raise RecoveryValidationError(
-            f"height {height}: legacy child root occurs after byte 20"
-        )
-
-    suffix = root_offset + len(committed_root)
-    if len(script_sig) - suffix < 8:
-        raise RecoveryValidationError(
-            f"height {height}: commitment lacks tree size and nonce"
-        )
-    merkle_size, merkle_nonce = struct.unpack_from("<II", script_sig, suffix)
-    expected_size = 1 << len(auxpow.chain_merkle_branch)
-    if merkle_size != expected_size:
-        raise RecoveryValidationError(
-            f"height {height}: commitment tree size {merkle_size} does not "
-            f"match {expected_size}"
-        )
-    expected_index = auxpow_lcg_index(
-        merkle_nonce,
+        auxpow.coinbase.inputs[0].script_sig,
         CHAIN_ID,
-        len(auxpow.chain_merkle_branch),
     )
-    if auxpow.chain_index != expected_index:
-        raise RecoveryValidationError(
-            f"height {height}: AuxPoW chain index {auxpow.chain_index} does "
-            f"not match {expected_index}"
-        )
+    if failure is not None:
+        mismatch = f"{failure.actual} does not match {failure.expected}"
+        messages = {
+            "missing_root": "child merkle root missing from parent coinbase",
+            "duplicate_marker": "duplicate merged-mining magic",
+            "misplaced_marker": "merged-mining magic not adjacent to root",
+            "late_legacy_root": "legacy child root occurs after byte 20",
+            "short_footer": "commitment lacks tree size and nonce",
+            "wrong_size": f"commitment tree size {mismatch}",
+            "wrong_slot": f"AuxPoW chain index {mismatch}",
+        }
+        raise RecoveryValidationError(f"height {height}: {messages[failure.reason]}")
 
     parent_hash = sha256d(auxpow.parent_header_raw)
     if not _hash_meets_target(parent_hash, header.bits):

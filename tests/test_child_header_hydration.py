@@ -1272,7 +1272,12 @@ def _minimal_coinbase(height: int, *, prefix: bytes | None = None) -> bytes:
 
 
 def _xaya_block_with_child_coinbase(
-    mod, child_coinbase: bytes, *, parent_prevout: bytes = b"\0" * 32
+    mod,
+    child_coinbase: bytes,
+    *,
+    parent_prevout: bytes = b"\0" * 32,
+    commitment_size: int = 1,
+    truncate_footer: bool = False,
 ) -> bytes:
     pure_header = (
         struct.pack("<i", 0x100)
@@ -1283,8 +1288,10 @@ def _xaya_block_with_child_coinbase(
     commitment = (
         bytes.fromhex("fabe6d6d")
         + hashlib.sha256(hashlib.sha256(pure_header).digest()).digest()[::-1]
-        + struct.pack("<II", 1, 0)
+        + struct.pack("<II", commitment_size, 0)
     )
+    if truncate_footer:
+        commitment = commitment[:-1]
     parent_coinbase = (
         struct.pack("<i", 1)
         + b"\x01"
@@ -1456,6 +1463,8 @@ def test_xaya_main_publishes_exact_height_from_numbered_files(
         ("parent_merkle", "parent transaction merkle mismatch"),
         ("child_commitment", "child commitment missing or misplaced"),
         ("child_target", "parent misses Xaya PowData target"),
+        ("footer", "AuxPoW commitment lacks size and nonce"),
+        ("size", "AuxPoW commitment size or chain slot mismatch"),
         ("non_coinbase", "parent transaction is not a Bitcoin coinbase"),
         ("noncanonical_height", "noncanonical BIP34 height prefix"),
     ],
@@ -1473,6 +1482,8 @@ def test_xaya_main_authenticates_proof_before_publication(
                 1, prefix=b"\x01\x01" if damage == "noncanonical_height" else None
             ),
             parent_prevout=b"\x55" * 32 if damage == "non_coinbase" else b"\0" * 32,
+            commitment_size=2 if damage == "size" else 1,
+            truncate_footer=damage == "footer",
         )
     )
     if damage == "parent_merkle":

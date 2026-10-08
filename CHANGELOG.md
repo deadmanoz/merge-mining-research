@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Consolidate parent Merkle inclusion and child script/branch commitment checks
+for Huntercoin, Xaya, Qbit and Lyncoin in `auxpow_commitment`. Preserve each
+adapter's parsing, index guards, proof targets, first-failure order and errors,
+including Lyncoin's height and mismatch context. Keep non-coinbase control
+handling and the existing available-evidence scope unchanged.
+
 Authenticate upstream-only intermediate headers when loading descendant paths,
 without adding unwitnessed blocks to the accepted parent or child-witness tables.
 

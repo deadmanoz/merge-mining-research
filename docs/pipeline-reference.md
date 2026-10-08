@@ -8,6 +8,7 @@ All paths and commands are relative to the repository root.
 
 - [Setup](#setup)
 - [Common Commands](#common-commands)
+- [Shared AuxPoW commitment checks](#shared-auxpow-commitment-checks)
 - [Repository Map](#repository-map)
 - [Code Conventions](#code-conventions)
 
@@ -141,6 +142,35 @@ Publication requires a stable, non-secret `--rpc-source-label`; use the
 configured Bitcoin Core node's durable inventory name (for example,
 `core-reference`), not a hostname containing credentials or a transient tunnel
 address. The parent verdict persists it as `bitcoin-core-rpc:<label>`.
+
+## Shared AuxPoW commitment checks
+
+`auxpow_commitment.parent_merkle_matches` takes internal-order transaction,
+branch and parent-root hashes. `child_commitment_failure` takes an internal-order
+child hash and branch, index, script bytes and chain ID. It checks the first
+display-order root occurrence, marker uniqueness and adjacency (or legacy root
+offset at most 20), the size/nonce footer, tree size and LCG slot. Its neutral
+failure and mismatch values let adapters retain their existing diagnostics.
+These helpers authenticate commitments, not full child or Bitcoin body consensus.
+
+The live Huntercoin/Xaya dict adapter retains transaction parsing/completeness
+and index guards. Qbit retains its bounded non-witness coinbase envelope and
+early chain-index range check. Lyncoin retains its parent chain-ID rejection,
+pre-Flex child identity, late slot check and height-specific errors. Each owner
+keeps its original validation order and target rules. Wire-parser ownership is
+unchanged. Huntercoin can retain authenticated non-coinbase controls; Xaya
+rejects those parents.
+
+The common rules were checked against pinned native `src/auxpow.cpp` in
+Huntercoin `6aa3da0bbe4a7d16352c02f07369a00ae78fcf59`,
+Xaya `7537e1d25a28f30b66f006a6cd2afdda8d343c9e` and
+Lyncoin `c289540da7ea3bb78f6e9eb661ad72b90476cc40`, and Qbit's
+`src/auxpow_validation.cpp` and `src/auxpow.cpp` at
+`70fea84f5becfb57463247af09790df5ddd424f8`. This is a comparison of the shared
+rules, not native consensus replay: Huntercoin's historical fork-dependent
+marker requirement remains outside this evidence profile, and Research's
+existing first-failure order need not match native order. Qbit mainnet's
+`nAuxpowDisplayCommitmentHeight` is zero in `src/kernel/chainparams.cpp`.
 
 ## Repository Map
 

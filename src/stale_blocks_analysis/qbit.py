@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import struct
 
-from .auxpow_chainid import auxpow_lcg_index, fold_merkle_branch, hash_to_display_hex
+from .auxpow_chainid import hash_from_display_hex
+from .auxpow_commitment import child_commitment_failure, parent_merkle_matches
 from .auxpow_parse import nbits_to_target, parse_child_header, parse_parent_header
 from .bitcoin_binary import sha256d
 from .extract_driver import standard_auxpow_parse_row
@@ -19,7 +20,6 @@ SOURCE_REVISION = "70fea84f5becfb57463247af09790df5ddd424f8"
 GENESIS = "0000000000004d60aa5d46013991d0a0e2995d89ee98e53068ae196d763e79f2"
 CHAIN_ID = 47
 POW_LIMIT = int("0000" + "f" * 60, 16)
-MERGED_MINING_HEADER = bytes.fromhex("fabe6d6d")
 
 
 def is_auxpow(version: int, height: int) -> bool:
@@ -109,31 +109,27 @@ def _parse(raw: bytes, *, height: int, expected_hash: str, full_block: bool) -> 
     if not 0 <= chain_index < 1 << len(chain_branch):
         raise ValueError("Qbit chain index outside tree width")
     parent = parse_parent_header(parent_raw)
-    root = fold_merkle_branch(tx.txid_internal, parent_branch, parent_index)
-    if hash_to_display_hex(root) != parent["merkle_root"]:
+    if not parent_merkle_matches(
+        tx.txid_internal,
+        parent_branch,
+        parent_index,
+        hash_from_display_hex(parent["merkle_root"]),
+    ):
         raise ValueError("Qbit parent coinbase Merkle root mismatch")
-    chain_root = fold_merkle_branch(sha256d(pure), chain_branch, chain_index)
-    display_root = bytes.fromhex(hash_to_display_hex(chain_root))
-    script = tx.inputs[0].script_sig
-    root_pos = script.find(display_root)
-    if root_pos < 0:
-        raise ValueError("Qbit display-order chain commitment missing")
-    magic_pos = script.find(MERGED_MINING_HEADER)
-    if magic_pos >= 0:
-        if script.find(MERGED_MINING_HEADER, magic_pos + 1) >= 0:
-            raise ValueError("multiple Qbit merged-mining markers")
-        if magic_pos + 4 != root_pos:
-            raise ValueError("Qbit marker must immediately precede commitment")
-    elif root_pos > 20:
-        raise ValueError("Qbit legacy commitment starts beyond byte 20")
-    footer = script[root_pos + 32 : root_pos + 40]
-    if len(footer) != 8:
-        raise ValueError("truncated Qbit commitment footer")
-    size, nonce = struct.unpack("<II", footer)
-    if size != 1 << len(chain_branch):
-        raise ValueError("Qbit commitment tree size mismatch")
-    if chain_index != auxpow_lcg_index(nonce, CHAIN_ID, len(chain_branch)):
-        raise ValueError("Qbit commitment chain slot mismatch")
+    failure = child_commitment_failure(
+        sha256d(pure), chain_branch, chain_index, tx.inputs[0].script_sig, CHAIN_ID
+    )
+    if failure is not None:
+        messages = {
+            "missing_root": "Qbit display-order chain commitment missing",
+            "duplicate_marker": "multiple Qbit merged-mining markers",
+            "misplaced_marker": "Qbit marker must immediately precede commitment",
+            "late_legacy_root": "Qbit legacy commitment starts beyond byte 20",
+            "short_footer": "truncated Qbit commitment footer",
+            "wrong_size": "Qbit commitment tree size mismatch",
+            "wrong_slot": "Qbit commitment chain slot mismatch",
+        }
+        raise ValueError(messages[failure.reason])
     if int(parent["hash"], 16) > target:
         raise ValueError("Qbit parent proof fails child header target")
     auxpow = {

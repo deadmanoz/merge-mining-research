@@ -1,6 +1,7 @@
 """Qbit wire-rule regressions against retained positive and lower-work controls."""
 
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -138,10 +139,14 @@ def mutate_commitment(kind):
 
 @pytest.mark.parametrize(
     "kind,reason",
-    [("order", "display-order"), ("size", "tree size"), ("nonce", "chain slot")],
+    [
+        ("order", "Qbit display-order chain commitment missing"),
+        ("size", "Qbit commitment tree size mismatch"),
+        ("nonce", "Qbit commitment chain slot mismatch"),
+    ],
 )
 def test_mainnet_commitment_rules(kind, reason):
-    with pytest.raises(ValueError, match=reason):
+    with pytest.raises(ValueError, match="^" + re.escape(reason) + "$"):
         parse(mutate_commitment(kind))
 
 
@@ -184,3 +189,17 @@ def test_native_synthetic_parent_is_not_height_evidence():
     assert parsed["row"]["btc_height"] == ""
     assert parsed["row"]["btc_bits"] == parsed["row"]["child_nbits"]
     assert parsed["row"]["coinbase_outputs"] == "51:0"
+
+
+@pytest.mark.parametrize("bad_index", [None, 2**30])
+def test_parent_inclusion_and_chain_index_precede_child_commitment(bad_index):
+    # The root is reversed and authenticated, then parent inclusion is broken.
+    raw = bytearray(mutate_commitment("order"))
+    positions = offsets(raw)
+    raw[positions[-1] + 36] ^= 1
+    message = "Qbit parent coinbase Merkle root mismatch"
+    if bad_index is not None:
+        struct.pack_into("<i", raw, positions[6], bad_index)
+        message = "Qbit chain index outside tree width"
+    with pytest.raises(ValueError, match="^" + message + "$"):
+        parse(bytes(raw))

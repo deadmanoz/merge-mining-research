@@ -69,6 +69,11 @@ that header/proof prefix and retains the complete native RPC block separately;
 it does not reimplement Qbit body or contextual consensus. Native chain
 placement must be established separately by the acquisition scan.
 
+Parent inclusion and child commitments use the
+[shared AuxPoW helpers](../pipeline-reference.md#shared-auxpow-commitment-checks).
+Chain-index range rejection precedes parent inclusion; parent PoW follows
+commitment checks. Qbit retains its exact adapter errors.
+
 ## Retained controls
 
 The public fixture `tests/fixtures/qbit_controls.json` records the four

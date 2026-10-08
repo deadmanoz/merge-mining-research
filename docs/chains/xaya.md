@@ -116,11 +116,13 @@ at the source block rather than emitting a row for later rejection.
 <private-raw-output.csv>` retains lower-work observations for downstream
 classification. Native framing accepts zero-filled reserve gaps and rejects
 unexplained nonzero bytes or truncated records instead of resynchronising
-past them. A repeating `xor.dat` key is decoded before framing. The producer also verifies the parent transaction's Merkle inclusion, the
-child commitment and chain slot, and the parent hash against the effective
-child target. It refuses a non-coinbase parent transaction rather than treating
-its script as Bitcoin coinbase evidence. These checks do not replay complete
-Xaya consensus or establish the active tip.
+past them. A repeating `xor.dat` key is decoded before framing. Parent transaction
+inclusion, child commitment and chain slot use the
+[shared AuxPoW helpers](../pipeline-reference.md#shared-auxpow-commitment-checks).
+The producer checks the parent hash against the effective child target and
+refuses a non-coinbase parent transaction rather than treating its script as
+Bitcoin coinbase evidence. These checks do not replay complete Xaya or Bitcoin
+body consensus or establish the active tip.
 
 Before emitting a child height, the producer authenticates the complete child
 transaction vector against the pure header Merkle root, checks the witness
