@@ -668,18 +668,15 @@ def validate_auxpow(header: ParsedHeader, height: int) -> None:
         CHAIN_ID,
     )
     if failure is not None:
+        mismatch = f"{failure.actual} does not match {failure.expected}"
         messages = {
             "missing_root": "child merkle root missing from parent coinbase",
             "duplicate_marker": "duplicate merged-mining magic",
             "misplaced_marker": "merged-mining magic not adjacent to root",
             "late_legacy_root": "legacy child root occurs after byte 20",
             "short_footer": "commitment lacks tree size and nonce",
-            "wrong_size": (
-                f"commitment tree size {failure.actual} does not match {failure.expected}"
-            ),
-            "wrong_slot": (
-                f"AuxPoW chain index {failure.actual} does not match {failure.expected}"
-            ),
+            "wrong_size": f"commitment tree size {mismatch}",
+            "wrong_slot": f"AuxPoW chain index {mismatch}",
         }
         raise RecoveryValidationError(f"height {height}: {messages[failure.reason]}")
 

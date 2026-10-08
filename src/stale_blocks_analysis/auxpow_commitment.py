@@ -62,11 +62,8 @@ def child_commitment_failure(
     boundary. Callers own branch/index guards and protocol-specific rules;
     in particular, do not move a caller's later slot failure ahead of inclusion.
     """
-    root = bytes.fromhex(
-        hash_to_display_hex(
-            fold_merkle_branch(child_hash_internal, branch_internal, index)
-        )
-    )
+    root_internal = fold_merkle_branch(child_hash_internal, branch_internal, index)
+    root = bytes.fromhex(hash_to_display_hex(root_internal))
     offset = script.find(root)
     if offset < 0:
         return CommitmentFailure("missing_root")

@@ -106,12 +106,6 @@ is Xaya's actual BTC-parent stale yield within that span, not a coverage hole.
 
 ## 2. Extraction → potential stales
 
-Parent inclusion and child script/branch commitments use the shared
-`auxpow_commitment` helpers through the native-record adapter. Xaya retains
-its non-coinbase rejection, PowData target checks and body-authenticated child
-height admission. Sharing commitment checks does not expand the existing
-available-evidence profile to full native or Bitcoin body consensus.
-
 **Method.** Offline `blk*.dat` parse on `<archival-host>`. For each block, read the 80-byte `CPureBlockHeader`, then the `PowData` `algo` byte at offset 80. If `(algo & 0x80)` is clear the block is solo-mined (NEOSCRYPT) and is skipped. Otherwise the block is merge-mined (SHA256D) and the standard Namecoin `CAuxPow` begins at offset 85 (80 header + 1 algo + 4 nBits), parsed by `read_auxpow()`. The extractor emits `child_header_hex`, `child_block_hash`, and `child_block_time` from `CPureBlockHeader`; `child_nbits` comes from the little-endian `PowData` uint32 at offsets 81 through 84, not the pure header's bytes 72 through 75. The parent header is then checked against its encoded self-target unless `--all-headers` is selected. Keying on the `0x80` merge-mined flag rather than the exact `PowAlgo` integers mirrors the source's own `isMergeMined()` test (`algo & FLAG_MERGE_MINED`, `FLAG_MERGE_MINED = 0x80`); the full enum (`SHA256D=1, NEOSCRYPT=2, FLAG_MERGE_MINED=0x80`) is defined in `src/interfaces/mining.h`. It is validated by the clean extraction (0 parse errors).
 
 The extractor requires the pure header's own `nBits` field to be zero and the
@@ -122,11 +116,13 @@ at the source block rather than emitting a row for later rejection.
 <private-raw-output.csv>` retains lower-work observations for downstream
 classification. Native framing accepts zero-filled reserve gaps and rejects
 unexplained nonzero bytes or truncated records instead of resynchronising
-past them. A repeating `xor.dat` key is decoded before framing. The producer also verifies the parent transaction's Merkle inclusion, the
-child commitment and chain slot, and the parent hash against the effective
-child target. It refuses a non-coinbase parent transaction rather than treating
-its script as Bitcoin coinbase evidence. These checks do not replay complete
-Xaya consensus or establish the active tip.
+past them. A repeating `xor.dat` key is decoded before framing. Parent transaction
+inclusion, child commitment and chain slot use the
+[shared AuxPoW helpers](../pipeline-reference.md#shared-auxpow-commitment-checks).
+The producer checks the parent hash against the effective child target and
+refuses a non-coinbase parent transaction rather than treating its script as
+Bitcoin coinbase evidence. These checks do not replay complete Xaya or Bitcoin
+body consensus or establish the active tip.
 
 Before emitting a child height, the producer authenticates the complete child
 transaction vector against the pure header Merkle root, checks the witness
