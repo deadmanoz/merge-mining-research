@@ -33,6 +33,13 @@ full-evidence and relevance exports, and unknown-ancestry reconciliation all
 derive the exclusion key set from its `classification == "error_block"` rows
 via `src/stale_blocks_analysis/error_blocks.py`.
 
+The Fractal witness at child height 1,936,022 for error parent 957,780 uses
+internal hash `ce9ba3d1f11ccfb630656b5f6b3f997dbc548deb8b4c3ab010bd22fbefafba35`.
+This is the byte reversal of the native `getblockhash` result
+`35baafeffb22bd10b03a4c8beb8d54bc7d993f6b5f6b6530b6cf1cf1d1a39bce`,
+and matches the original Monitor live observation. Correcting byte order must
+preserve every byte, including when transcribing a reviewed repair plan.
+
 ## The rule set
 
 Every rule below is a necessary Bitcoin consensus condition, so a single

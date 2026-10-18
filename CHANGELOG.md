@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Correct the Fractal child hash for error parent 957,780 to the exact internal
+byte order of the native block hash, preserving the other publication fields.
+
 Consolidate parent Merkle inclusion and child script/branch commitment checks
 for Huntercoin, Xaya, Qbit and Lyncoin in `auxpow_commitment`. Preserve each
 adapter's parsing, index guards, proof targets, first-failure order and errors,
