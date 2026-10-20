@@ -177,28 +177,28 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "Rawpool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 872_928,
+        "valid_from_height": 874_944,
         "valid_to_height": 895_104,
         "evidence": (
             "Rawpool collector co-emitted all four cached-fee empty-block "
-            "fork jobs (0xB10C obs 14, 2024-12..2025-03; 872928 is the DAA "
-            "epoch start for the first 2024-12-10 fork job at 874155) and is "
-            "documented in the cluster through April 2025 (0xB10C blog/015, "
-            "ending at 895104)."
+            "fork jobs (0xB10C obs 14, 2024-12..2025-03; 874944 is the first "
+            "DAA epoch start on/after the first 2024-12-10 fork job at 874155) "
+            "and is documented in the cluster through April 2025 (0xB10C "
+            "blog/015, ending at 895104)."
         ),
     },
     {
         "tag_label": "WhitePool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 872_928,
+        "valid_from_height": 874_944,
         "valid_to_height": 895_104,
         "evidence": (
             "stratum.work's Rawpool collector receives '/WhitePool/' coinbase "
             "tags and co-emitted all four cached-fee empty-block fork jobs "
-            "(0xB10C obs 14, 2024-12..2025-03; 872928 is the DAA epoch start "
-            "for the first 2024-12-10 fork job at 874155) and is documented "
-            "in the cluster through April 2025 (0xB10C blog/015, ending at "
-            "895104)."
+            "(0xB10C obs 14, 2024-12..2025-03; 874944 is the first DAA epoch "
+            "start on/after the first 2024-12-10 fork job at 874155) and is "
+            "documented in the cluster through April 2025 (0xB10C blog/015, "
+            "ending at 895104)."
         ),
     },
     {
