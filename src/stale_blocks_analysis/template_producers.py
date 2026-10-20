@@ -17,6 +17,8 @@ producer") for how this fits into the broader attribution pipeline, and the
 
 - 0xB10C, "Block Template Similarities between Mining Pools," September 2024,
   <https://b10c.me/observations/12-template-similarity/>.
+- 0xB10C, "Invalid mining jobs by AntPool & friends during forks," March 2025,
+  <https://b10c.me/observations/14-antpool-and-friends-invalid-mining-jobs/>.
 - 0xB10C, "Bitcoin Mining Centralization in 2025," April 2025,
   <https://b10c.me/blog/015-bitcoin-mining-centralization/>.
 """
@@ -59,11 +61,13 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
-            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
-            "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
-            "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and ends at 895104, the first DAA epoch "
-            "start after April 2025, the last period blog/015 documents."
+            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); "
+            "co-emitted cached-fee empty-block fork jobs (0xB10C obs 14, "
+            "2024-12..2025-03) and cluster ~40% of network hashrate through "
+            "2023-2025 (0xB10C blog/015). Window opens ~Jan 2023 because "
+            "blog/015 documents the cluster operating through 2023, and ends "
+            "at 895104, the first DAA epoch start after April 2025, the last "
+            "period blog/015 documents."
         ),
     },
     {
@@ -73,11 +77,13 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
-            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
-            "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
-            "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and ends at 895104, the first DAA epoch "
-            "start after April 2025, the last period blog/015 documents."
+            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); "
+            "co-emitted cached-fee empty-block fork jobs (0xB10C obs 14, "
+            "2024-12..2025-03) and cluster ~40% of network hashrate through "
+            "2023-2025 (0xB10C blog/015). Window opens ~Jan 2023 because "
+            "blog/015 documents the cluster operating through 2023, and ends "
+            "at 895104, the first DAA epoch start after April 2025, the last "
+            "period blog/015 documents."
         ),
     },
     {
@@ -87,11 +93,73 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "valid_to_height": 895_104,
         "evidence": (
             "AntPool-Poolin 99% / AntPool-BTC.com 98% weighted Merkle-branch "
-            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); cluster "
-            "~40% of network hashrate through 2023-H1 2024 (0xB10C blog/015). "
-            "Window opens ~Jan 2023 because blog/015 documents the cluster "
-            "operating through 2023, and ends at 895104, the first DAA epoch "
-            "start after April 2025, the last period blog/015 documents."
+            "similarity (0xB10C obs 12, stratum data 2024-06..2024-09); "
+            "co-emitted cached-fee empty-block fork jobs as CloverPool "
+            "(0xB10C obs 14, 2024-12..2025-03) and cluster ~40% of network "
+            "hashrate through 2023-2025 (0xB10C blog/015). Window opens ~Jan "
+            "2023 because blog/015 documents the cluster operating through "
+            "2023, and ends at 895104, the first DAA epoch start after April "
+            "2025, the last period blog/015 documents."
+        ),
+    },
+    {
+        "tag_label": "Ultimus Pool",
+        "template_producer": "AntPool & friends",
+        "valid_from_height": 846_720,
+        "valid_to_height": 895_104,
+        "evidence": (
+            "Ultimus Pool-Braiins Pool 89% weighted Merkle-branch similarity "
+            "within the AntPool template cluster (0xB10C obs 12, stratum data "
+            "2024-06..2024-09); co-emitted three of the four cached-fee "
+            "empty-block fork jobs (873559, 875590, 885797; 0xB10C obs 14, "
+            "2024-12..2025-03) and included in the cluster through April 2025 "
+            "(0xB10C blog/015). Window opens at 846720 (first DAA epoch start "
+            "on/after the 2024-06-01 obs-12 stratum window start) and ends at "
+            "895104, the first DAA epoch start after April 2025, the last "
+            "period blog/015 documents."
+        ),
+    },
+    {
+        "tag_label": "Braiins Pool",
+        "template_producer": "AntPool & friends",
+        "valid_from_height": 846_720,
+        "valid_to_height": 895_104,
+        "evidence": (
+            "Braiins Pool-Ultimus Pool 89% weighted Merkle-branch similarity "
+            "within the AntPool template cluster (0xB10C obs 12, stratum data "
+            "2024-06..2024-09); co-emitted three of the four invalid fork jobs "
+            "(873559, 875590, and 885797 building on its own stale block at "
+            "885796; 0xB10C obs 14), and remained in the cluster through "
+            "April 2025 (0xB10C blog/015). Window opens at 846720 (first DAA "
+            "epoch start on/after the 2024-06-01 obs-12 stratum window start) "
+            "and ends at 895104."
+        ),
+    },
+    {
+        "tag_label": "Sigmapool.com",
+        "template_producer": "SecPool",
+        "valid_from_height": 846_720,
+        "valid_to_height": 862_848,
+        "evidence": (
+            "SigmaPool stratum endpoint is a proxy for the SecPool endpoint, "
+            "publishing 'Mined by SecPool' jobs (0xB10C obs 12, stratum data "
+            "2024-06..2024-09). No Sigmapool.com-tagged blocks observed "
+            "on-chain; row documents the fold for any future tag. Window opens "
+            "at 846720 (first DAA epoch start on/after 2024-06-01) and ends at "
+            "862848, the first DAA epoch start after the obs-12 stratum "
+            "window ends (2024-09-12)."
+        ),
+    },
+    {
+        "tag_label": "Rawpool",
+        "template_producer": "AntPool & friends",
+        "valid_from_height": 887_040,
+        "valid_to_height": 895_104,
+        "evidence": (
+            "Rawpool co-emitted the cached-fee empty-block fork job at 885797 "
+            "on 2025-03-01 (0xB10C obs 14; 887040 is the first DAA epoch start "
+            "on/after that 2025-03-01 observation) and is documented in the "
+            "cluster through April 2025 (0xB10C blog/015, ending at 895104)."
         ),
     },
     {
@@ -110,24 +178,11 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "valid_to_height": 895_104,
         "evidence": (
             "Binance Pool endpoint switched from SpiderPool to the "
-            "AntPool-Poolin-BTC.com template on 2024-08-23 (0xB10C obs 12); "
+            "AntPool-Poolin-BTC.com template on 2024-08-23 (0xB10C obs 12) "
+            "and co-emitted all four invalid fork jobs (0xB10C obs 14); "
             "height 858816 = first DAA epoch start on/after the switch date "
-            "per data/bitcoin-epoch-reference. Ends at 895104 with the other "
-            "cluster rows (blog/015 documents the cluster's operation into "
-            "early 2025)."
-        ),
-    },
-    {
-        "tag_label": "Sigmapool.com",
-        "template_producer": "SecPool",
-        "valid_from_height": 840_672,
-        "valid_to_height": 862_848,
-        "evidence": (
-            "SigmaPool stratum endpoint proxies the SecPool endpoint, "
-            "publishing 'Mined by SecPool' jobs (0xB10C obs 12). No "
-            "Sigmapool.com-tagged blocks observed on-chain; row documents the "
-            "direction for any future tag. Ends at 862848, the first DAA epoch "
-            "start after the obs-12 stratum window ends (2024-09-12)."
+            "per data/bitcoin-epoch-reference. Ends at 895104, the first DAA "
+            "epoch start after April 2025, the last period blog/015 documents."
         ),
     },
 )

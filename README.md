@@ -105,8 +105,8 @@ The recovery pipeline runs per sibling chain:
    `data/validated-stales/<chain>_validated_stales.csv` loader input, deduplicated by
    `(height, hash)` so competing same-height hashes are both preserved.
 
-The committed chain inputs hold 3,863 accepted direct observations covering
-2,155 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
+The committed chain inputs hold 3,861 accepted direct observations covering
+2,153 unique `(height, hash)` Bitcoin events; the per-chain and cross-chain
 accounting, with its caveats, is in
 [`docs/process-data-outcomes.md`](docs/process-data-outcomes.md). Current upstream
 overlap and chronological allocation live in the [novelty report](results/novelty.md);
@@ -136,7 +136,7 @@ above.
 
 | Child chain | Source and recovered scope | Accepted direct-stale candidates | Strict BTC orphans | Weak BTC orphans | Coverage limit or significance |
 |---|---|---:|---:|---:|---|
-| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,641 | 8 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
+| [Namecoin](docs/chains/namecoin.md) | Offline `blk*.dat` parse; AuxPoW recovery window from BTC height 148,553 | 1,639 | 8 | 10 | Earliest production recovery window and the largest accepted direct-stale contribution. |
 | [Geistgeld](docs/chains/geistgeld.md) | Complete Nicholas Stifter `getblock` JSON dump; 7.3M records | 0 | 0 | 0 | Most parent headers use targets easier than Bitcoin's and do not link to Bitcoin mainnet, so no direct stales are accepted. |
 | [i0coin](docs/chains/i0coin.md) | Complete March 2026 snapshot; 87 `blk*.dat` files parsed offline | 191 | 0 | 0 | Accepted Bitcoin stales end in August 2020; the later child snapshot contains no further accepted direct stale. |
 | [ixcoin](docs/chains/ixcoin.md) | Local IXCore node; full AuxPoW range scanned to the recovered tip | 464 | 0 | 0 | One of the largest early-chain direct-stale contributions; accepted observations end in July 2016. |

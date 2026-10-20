@@ -43,14 +43,14 @@ and Namecoin Core revision are not recorded in a committed provenance
 manifest. The ranges below describe the recovered accepted rows, not the
 terminal boundary or completeness of the source snapshot.
 
-The published dataset contains **1,641 distinct direct-stale Bitcoin header
+The published dataset contains **1,639 distinct direct-stale Bitcoin header
 candidates accepted by the declared header-context profile**:
 
 | `validation_status` | Rows |
 |---|---:|
 | `VALID` | 1,347 |
-| `VALID (post-BCH, difficulty matches BTC)` | 294 |
-| **Total** | **1,641** |
+| `VALID (post-BCH, difficulty matches BTC)` | 292 |
+| **Total** | **1,639** |
 
 The rows span:
 
@@ -87,7 +87,7 @@ identity ledger. The retained native block body has SHA-256
 This authenticates the child observation; its Bitcoin ancestry verdict is
 established separately by the complete reconciliation workflow.
 
-`btc_header_hex` is present for all 1,641 loader rows. The 228 rows that
+`btc_header_hex` is present for all 1,639 loader rows. The 228 rows that
 historically carried no loader header (their keys were already upstream, so
 the original compact input deferred to the upstream record) were hydrated
 from the committed monitor evidence, with each recovered header byte-verified
@@ -96,7 +96,7 @@ against the row's committed hash, `btc_prev_hash`, `btc_time`, and
 row also carries the node-verified Namecoin child block hash and timestamp
 hydrated from `data/child-identity/` (internal byte order, per the
 `child_block_hash` contract). Every row retains the detached parent coinbase
-scriptSig, and all 1,641 retain complete output script vectors. No row retains
+scriptSig, and all 1,639 retain complete output script vectors. No row retains
 the complete serialized parent coinbase transaction, its parent-merkle branch,
 or a self-contained AuxPoW proof. The header hydration is reproducible from the
 committed monitor evidence alone; output recovery uses the private inventory.
@@ -179,9 +179,9 @@ constraints. See
 measured label and match-mechanism comparison.
 
 The pinned upstream dataset carries a matching full-block blob for 320 of the
-1,641 direct candidates. The repository confirms that each blob starts with
+1,639 direct candidates. The repository confirms that each blob starts with
 the expected header, but none has undergone full historical consensus replay
-here. The other 1,321 direct candidates have no matching full block body in the
+here. The other 1,319 direct candidates have no matching full block body in the
 pinned dataset.
 
 Either exact accepted direct-stale status means that the row passed the
@@ -282,7 +282,7 @@ Bitcoin's active chain. The authenticated raw Namecoin observation at child
 height 108,809 remains retained, with Bitcoin ancestry unresolved. This does
 not establish consensus invalidity. Further root-header investigation is deferred.
 
-The witnesses for Bitcoin heights 474,294, 477,115, 783,426 and 784,121 now belong to
+The witnesses for Bitcoin heights 474,294, 477,115, 494,933, 544,568, 783,426 and 784,121 now belong to
 the error-block catalogue and are excluded from accepted stale outputs.
 See `docs/error-blocks.md` "Externally verified body-invalid blocks".
 
@@ -384,7 +384,7 @@ parents extend the known BIP66-invalid root; none is an accepted stale event.
 - `docs/data-reference.md`: schemas and value vocabularies.
 - `LICENSE-DATA`: data licensing terms.
 
-These 1,641 rows define the accepted Namecoin direct header-candidate set for this
+These 1,639 rows define the accepted Namecoin direct header-candidate set for this
 release. This is not a claim of full Bitcoin block validity or exhaustive chain
 coverage because complete Bitcoin block bodies are generally unavailable and
 the source snapshot boundary is not publicly documented. Full re-extraction

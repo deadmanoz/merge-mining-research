@@ -115,7 +115,7 @@ cache used for optional mainchain lookups.
 
 `data/error-blocks/error_blocks.csv` is the consensus-invalid error-blocks
 dataset and exact-key exclusion gate over the pinned upstream dataset and
-committed per-chain inputs. Its 53 rows each carry
+committed per-chain inputs. Its 55 rows each carry
 `classification=error_block`, authenticated parent evidence, and at least one
 named consensus violation verified locally or through reviewed, commit-pinned
 external body evidence. The catalogue includes the
@@ -211,7 +211,7 @@ BTC's height-derived nBits and 0 match BTC's timestamp-derived nBits even with
 
 | # | Chain | Accepted direct stales | Notes |
 |---:|---|---:|---|
-| 1 | [Namecoin](chains/namecoin.md) | 1,641 | First production merge-mined chain with non-zero direct-stale header-candidate recovery; activates the practical AuxPoW recovery window at BTC 148,553 (Oct 2011). |
+| 1 | [Namecoin](chains/namecoin.md) | 1,639 | First production merge-mined chain with non-zero direct-stale header-candidate recovery; activates the practical AuxPoW recovery window at BTC 148,553 (Oct 2011). |
 | 2 | [Geistgeld](chains/geistgeld.md) | 0 | Dead chain, archival `getblock`-JSON dump shared by Nicholas Stifter (1.6 GB gzipped, 7.3M blocks, 2.49M AuxPoW-bearing). Catalogue activation 2011-10-08, tied with Namecoin (alphabetical tie-break to second). The dump shows earlier experimental AuxPoW activity from GG height 14,092 / 2011-09-16 using Geistgeld's copy of Durham's implementation. **Zero accepted direct-stale candidates**: of 2,291 self-target-PoW-valid unique parent headers, 1 is canonical and 2,290 are unknowns. Their relaxed `nBits` cluster does not match Bitcoin's target history. The private full inventory preserves 2,290 unknowns. |
 | 3 | [i0coin](chains/i0coin.md) | 191 | Complete offline scan of the March 2026 snapshot: 87 block files, 4,700,682 child headers and 189,652 self-target-valid parent observations. All 25 additional direct-stale witnesses corroborate headers already recovered through other chains. Accepted Bitcoin stales end in August 2020. |
 | 4 | [ixcoin](chains/ixcoin.md) | 464 | Raw-hex parse on IXCore 0.14.x; needed a single source patch touching six files for GCC 13 / modern Boost. |

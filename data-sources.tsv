@@ -14,4 +14,4 @@
 # Columns (tab-separated): key, repo_url, pinned_ref, dest_subdir
 stale-blocks	https://github.com/bitcoin-data/stale-blocks.git	7f1e932ccab2673d3177db06f1c673040272d780	data/stale-blocks
 mining-pools	https://github.com/bitcoin-data/mining-pools.git	75d54404acc21656dcf6bd79d5b393e8c5ca97c9	data/mining-pools
-invalid-blocks	https://github.com/bitcoin-data/invalid-blocks.git	4fad71d04ba6641e8f9a5da8caff50dadf876bd0	data/invalid-blocks
+invalid-blocks	https://github.com/bitcoin-data/invalid-blocks.git	dddba8ea744ceb155a486acead04e330d25740a4	data/invalid-blocks

@@ -71,7 +71,7 @@ columns trail that shared core:
 Chain-specific research columns trail the shared layout where retained:
 namecoin's `nbits_match` / `post_bch_fork` gate detail,
 `btc_bip34_height`, and `btc_parent_height` (its `btc_header_hex`
-is populated for all 1,641 rows; the 228 historically header-less rows were
+is populated for all 1,639 rows; the 228 historically header-less rows were
 back-filled from the committed monitor evidence, byte-verified against each
 row's committed hash and decoded fields),
 coiledcoin's `eligius_attack_window`, and i0coin's `full_coinbase_hex`.
@@ -156,7 +156,7 @@ Acquisition limitations are not repairable by rendering alone:
 Exact `(height, hash)` keys of consensus-invalid full-proof-of-work Bitcoin
 blocks that must be removed from stale publication surfaces. Every row has
 `classification=error_block`; blank or unknown classifications fail closed
-when the dataset is loaded. The current 53 rows include the 946,213 and 957,780
+when the dataset is loaded. The current 55 rows include the 946,213 and 957,780
 `time_below_mtp` blocks, the 717,696 `nbits_retarget_not_applied` block, the
 Hathor-witnessed 649,674 `bip34_coinbase_height_missing` block, and four
 stale-ancestry candidates at 331,673, 331,674, 402,610, and 422,059 whose bytes
@@ -167,7 +167,7 @@ fail BIP65's minimum version 4 rule, three are time-too-old against
 median-time-past (380,992, 946,213 and 957,780), one carries a
 103-byte coinbase scriptSig above Bitcoin's 100-byte limit, and one failed to
 apply the difficulty retarget at an epoch boundary. Four entries at 363,732, 363,733, 363,735 and 363,736 inherit the invalid
-BIP66 root at 363,731 through authenticated header paths. Ten further entries have
+BIP66 root at 363,731 through authenticated header paths. Twelve further entries have
 independently verified body-rule failures bound by `body_evidence.csv`. The dataset retains the signed
 header version, child-chain provenance, raw coinbase scriptSig, rejection
 reason, and the named rules violated. It is a compact audit record rather
@@ -621,8 +621,8 @@ provenance, and validation-contract changes are directly reviewable. The
 shared evidence writer emits LF explicitly because LFS objects do not pass
 through Git's text-normalization filter.
 
-`error-block-observations_monitor_evidence.csv` is a separate 121-row aggregate
-for the 53 catalogue parents. It uses the 34-column union schema: the shared
+`error-block-observations_monitor_evidence.csv` is a separate 123-row aggregate
+for the 55 catalogue parents. It uses the 34-column union schema: the shared
 27 monitor-evidence columns plus the seven RSK sidecar columns
 (`rsk_miner`, `merge_mining_hash`, `is_uncle`, `uncle_index`,
 `uncle_parent_height`, `rsk_merkle_proof`, `rsk_coinbase_tail`). Non-RSK rows
@@ -650,7 +650,7 @@ ledger row must have the exact canonical field count and identify its child
 either with a well-formed hash or with a serialized child header from which
 that hash can be authenticated. Staged publication applies the ordinary
 parent/child evidence checks to the aggregate and requires every
-catalogue/ledger-derived field and identity to match the canonical 121-row
+catalogue/ledger-derived field and identity to match the canonical 123-row
 module exactly; source-derived coinbase output enrichment may add evidence but
 cannot replace it. The release path stages every ordinary artifact, the error
 aggregate, counts, and manifest as one coherent transaction after validating
@@ -740,7 +740,7 @@ header hash so their coverage is explicit:
 
 Namecoin's monitor export previously required partial header hydration for
 its stale rows. The validated loader now carries `btc_header_hex` for all
-1,641 accepted rows (back-filled from the committed monitor evidence), so
+1,639 accepted rows (back-filled from the committed monitor evidence), so
 stale-row hydration has no remaining targets. The complete September Monitor
 rebuild uses those loader headers directly; its manifest no longer carries
 the earlier `namecoin_header_hydration=hydrated:228` note. The 21
