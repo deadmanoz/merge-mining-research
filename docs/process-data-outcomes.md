@@ -113,13 +113,13 @@ unchanged. Counts and manifests are rebuilt by the publication workflow.
 
 | Layer | Current volume | Notes |
 |---|---:|---|
-| Effective upstream `bitcoin-data/stale-blocks` rows | 3,927 | The selected snapshot contains 3,929 rows, with two exact-key overlaps with the current error catalogue (494,933 and 544,568). Of the 3,927 effective rows, 131 are below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. Error exclusion remains an exact-key gate. |
+| Effective upstream `bitcoin-data/stale-blocks` rows | 4,186 | The selected snapshot contains 4,188 rows, with two exact-key overlaps with the current error catalogue (494,933 and 544,568). Of the 4,186 effective rows, 180 are below the epoch-aligned analysis floor of 147,168, the start of the retarget epoch containing the practical production floor at 148,553. Error exclusion remains an exact-key gate. |
 | Per-chain accepted direct-stale candidate observations at height >= 0 | 3,861 | Sum of all integrated direct-stale loader functions, including Namecoin's 1,639, Elastos's 174, Syscoin's 96, RSK's 351, Emercoin's 96, Huntercoin's 78, Xaya's 42, Electric Cash's 3, Fractal Bitcoin's 40, and Bitcoin Vault's 9. Cross-chain observations of the same header count once per chain here. |
 | Accepted stale-descendant parent verdicts | 23 | From `data/stale_descendants.csv`; these are not direct canonical-parent candidates. The complete Kraft Huntercoin/Xaya unknown inventories are included in the current reconciliation. |
 | Merge-mining/derived parent candidates before dedup | 3,884 | Per-chain direct-stale observations plus accepted stale-descendant parent verdicts. |
 | Authenticated historical child-header observations | 3,184,459 | Retained historical coverage snapshot across the 17 regenerated sources plus one reviewed ROD canonical observation, verified across 18 source rows. Zero rows are unrecoverable, and all 6 accepted stale-descendant source observations belonging to those sources are hydrated. Current publication authenticates required source evidence before filtering. |
-| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 3,936 | Dedup key is `(height, hash)`. The total at the epoch-aligned analysis floor of 147,168 is 3,805. |
-| Unique events in post-compact base window | 919 | At `MIN_HEIGHT=421344` with every integrated loader included. |
+| Unique accepted header candidates after upstream + merge-mining-evidence dedup | 4,195 | Dedup key is `(height, hash)`. The total at the epoch-aligned analysis floor of 147,168 is 4,015. |
+| Unique events in post-compact base window | 923 | At `MIN_HEIGHT=421344` with every integrated loader included. |
 | Pending-upstream sidecar rows | 9 | `data/new_stale_blocks_for_upstream.csv`: nine direct upstream-new rows; every accepted descendant is already represented upstream. |
 | Pending-upstream header fills | 0 | No committed accepted header fills a hash-only row in the selected upstream snapshot. |
 | Published Monitor rows including the Kraft recovery | 1,299,100 | Includes the subsequent upstream/ancestry refresh. Raw evidence for the withdrawn unsupported claim remains retained outside the accepted projection. |

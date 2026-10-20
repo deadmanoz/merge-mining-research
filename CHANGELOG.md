@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Advance the `stale-blocks` pin from
+`7f1e932ccab2673d3177db06f1c673040272d780` to
+`56f0f18eb8086c8b818d3534674aa60d7be325b2`. The newer census adds 261 headers
+and removes the two proved-P2SH-failure headers at 184,797 and 188,971.
+Effective upstream rows rise from 3,927 to 4,186. Per-chain overlap is
+unchanged, and the nine upstream-absent contribution rows and zero header
+fills remain.
+
 Admit Namecoin-witnessed AntPool blocks 494,933 and 544,568 to the error-block
 catalogue (`bad-cb-amount`) via retained full-block body evidence from
 `bitcoin-data/invalid-blocks` PR #34 (updating `invalid-blocks` in
