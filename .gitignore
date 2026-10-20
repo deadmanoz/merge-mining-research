@@ -9,6 +9,7 @@ dist/
 venv/
 env/
 .python-version
+uv.lock
 
 # Local secrets / RPC credentials. The per-workspace `.env.example` templates
 # carry only placeholder paths and are committed; every node-infra workspace
