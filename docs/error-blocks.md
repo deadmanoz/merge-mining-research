@@ -342,7 +342,9 @@ All 49 preceding parent identities, header evidence and rules, and all 107
 preceding witness identities and evidence are preserved. Catalogue source
 summaries gain genuine new witnesses; ledger catalogue-row coordinates shift
 after sorting.
-This check does not replay block bodies or the native active chain.
+This check does not replay block bodies or the native active chain. See
+[`historical-events.md`](historical-events.md) for the historical fork comparison
+and the retained I0coin empty-block coinbases.
 
 The same dump adds a Huntercoin witness of the already catalogued BIP34-invalid
 parent at 331,674, at child height 460,428. Its complete native AuxPoW authenticates

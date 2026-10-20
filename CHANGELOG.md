@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Add [`docs/historical-events.md`](docs/historical-events.md) connecting the
+published merge-mining evidence to the July 2015 BIP66 forks (four
+`consensus_invalid_parent` descendants across 13 child observations, three
+retained I0coin empty-block coinbases, and three direct version-2 error blocks
+later that month) and to 0xB10C's December 2024 / March 2025 invalid-job
+predecessors (`873,558`, `874,036`, `875,589`, and `885,796`).
+
 Advance the `stale-blocks` pin from
 `7f1e932ccab2673d3177db06f1c673040272d780` to
 `56f0f18eb8086c8b818d3534674aa60d7be325b2`. The newer census adds 261 headers

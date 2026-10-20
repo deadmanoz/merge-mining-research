@@ -33,6 +33,10 @@ tracking of merge-mined chains with the historical datasets produced here
 This repository remains the research and data side: methodology, reproducible
 tooling, and published datasets.
 
+The [historical-events comparison](docs/historical-events.md) connects recovered
+evidence to the July 2015 BIP66 forks and the December 2024 / March 2025
+invalid-job observations.
+
 ## Stale-block recovery
 
 A stale block is a valid Bitcoin block that lost a propagation race and did not
