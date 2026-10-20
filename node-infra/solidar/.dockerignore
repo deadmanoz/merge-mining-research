@@ -3,5 +3,3 @@
 !bdb-atomic.patch
 !config.guess
 !config.sub
-!patches/
-!patches/*.patch

@@ -1,36 +1,13 @@
-# Solidar (formerly WorldLeadCurrency, WLC) daemon in a container.
-#
-# Base: debian:stretch (9), following the Argentum precedent. The pinned
-# wincev/SOLIDAR lineage (0.8.9.0) is a 2014-era Bitcoin 0.8/0.9-family
-# codebase that retains CBigNum (src/bignum.h), which inherits directly
-# from OpenSSL's BIGNUM struct — opaque since OpenSSL 1.1, so a modern
-# distro fails with "invalid use of incomplete type 'BIGNUM'". Stretch
-# ships libssl1.0-dev (OpenSSL 1.0.2) as a parallel legacy package and
-# pairs it with Boost 1.62 + GCC 6, close to the chain's native era.
-# Stretch is past EOL, but its Docker base image and the
-# archive.debian.org apt indexes remain available (unlike Ubuntu xenial,
-# whose old-releases mirror 404s and failed GPG validation on the
-# archival host in 2026-05).
-#
-# Source: public upstream wincev/SOLIDAR, pinned by full-commit ARG. The
-# WLC-era sibling WorldLeadCurrency/WLC (f07b4a0d...) is selectable via
-# SOLIDAR_REPO/SOLIDAR_REF for era-comparison builds; do not assume the
-# newest branch validates every historical era. The daemon (solidard,
-# 0.8.9.0) builds with its own src/makefile.unix, which also builds the
-# bundled leveldb — the CoiledCoin build mechanics plus leveldb.
-#
-# Berkeley DB 4.8.30 is built from the checksum-pinned bitcoincore.org
-# tarball (Sleepycat license, pre-AGPL relicensing), with the CoiledCoin
-# workspace's bdb-atomic.patch and refreshed config.guess/config.sub for
-# modern libc and arches.
-#
-# The wallet stays enabled (makefile.unix has no disable switch); the GUI
-# is not built. The daemon binary doubles as the RPC CLI client.
+# Solidar daemon (solidard 0.8.9.0) from pinned wincev/SOLIDAR.
+# Stretch supplies OpenSSL 1.0: CBigNum needs the pre-1.1 BIGNUM layout.
+# Berkeley DB 4.8.30 is fetched (Sleepycat, pre-AGPL) and built with the
+# CoiledCoin bdb-atomic.patch, config.guess, and config.sub.
+# makefile.unix also builds the bundled leveldb. The wallet stays enabled.
+# The binary is the RPC client; there is no separate CLI.
 
 # --- build stage --------------------------------------------------------------
 FROM debian:stretch AS build
 
-ARG SOLIDAR_REPO=https://github.com/wincev/SOLIDAR.git
 ARG SOLIDAR_REF=a1ab9063f338666f602f0e056960061026ffb0d7
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -41,7 +18,9 @@ RUN printf '%s\n' \
         'deb [check-valid-until=no] http://archive.debian.org/debian-security stretch/updates main' \
         > /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libssl1.0-dev libboost-all-dev libgmp-dev libmpfr-dev \
+        build-essential libssl1.0-dev libgmp-dev libmpfr-dev \
+        libboost-system-dev libboost-filesystem-dev libboost-chrono-dev \
+        libboost-program-options-dev libboost-thread-dev \
         zlib1g-dev \
         ca-certificates pkg-config patch git \
     && rm -rf /var/lib/apt/lists/*
@@ -64,7 +43,7 @@ RUN echo "${BDB_SHA256}  db-4.8.30.NC.tar.gz" | sha256sum -c - \
     && make -j$(nproc) && make install
 
 WORKDIR /build
-RUN git clone "${SOLIDAR_REPO}" . \
+RUN git clone https://github.com/wincev/SOLIDAR.git . \
     && git checkout "${SOLIDAR_REF}" && git log -1 --oneline
 
 WORKDIR /build/src
