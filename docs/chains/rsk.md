@@ -169,7 +169,7 @@ depends on `bitcoin-data/mining-pools` nor recomputes this table.
 | Poolin | 26 | |
 | Braiins Pool | 17 | Post-Slush rebrand. |
 | `Unknown` | 21 | 9 distinct miner addresses lack a retained attribution in the accepted set. |
-| Luxor | 8 | `0xcf5072f792246690c75c63638e3d98bb2554ff2c`. Six rows (`832,881`, `842,665`, `859,749`, `916,308`, `944,852`, `962,722`) are confirmed `Powered by Luxor Tech` (`32BfKjhByDSxx3BM5vUkQ3NQq9csZR6nt6`, CoreDAO validators `0xa21cbd3c...` / `0xa37cf4fa...`) by sibling-chain or `.bin` coinbase evidence; one (`875,589`, `rsk:7039448`) is an AntPool Bitcoin stale (`Mined by AntPool`, `39C7fxSzEACPjM78Z7xdPxhf7mKxJwvfMJ`, `EXSAT` `antpool4.sat` tail `0f0e0e0b041f120013`) that paid this RSK address; one (`816,784`) lacks a full parent coinbase and retains `rsk_historical`. |
+| Luxor | 8 | `0xcf5072f792246690c75c63638e3d98bb2554ff2c`; see [pool attribution](../pool-attribution.md#attribution-precedence) for how sibling-chain coinbase evidence overrides `rsk_historical` at height 875,589. |
 | SecPool | 3 | First surfaced with uncle traversal; the 2026-09-05 reclassification adds one canonical-derived row. |
 
 ## 4. Outputs & references

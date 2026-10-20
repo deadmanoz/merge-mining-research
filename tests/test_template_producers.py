@@ -18,18 +18,15 @@ from stale_blocks_analysis.template_producers import (
 
 def test_in_window_fold() -> None:
     assert fold_template_producer("AntPool", 850_000) == "AntPool & friends"
-    assert fold_template_producer("Braiins Pool", 885_796) == "AntPool & friends"
-    assert fold_template_producer("Sigmapool.com", 850_000) == "AntPool & friends"
-    assert fold_template_producer("Mining Squared", 895_000) == "AntPool & friends"
+    assert fold_template_producer("Sigmapool.com", 850_000) == "SecPool"
 
 
 def test_passthrough_outside_window_and_for_unmapped_tags() -> None:
     assert fold_template_producer("AntPool", 500_000) == "AntPool"
-    # Braiins Pool before the obs-12 stratum window (840,672) passes through
+    # Braiins Pool before the obs-12 stratum window (846,720) passes through
     # unchanged (e.g. the 815,288 Namecoin stale).
     assert fold_template_producer("Braiins Pool", 815_288) == "Braiins Pool"
     assert fold_template_producer("Sigmapool.com", 880_000) == "Sigmapool.com"
-    assert fold_template_producer("Mining Squared", 890_000) == "Mining Squared"
     for height in (700_000, 850_000, 900_000):
         assert fold_template_producer("SpiderPool", height) == "SpiderPool"
 

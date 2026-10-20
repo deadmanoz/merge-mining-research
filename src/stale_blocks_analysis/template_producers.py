@@ -120,7 +120,7 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "Braiins Pool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 840_672,
+        "valid_from_height": 846_720,
         "valid_to_height": 895_104,
         "evidence": (
             "Braiins Pool-Ultimus Pool 89% weighted Merkle-branch similarity "
@@ -128,45 +128,47 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "2024-06..2024-09); co-emitted all four invalid fork jobs "
             "including building on its own stale block at 885796 (0xB10C obs "
             "14), and remained in the cluster through April 2025 (0xB10C "
-            "blog/015). Window opens at 840672 (start of obs-12 stratum "
-            "window) and ends at 895104."
+            "blog/015). Window opens at 846720 (first DAA epoch start on/after "
+            "the 2024-06-01 obs-12 stratum window start) and ends at 895104."
         ),
     },
     {
         "tag_label": "SecPool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 840_672,
+        "valid_from_height": 846_720,
         "valid_to_height": 895_104,
         "evidence": (
             "SecPool sub-cluster included in 'AntPool & friends' (0xB10C obs "
-            "12 and blog/015). Window opens at 840672 (start of obs-12 "
-            "stratum window) and ends at 895104, the first DAA epoch start "
-            "after April 2025, the last period blog/015 documents."
+            "12 and blog/015). Window opens at 846720 (first DAA epoch start "
+            "on/after the 2024-06-01 obs-12 stratum window start) and ends at "
+            "895104, the first DAA epoch start after April 2025, the last "
+            "period blog/015 documents."
         ),
     },
     {
         "tag_label": "EMCDPool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 840_672,
+        "valid_from_height": 846_720,
         "valid_to_height": 895_104,
         "evidence": (
             "EMCD stratum endpoint proxies SecPool within the 'AntPool & "
             "friends' cluster (0xB10C obs 12 and blog/015). Window opens at "
-            "840672 (start of obs-12 stratum window) and ends at 895104, the "
-            "first DAA epoch start after April 2025, the last period blog/015 "
-            "documents."
+            "846720 (first DAA epoch start on/after the 2024-06-01 obs-12 "
+            "stratum window start) and ends at 895104, the first DAA epoch "
+            "start after April 2025, the last period blog/015 documents."
         ),
     },
     {
         "tag_label": "Sigmapool.com",
-        "template_producer": "AntPool & friends",
-        "valid_from_height": 840_672,
+        "template_producer": "SecPool",
+        "valid_from_height": 846_720,
         "valid_to_height": 862_848,
         "evidence": (
-            "SigmaPool stratum endpoint proxies the SecPool endpoint within "
-            "the 'AntPool & friends' cluster, publishing 'Mined by SecPool' "
-            "jobs (0xB10C obs 12). No Sigmapool.com-tagged blocks observed "
-            "on-chain; row documents the fold for any future tag. Ends at "
+            "SigmaPool stratum endpoint is a proxy for the SecPool endpoint, "
+            "publishing 'Mined by SecPool' jobs (0xB10C obs 12, stratum data "
+            "2024-06..2024-09). No Sigmapool.com-tagged blocks observed "
+            "on-chain; row documents the fold for any future tag. Window opens "
+            "at 846720 (first DAA epoch start on/after 2024-06-01) and ends at "
             "862848, the first DAA epoch start after the obs-12 stratum "
             "window ends (2024-09-12)."
         ),

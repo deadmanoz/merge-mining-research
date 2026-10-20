@@ -10,10 +10,10 @@ from `data/validated-stales/namecoin_validated_stales.csv` and refreshing the
 committed Monitor evidence and novelty report. Expand `TEMPLATE_PRODUCER_MAP`
 in `template_producers` with the remaining `AntPool & friends` proxy-pool rows
 documented by 0xB10C (`Ultimus Pool`, `Braiins Pool`, `SecPool`, `EMCDPool`,
-`Rawpool`, `WhitePool`, `Mining Squared`) and retarget `Sigmapool.com` from
-`SecPool` to `AntPool & friends`, and document in `docs/pool-attribution.md`
-and `docs/chains/rsk.md` how coinbase-wins precedence resolves RSK
-`0xcf5072f792246690c75c63638e3d98bb2554ff2c` (including 875,589 to `AntPool`).
+`Rawpool`, `WhitePool`, `Mining Squared`), and document in
+`docs/pool-attribution.md` and `docs/chains/rsk.md` how coinbase-wins
+precedence resolves RSK `0xcf5072f792246690c75c63638e3d98bb2554ff2c` (including
+875,589 to `AntPool`).
 
 Correct the Fractal child hash for error parent 957,780 to the exact internal
 byte order of the native block hash, preserving the other publication fields.
