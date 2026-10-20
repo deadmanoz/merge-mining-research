@@ -1,0 +1,17 @@
+# Networkless profile for offline inspection of an adopted datadir.
+# RPC stays reachable via `docker compose exec` (loopback inside the
+# container); nothing is published and the daemon cannot dial out.
+services:
+  solidard:
+    network_mode: none
+    restart: "no"
+    ports: !reset []
+    command:
+      - "-printtoconsole"
+      - "-datadir=/data"
+      - "-conf=/data/solidar.conf"
+      - "-daemon=0"
+      - "-server=1"
+      - "-listen=0"
+      - "-dnsseed=0"
+      - "-connect=0"

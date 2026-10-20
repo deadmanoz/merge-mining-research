@@ -244,7 +244,10 @@ loader input; its aggregate canonical characterization is documented, but no
 row-level canonical export is committed. The VCash record is a recovered
 68-row canonical mapping subset, but it is not a recovered VCash blockchain
 and does not establish stale or strict/weak totals. BLAST remains blocked with
-no usable peer.
+no usable peer. WLC/Solidar has two authenticated 2015 AuxPoW proofs
+(`near` parents). An explorer log names child hashes through height 23,508
+and checkpoints name hashes through 131,690. Block bodies are unrecovered.
+See [`chains/solidar.md`](chains/solidar.md).
 
 The i0coin refresh processes every block file in the complete March 2026
 third-party snapshot, retaining the earlier January 2018 observations. Its

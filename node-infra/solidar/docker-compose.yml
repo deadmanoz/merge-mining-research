@@ -1,0 +1,34 @@
+services:
+  solidard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms: ["linux/amd64"]
+    image: ${SOLIDAR_IMAGE:-merge-mining-research/solidard:0.8.9.0-a1ab9063}
+    # The archival host is Linux/amd64. Pin the platform so dev-host arm64
+    # (e.g. Apple Silicon) doesn't pull a different package set.
+    platform: linux/amd64
+    container_name: ${SOLIDAR_CONTAINER_NAME:-solidard}
+    restart: ${SOLIDAR_RESTART_POLICY:-no}
+    stop_grace_period: 5m
+    ports:
+      - "${SOLIDAR_RPC_BIND:-127.0.0.1}:55888:55888"
+      - "55889:55889"
+    volumes:
+      - type: bind
+        source: ${SOLIDAR_DATA_DIR:-./data}
+        target: /data
+        bind:
+          create_host_path: false
+    command:
+      - "-printtoconsole"
+      - "-datadir=/data"
+      - "-conf=/data/solidar.conf"
+      - "-daemon=0"
+      - "-server=1"
+    healthcheck:
+      test: ["CMD", "solidard", "-datadir=/data", "-conf=/data/solidar.conf", "getblockcount"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

@@ -17,6 +17,16 @@ Effective upstream rows rise from 3,927 to 4,186. Per-chain overlap is
 unchanged, and the nine upstream-absent contribution rows and zero header
 fills remain.
 
+Add a WLC/Solidar roster entry (`docs/chains/solidar.md`) and the
+`node-infra/solidar/` workspace. The entry records two authenticated AuxPoW
+proofs (children 11,418 and 20,357, `near` parents of canonical Bitcoin
+360,468 and 368,655), a 2015 explorer height index for 0–23,508 (gap at
+19,860), checkpoint hashes through 131,690, and a truncated 2016-12-15
+header at child 74,758 (chain ID `0x5588`). No loader, validated CSV,
+`CHAIN_SPECS` entry, or Monitor wiring. The node builds pinned
+`wincev/SOLIDAR` 0.8.9.0 on `debian:stretch`. No peer answered 55889 on
+2026-10-03 or 2026-10-20.
+
 Admit Namecoin-witnessed AntPool blocks 494,933 and 544,568 to the error-block
 catalogue (`bad-cb-amount`) via retained full-block body evidence from
 `bitcoin-data/invalid-blocks` PR #34 (updating `invalid-blocks` in

@@ -126,6 +126,10 @@ startup ordering are verified; the live profile defaults to no restart.
 Bitmark's legacy daemon ignores `rpcbind`; any `rpcallowip` selects wildcard
 listening. Its offline profile relies on omitting both and removing both
 from the copied config so only IPv4/IPv6 loopback sockets are opened.
+Solidar's 0.8 daemon ignores `-rpcbind` the same way. Its workspace sets
+`rpcallowip` for loopback and the Docker networks, publishes RPC on loopback
+only, and uses `network_mode: none` for the offline overlay. No peer is
+known; restart stays disabled.
 
 CoiledCoin and SixEleven use `network_mode: none` in their archival overlays
 and retain CLI access through `docker compose exec`. Keep SixEleven's wrapper

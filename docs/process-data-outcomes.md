@@ -422,6 +422,7 @@ validated CSV or superseding refresh exists.
 |---|---|
 | Jincoin | Source builds, but live sync/private block archive path is not available. |
 | Blast | Surveyed only; no peers/archive result. |
+| WLC/Solidar | 2015 Bitcoin merge mining confirmed by two authenticated AuxPoW proofs (`near`-class parents). A height-hash index covers child 0–23,508 and source checkpoints run through 131,690; block bodies are not recovered. Integration pending; see [chains/solidar.md](chains/solidar.md). |
 
 ## Regeneration Order
 
