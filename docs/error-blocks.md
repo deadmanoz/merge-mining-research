@@ -198,7 +198,7 @@ instead of overwriting one another.
 
 ### Composition and per-rule counts
 
-The dataset holds **53 rows** (53 distinct `(height, hash)` blocks), spanning
+The dataset holds **55 rows** (55 distinct `(height, hash)` blocks), spanning
 Bitcoin heights 173,928 through 957,780. They include heights 946,213 and
 957,780 (`time_below_mtp`), height 717,696
 (`nbits_retarget_not_applied`), height 649,674
@@ -220,12 +220,12 @@ Bitcoin heights 173,928 through 957,780. They include heights 946,213 and
 | `bad-txns-inputs-missingorspent` | 2 |
 | `bad-blk-sigops` | 2 |
 | `block-script-verify-flag-failed` | 4 |
-| `bad-cb-amount` | 2 |
+| `bad-cb-amount` | 4 |
 | `consensus_invalid_parent` | 4 |
-| **Total** | **53** |
+| **Total** | **55** |
 
-Because one invalid block is witnessed by several sibling chains, the 53
-blocks produce 121 per-chain observations: namecoin 49, devcoin 19, ixcoin 20,
+Because one invalid block is witnessed by several sibling chains, the 55
+blocks produce 123 per-chain observations: namecoin 51, devcoin 19, ixcoin 20,
 rsk 7, syscoin 5, elastos 5, xaya 2, emercoin 1, fractal 1, groupcoin 1, hathor 1,
 i0coin 6, huntercoin 3, and unobtanium 1.
 Per-chain observation views are generated as diagnostics (see "Per-chain
@@ -296,6 +296,18 @@ The committed catalogue and publication use `time_below_mtp` at 380,992.
 Validation accepts only that canonical token, and publication preservation
 requires exact rejection-reason equality. The completed data correction does
 not leave a runtime alias or rename exception.
+
+Two further AntPool empty-block coinbase overpayments at heights 494,933
+(`namecoin:370986`) and 544,568 (`namecoin:420298`) carry zero-step
+`coinbase_merkle_branch` proofs (`btc_merkle_root == coinbase_txid`) that claim
+2,500,000,000 satoshis (`25 BTC`) during the 12.5-BTC subsidy era
+(`bad-cb-amount`, pinned to [invalid-blocks PR #34](https://github.com/bitcoin-data/invalid-blocks/pull/34)
+merge commit `dddba8ea744ceb155a486acead04e330d25740a4`), bringing the catalogue to
+55 parents and 123 observations. Upstream's `verify_blocks.py` establishes the
+`bad-cb-amount` subsidy failure on the 1-transaction bodies in PR #34 without
+relying on Research's classification, while Research authenticates the body
+digests, header identities, coinbase scriptSigs, merkle roots, and witness
+commitments via `validate_body_evidence`.
 
 ## Huntercoin witnesses of the BIP66-invalid fork
 
@@ -383,7 +395,7 @@ The closed body-rule set is `p2sh_redeem_script_failure`,
 `bad-txns-inputs-missingorspent`. The other reject families match their rule
 tokens. Unknown rules still fail.
 
-The ten body-rule catalogue entries and their sidecar are installed. Complete
+The twelve body-rule catalogue entries and their sidecar are installed. Complete
 validation requires their bodies in the pinned invalid-blocks clone; missing
 bodies fail, rather than silently skipping authentication.
 

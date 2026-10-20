@@ -31,33 +31,96 @@ def write_csv(path, columns, rows):
 
 @pytest.fixture(
     params=[
-        (173928, "p2sh_redeem_script_failure", 3),
-        (173957, "p2sh_redeem_script_failure", 5),
-        (173998, "p2sh_redeem_script_failure", 12),
-        (174605, "p2sh_redeem_script_failure", 45),
-        (197438, "bad-cb-amount", 91),
-        (584802, "bad-cb-amount", 135),
-        (474294, "missing_unconfirmed_parent", 34),
-        (477115, "bad-txns-inputs-missingorspent", 35),
-        (783426, "bad-blk-sigops", 42),
-        (784121, "bad-blk-sigops", 43),
-    ]
+        (
+            173928,
+            "000000000000023df73ac98923e2de321db3e3396102ad5dcfe3b25f01a81f64",
+            "p2sh_redeem_script_failure",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            3,
+        ),
+        (
+            173957,
+            "00000000000001bd778cffee5b5bae4c7b8d56a9aca955a04c60856b31b11155",
+            "p2sh_redeem_script_failure",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            5,
+        ),
+        (
+            173998,
+            "00000000000003bf4a1e491c802eeec3f1fbf3c2c7299e7935c2b0f33b189651",
+            "p2sh_redeem_script_failure",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            12,
+        ),
+        (
+            174605,
+            "000000000000068294db0526cb4a5520d21b9d4f271a34012e96784b3b3168c5",
+            "p2sh_redeem_script_failure",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            45,
+        ),
+        (
+            197438,
+            "0000000000000307872ec2eb0eae2dca3ed9ce6af9e024412cb3ddfe8afd12a7",
+            "bad-cb-amount",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            91,
+        ),
+        (
+            494933,
+            "000000000000000000903fc1c651867a99512af2a9f6a804c31a9382de1fced9",
+            "bad-cb-amount",
+            "dddba8ea744ceb155a486acead04e330d25740a4",
+            157,
+        ),
+        (
+            544568,
+            "000000000000000000253cee00eb8260deac882b2a63855152def7e220d202cd",
+            "bad-cb-amount",
+            "dddba8ea744ceb155a486acead04e330d25740a4",
+            165,
+        ),
+        (
+            584802,
+            "0000000000000000000b47042b90c6a893e6e5cdef70c92beefb88f4c5fa5a69",
+            "bad-cb-amount",
+            "aadce82e948f63bde0befd14f21a84aa45f45cde",
+            135,
+        ),
+        (
+            474294,
+            "00000000000000000182acdf5657c93a0769dc6f9004047496b2e15efc6a4232",
+            "missing_unconfirmed_parent",
+            "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25",
+            34,
+        ),
+        (
+            477115,
+            "0000000000000000013ee4a86822d37a061732e04ee5f41fb77168f193363d1b",
+            "bad-txns-inputs-missingorspent",
+            "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25",
+            35,
+        ),
+        (
+            783426,
+            "00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4",
+            "bad-blk-sigops",
+            "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25",
+            42,
+        ),
+        (
+            784121,
+            "000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d",
+            "bad-blk-sigops",
+            "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25",
+            43,
+        ),
+    ],
+    ids=lambda param: f"{param[0]}-{param[2]}",
 )
 def body_case(request, tmp_path):
     """Use retained bodies with independent verdicts in an isolated catalogue."""
-    height, rule, line = request.param
-    block_hash = {
-        173928: "000000000000023df73ac98923e2de321db3e3396102ad5dcfe3b25f01a81f64",
-        173957: "00000000000001bd778cffee5b5bae4c7b8d56a9aca955a04c60856b31b11155",
-        173998: "00000000000003bf4a1e491c802eeec3f1fbf3c2c7299e7935c2b0f33b189651",
-        174605: "000000000000068294db0526cb4a5520d21b9d4f271a34012e96784b3b3168c5",
-        197438: "0000000000000307872ec2eb0eae2dca3ed9ce6af9e024412cb3ddfe8afd12a7",
-        584802: "0000000000000000000b47042b90c6a893e6e5cdef70c92beefb88f4c5fa5a69",
-        474294: "00000000000000000182acdf5657c93a0769dc6f9004047496b2e15efc6a4232",
-        477115: "0000000000000000013ee4a86822d37a061732e04ee5f41fb77168f193363d1b",
-        783426: "00000000000000000002ec935e245f8ae70fc68cc828f05bf4cfa002668599e4",
-        784121: "000000000000000000046a2698233ed93bb5e74ba7d2146a68ddb0c2504c980d",
-    }[height]
+    height, block_hash, rule, commit, line = request.param
     name = f"{height}-{block_hash}.bin"
     source_path = ERROR_BLOCK_BODIES_DIR / name
     if not source_path.exists():
@@ -85,11 +148,6 @@ def body_case(request, tmp_path):
         "rejection_reason": BODY_ERROR_REJECTIONS[rule],
         "rules_violated": rule,
     }
-    commit = (
-        "aadce82e948f63bde0befd14f21a84aa45f45cde"
-        if height in {173928, 173957, 173998, 174605, 197438, 584802}
-        else "4d7063b3c8ddf7ab0dcc7deaa18f61d35952ba25"
-    )
     record = {
         "height": str(height),
         "hash": block_hash,

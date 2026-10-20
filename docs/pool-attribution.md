@@ -113,7 +113,11 @@ RSK loader input, itself derived from `results/rsk_pool_registry.csv` by
 historical snapshot (see [`chains/rsk.md`](chains/rsk.md)), and labels derived
 from it surface only with `attribution_basis=rsk_historical`: they are
 preserved as historical evidence, never reported as a current attribution
-result.
+result. When a full parent coinbase is available from a sibling chain or `.bin`
+archive, coinbase evidence wins over the retained `rsk_historical` label (for
+example, RSK miner `0xcf5072f792246690c75c63638e3d98bb2554ff2c` carries the
+historical `Luxor` label, but Bitcoin height `875,589` (`rsk:7039448`) resolves
+to `AntPool` on `attribution_basis=coinbase`; see [`chains/rsk.md`](chains/rsk.md)).
 
 ## Dual attribution: tag owner and template producer
 
@@ -211,6 +215,9 @@ definition of its own.
 - 0xB10C. "Block Template Similarities between Mining Pools," September 2024,
   <https://b10c.me/observations/12-template-similarity/>. The
   template-producer evidence base.
+- 0xB10C. "Invalid mining jobs by AntPool & friends during forks," March 2025,
+  <https://b10c.me/observations/14-antpool-and-friends-invalid-mining-jobs/>.
+  Fork-race empty-block template co-emission across the cluster.
 - 0xB10C. "Bitcoin Mining Centralization in 2025," April 2025,
   <https://b10c.me/blog/015-bitcoin-mining-centralization/>. Proxy-pooling
   hashrate estimates.

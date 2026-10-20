@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Admit Namecoin-witnessed AntPool blocks 494,933 and 544,568 to the error-block
+catalogue (`bad-cb-amount`) via retained full-block body evidence from
+`bitcoin-data/invalid-blocks` PR #34 (updating `invalid-blocks` in
+`data-sources.tsv` to `dddba8ea744ceb155a486acead04e330d25740a4`), removing them
+from `data/validated-stales/namecoin_validated_stales.csv` and refreshing the
+committed Monitor evidence and novelty report. Expand `TEMPLATE_PRODUCER_MAP`
+in `template_producers` with the remaining `AntPool & friends` proxy-pool rows
+documented by 0xB10C (`Ultimus Pool`, `Braiins Pool`, `SecPool`, `EMCDPool`,
+`Rawpool`, `WhitePool`, `Mining Squared`) and retarget `Sigmapool.com` from
+`SecPool` to `AntPool & friends`, and document in `docs/pool-attribution.md`
+and `docs/chains/rsk.md` how coinbase-wins precedence resolves RSK
+`0xcf5072f792246690c75c63638e3d98bb2554ff2c` (including 875,589 to `AntPool`).
+
 Correct the Fractal child hash for error parent 957,780 to the exact internal
 byte order of the native block hash, preserving the other publication fields.
 
