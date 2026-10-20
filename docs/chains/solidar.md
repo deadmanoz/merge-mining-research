@@ -25,7 +25,7 @@ The primary contemporary evidence is the developer's 2015 [debugging thread](htt
 |---|---|---|
 | Child hash | `04ed00f23c1a65d20a84c26d947200961a2960f45f8adf60330446f718e0edda` | `12ea133dfdbcebb34678b52d53c68e99c4daf36fa9904e83e56ed4b083bd29dc` |
 | Child time | 2015-06-11 12:39:02 | 2015-08-06 13:57:26 |
-| Child height evidence | coinbase-style tx `nRefHeight` = 11,418; the C++ node's `getblocks` log in the same capture serves this exact block first after height 11,417 | `nRefHeight` = 20,357 |
+| Child height evidence | coinbase `nRefHeight` = 11,418 (its txid equals the child merkle root); the `getblocks` log serves this block first after height 11,417 | coinbase `nRefHeight` = 20,357 (its txid equals the child merkle root); the explorer index assigns this hash to height 20,357 |
 | Chain commitment | `fabe6d6d` + 32-slot tree root, WLC at slot 27 — fold of child hash through the 5-step chain branch matches | same, slot 27 |
 | Parent coinbase inclusion | txid folds (0-step branch) to parent header merkle root | folds through 10-step branch |
 | Parent template | extends **canonical BTC 360,468**; coinbase BIP34 360,469; nBits `18171a8b` matches canonical; 287 P2PKH payouts totalling exactly 25 BTC; template 12:39:54, canonical winner 12:41:17 | extends **canonical BTC 368,655**; BIP34 368,656; nBits `18150815` matches canonical; 243 payouts totalling 25.12398384 BTC; 14:04:05 vs winner 14:07:44 |
@@ -69,7 +69,7 @@ BitcoinTalk topic 791398, post around #239 (2016-12-15 09:23:09), prints a miner
 | `nTime` / `nBits` / `nRefHeight` | 1481793106 (2016-12-15 09:11:46Z) / `1a1c5761` / 74,758 |
 | Version | 1434976513 = `0x55880101` (chain ID `0x5588`, AuxPoW bit, version 1) |
 
-The same thread says the first block of the replacement chain is 74,517 and that 74,516 is the last block the old client accepts. That is the developer's statement. A synced Bitcoin Core node did not have the parent hash in its block index on 2026-10-20. The parent header itself was not recovered, so this fragment is not a `near` or stale verdict.
+The log prints `vtx=1`, and that transaction's hash equals the merkle root (`vin.size=1`, `vout.size=2`). `ConnectBlock` requires the coinbase `nRefHeight` to equal the block height, so 74,758 is the block height under the pinned rules. The same thread says the first block of the replacement chain is 74,517 and that 74,516 is the last block the old client accepts. That is the developer's statement. A synced Bitcoin Core node did not have the parent hash in its block index on 2026-10-20. The parent header itself was not recovered, so this fragment is not a `near` or stale verdict.
 
 ## 2. Preserved source
 
@@ -116,7 +116,7 @@ The recovered fixtures pin the chain's exact 2015 wire format, which differs fro
 
 - **Old Durham commitment format.** The parent coinbase scriptSig carries `fabe6d6d` + 32-byte **chain merkle root** (not the child hash). Validation folds the child hash through `vChainMerkleBranch` at `nChainIndex` and requires the root immediately after a single `fabe6d6d` marker (`CAuxPow::Check` in the pinned source). Both fixtures: 2^5 = 32-slot tree, WLC at slot 27, eight zero bytes trailing inside the 44-byte push.
 - **Chain ID in the high 16 version bits** (`BLOCK_VERSION_CHAIN_START = 1 << 16`, AuxPoW flag `1 << 8`); observed 2015 chain ID `0x0011`. The C++ child-ID guard is ineffective (`!(id != OLD || id != NEW)` never rejects), while the remaining checks use the header's actual chain ID. Extensions must retain observed IDs and reproduce revision-specific behaviour, not impose a corrected allowlist.
-- **`nRefHeight`.** Child transactions are version 2 (`CTransaction::CURRENT_VERSION = 2`), appending a 4-byte `nRefHeight` after `nLockTime`, consensus-bound to the child height. Parent (Bitcoin) coinbases in the fixtures are version 1, so parent-side hashing is unaffected here, but a version-2 parent coinbase would be hashed with `nRefHeight` appended by this chain's serializer.
+- **`nRefHeight`.** Child transactions are version 2 (`CTransaction::CURRENT_VERSION = 2`), with a 4-byte `nRefHeight` after `nLockTime`. `ConnectBlock` rejects `pindex->nHeight < tx.nRefHeight` for every transaction, and rejects a coinbase whose `nRefHeight` is not the block height. A non-coinbase `nRefHeight` is only a lower bound. Parent (Bitcoin) coinbases in the fixtures are version 1, so parent-side hashing is unaffected here. A version-2 parent coinbase would be hashed with `nRefHeight` appended by this chain's serializer.
 - Child `nBits` is easier than Bitcoin's. The fixture parents meet the child target and fail the Bitcoin target (`near`). Child height and main-chain placement are separate from proof validity (§1).
 
 ## 5. Unresolved recovery work
@@ -132,4 +132,4 @@ Do not publish an empty validated-stales CSV as coverage.
 - **2026-09-08.** [Issue 59](https://github.com/deadmanoz/merge-mining-research/issues/59) opened. No complete proof.
 - **2026-10-02.** Pins unchanged. Two AuxPoW proofs recovered (children 11,418 and 20,357).
 - **2026-10-03.** No live peer. `node-infra/solidar/` added. Genesis hash verified on the archival host.
-- **2026-10-20.** No new block file and no new peer. Height index and checkpoint map recorded. Truncated header at `nRefHeight` 74,758.
+- **2026-10-20.** No new block file and no new peer. Height index and checkpoint map recorded. Truncated header whose coinbase `nRefHeight` is 74,758.

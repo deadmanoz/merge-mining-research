@@ -14,7 +14,7 @@
 | RPC port | 55888 (testnet 45888) |
 | AuxPoW | source-level from child height 1; chain ID packed in the high 16 version bits; observed 2015 chain ID `0x0011`, changed to `0x5588` in Dec 2016 (`f07b4a0d` / `460ab9b0`); the C++ chain-ID guard is a no-op De Morgan bug (`!(id != OLD || id != NEW)`), so either build accepts either historical chain ID |
 | Commitment format | old Durham format: `fabe6d6d` + 32-byte chain merkle root (not the child hash); 2^5-slot tree, WLC at slot 27 in the 2015 fixtures |
-| Transactions | version 2 with `nRefHeight` appended after `nLockTime`, consensus-bound to the child height (`ConnectBlock` rejects `block.nHeight < tx.nRefHeight`) |
+| Transactions | version 2 with `nRefHeight` after `nLockTime`. `ConnectBlock` rejects `block.nHeight < tx.nRefHeight` for every transaction, and rejects a coinbase whose `nRefHeight` is not the block height |
 | Hardcoded seeds | 91.108.68.164, 185.38.44.6, 109.73.173.119 (identical in every repo and branch inspected, including the Henne123 fork) |
 
 ## Network liveness
