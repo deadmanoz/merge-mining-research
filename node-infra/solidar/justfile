@@ -1,0 +1,48 @@
+set dotenv-load := true
+
+default:
+    @just --list
+
+# Render solidar.conf in the datadir (SOLIDAR_DATA_DIR, default ./data).
+init:
+    ./init.sh
+
+build:
+    docker compose build
+
+# Validate configuration without printing private settings.
+config:
+    docker compose config --quiet
+
+# Start from the selected existing image.
+up:
+    docker compose up -d --no-build --pull never
+
+start:
+    docker compose start solidard
+
+stop:
+    docker compose stop --timeout -1 solidard
+
+# Stop and remove the container (the data volume persists).
+down:
+    docker compose down --timeout -1
+
+logs:
+    docker compose logs -f --tail=200 solidard
+
+height:
+    docker compose exec -T solidard solidard -datadir=/data -conf=/data/solidar.conf getblockcount
+
+peers:
+    docker compose exec -T solidard solidard -datadir=/data -conf=/data/solidar.conf getconnectioncount
+
+status:
+    docker compose exec -T solidard solidard -datadir=/data -conf=/data/solidar.conf getinfo
+
+# One-shot peer attempt, e.g. `just addnode 203.0.113.7` (online profile only).
+addnode ip:
+    docker compose exec -T solidard solidard -datadir=/data -conf=/data/solidar.conf addnode {{ip}} onetry
+
+shell:
+    docker compose exec solidard bash

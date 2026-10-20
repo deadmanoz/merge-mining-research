@@ -17,6 +17,34 @@ Effective upstream rows rise from 3,927 to 4,186. Per-chain overlap is
 unchanged, and the nine upstream-absent contribution rows and zero header
 fills remain.
 
+Add a WLC/Solidar roster entry at `docs/chains/solidar.md`, linked from the
+README catalogue, `docs/auxpow-recovery.md`, and
+`docs/process-data-outcomes.md`. The entry records the 2026-10-02 recovery of
+two complete AuxPoW proofs (WLC children 11,418 and 20,357) from the
+contemporary debugging thread, authenticated end-to-end against pinned source
+rules and Bitcoin Core: both parents are `near`-class templates extending
+canonical Bitcoin 360,468 and 368,655 with exact era `nBits`. Historical block
+coverage remains unrecovered; no loader, validated CSV, `CHAIN_SPECS` entry,
+or Monitor wiring is added.
+
+Add the `node-infra/solidar/` node workspace for the historical WLC/Solidar
+daemon, following the established historical-chain template: pinned
+`wincev/SOLIDAR` 0.8.9.0 built from source on `debian:stretch` with OpenSSL
+1.0, Berkeley DB 4.8.30, and the bundled leveldb via `makefile.unix` (GMP,
+MPFR, and zlib are Freicoin-heritage dependencies); online and
+networkless-offline Compose profiles with a noncreating datadir bind,
+loopback-scoped RPC publish, and restart disabled by default. The workspace
+documents the daemon's legacy RPC listener behaviour (`-rpcbind` ignored; any
+`rpcallowip` wildcards the socket) and the 2026-10-03 liveness probe in which
+every known endpoint timed out — no live peer is known, so the node currently
+serves native validation (genesis hash verified) and stands ready for archive
+adoption or a newly found peer via `just addnode`. A 2026-10-20 public pass
+added no block file and no peer. It reconstructed a height-to-hash index for
+child heights 0–23,508 (gap at 19,860) from the 2015 Iquidus access log in
+`WorldLeadCurrency/explorer`, and recorded the pinned `checkpoints.cpp` map
+through height 131,690. A truncated 2016-12-15 header at child 74,758 shows
+chain ID `0x5588`. None of that is a block archive or a loader input.
+
 Admit Namecoin-witnessed AntPool blocks 494,933 and 544,568 to the error-block
 catalogue (`bad-cb-amount`) via retained full-block body evidence from
 `bitcoin-data/invalid-blocks` PR #34 (updating `invalid-blocks` in

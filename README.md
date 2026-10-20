@@ -189,13 +189,23 @@ blocked and source-only outcomes separate avoids confusing "zero stales" with
 | [Fusioncoin](docs/chains/surveyed-infra.md#status-table) | Private source archive only | No canonical node run, extraction, classifier output, or block archive. |
 | [Jax.Network](docs/chains/surveyed-infra.md#status-table) | Official source and container material only | Seeds, explorer, and public data routes were unavailable. |
 | [Jincoin](docs/chains/surveyed-infra.md#status-table) | Buildable source and node scaffold | No reachable peers or private block archive. |
+| [Solidar (formerly WorldLeadCurrency)](docs/chains/solidar.md) | Preserved source, two authenticated AuxPoW proofs, a 2015 height-to-hash index through child 23,508, and source checkpoints through 131,690 | Bitcoin merge mining in 2015 confirmed (`near`-class parents). The index and checkpoints are not a block archive; stale yield is still unknown. |
 
 ### Coverage gaps and how to help
 
 **No recovered data.** Five surveyed candidates (BLAST, Bitcoin Stash,
 Fusioncoin, Jax.Network, and Jincoin) yielded no block data at all, as the
 status table above records. A reachable peer, block archive, or working sync
-path for them would be new coverage.
+path for them would be new coverage. WLC/Solidar, also in that table, is a
+distinct case: its 2015 Bitcoin merge mining is now confirmed by two
+authenticated AuxPoW proofs recovered from the contemporary debugging
+thread. A 2015 explorer log supplies child hashes through height 23,508, and
+the pinned daemon names checkpoint hashes through 131,690, but the block
+bodies are still missing. Its standing
+data-wanted call is
+[issue 59](https://github.com/deadmanoz/merge-mining-research/issues/59),
+and its recovery state is tracked in
+[docs/chains/solidar.md](docs/chains/solidar.md).
 
 **Partial or bounded coverage.** VCash, i0coin, Huntercoin, Xaya, Syscoin, and
 Bitcoin Vault carry the coverage limits stated in their table rows. The Kraft

@@ -95,6 +95,10 @@ ran a node:
   Its block-file survey is documented in `docs/chains/doichain.md`.
 - **Blast and Jincoin** are surveyed scaffolds that never reached a
   usable peer or block archive; see `docs/chains/surveyed-infra.md`.
+- **Solidar** (`node-infra/solidar/`) builds pinned `wincev/SOLIDAR` 0.8.9.0.
+  A 2026-10-03 smoke test checked the native genesis hash. No listener
+  accepted port 55889 on 2026-10-03 or 2026-10-20. Recovery scope is in
+  `docs/chains/solidar.md`.
 
 The per-chain provenance docs under `docs/chains/` record which path
 each recovery took and the resulting stage counts.

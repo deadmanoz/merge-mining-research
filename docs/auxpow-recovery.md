@@ -244,7 +244,13 @@ loader input; its aggregate canonical characterization is documented, but no
 row-level canonical export is committed. The VCash record is a recovered
 68-row canonical mapping subset, but it is not a recovered VCash blockchain
 and does not establish stale or strict/weak totals. BLAST remains blocked with
-no usable peer.
+no usable peer. WLC/Solidar is a historically reported Bitcoin merge-mining
+lineage whose 2015 merge mining is now confirmed by two authenticated AuxPoW
+proofs recovered from the contemporary debugging thread (`near`-class
+parents). A 2015 explorer log reconstructs child hashes through height 23,508,
+and the pinned checkpoint map names hashes through 131,690; the block bodies
+remain unrecovered. Its roster entry and outstanding recovery work are
+documented in [`chains/solidar.md`](chains/solidar.md).
 
 The i0coin refresh processes every block file in the complete March 2026
 third-party snapshot, retaining the earlier January 2018 observations. Its
