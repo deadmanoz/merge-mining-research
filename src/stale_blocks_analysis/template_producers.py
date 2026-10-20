@@ -105,16 +105,17 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "Ultimus Pool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 774_144,
+        "valid_from_height": 846_720,
         "valid_to_height": 895_104,
         "evidence": (
             "Ultimus Pool-Braiins Pool 89% weighted Merkle-branch similarity "
-            "within the AntPool template cluster (0xB10C obs 12); co-emitted "
-            "all four cached-fee empty-block fork jobs (0xB10C obs 14, "
-            "2024-12..2025-03) and included in the 2023-2025 cluster "
-            "(0xB10C blog/015). Window opens at 774144 (~Jan 2023) and ends "
-            "at 895104, the first DAA epoch start after April 2025, the last "
-            "period blog/015 documents."
+            "within the AntPool template cluster (0xB10C obs 12, stratum data "
+            "2024-06..2024-09); co-emitted all four cached-fee empty-block "
+            "fork jobs (0xB10C obs 14, 2024-12..2025-03) and included in the "
+            "cluster through April 2025 (0xB10C blog/015). Window opens at "
+            "846720 (first DAA epoch start on/after the 2024-06-01 obs-12 "
+            "stratum window start) and ends at 895104, the first DAA epoch "
+            "start after April 2025, the last period blog/015 documents."
         ),
     },
     {
