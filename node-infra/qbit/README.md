@@ -22,9 +22,8 @@ separate from block pruning and incompatible with transaction indexing. Keep
 cookie authentication private inside the datadir for the CLI, the health check
 and research use; a remote poller authenticates with one `rpcauth` line.
 
-The workspace follows the same profile model as the other node workspaces.
-The base Compose file is the operating shape: RPC published on `QBIT_RPC_BIND`,
-automatic restart from `QBIT_RESTART_POLICY` (default `no`), and a
+The base Compose file publishes RPC on `QBIT_RPC_BIND`, takes automatic
+restart from `QBIT_RESTART_POLICY` (default `no`), and uses a
 `qbit-cli getblockcount` health check. `compose.offline.yml` is the opt-in
 overlay for networkless reads of the retained datadir (no network interface,
 no host ports, no restart). Select profiles through `COMPOSE_FILE` in `.env`.

@@ -1,13 +1,7 @@
-"""Low-level Bitcoin binary parsing and address decoding.
+"""Bytes to coinbase, hash160, and witness program.
 
-Concerned only with bytes-to-structured-data conversions: raw block to
-coinbase transaction, base58 address to hash160, and bech32 address to witness
-program. These helpers have no knowledge of mining pools, stale blocks, or
-analysis flow.
-
-Checksum verification is intentionally skipped in the address decoders:
-callers use the payload bytes (hash160 / witness program) to cross-reference
-against a curated local dataset, not to validate arbitrary user input.
+Address decoders skip checksums. Callers compare the payload against a
+curated local dataset, not arbitrary user input.
 """
 
 import hashlib
@@ -92,13 +86,7 @@ _BECH32_MAP = {c: i for i, c in enumerate(_BECH32_CHARSET)}
 
 
 def _b58_decode_to_hash160(addr: str) -> bytes | None:
-    """Decode a base58check P2PKH ('1...') or P2SH ('3...') address.
-
-    Returns the 20-byte hash160 payload (version byte stripped, checksum
-    discarded). Returns None on invalid input. Does not verify the checksum
-    because the upstream dataset is curated — for audit purposes we only
-    need the payload to compare against locally-stored hash160s.
-    """
+    """20-byte hash160, version and checksum stripped. None on invalid input. Checksum is not verified."""
     try:
         n = 0
         for ch in addr:
@@ -114,12 +102,7 @@ def _b58_decode_to_hash160(addr: str) -> bytes | None:
 
 
 def _bech32_decode_to_program(addr: str) -> bytes | None:
-    """Decode a bech32(m) segwit mainnet address to its witness program.
-
-    Returns the witness program bytes (20 for P2WPKH, 32 for P2WSH/P2TR),
-    or None on parse failure. Skips checksum verification because callers only
-    need the program bytes to cross-reference against locally stored hash160s.
-    """
+    """Witness program, or None. Checksum is not verified."""
     addr = addr.lower()
     if not addr.startswith("bc1") or len(addr) > 90 or len(addr) < 14:
         return None
@@ -146,17 +129,7 @@ def _bech32_decode_to_program(addr: str) -> bytes | None:
     return bytes(out)
 
 
-# ============================================================================
-# Address ENCODING and coinbase-output formatting
-#
-# These mirror the DECODERS above (_b58_decode_to_hash160 /
-# _bech32_decode_to_program). They consolidate the largest single
-# address-encoding copy-paste in the extract scripts (originally inlined in
-# scripts/extract/extract_bitcoin_vault_auxpow.py) plus the two coinbase-output
-# formatting conventions used by the JSON-RPC and raw-hex extractors.
-#
-# PURE STDLIB ONLY: extract scripts run on package-less / NixOS hosts.
-# ============================================================================
+# Address encoding and coinbase-output formatting. Stdlib only.
 
 # bech32 / bech32m (BIP-173 / BIP-350)
 _BECH32_GENERATOR = (0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3)
@@ -164,11 +137,7 @@ _BECH32_CONST = {"bech32": 1, "bech32m": 0x2BC830A3}
 
 
 def sha256d(b: bytes) -> bytes:
-    """Double SHA-256, the Bitcoin block/tx hash primitive.
-
-    The canonical definition for the package: auxpow_parse, auxpow_chainid,
-    lyncoin_headers, and full_evidence all re-export or import this.
-    """
+    """Double SHA-256. The package's one definition of the block and tx hash primitive."""
     return hashlib.sha256(hashlib.sha256(b).digest()).digest()
 
 
@@ -251,21 +220,9 @@ def _encode_segwit_addr(hrp: str, witver: int, witprog: bytes) -> str:
 
 
 def encode_btc_address(spk: bytes) -> Optional[str]:
-    """Encode a BTC mainnet scriptPubKey to its address string.
+    """Mainnet address for P2PKH, P2SH, P2PK (hash160 of the pubkey), P2WPKH, P2WSH, and P2TR.
 
-    Inverse of the package decoders (_b58_decode_to_hash160 /
-    _bech32_decode_to_program). Covers the five script types that account
-    for effectively all BTC coinbase outputs:
-
-      P2PKH  -> base58check '1...'
-      P2SH   -> base58check '3...'
-      P2PK   -> base58check '1...' (hash160 of the pubkey)
-      P2WPKH -> bech32  'bc1q...'
-      P2WSH  -> bech32  'bc1q...'
-      P2TR   -> bech32m 'bc1p...'
-
-    Returns None for OP_RETURN / nonstandard / unrecognised scripts. Callers
-    that want a passthrough label (e.g. 'OP_RETURN') should handle the None.
+    None for OP_RETURN and nonstandard scripts.
     """
     L = len(spk)
     # P2PKH: OP_DUP OP_HASH160 <20> OP_EQUALVERIFY OP_CHECKSIG
@@ -322,18 +279,10 @@ def _is_p2pk(spk: bytes) -> bool:
 
 
 def canonical_output_token(spk: bytes) -> str:
-    """Render one BTC scriptPubKey in the committed `coinbase_outputs` form.
+    """Address for standard address-bearing templates; raw script hex otherwise.
 
-    The mainnet address for the address-bearing standard templates (P2PKH,
-    P2SH, P2WPKH, P2WSH, P2TR), and raw scriptPubKey hex for every other
-    script.
-
-    Two categories stay hex deliberately. P2PK carries no address, so
-    rendering it as the base58 address of its pubkey hash would assert a
-    P2PKH template the bytes do not have and make the two script types
-    indistinguishable. Nulldata carries its payload in the script itself, so
-    an ``OP_RETURN`` label would discard the segwit witness commitment that
-    almost every modern coinbase places there.
+    P2PK stays hex so it is not written as the P2PKH address of its pubkey.
+    Nulldata stays hex so the witness commitment is not replaced by a label.
     """
     if _is_p2pk(spk) or (len(spk) >= 1 and spk[0] == 0x6A):
         return spk.hex()
@@ -341,12 +290,9 @@ def canonical_output_token(spk: bytes) -> str:
 
 
 def _jsonrpc_value_spk(out: dict) -> Tuple[Optional[int], Optional[bytes]]:
-    """Pull ``(value_sats, spk)`` from a JSON-RPC vout entry.
+    """``(value_sats, scriptPubKey)``. Prefer ``scriptPubKey.hex`` over the node's decoded address.
 
-    JSON-RPC reports the amount in BTC and the script under
-    ``scriptPubKey.hex``. The hex is used in preference to the node's decoded
-    ``address`` field, which renders Bitcoin payouts in the *child* chain's
-    address format on merge-mined nodes.
+    A merge-mined node renders that address in the child chain's format.
     """
     spk_meta = out.get("scriptPubKey") or {}
     script_hex = spk_meta.get("hex")
@@ -370,13 +316,7 @@ def _jsonrpc_value_spk(out: dict) -> Tuple[Optional[int], Optional[bytes]]:
 
 
 def format_outputs_canonical(outputs: Iterable[_Output]) -> str:
-    """Format coinbase outputs in the canonical committed rendering.
-
-    Semicolon-joined, in coinbase order, each entry ``<payout>`` or
-    ``<payout>:<value_sats>`` where the extraction preserved the amount.
-    Amounts are integer satoshis; ``<payout>`` follows
-    ``canonical_output_token``.
-    """
+    """Semicolon-joined ``<payout>`` or ``<payout>:<value_sats>``, in coinbase order. Amounts are satoshis."""
     parts: list[str] = []
     for out in outputs:
         if isinstance(out, dict) and "scriptPubKey" in out:

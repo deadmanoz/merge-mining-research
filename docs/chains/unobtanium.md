@@ -13,7 +13,7 @@
 | Loader | `load_unobtanium_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/unobtanium_validated_stales.csv` |
 
-Unobtanium has one of the **longest continuous single-chain AuxPoW scan windows** of any merge-mined chain in scope: about 11 years from May 2015 to the present. (Namecoin's 2011 → present run is longer, as are ixcoin's and Devcoin's early-2012 → present runs.) Its 43 validated stales are modest in number, but the long scan provides a useful view across multiple Bitcoin mining eras and independently corroborates events recovered from other AuxPoW chains.
+Unobtanium has one of the **longest continuous single-chain AuxPoW scan windows** of any merge-mined chain in scope: about 11 years from May 2015 to the present. (Namecoin's 2011 → present run is longer, as are ixcoin's and Devcoin's early-2012 → present runs.) The scan recovered 43 validated stales and independently corroborates events recovered from other AuxPoW chains.
 
 ## 1. Chain data
 
@@ -113,7 +113,7 @@ are retained below, but the one-off script and row-level files are private.
 
 *Anchor note: the analysis constant 556,766 is the BCH-chain height at the BSV split; Bitcoin's own height on 2018-11-15 was near 551,000, so the BSV window as coded probes BTC blocks from ~Jan 2019 rather than the split itself. The finding is negative at either anchor.*
 
-**Summary.** Zero of 430,931 unknown rows match Bitcoin's expected `nBits` epoch. This is stronger than Devcoin's 6 of 75,141 and matches Terracoin's 0 of 523,315. H1 is rejected on one of the largest evidence bases in the project (Terracoin's 0 of 523,315 is larger).
+**Summary.** Zero of 430,931 unknown rows match Bitcoin's expected `nBits` epoch. Devcoin has 6 of 75,141; Terracoin has 0 of 523,315. H1 is rejected for this unknown set.
 
 **Cross-chain finding.** 18 of 31 Namecoin cross-confirmed unknown roots are
 present in UNO's unknown inventory, and **0 / 18 pass the BTC nBits-epoch
@@ -122,7 +122,7 @@ labelled most of them BTC.TOP, Huobi Pool, or WAYI.CN (two remained Unknown),
 but those labels are not reproduced by the current public pipeline. The epoch result is direct evidence
 that this shared SHA-256d substrate does not match Bitcoin's expected target history.
 
-**Loader decision.** `load_unobtanium_stales()` keeps loading only publication-gate-accepted direct-stale rows. The unknown class overwhelmingly fails the Bitcoin expected-`nBits` epoch test and is not direct-stale evidence.
+**Loader decision.** `load_unobtanium_stales()` keeps loading only publication-gate-accepted direct-stale rows. The unknown class fails the Bitcoin expected-`nBits` epoch test and is not direct-stale evidence.
 
 The private archive retains the aggregate JSON, the 134 MB per-row analysis,
 and the cross-chain overlap detail.

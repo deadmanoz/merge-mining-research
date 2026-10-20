@@ -28,12 +28,6 @@ excluded from accepted recovery. An additional Huntercoin witness of the already
 331,674 parent brings the error ledger to 121 observations. The source unknown
 buckets are preserved.
 
-This document is the cross-chain accounting view for the stale-block recovery
-work. It is deliberately more operational than the per-chain writeups: it
-tracks what data went in, how the row counts changed through each processing
-stage, what final artifacts exist, and which findings or inconsistencies affect
-publication-quality interpretation.
-
 The published state combines every chain's committed loader input as a
 publication-gate-accepted `<chain>_validated_stales.csv` (RSK included), the
 catalogued-source evidence outputs (VCash, Lyncoin, SixEleven, Doichain) and
@@ -158,12 +152,8 @@ remain supported, with explicit archive-root order choosing one family. The
 current October refresh selects the empty primary and 50,621-row unknown
 companion together in the refreshed source view.
 
-Important implementation boundary: downstream cross-source publication views
-deduplicate by `(height, hash)`, so same-height competing stale hashes remain
-distinct. Exact duplicates retain the upstream row as the catalogue record;
-Merge-mining coinbase fields remain available as fallback evidence for later
-attribution work. RSK carries miner-address evidence rather than the real
-parent coinbase.
+Downstream dedup, upstream-duplicate retention, and the RSK parent-coinbase
+limit are in [research contracts](research-contracts.md#research-semantics).
 
 The Namecoin output restoration for #52 added 784 scripts across 455 accepted
 rows without changing any event count, row identity or validation verdict.
@@ -179,24 +169,9 @@ overlay.
 
 ## Direct Stales vs Stale Descendants
 
-The project has two different stale concepts that must not be conflated.
-
-**Direct canonical-parent stale** means the recovered BTC parent header is not
-on Bitcoin mainchain, but its `btc_prev_hash` is on Bitcoin's active main chain.
-This is what the per-chain classifiers emit as `classification=stale`, and this
-is what each `data/validated-stales/<chain>_validated_stales.csv` row represents.
-
-**Stale descendant** means a recovered header's `btc_prev_hash` is not
-canonical and its authenticated ancestry reaches a declared trusted BTC stale
-root. Reconciliation considers authenticated candidates from every source
-bucket, excludes active-mainchain parents from the descendant class, verifies
-the complete predecessor path from declared trusted roots, and gives
-consensus-invalid candidates error-block precedence. These rows are BTC
-stale-fork continuations, not one-hop active-parent stale blocks.
-`data/stale_descendants.csv` carries the parent verdicts and
-`data/stale_descendant_observations.csv` carries the exact child-chain
-witnesses. A witness's source bucket is retained for audit only. It cannot
-create or override a parent verdict.
+Direct stale and stale descendant are separate evidence states. Definitions,
+ancestry gates, and source-bucket limits are in
+[research contracts](research-contracts.md#research-semantics).
 
 The label `direct_stale_child` in the recovery files is especially easy to
 misread. It means "first child of a known stale root", not "direct stale block
@@ -288,13 +263,10 @@ and monitor artifacts now carry the authenticated bundle, and
 rows. Source details and the authentication contract are recorded in
 [`child-header-hydration.md`](child-header-hydration.md).
 
-Mining-pool attribution is a separate layer over the recovery outputs:
-`just attribute` reads the pool registry that `scripts/fetch-data.sh`
-fetched and labels the
-merge-mining-recovered stales, writing an export as a gitignored run product
-(see [`pool-attribution.md`](pool-attribution.md)). The upstream census is
-not labelled here. No attribution results are
-committed.
+Mining-pool attribution is a separate `just attribute` pass over recovered
+stales. The export is a gitignored run product, the upstream census is not
+labelled here, and no attribution results are committed. See
+[`pool-attribution.md`](pool-attribution.md).
 
 The full extraction and classification sequence is not encoded in the
 `justfile`; selected evidence exports, canonical error-module validation, and
@@ -440,9 +412,6 @@ Generated monitor evidence:
    their rejection CSVs as private/ignored archive evidence rather than
    committed in-repo artifacts. Cross-chain `nBits` failures are not retained
    as committed rows; the publication boundary is the validated loader CSV.
-
-8. **README and terminology drift.** README dependency/layout claims were
-   refreshed, and project docs now use `artifacts` consistently.
 
 ## Pending and Deferred Work
 

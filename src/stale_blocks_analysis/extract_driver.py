@@ -1,26 +1,9 @@
-"""Shared extraction driver for the batched-RPC Bitcoin-family AuxPoW extractors.
+"""Batched-RPC driver for Bitcoin-family AuxPoW extractors.
 
-Roughly a dozen ``scripts/extract/extract_*_auxpow.py`` scripts talk to a
-child-chain node via ``child_rpc.RpcClient`` and share the same outer shape:
-resolve the height range, batch ``getblockhash`` then a block/header fetch,
-apply a per-chain AuxPoW gate, parse the embedded Bitcoin parent header plus
-coinbase, and append rows to a CSV. ``run_extraction`` owns the batched
-loop; ``run_standard_extractor_cli`` owns the thin-adopter CLI lifecycle
-(argparse, resume, stats, shared parse-row). Only the version gate and
-child-RPC construction stay in the wrapper.
-
-This driver is adopted only where a script's existing loop is byte-identical
-to it modulo chain name, RPC block-fetch method/params, and one optional
-progress-line field. Extractors with real quirks (custom resume semantics,
-concurrent dispatch, decoded-JSON-instead-of-raw-hex block bodies, missing
-retry-on-batch-failure, etc.) are intentionally left untouched; see
-``docs/`` / the introducing commit for the per-extractor equivalence
-argument.
-
-DEPLOYMENT CONSTRAINT: like ``auxpow_parse``, this module is imported by
-extract scripts that run on package-less / NixOS hosts. It MUST remain
-importable with the Python standard library plus intra-package pure helpers
-only (the caller supplies the already-constructed ``RpcClient``).
+``run_extraction`` owns the height loop; ``run_standard_extractor_cli`` owns
+the thin CLI. The version gate and child-RPC construction stay in the wrapper.
+Extractors whose loop is not this shape are left alone. Stdlib plus
+intra-package helpers only; the caller supplies the ``RpcClient``.
 """
 
 from __future__ import annotations
@@ -66,25 +49,14 @@ def _default_block_fetch_params(block_hash: str) -> list:
 
 
 def get_chain_tip(rpc) -> int:
-    """Return the chain tip height via a single-call ``getblockcount`` batch.
-
-    Mirrors the one-line ``rpc().batch([{...getblockcount...}])[0]["result"]``
-    every adopting extractor's own ``get_chain_tip()`` used to duplicate.
-    """
+    """Tip height from one ``getblockcount`` batch."""
     return rpc.batch(
         [{"jsonrpc": "1.0", "id": 0, "method": "getblockcount", "params": []}]
     )[0]["result"]
 
 
 def resume_start(output_path: Path, height_column: str, default_start: int) -> int:
-    """Return one past the highest height already recorded in ``output_path``.
-
-    Reads the last line of an existing CSV and parses the integer before its
-    first comma; a missing file, an empty file, or a last line that is the
-    header row (starts with ``height_column``) falls back to
-    ``default_start``. Matches the byte-for-byte resume logic every adopting
-    extractor used to inline in ``main()``.
-    """
+    """One past the last recorded height. A missing file, empty file, or header row returns ``default_start``."""
     if not output_path.exists():
         return default_start
     last = None
@@ -126,37 +98,14 @@ def run_extraction(
     progress_extra: tuple | None = None,
     progress_interval: int = 10_000,
 ) -> dict:
-    """Run the common batched-RPC AuxPoW extraction loop and write CSV rows.
+    """Batch ``getblockhash``, then the block fetch. Empty and short results are skipped.
 
-    For each ``batch_size``-height window in ``[start, end)``: batch
-    ``getblockhash`` then a block/header fetch (``block_fetch_method`` with
-    params from ``block_fetch_params(hash)``, default ``getblock <hash>
-    false``), then for each returned raw-hex block: skip empty results
-    (``stats["skipped_empty"]``) and short results under 80 bytes
-    (``stats["skipped_short"]``), decode the little-endian ``nVersion`` and
-    call ``gate(version, stats)`` (a False return skips the block, having
-    already tallied its own reason), deserialise the CAuxPow tail
-    (``stats["skipped_parse_error"]`` on a malformed payload), and hand the
-    parsed ``auxpow`` dict and authenticated child fields to
-    ``parse_row(height, auxpow, child_fields)`` for the CSV row, tallying
-    ``stats["auxpow_blocks"]``. Only blocks that pass the version gate and
-    AuxPoW parse reach child-header authentication and the callback.
-
-    A batch that raises is retried one height at a time before giving up on
-    it (unparseable individual heights fall into
-    ``stats["skipped_parse_error"]``). Opens ``output_path`` in append mode
-    when ``append`` is True, after requiring its existing CSV header to match
-    ``csv_columns`` exactly; this prevents a resume against a pre-hydration
-    schema from corrupting the file. Write mode writes the current header.
-    Prints periodic progress/ETA every
-    ``progress_interval`` processed heights (flushing the output file each
-    time) and a final ``Done in Xm`` summary iterating ``stats`` in
-    insertion order, plus the output path. ``progress_extra`` is an optional
-    ``(label, stats_key)`` pair rendered as ``label=value`` in the progress
-    line, for the one or two chains whose interim progress historically
-    surfaced a second skip counter alongside ``auxpow_blocks``.
-
-    Returns ``stats`` (mutated in place; returned for convenience).
+    ``gate`` returning False skips the block after it tallies its own reason.
+    A malformed AuxPoW is ``skipped_parse_error``. Only a passing gate reaches
+    child-header authentication. A failed batch is retried one height at a
+    time. Append mode requires the existing header to match ``csv_columns``.
+    A missing key in ``stats`` is recorded as ``skipped_parse_error`` and the
+    row is dropped.
     """
     mode = "a" if append else "w"
     if append:
@@ -278,12 +227,7 @@ def standard_auxpow_parse_row(
 
 
 def _rpc_client(rpc):
-    """Return an RPC client from an instance or a zero-arg factory.
-
-    A factory is invoked only after argparse, so ``--help`` can exit
-    before wrappers construct child-chain RPC or check required env.
-    An already-built client is recognised by a ``batch`` attribute.
-    """
+    """A factory runs after argparse, so ``--help`` does not construct RPC. A client is recognised by ``batch``."""
     if callable(rpc) and not hasattr(rpc, "batch"):
         return rpc()
     return rpc
@@ -304,18 +248,11 @@ def run_standard_extractor_cli(
     description: str | None = None,
     scan_prefix: str = "Extracting AuxPoW",
 ) -> None:
-    """Run the thin raw-hex extractor CLI for one ``ChainSpec``.
+    """Thin raw-hex CLI. Does not build an ``RpcClient`` or read child-chain env.
 
-    Owns argparse, tip resolution, resume, the ordered ``stats`` contract,
-    shared parse-row, and the ``run_extraction`` call. Defaults come from
-    ``spec`` (``activation_height``, repo-relative ``input_csv``,
-    ``height_column``). Does not build an ``RpcClient`` and does not read
-    child-chain env vars. ``rpc`` may be an already-built client or a
-    zero-arg factory invoked after argparse. ``stats_keys`` is the complete
-    insertion-order tuple the wrapper historically printed; every gate
-    counter must already be present — a missing key becomes a ``KeyError``
-    that ``run_extraction`` then records as ``skipped_parse_error``,
-    silently dropping the row.
+    ``stats_keys`` is the insertion-order tuple the wrapper prints. A missing
+    key becomes ``skipped_parse_error`` inside ``run_extraction`` and the row
+    is dropped.
     """
     if spec.activation_height is None:
         raise ValueError(

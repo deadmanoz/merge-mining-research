@@ -19,17 +19,15 @@ Bitcoin-parent AuxPoW; the other seven algorithms either merge-mine
 non-Bitcoin parents (Scrypt to Litecoin/Dogecoin, Equihash to Zcash,
 CryptoNight to the Monero family) or are out of scope, so only the SHA-256d
 branch is considered here. The extraction yields a **single** validated BTC
-stale, also witnessed by Unobtanium, Myriadcoin and RSK. The substantive
-character of the recovery is the ratio - **81,921 self-target-PoW-valid unknowns against 1
-accepted direct stale** - drawn from a SHA-256d branch that is only 13.3 % of
-Bitmark's blocks (the lowest multi-algo SHA-256d share in the pipeline). Unlike
-Myriadcoin and Argentum, Bitmark sets `fStrictChainId=true`, so every accepted
-parent committed to Bitmark's chain ID 91; that constrains the AuxPoW
-commitment but does not, by itself, prove the parent is Bitcoin. The one
-methodological trap worth carrying forward is structural: Bitmark's `CAuxPow`
-class lives inline in `src/core.{h,cpp}` rather than in separate
-`src/auxpow.{h,cpp}` files, so a filename-only search is not a sufficient
-negative test for AuxPoW support.
+stale, also witnessed by Unobtanium, Myriadcoin and RSK. The recovery ratio is
+**81,921 self-target-PoW-valid unknowns against 1 accepted direct stale**, from
+a SHA-256d branch that is only 13.3 % of Bitmark's blocks (the lowest
+multi-algo SHA-256d share in the pipeline). Unlike Myriadcoin and Argentum,
+Bitmark sets `fStrictChainId=true`, so every accepted parent committed to
+Bitmark's chain ID 91; that constrains the AuxPoW commitment but does not, by
+itself, prove the parent is Bitcoin. Bitmark's `CAuxPow` class lives inline in
+`src/core.{h,cpp}` rather than in separate `src/auxpow.{h,cpp}` files, so a
+filename-only search is not a sufficient negative test for AuxPoW support.
 
 ## 1. Chain data
 
@@ -130,15 +128,12 @@ this out and the filter constant is `ALGO_SHA256D = 1`.
 Pipeline timing recorded at recovery: node sync ~18 h from genesis; extraction
 ~186 min (~173 blk/s sustained over the tunnelled RPC).
 
-**Interpretation.** The self-target PoW filter establishes only that a header
-meets the target encoded within it; it is not Bitcoin's contemporaneous target
-and does not establish parent identity. Bitcoin Core recognises 897 of the
-82,819 unique headers as canonical, and 1 more extends a canonical predecessor
-and passes the publication gates. The remaining 81,921 are unknown: they carry
-BTC-plausible difficulty but are absent from Core's active chain and extend no
-canonical Bitcoin predecessor. Their origin (deep BTC stales Core never
-retained, or other SHA-256d chains sharing the merge-mining slot) is not
-resolved by the public pipeline.
+The self-target filter checks the target encoded in the header. It is not
+Bitcoin's contemporaneous target and does not establish parent identity. The
+81,921 unknowns carry BTC-plausible difficulty but are absent from Core's
+active chain and extend no canonical Bitcoin predecessor. Their origin (deep
+BTC stales Core never retained, or other SHA-256d chains sharing the
+merge-mining slot) is not resolved by the public pipeline.
 
 **Chain-specific quirks.**
 
@@ -150,10 +145,6 @@ resolved by the public pipeline.
 - **Algo-encoding inverse from Myriadcoin.** `ALGO_SCRYPT = 0`,
   `ALGO_SHA256D = 1` (`src/pureheader.h:14-15`), so the extractor filter is
   `algo == 1`, not `== 0`. Myriadcoin encodes SHA-256d as the default `0`.
-- **Strict chain ID, permissive parent.** `fStrictChainId=true` is tighter than
-  Myriadcoin's and Argentum's permissive mode, but a strict chain ID only binds
-  the AuxPoW commitment to Bitmark; it does not establish that the SHA-256d
-  parent is Bitcoin.
 - **Empirically pinned activation.** Because Fork 1 is supermajority-governed
   rather than a fixed constant, the 450,947 activation height is an observed,
   boundary-walked value rather than a value read out of the source.
@@ -218,13 +209,3 @@ in git).
 - Live explorer: `chainz.cryptoid.info/btmk/`.
 - Upstream: `bitcoin-data/stale-blocks` carries BTC height 565,106
   (header-only; no pool or first-seen metadata).
-
-**Methodological note.**
-
-Bitmark reinforces the Argentum lesson from a strict-chain-ID chain: structural
-AuxPoW evidence is not equivalent to validated Bitcoin-parent evidence. A live
-8-algo chain with real SHA-256d activity and standard `CAuxPow` commitments
-still yields a single accepted direct-stale candidate, and that candidate is
-already covered by three earlier chains. The 81,921 unknowns satisfy only their
-encoded self-target; a `fStrictChainId=true` setting binds the commitment to
-Bitmark but does not prove the parent is Bitcoin.

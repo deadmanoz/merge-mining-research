@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
 """Classify Devcoin AuxPoW extracts as canonical, stale, or unknown.
 
-Devcoin extraction writes one row per merge-mined Devcoin block with the
-embedded Bitcoin parent header and coinbase transaction. This classifier uses
-the shared classifier helpers:
-
-1. keep only unique headers that meet the Bitcoin nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-With ``--keep-near`` the self-target-PoW-failing headers the standard run drops are
-retained to ``data/devcoin_near_blocks.csv`` as sibling evidence for
-shared-parent multi-block fork detection. This replaces the former bespoke
-``classify_devcoin_all.py`` (which emitted stale + unknown + near into one file);
-near rows now live in their own split file on the shared schema.
+The nBits gate is non-skippable. ``--keep-near`` retains self-target failures as sibling evidence, not as stales.
 """
 
 from __future__ import annotations

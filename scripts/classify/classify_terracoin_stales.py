@@ -1,20 +1,7 @@
 #!/usr/bin/env python3
 """Classify Terracoin AuxPoW extracts as canonical, stale, or unknown.
 
-Terracoin extraction (scripts/extract/extract_terracoin_auxpow.py) writes one
-row per merge-mined Terracoin block carrying the embedded Bitcoin parent header
-and coinbase transaction. This classifier uses the shared classifier helpers:
-
-1. keep only unique headers that meet the Bitcoin nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-Terracoin's only chain-specific quirk is the Dash-Core-0.12.x plural
-scriptPubKey ``addresses`` array, but that is handled entirely in the extractor
-(``format_outputs``); the classifier passes ``coinbase_outputs`` through
-verbatim, so no chain-specific output formatting is needed here. The raw
-``btc_bits`` artifact is already 8-char hex, so ``bits_source_is_decimal`` stays
-False.
+The nBits gate is non-skippable. ``btc_bits`` is already 8-char hex. Address decoding stays in the extractor.
 """
 
 from __future__ import annotations

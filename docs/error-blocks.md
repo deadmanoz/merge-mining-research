@@ -149,15 +149,6 @@ whose `nTime` is 125.22 hours beyond the canonical parent time, was committed
 152 seconds before its own `nTime`. It is a very late block, not a future-dated
 one.
 
-This establishes the category boundary. `time_beyond_future_limit` is not
-mechanically re-checkable from committed evidence alone because Bitcoin's real
-bound is network-adjusted time plus two hours, and historical
-network-adjusted time is not reconstructable offline. The exception would be
-child-chain commit-time evidence showing an `nTime` more than two hours beyond
-the commit time itself. None of these candidates came close. By contrast,
-`time_below_mtp` is mechanically re-checkable from the canonical parent's
-committed median-time-past context.
-
 `nbits_retarget_not_applied` is distinct from a plain `nBits mismatch`
 rejection at a non-boundary height. The latter is the contamination gate's
 target class (a share/`near` row whose difficulty context is not Bitcoin's),
@@ -569,12 +560,9 @@ durable child identity.
 
 ## Relationship to other categories
 
-An error block is not a stale block and not an orphan: it was never eligible
-to race, so it is never a stale/orphan contender. It is also not a `near` row:
-a `near` row fails the PoW target and was never a Bitcoin block at all, while
-an error block meets full proof of work and fails a consensus rule. The
-primary `classification` axis keeps these distinct: `canonical`, `stale`,
-`unknown`, `stale_descendant`, `near`, and `error_block`. Adding `error_block`
-is a breaking vocabulary change for the merge-mining-monitor importer and its
-ported relevance classifier; renames and additions must land in lockstep with
-the monitor (see [`upstreaming.md`](upstreaming.md)).
+`error_block` stays on the primary `classification` axis, distinct from
+`stale`, `unknown`, `stale_descendant`, and `near`. See
+[research contracts](research-contracts.md#research-semantics). Adding
+`error_block` is a breaking vocabulary change for the merge-mining-monitor
+importer and its ported relevance classifier; renames and additions must land
+in lockstep with the monitor (see [`upstreaming.md`](upstreaming.md)).

@@ -190,11 +190,8 @@ def main(argv: list[str] | None = None) -> None:
     mainchain_cache_dirty = False
     if args.check_mainchain:
         rpc = BtcRpc(url=args.rpc_url, auth=get_btc_auth(args.rpc_user, args.rpc_pass))
-        # Partial diagnostics may resolve dangling terminals to explore the
-        # wider candidate population. Publication does not: its classification
-        # floor is the trusted-root path, and querying every unrelated unknown
-        # hash would turn a 33-height active-chain proof into hundreds of
-        # thousands of unnecessary getblockheader calls.
+        # Publication walks only the trusted-root path. Partial diagnostics
+        # may resolve dangling terminals; publication must not.
         if publication_baseline is None:
             terminals = {
                 result.terminal_hash
@@ -264,12 +261,8 @@ def main(argv: list[str] | None = None) -> None:
                     for block_hash, status in compared.items()
                     if status.get("on_mainchain")
                 }
-                # A source incorrectly placed in the validated-stale set cannot
-                # remain a trusted root after the exact height comparison proves
-                # it active. Rewalk with those roots removed. The generic walker
-                # checks predecessors, so mark an active start node explicitly as
-                # mainchain too; its descendants are caught naturally when they
-                # encounter it as their predecessor.
+                # An active header cannot stay a trusted root. Mark that start
+                # node mainchain so the rewalk does not root descendants there.
                 state["known_stale_hashes"] = (
                     state["known_stale_hashes"] - active_hashes
                 )

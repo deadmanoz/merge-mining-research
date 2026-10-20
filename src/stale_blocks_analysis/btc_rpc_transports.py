@@ -1,18 +1,7 @@
-"""Optional ``requests``-backed transport for ``BtcRpc``.
+"""Optional ``requests`` transport for ``BtcRpc``. Kept out of ``btc_rpc`` so that module stays stdlib-only.
 
-Kept separate from ``btc_rpc`` (which is stdlib-only, urllib-based) so the base
-client carries no third-party dependency. Import this in the classifiers that
-reach Bitcoin Core over HTTP with ``requests`` (a shared session with
-connection pooling helps a large classification run).
-
-A ``BtcRpc`` transport is a ``Callable[[bytes], bytes]``: it takes the encoded
-JSON-RPC batch payload and returns the raw response body for ``BtcRpc`` to
-parse.
-
-When Bitcoin Core runs on another host, forward its RPC port to localhost with
-``ssh -L 8332:localhost:8332 <host>`` and point ``--rpc-url`` at the forward.
-Reaching the node is the operator's concern, not the pipeline's; see
-``node-infra/README.md``.
+A transport is ``Callable[[bytes], bytes]``. A remote node is reached by an
+operator-owned ``ssh -L`` forward, not by this pipeline.
 """
 
 from __future__ import annotations

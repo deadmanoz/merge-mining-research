@@ -72,10 +72,9 @@ network monitoring. This project extends that foundation across additional
 chains with reproducible acquisition, extraction, validation, evidence
 preservation, and analysis pipelines.
 
-Obtaining that sibling-chain history was a substantial part of the
-recovery. This repository includes reproducible Docker workspaces for the
-vintage or otherwise awkward daemons that had to be built, patched, connected,
-synced, and operated, along with recovered peer and bootstrap configuration.
+This repository includes reproducible Docker workspaces for the vintage or
+otherwise awkward daemons that had to be built, patched, connected, synced,
+and operated, along with recovered peer and bootstrap configuration.
 See [`node-infra/README.md`](node-infra/README.md) and its per-chain READMEs;
 recoveries based on snapshots, public archives, JSON dumps, or APIs are
 documented in the corresponding notes under [`docs/chains/`](docs/chains/).
@@ -193,22 +192,17 @@ blocked and source-only outcomes separate avoids confusing "zero stales" with
 
 ### Coverage gaps and how to help
 
-Two kinds of gap in the tables above are worth surfacing, because closing either
-one is exactly the sort of contribution this project wants.
-
 **No recovered data.** Five surveyed candidates (BLAST, Bitcoin Stash,
 Fusioncoin, Jax.Network, and Jincoin) yielded no block data at all, as the
-status table above records, so any reachable peer, block archive, or working
-sync path for them would be a first.
+status table above records. A reachable peer, block archive, or working sync
+path for them would be new coverage.
 
 **Partial or bounded coverage.** VCash, i0coin, Huntercoin, Xaya, Syscoin, and
-Bitcoin Vault carry the coverage limits stated in their table rows, and more
-history would extend or firm up each result. Two limits are worth stating
-precisely: the Kraft dump closes Xaya's former snapshot tail gap in stored
-ancestry, while ten unlinked side headers and no native active-chain replay
-remain explicit limits. Huntercoin's observed dump endpoint is July 2021.
-Bitcoin Vault's post-2021 era is weak-share only, so it yields no further
-accepted candidates.
+Bitcoin Vault carry the coverage limits stated in their table rows. The Kraft
+dump closes Xaya's former snapshot tail gap in stored ancestry, while ten
+unlinked side headers and no native active-chain replay remain explicit
+limits. Huntercoin's observed dump endpoint is July 2021. Bitcoin Vault's
+post-2021 era is weak-share only, so it yields no further accepted candidates.
 
 Raw block data, snapshots, node datadirs, peer addresses, or archive locations
 for any of these are welcome even without running the pipeline. See

@@ -1,4 +1,4 @@
-"""The dual-attribution fold: tag-owner labels into template-producer labels.
+"""Fold a coinbase tag-owner label into the template producer inside a measured height window.
 
 Proxy pooling decouples the coinbase tag from the entity that actually built
 a block's template. A pool's stratum endpoint can serve jobs stamped with
@@ -189,15 +189,7 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
 
 
 def fold_template_producer(tag: str, height: int) -> str:
-    """Fold a coinbase tag-owner label into its template-producer label.
-
-    Returns the matching `TEMPLATE_PRODUCER_MAP` entry's `template_producer`
-    when `tag` equals that entry's `tag_label` and `height` falls inside its
-    window (`valid_from_height` inclusive, `valid_to_height`
-    exclusive; `None` means open-ended). Otherwise `tag` is returned
-    unchanged, including for `"Unknown"`, which never matches any row and
-    always passes through as `"Unknown"`.
-    """
+    """Matching tag and half-open height window, else ``tag`` unchanged. ``"Unknown"`` never matches."""
     for entry in TEMPLATE_PRODUCER_MAP:
         if tag != entry["tag_label"]:
             continue

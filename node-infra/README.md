@@ -1,11 +1,8 @@
 # Node infrastructure
 
-[Qbit](qbit/README.md) provides a pinned archival build and an explicit complete
-active-chain acquisition worker, and follows the same profile model as the
-other node workspaces: the base Compose file publishes authenticated RPC on
-one selected host address with a reviewed restart policy, and an offline
-overlay serves networkless reads. Its proof adapter and current recovery scope
-are documented in [the Qbit chain notes](../docs/chains/qbit.md).
+[Qbit](qbit/README.md) is the pinned archival node and acquisition worker.
+Its profile is in [node operations](../docs/node-operations.md); recovery
+scope is in [the Qbit chain notes](../docs/chains/qbit.md).
 
 Build and run recipes for the merge-mined chains whose recovery needed a
 locally operated node. Each directory is its own workspace with a README,
@@ -14,15 +11,9 @@ README before building, and keep generated datadirs out of git (each directory
 ignores `data/`). Some workspaces, including SixEleven, pin a published image
 directly and therefore do not need a Dockerfile.
 
-Every node and research-worker image belongs here as a Dockerfile or pinned
-image reference, with its patches, runtime configuration and operating notes.
-The archive dashboard is maintained separately in its own private repository.
-The separately managed Monitor deployment workspace owns production and
-development deployment.
-Deploy these recipes unchanged; add reusable variants to the repo and keep
-machine-specific settings private. Order host runtime startup after required
-data mounts and private network interfaces used by RPC bindings. Generated
-image exports, source bundles and node databases remain in the private archive.
+Order host runtime startup after required data mounts and private network
+interfaces used by RPC bindings. Image ownership and private variants are
+in [node operations](../docs/node-operations.md).
 
 The private [archive dashboard](https://github.com/deadmanoz/mmr-archive-dashboard)
 provides a view of storage, locations, verified transfers and research gaps.
@@ -75,22 +66,12 @@ default to no automatic restart and provide explicit retained-container
 start/stop commands. Their ordinary configurations may contact peers when
 started. Keeping a scaffold available does not imply recoverable chain data.
 
-[Namecoin](namecoin/README.md) and [Syscoin](syscoin/README.md) package the
-preserved native Linux binaries with build-time hash checks. Their data and
-private configuration are separate, noncreating binds. Use the offline profile
-for initial read checks, and enable the live restart policy only after cutover
-acceptance. Packaging preserves the observed node version and index state.
-
-[Elastos](elastos/README.md) packages its preserved release binaries and keeps
-the complete node root, including logs, under one data bind. [RSK](rsk/README.md)
-packages the preserved JAR with its matching Java runtime and keeps the active
-unitrie store inside its complete data bind. Both provide networkless read
-profiles, reject
-missing data binds and keep automatic restart disabled until live acceptance.
-
-[Fractal](fractal/README.md) can adopt its retained image and existing disk
-through the same explicit lifecycle. Its offline overlay disables networking;
-the live profile publishes RPC only on the selected private host address.
+[Namecoin](namecoin/README.md), [Syscoin](syscoin/README.md),
+[Elastos](elastos/README.md), [RSK](rsk/README.md) and
+[Fractal](fractal/README.md) package preserved binaries or retained disks.
+Each keeps noncreating binds and leaves restart disabled until acceptance.
+Follow the workspace README and
+[node operations](../docs/node-operations.md).
 
 Not every integrated chain has a recipe here, because not every recovery
 ran a node:

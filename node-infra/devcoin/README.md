@@ -11,8 +11,7 @@ Devcoin's recent merge from upstream Bitcoin Core (22.x era) is intermingled
 with the original AuxPoW codebase, but the source still trips over GCC 13's
 stricter parsing: 82 header files are missing transitive includes for
 `<cstdint>`, `<stdexcept>`, `<map>`, `<string>` that older GCC versions
-pulled in implicitly via other headers. The fix is mechanical - every
-patched file just gains one or two `#include` lines at the top.
+pulled in implicitly via other headers.
 
 `patches/0001-modern-toolchain.patch` is the captured diff from the working
 build on `<archival-host>` (Ubuntu 24.04, GCC 13.3, Boost 1.83). 82 files,

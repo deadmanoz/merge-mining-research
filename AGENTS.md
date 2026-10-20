@@ -14,12 +14,11 @@ classification never import it. Extend existing owners before adding a new
 script, package or abstraction. Pipeline details are in
 [docs/pipeline-reference.md](docs/pipeline-reference.md).
 
-The Kraft native dumps are the foundation sources for Huntercoin and Xaya.
-Their former Arweave and CDN recoveries are historical provenance, not fallback
-inputs or parallel workflows. `xaya_extraction` owns the native Xaya producer;
-its height admission reuses `block_body` after the proof envelope. Keep originals
-privately; do not maintain legacy acquisition or scan-position compatibility
-for these chains.
+Huntercoin and Xaya use the Kraft native dumps as foundation inputs. Former
+Arweave and CDN recoveries are historical provenance, not fallback inputs.
+Keep the originals private; do not maintain legacy acquisition or scan-position
+compatibility. Ownership is in
+[docs/pipeline-reference.md](docs/pipeline-reference.md).
 
 ## Build & Test
 

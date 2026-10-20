@@ -1,22 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin parent headers + coinbases from AuxPoW blk*.dat files.
+"""Extract Bitcoin parent headers and coinbases from AuxPoW blk*.dat files.
 
-Directly parses raw block files from Namecoin-family AuxPoW chains
-(i0coin, ixcoin, Lyncoin, SixEleven, etc.) without requiring a running node.
-Outputs a CSV of all blocks where the embedded Bitcoin header meets
-the target encoded in that header's own ``nBits`` field.
-
-The AuxPoW binary format is identical across the supported pre-Flex
-Namecoin-family chains (Vince Durham / Daniel Kraft specification). Network
-magic, chain-ID enforcement, and AuxPoW activation boundaries differ.
-
-Usage:
-    python3 extract_auxpow_from_blkdat.py \
-        --blocks-dir ~/i0coin-snapshot/chain-data/blocks \
-        --chain i0coin \
-        --output ~/i0coin-snapshot/i0coin_auxpow_candidates.csv
-
-Requires: Python 3.10+ (no external dependencies)
+A row is kept when the embedded header meets its own nBits. That is not Bitcoin's contemporaneous target. Network magic and chain-ID rules differ by chain.
 """
 
 import argparse
@@ -292,22 +277,9 @@ def process_chain(
     progress_interval: int = 50_000,
     xor_key: bytes = b"",
 ):
-    """Scan every ``blk*.dat`` file in ``blocks_dir`` for ``chain_config`` and
-    write recovered Bitcoin parent headers to ``output_path``.
+    """Scan blk*.dat files and atomically write parent headers that meet their own nBits.
 
-    Auto-detects an ``xor.dat`` deobfuscation key when ``xor_key`` is not
-    given. For each block, parses the child header, keeps only blocks with
-    the AuxPoW nVersion flag set, applies ``chain_scope_rejection`` (chain-ID
-    and excluded-version-mask gating), then parses the CAuxPow parent
-    header and drops dummy headers (``bits`` of 0 or ``0x7FFFFFFF``). When
-    ``btc_difficulty_only`` is true (the default), rows are further
-    filtered to parents whose hash meets the target encoded in that parent's
-    own ``nBits`` field. Skip reasons are tallied into a local ``stats`` dict and
-    printed as a summary. The raw output leaves child height blank because
-    ``blk*.dat`` order is not consensus order. A later RPC-backed pass may fill
-    the exact height by child hash. Writes to a temp file in ``output_path``'s
-    directory and atomically renames it into place on completion, fsyncing both
-    the file and its directory entry.
+    Own-target PoW is not Bitcoin's contemporaneous target. Child height stays blank because file order is not consensus order. Dummy headers with bits 0 or 0x7fffffff are dropped.
     """
     magic = chain_config["magic"]
     chain_name = chain_config["name"]

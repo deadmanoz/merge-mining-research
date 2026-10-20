@@ -98,12 +98,7 @@ class RecordedRPC:
 
 
 class CapturedRPC:
-    """Replay a sealed acquisition, authenticating its exact ordered calls.
-
-    Retained bytes are copied into a fresh generation. Normal acquisition then
-    reruns every coverage and proof gate with the current parser, without
-    mutating the original archive or depending on a live historical node.
-    """
+    """Replay sealed calls in order. Retained bytes are copied; the original archive is not mutated."""
 
     def __init__(self, source: Path, directory: Path):
         self.source_receipt_sha256 = digest(source / "acquisition.json")
@@ -157,10 +152,9 @@ class CapturedRPC:
 def acquire(
     rpc, output: Path, *, height: int, block_hash: str, batch_size: int = 100
 ) -> dict:
-    """Seal only a complete genesis-through-endpoint scan with every edge checked.
+    """Seal only a complete genesis-through-endpoint scan. ``output`` must be fresh.
 
-    ``output`` must be fresh. Failed runs retain their captures and INCOMPLETE
-    metadata but cannot issue a completion receipt. Retry with a fresh directory.
+    A failed run keeps its captures and INCOMPLETE metadata and issues no receipt.
     """
     if height < 0 or batch_size < 1:
         raise ValueError("invalid acquisition range or batch size")

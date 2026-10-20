@@ -286,15 +286,9 @@ def load_error_observation_rsk_targets(ledger_path: Path) -> list[RecoveryTarget
 def merge_identity_targets(
     ordinary: list[RecoveryTarget], extra: list[RecoveryTarget]
 ) -> list[RecoveryTarget]:
-    """Combine exact events while rejecting unresolved same-height overlap.
+    """Deduplicate an exact repeat across target lists.
 
-    A supplemental ledger may legitimately repeat events the ordinary work
-    list already carries: pointing ``--extra-rsk-targets`` at the complete
-    committed observation ledger, rather than a hand-built delta, repeats
-    every previously published RSK event alongside the new one. An exact
-    cross-list repeat therefore deduplicates here; each source list has
-    already rejected its own internal duplicates when it was loaded, and a
-    non-identical overlap still fails the same-slot ambiguity checks.
+    A same-height overlap that is not identical still fails.
     """
     merged: dict[RecoveryTarget, int] = {}
     event_parents: dict[tuple[int, str], tuple[str, int]] = {}
@@ -400,13 +394,9 @@ def child_fields_from_raw_header(
     expected_time: int | None = None,
     expected_nbits: str | int | None = None,
 ) -> dict[str, str | int]:
-    """Authenticate and normalize an exact Bitcoin-shaped child header.
+    """Identify the child from the first 80 header bytes.
 
-    Some AuxPoW RPCs serialize proof bytes after the pure child header. Only
-    the first 80 bytes identify the child block. The independently returned
-    display hash, timestamp, and compact target are corroborated when present
-    so recovery cannot publish internally consistent bytes for the wrong RPC
-    object.
+    A returned display hash, timestamp, or compact target is corroborated when present, so the wrong RPC object is not published.
     """
     if len(raw_header) < 80:
         raise ChildHeaderValidationError(

@@ -71,16 +71,10 @@ def validate_stale_nbits(
     status_key: str = "validation_status",
     expected_key: str = "expected_nbits",
 ) -> None:
-    """Mark stale rows VALID/REJECTED by canonical Bitcoin nBits at height.
+    """Exact canonical nBits for the next height. A header meeting its own easier target is not enough.
 
-    A stale block whose prev_hash is canonical must use the exact nBits that
-    Bitcoin Core computes for the next height on that canonical chain. Checking
-    only that the header hash satisfies its own encoded target is insufficient:
-    BCH/BSV-family headers can satisfy their easier target while sharing a BTC
-    ancestor.
-
-    ``rpc_batch`` must accept JSON-RPC batch call dictionaries and return the
-    decoded batch responses. Rows are updated in place.
+    BCH/BSV-family headers can share a Bitcoin ancestor and still fail this
+    gate. Rows are updated in place.
     """
     if not stales:
         return

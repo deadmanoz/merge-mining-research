@@ -51,10 +51,6 @@ rows.
 attestation evidence is much wider: 2,426 canonical Bitcoin parents from
 2021-01-21 to 2024-11-17.
 
-**Integration status.** Wired into the recovery loader and novelty pipeline;
-`results/monitor-evidence/elcash_monitor_evidence.csv` exports all 2,426
-canonical rows and 3 accepted stale rows.
-
 **Holes.**
 
 - **Post-extraction tail**: blocks after the 2026-06-26 extraction tip are

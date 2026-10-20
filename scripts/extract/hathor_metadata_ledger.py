@@ -1,39 +1,7 @@
 #!/usr/bin/env python3
 """Safely survey Hathor heights into a complete, resumable metadata ledger.
 
-The historical Hathor extractor deliberately writes only ``version == 3``
-blocks. It is therefore not evidence that an absent height was ever scanned:
-it may instead be a normal version-0 block. This tool records one terminal
-metadata outcome for every assigned height before any version-3 payload fetch.
-
-The worker is deliberately sequential. ``--requests-per-second`` limits each
-worker's request starts, including retries, and failures remain visible in the
-ledger rather than being silently retried forever. Use a declared, immutable
-manifest to partition the inclusive start / exclusive end range across workers.
-The declared outer bounds are repeated in every shard row so a manifest remains
-self-describing wherever it is copied. Run exactly one process for each shard
-ledger.
-
-Examples:
-
-    # Create a manifest for the acquisition range before starting any worker.
-    python scripts/extract/hathor_metadata_ledger.py --write-manifest \
-        <chain-archive>/hathor/acquisition/manifest.csv \
-        --start 0 --end <exclusive-end-height> \
-        --workers worker-a,worker-b,worker-c,worker-d,worker-e,worker-f
-
-    # Run one assigned shard at the conservative default rate.
-    python scripts/extract/hathor_metadata_ledger.py --manifest manifest.csv \
-        --shard-id shard-003 --ledger shard-003-ledger.csv
-
-    # Audit a completed merged ledger before payload work.
-    python scripts/extract/hathor_metadata_ledger.py --audit-ledger ledger.csv \
-        --start 0 --end <exclusive-end-height>
-
-    # Re-drive unresolved heights into a new, ordered ledger.
-    python scripts/extract/hathor_metadata_ledger.py --manifest manifest.csv \
-        --shard-id shard-003 --ledger shard-003-ledger.csv \
-        --retry-output shard-003-ledger-retry.csv
+The version-3 extractor is not evidence that an absent height was scanned. Record one terminal metadata outcome per height before any payload fetch. Run one process per shard; failures stay in the ledger.
 """
 
 from __future__ import annotations

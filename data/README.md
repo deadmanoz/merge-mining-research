@@ -133,14 +133,13 @@ child-header columns (`child_block_hash`, `child_header_hex`,
 `VALID (post-BCH, difficulty matches BTC)`. The gate runs once at
 classification time and the loader never recomputes it. Either accepted token
 means the row passed the declared available-evidence header-context checks, not
-that a complete Bitcoin block was consensus-valid. Those checks
-include header hash and self-PoW, active-parent linkage, expected `nBits`,
-median-time-past, historical minimum block version, and, when the real
-coinbase scriptSig is available, its length and BIP34 height prefix. RSK lacks
-the evidence for the coinbase-dependent checks. See
-[`docs/data-validity.md`](../docs/data-validity.md). Chains with extra research
-columns trail them after the gate columns (for example coiledcoin's
-`eligius_attack_window`). `btc_bits` is canonical lowercase 8-char hex.
+that a complete Bitcoin block was consensus-valid. RSK lacks the evidence for
+the coinbase-dependent checks. See
+[`docs/data-validity.md`](../docs/data-validity.md) and
+[research contracts](../docs/research-contracts.md#research-semantics). Chains
+with extra research columns trail them after the gate columns (for example
+coiledcoin's `eligius_attack_window`). `btc_bits` is canonical lowercase
+8-char hex.
 
 The 20 July 2026 audit replayed all 3,652 accepted direct observations against
 Bitcoin Core tip 958,882. All passed their available checks; this was not a

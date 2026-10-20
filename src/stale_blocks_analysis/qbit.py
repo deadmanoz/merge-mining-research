@@ -1,8 +1,7 @@
-"""Pinned Qbit mainnet extended-header parser and proof validation.
+"""Qbit extended-header parser pinned to 70fea84f5becfb57463247af09790df5ddd424f8.
 
-Rules follow Qbit 70fea84f5becfb57463247af09790df5ddd424f8. This validates
-the proof envelope, not Qbit body consensus or Bitcoin parent placement.
-Height must come from a separately authenticated native-chain snapshot.
+Validates the proof envelope, not body consensus or Bitcoin parent placement.
+Height comes from a separately authenticated native snapshot.
 """
 
 from __future__ import annotations
@@ -42,21 +41,15 @@ def is_auxpow(version: int, height: int) -> bool:
 
 
 def parse_header(raw: bytes, *, height: int, expected_hash: str) -> dict:
-    """Parse exactly one extended header, explicitly using Qbit's wire format.
+    """One extended header. Qbit omits classic CAuxPow ``hashBlock`` and forbids a witness coinbase.
 
-    Reuse the bounded Bitcoin wire cursor and transaction decoder. Qbit omits
-    classic CAuxPow's hashBlock field and forbids witness coinbase encoding.
-    Mainnet accepts display-order commitments at every height; no EITHER mode.
+    Mainnet commitments are display order at every height. There is no EITHER mode.
     """
     return _parse(raw, height=height, expected_hash=expected_hash, full_block=False)
 
 
 def parse_block(raw: bytes, *, height: int, expected_hash: str) -> dict:
-    """Validate an RPC full block's header/proof; body consensus stays native.
-
-    Preserve the complete raw block separately. Qbit has native transaction
-    rules beyond Bitcoin's; this function does not assert body validity.
-    """
+    """Header and proof of an RPC full block. Body consensus stays native."""
     return _parse(raw, height=height, expected_hash=expected_hash, full_block=True)
 
 

@@ -4,12 +4,8 @@ Build `crownd` v0.14.0.4 in a container for AuxPoW stale-block extraction.
 See [recovery details](../../docs/chains/crown.md) and the shared
 [novelty report](../../results/novelty.md).
 
-Crown is an integrated stale-output chain: the recovery yielded 23 validated
-BTC stales over the CRW
-453,273 → ~2,330,000 PoW merge-mined era. It was previously a deferred
-candidate - every DNS seed and the hardcoded bootstrap were unreachable - and
-was un-deferred via a Wayback harvest of `monitor.crownplatform.com` that
-surfaced a single still-live peer.
+DNS seeds and the hardcoded bootstrap were unreachable. One still-live peer
+came from a Wayback harvest of `monitor.crownplatform.com`.
 
 ## Why Docker
 
@@ -34,10 +30,9 @@ helpers - harmless on a read-only node, but mandatory at configure time).
 | Genesis | 2014-10-08 (nTime 1412760826; coinbase "10/Oct/2014") |
 | Target spacing | 1 min |
 
-Extraction window: **block 453,273 → tip** (the extractor scans to tip and
-gates on the AuxPoW version bit). AuxPoW is present only in the PoW era,
-453,273 → ~2,330,000; at the full MN-PoS switch (~April 2019) PoW ends and
-PoS blocks carry no AuxPoW, so the effective window closes there.
+The extractor scans to tip and gates on the AuxPoW version bit. PoS blocks
+carry no AuxPoW, so the effective window closes at the MN-PoS switch in the
+table above.
 
 ## One-time setup
 

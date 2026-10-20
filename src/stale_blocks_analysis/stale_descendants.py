@@ -1,8 +1,6 @@
-"""Canonical parent and witness interfaces for accepted stale descendants.
+"""Accepted-descendant interfaces. The parent verdict is the Bitcoin header; the ledger is the child witness.
 
-The parent-verdict interface proves the Bitcoin-header verdict. The observation ledger
-proves which child-chain blocks witnessed each parent.  Historical classifier
-bucket names are retained only as provenance and never select a final category.
+Historical bucket names are provenance and do not select a category.
 """
 
 from __future__ import annotations
@@ -218,13 +216,7 @@ def _validate_persisted_parent_verdict(
     path: Path,
     row_number: int,
 ) -> None:
-    """Require the exact persisted gates of an accepted parent verdict.
-
-    The canonical loader authenticates the serialized header separately. It
-    does not rerun the classification-time consensus profile, so every gate
-    which made the persisted row publishable must still carry its exact
-    accepting verdict here.
-    """
+    """The persisted accepting gates must still be present. This loader does not rerun the consensus profile."""
     expected_nbits = row["expected_nbits"]
     if (
         len(expected_nbits) != 8
@@ -262,13 +254,10 @@ def _load_trusted_stale_root_keys(
     upstream_path: Path = STALE_CSV,
     error_blocks_path: Path = ERROR_BLOCKS_CSV,
 ) -> set[tuple[int, str]]:
-    """Load the exact direct-stale identities allowed to terminate a walk.
+    """Direct-stale identities that may end a walk: accepted rows and the pinned upstream census.
 
-    Per-chain accepted rows and the pinned upstream stale census are the two
-    canonical direct-stale inputs used by reconciliation. Consensus-invalid
-    keys never qualify, even if an older source still contains them. Exact
-    Bitcoin Core off-active-chain evidence remains a separate required field
-    on every published parent verdict.
+    Consensus-invalid keys never qualify. Core off-active-chain evidence
+    stays a separate required field.
     """
     validated_paths = tuple(
         validated_dir / f"{chain}_validated_stales.csv"
@@ -350,14 +339,10 @@ def load_stale_descendant_parents(
     data_dir: Path = DATA_DIR,
     upstream_path: Path | None = None,
 ) -> dict[tuple[int, str], StaleDescendantParent]:
-    """Load and validate the one-row-per-parent accepted verdict interface.
+    """One accepted row per parent. ``data_dir`` selects the matching stale and error-block inputs.
 
-    ``data_dir`` selects the matching accepted direct-stale and error-block
-    trust inputs. ``upstream_path`` can select the pinned stale census
-    explicitly; canonical calls otherwise honor ``STALE_BLOCKS_DIR``, while an
-    alternate data tree defaults to its own ``stale-blocks/stale-blocks.csv``.
-    Callers that stage or inspect another data tree must pass that tree
-    explicitly instead of mixing it with repository-global verdicts.
+    An alternate tree must be passed explicitly. It does not mix with
+    repository-global verdicts.
     """
     if not path.is_file():
         raise ValueError(

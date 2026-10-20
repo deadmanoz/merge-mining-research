@@ -1,10 +1,4 @@
-"""Child-side AuxPoW chain-ID inference helpers.
-
-Namecoin-style AuxPoW commitments use a miner-chosen nonce and a deterministic
-LCG to map each child chain ID into one slot of the chain-merkle tree.  Given
-only a child proof, the LCG recovers ``chain_id mod 2^branch_len``.  That is a
-candidate filter, not a complete chain-ID recovery mechanism.
-"""
+"""Chain-ID helpers. The LCG recovers ``chain_id mod 2^branch_len``, a candidate filter, not a unique ID."""
 
 from __future__ import annotations
 
@@ -101,11 +95,7 @@ def hash_to_internal_hex(hash_internal: bytes) -> str:
 
 
 def auxpow_lcg_index(merkle_nonce: int, chain_id: int, branch_len: int) -> int:
-    """Return Namecoin's expected chain-merkle slot for ``chain_id``.
-
-    This mirrors the unsigned 32-bit arithmetic in the Namecoin/Daniel Kraft
-    AuxPoW code before reducing by ``2^branch_len``.
-    """
+    """Namecoin's chain-merkle slot, using the unsigned 32-bit LCG before ``2^branch_len``."""
     if branch_len < 0:
         raise ValueError("branch_len must be non-negative")
     if merkle_nonce < 0 or merkle_nonce > UINT32_MASK:
@@ -144,11 +134,7 @@ def candidate_chains_for_residue(
     branch_len: int,
     registry: Iterable[AuxPoWChain] = CHAINS,
 ) -> tuple[AuxPoWChain, ...]:
-    """Return every ``registry`` chain whose ID is congruent to ``residue`` mod ``2**branch_len``.
-
-    This is a candidate filter, not a unique identification: several chains
-    can share the same residue.
-    """
+    """Chains congruent to ``residue``. Several chains can share one residue."""
     modulus = 1 << branch_len
     if residue < 0 or residue >= modulus:
         raise ValueError("residue must be in [0, 2^branch_len)")
@@ -184,17 +170,10 @@ def commitment_size_status(
     merkle_size: int | None,
     branch_len: int | None,
 ) -> str:
-    """Classify a parent commitment's declared merkle tree size against a proof's branch length.
+    """Tree size against branch length: missing, negative, legacy single-slot, size-matched, non-power-of-two, or mismatch.
 
-    Returns one of the module-level status constants: ``MISSING_PARENT_COMMITMENT``
-    when ``merkle_size`` is unknown, ``INVALID_NEGATIVE_SIZE`` when it is
-    negative, ``LEGACY_SINGLE_SLOT_UNVERIFIED``/``CENSUS_ONLY_SIZE_WITHOUT_BRANCH``
-    when ``branch_len`` is unknown, ``LEGACY_SINGLE_SLOT_VERIFIED`` for a
-    zero-size/zero-branch legacy single-chain commitment,
-    ``ZERO_SIZE_BRANCH_MISMATCH`` for a zero size against a non-zero branch,
-    ``SIZE_MATCHED`` when ``merkle_size == 2**branch_len``,
-    ``NON_POWER_OF_TWO_SIZE`` for a non-power-of-two size, or
-    ``SIZE_BRANCH_MISMATCH`` for any other power-of-two mismatch.
+    A zero size with a non-zero branch is ``ZERO_SIZE_BRANCH_MISMATCH``.
+    Unknown branch length stays census-only or legacy-unverified.
     """
     if merkle_size is None:
         return MISSING_PARENT_COMMITMENT
@@ -226,13 +205,7 @@ def size_status_allows_inference(status: str) -> bool:
 
 
 def commitment_from_embedded_scriptsig(scriptsig: bytes) -> ParentCommitment:
-    """Parse the AuxPoW merge-mining marker out of a raw coinbase ``scriptsig``.
-
-    Returns a ``ParentCommitment`` with ``source="embedded"`` on success, or
-    a commitment with no merkle fields and ``source`` set to
-    ``"embedded_no_magic_unparsed"``/``"embedded_magic_truncated"`` when the
-    magic is absent or the marker is truncated.
-    """
+    """``source="embedded"`` on a full marker. Absent magic is ``embedded_no_magic_unparsed``; a short marker is ``embedded_magic_truncated``."""
     marker = parse_auxpow_marker(scriptsig)
     if marker is None:
         source = (
@@ -259,14 +232,10 @@ def census_commitment_for_parent(
     conn: sqlite3.Connection | Mapping[bytes, ParentCommitment],
     parent_header_hash_internal: bytes,
 ) -> ParentCommitment | None:
-    """Look up a parent header's AuxPoW commitment in a supplied marker census.
+    """Census lookup. ``conn`` is a SQLite connection or a ``{internal_hash: ParentCommitment}`` map.
 
-    ``conn`` may be a live ``coinbase_mergemining_v1`` SQLite connection or a
-    pre-built ``{internal_hash: ParentCommitment}`` mapping (for tests).
-    Returns ``None`` if the parent hash is not in the census; returns a
-    ``source="census_no_auxpow"`` commitment with no merkle fields if the
-    census recorded the parent as carrying no AuxPoW marker; otherwise
-    returns a ``source="census"`` commitment.
+    Missing hash returns None. A recorded parent with no marker returns
+    ``source="census_no_auxpow"``.
     """
     _validate_hash_bytes(parent_header_hash_internal)
     if isinstance(conn, Mapping):
@@ -309,12 +278,7 @@ def parent_commitment_for_proof(
     parent_header_hash_internal: bytes,
     embedded_parent_coinbase_scriptsig: bytes,
 ) -> ParentCommitment:
-    """Resolve a commitment, preferring a supplied census over the embedded scriptSig.
-
-    Tries ``census_commitment_for_parent`` first when ``conn`` is given and
-    has a matching row; otherwise falls back to
-    ``commitment_from_embedded_scriptsig`` on ``embedded_parent_coinbase_scriptsig``.
-    """
+    """Census first, then the embedded scriptSig."""
     if conn is not None:
         census = census_commitment_for_parent(conn, parent_header_hash_internal)
         if census is not None:

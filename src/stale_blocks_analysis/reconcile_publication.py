@@ -116,55 +116,16 @@ def descendant_consensus_rules(
     header_bits: str,
     expected_nbits: str,
 ) -> list[str]:
-    """Return the consensus rules a descendant candidate's bytes prove broken.
+    """Rules the descendant bytes prove. A non-empty result is an error block, not a rejected descendant.
 
-    A candidate with a non-empty result is not a rejected descendant, it is an
-    error block: a Bitcoin block carrying full proof of work that breaks a
-    rule. It uses the same shared derivation the classifier uses, so that a
-    rejection means the same thing wherever it is produced.
-
-    Two premises have to hold before any rule is derived, and the difficulty
-    one is required as POSITIVE evidence rather than as a missing failure.
-
-    First, every one of ``DESCENDANT_UNJUDGEABLE_FAILURES`` must be absent:
-
-    - ``missing_header_hex`` / ``header_hash_mismatch``: the supplied bytes are
-      not authenticated as this block's. Every rule below is read straight out
-      of those bytes, so publishing a violation under the claimed hash would
-      attribute another block's (or nobody's) header to it. Corroborating the
-      published hash against the serialized header is the precondition for
-      every downstream verdict in this repo, not an extra.
-    - ``prev_hash_path_mismatch`` / ``pow_target_mismatch``: the height is not
-      sound enough to judge against, and the digest is not known to meet the
-      target its own bits encode. The height is the root's confirmed height
-      plus the fork depth, walked along links this run already verified.
-      Without them a coinbase-height mismatch would be equally consistent with
-      a wrong height.
-    - ``missing_expected_nbits``: the committed epoch reference cannot identify
-      Bitcoin's canonical target at the inferred height. The candidate must
-      fail closed rather than treating an unperformed comparison as a match.
-
-    Second, ``expected_nbits`` and ``header_bits`` must both be present and
-    equal. The absence of an ``nbits_epoch_mismatch`` failure does NOT prove
-    that: the caller derives ``expected_nbits`` from the committed epoch
-    reference, which returns ``""`` for a height the table does not reach, and
-    the comparison is then skipped rather than failed. Reading that silence as
-    a match would let a foreign or easy-target header be published as an error
-    block with its canonical difficulty never checked, so the match is required
-    outright.
-
-    Requiring it also settles the canonical proof of work without a second
-    digest check, which is why none is made here. ``pow_target_mismatch`` being
-    absent proves the digest meets the target ``header_bits`` encodes, and
-    ``header_bits`` equalling ``expected_nbits`` makes that target the
-    canonical one for this height. The classification-time twin
-    (``btc_classify._meets_canonical_btc_difficulty``) does need its own digest
-    check because it admits the unapplied-retarget rule, whose rows carry the
-    PREVIOUS epoch's easier bits by definition; no such exception exists here.
-
-    ``nbits_by_epoch`` is deliberately not supplied for the same reason: the
-    bits are proven equal to the canonical value, so the unapplied-retarget
-    rule cannot apply.
+    Every ``DESCENDANT_UNJUDGEABLE_FAILURES`` entry must be absent: the header
+    bytes must match the claimed hash, the previous-hash path and self-target
+    must hold, and ``expected_nbits`` must be known. ``expected_nbits`` and
+    ``header_bits`` must then both be present and equal. Silence from a table
+    that does not reach the height is not a match. That equality, plus the
+    absent ``pow_target_mismatch``, is the canonical-target check, so no
+    second digest is computed. The unapplied-retarget exception does not
+    exist here, so ``nbits_by_epoch`` is not supplied.
     """
     if inferred_height is None:
         return []
@@ -192,14 +153,10 @@ def descendant_consensus_rules(
 
 
 def bip34_height_absent(bip34_error: str) -> bool:
-    """Report whether a BIP34 rejection is an absent height, not a wrong one.
+    """True when BIP34 failed because the height push is absent, not because it disagrees.
 
-    Two of the gate's verdicts mean the height is not there: no coinbase
-    scriptSig to read at all, and a present, well-formed scriptSig carrying no
-    decodable height push (``BIP34_HEIGHT_MISSING_PREFIX``, which the shared
-    ``consensus_violations`` tokens as ``bip34_coinbase_height_missing``).
-    Reporting the second as a mismatch would put ``rules_violated`` and
-    ``validation_status`` in contradiction over the same committed bytes.
+    Recording the missing-prefix case as a mismatch would contradict
+    ``validation_status`` over the same bytes.
     """
     return "missing coinbase scriptSig" in bip34_error or bip34_error.startswith(
         BIP34_HEIGHT_MISSING_PREFIX
@@ -209,11 +166,7 @@ def bip34_height_absent(bip34_error: str) -> bool:
 def descendant_bip34_verdict(
     header_hex: str, scriptsig_hex: str, expected_height: int
 ) -> tuple[str, str | None]:
-    """Return the descendant report status and validation-failure token.
-
-    The shared consensus validator checks the raw header version and exact
-    coinbase prefix. Source-reported height columns remain provenance only.
-    """
+    """Status and failure token from the raw header version and exact coinbase prefix. Source height columns are provenance only."""
     if expected_height < BIP34_VERSION_2_HEIGHT:
         return "not_applicable", None
 
@@ -327,13 +280,11 @@ def partition_ancestry_rows(
     list[dict[str, object]],
     list[dict[str, object]],
 ]:
-    """Select accepted parents, unpublishable rows, and blocking diagnostics.
+    """Accepted parents, unpublishable rows, and blocking diagnostics.
 
-    The returned diagnostic list is intentionally not a disjoint partition.
-    Every walk into a catalogued consensus-invalid terminal blocks publication
-    and belongs in the disposable error-candidate report, even when incomplete
-    evidence leaves that row correctly classified as ``unpublishable``. Only a
-    fully authenticated full-PoW row may carry ``classification=error_block``.
+    The diagnostic list is not disjoint from unpublishable. A walk into a
+    catalogued consensus-invalid terminal blocks publication. Only a fully
+    authenticated full-work row may be ``classification=error_block``.
     """
     accepted: list[dict[str, object]] = []
     unpublishable: list[dict[str, object]] = []

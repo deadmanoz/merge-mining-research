@@ -70,7 +70,7 @@ The first AuxPoW-bearing block is **GG height 14,092**, parent-block timestamp *
 | **Unknown** | **2,290** |
 | BTC height of the 1 canonical | 270,741 (parent_block.time 2013-11-21; nBits `19070bfb`) |
 
-**Chain-specific quirks.** Three are worth calling out, in increasing order of how much each explains the outcome:
+**Chain-specific quirks.**
 
 - **`coinbase_outputs` always empty.** `auxpow.coinbasetx` in the dump has *no* `vout` field at all (only `vin[0].coinbase` and `txid` / `version` / `locktime`). The validated CSV's `coinbase_outputs` column is therefore empty for every Geistgeld row. Any future attribution is limited to scriptSig markers. This is moot for the current dataset because no validated stale rows exist.
 - **Pre-Oct-2011 dump activity ran Geistgeld's own merged-mining code, not real BTC merge-mining.** The dump's first AuxPoW block (GG height 14,092) has `parent_block.time` 2011-09-16 00:27:52 UTC - 22 days before the 2011-10-08 catalogue date Geistgeld shares with Namecoin, and 25 days before Namecoin's own height-19200 merged-mining block (2011-10-11, on BTC block 148553 per Stifter et al. 2018). A literalist reading of the data would flip Geistgeld's chronological position to 1 (ahead of Namecoin). The project intentionally does **not** do this: the early "parent" headers don't connect to BTC mainchain (zero become publication-gate-accepted direct-stale candidates), and their `nBits` values are too easy for the BTC difficulty of late Sept 2011 (the chain id GeistGeld encodes in its own aux block version is operator-configurable via `-OurChainID`, defaulting to 0, so Geistgeld's AuxPoW identity is not fixed from the public record). The early Geistgeld AuxPoW commitments came from Geistgeld's own copy of the standard Durham AuxPoW implementation (the repo ships `src/auxpow.cpp/.h` and `contrib/merged-mine-proxy` verbatim), not from a separate Durham testbed. The convention is that `CHAINS_BY_AUXPOW_ACTIVATION` records production activation, not test-spec-development activity. Catalogue date stands; Namecoin keeps position 1.
@@ -116,8 +116,8 @@ Current upstream overlap and chronological allocation are in the [novelty report
 ## 5. Integration history
 
 - **2026-05-15** - Archival dump shared by Nicholas Stifter alongside the Groupcoin dump.
-- **2026-05-15** - Stub doc filed (`docs/chains/geistgeld.md`) marking the dump received and integration pending.
-- **2026-05-15** - Integration completed: streaming classifier shipped, loader wired into the recovery pipeline, cross-chain table moved out of "Pending / unwired".
 - **2026-05-15** - Initial chronological-precedence experiment placed Geistgeld at position 1 (on the basis of the 2011-09-16 first-AuxPoW-block timestamp), reverted later the same day. The pre-Oct-2011 dump activity ran Geistgeld's own merged-mining code, not real BTC merge-mining (see §2 last bullet). Catalogue activation date 2011-10-08 stands for both chains; alphabetical tie-break puts Geistgeld at position 2, Namecoin at 1. `CHAINS_BY_AUXPOW_ACTIVATION` and `docs/auxpow-recovery.md` updated accordingly.
 
-The 0-stale result was unexpected - the integration brief's going-in guess was "tens of stales", extrapolating from GeistGeld's dump size relative to Namecoin/ixcoin/Devcoin. In hindsight the paper's own XGG row (just 2 BTC parent blocks in Table 1) already pointed to a near-zero outcome. It's the correct result under the project's classification methodology and explains itself once the relaxed-difficulty parent-header quirk is understood (§2 last bullet). The doc is kept as a record of negative results for future reference: any new XGG data source should produce the same outcome unless the underlying chain-design quirk has been mischaracterised here.
+A new XGG data source should produce the same zero-stale outcome unless the
+relaxed-difficulty parent-header quirk in §2 has been mischaracterised. The
+paper's Table 1 XGG row is 2 BTC parent blocks against 2,493,631 child blocks.

@@ -23,8 +23,6 @@ CoiledCoin was announced 2012-01-05 by `makomk` and is famously associated with 
 
 **Coverage.** Accepted direct-stale candidates span BTC heights **161,761 → 187,452** (parent-block timestamps 2012-01-11 → 2012-07-04, about six months). This is a much narrower window than ixcoin or Devcoin. No later accepted candidates were recovered, and no live, advancing tip is independently verifiable.
 
-**Integration status.** Wired into the recovery loader and novelty pipeline. The validated CSV lives at `data/validated-stales/coiledcoin_validated_stales.csv` (the stale subset of the private full classifier output); `load_coiledcoin_stales()` is registered alongside the other Namecoin-family loaders; CoiledCoin follows ixcoin in the chronological integration order (position 5).
-
 **Holes.**
 
 - **Pre-AuxPoW**: none. CoiledCoin's `GetAuxPowStartBlock()` returns 0 - merged mining was accepted from genesis.
@@ -77,7 +75,7 @@ Of the 27 stales, **1 is in the Eligius attack window** (`eligius_attack_window=
 
 - **Chain ID 16 collides with Syscoin's AuxPoW chain ID 16** (Syscoin's "chain 2"). Harmless at runtime - each chain enforces its own `GetOurChainID()` (CoiledCoin's returns 16 in `src/main.cpp`) - but cross-chain validation tooling must key on `(chain_id, chain_name)` rather than chain ID alone.
 - **Pre-0.6 build constraints**: Berkeley DB 4.8 built from a checksum-pinned source fetch, `boost::filesystem` API patched, OpenSSL primitives swapped to EVP variants, BOOST_FOREACH replaced. All handled by the Docker build.
-- **Eligius attack provenance**: external sources describe a Luke-Jr / Eligius majority-hashrate (51%) attack that mined empty blocks and drove off miners; the stronger claim that AuxPoW commitments in BTC coinbases were used to overwrite CoiledCoin history is an unverified local note, not externally corroborated. The recovered Eligius-window stale block (1 of 27) is the artifact this chain was extracted to surface, concrete evidence at the AuxPoW layer of the kind of selfish-mining-adjacent behaviour the broader project investigates.
+- **Eligius attack provenance**: external sources describe a Luke-Jr / Eligius majority-hashrate (51%) attack that mined empty blocks and drove off miners; the stronger claim that AuxPoW commitments in BTC coinbases were used to overwrite CoiledCoin history is an unverified local note, not externally corroborated. The recovered Eligius-window stale is 1 of 27.
 
 ## 3. Filtering → accepted direct-stale candidates
 
@@ -136,17 +134,5 @@ genesis is 2012-01-05 (`nTime` 1325782557; the genesis coinbase reads "5 January
 ixcoin (2011-12-31) and before devcoin (2012-01-07) - chronological position 5,
 not 4. At that correction, CoiledCoin returned to 0 novel, consistent with
 the original pipeline-order result. Current allocation is in the shared report.
-The chain remains integrated alongside the other Namecoin-family chains, per the same-handling
-principle ("each chain should be integrated in the same manner insofar as
-possible"):
-
-- `data/validated-stales/coiledcoin_validated_stales.csv` (27 rows) extracted from the prototype output.
-- `COILEDCOIN_CSV` constant in `config.py`.
-- `load_coiledcoin_stales()` in `stale_blocks.py` (shared stale-classification
-  and exact two-status acceptance gate).
-- Registration in `CHAIN_SPECS` and `CHAINS_BY_AUXPOW_ACTIVATION` at its
-  chronological position (5, after ixcoin), with `load_coiledcoin_stales()`
-  supplying the public input.
-- Per-source coverage and reporting updated.
-
-The `eligius_attack_window` column is preserved on the validated CSV for diagnostic use; the loader doesn't act on it.
+`COILEDCOIN_CSV` in `config.py` names the 27-row validated CSV. The loader is
+registered in `CHAIN_SPECS`.

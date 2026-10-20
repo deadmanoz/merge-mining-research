@@ -1,20 +1,7 @@
 #!/usr/bin/env python3
-"""Classify Crown SHA-256d AuxPoW extracts as canonical, stale, or unknown.
+"""Classify Crown AuxPoW extracts as canonical, stale, or unknown.
 
-Crown (CRW) is a 2014 Bitcoin/Dash-derived chain with standard
-Namecoin-style AuxPoW (chain ID 20, fStrictChainId true). AuxPoW activates at
-Crown height 453,273; the chain went PoS-hybrid at 2,330,000 (PoS blocks carry
-no AuxPoW and are skipped by the extractor). extract_crown_auxpow.py has already
-filtered to AuxPoW-flagged blocks by the time we get here.
-
-fStrictChainId=true prevents a parent header from using Crown's own chain ID;
-it does not establish Bitcoin parent identity. This classifier runs the shared
-classifier
-helpers:
-
-1. keep only unique headers that meet their encoded nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
+``fStrictChainId`` does not establish Bitcoin parent identity. The nBits gate is non-skippable. PoS blocks carry no AuxPoW.
 """
 
 from __future__ import annotations

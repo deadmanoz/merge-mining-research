@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-"""Classify Fractal Bitcoin AuxPoW extracts as canonical, stale, or unknown.
+"""Classify Fractal AuxPoW extracts as canonical, stale, or unknown.
 
-Fractal extraction writes one row per merge-mined Fractal block with the
-embedded Bitcoin parent header and coinbase transaction. This classifier uses
-the shared classifier helpers:
-
-1. keep only unique headers that meet their encoded self-target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. apply the shared available-evidence publication gate to stale candidates.
-
-The first gate does not establish Bitcoin's contemporaneous target. The
-publication gate corroborates expected nBits and the other header-context and
-coinbase checks available from Fractal's full CAuxPow proof. This matters
-because Fractal is post-BCH/BSV and the project treats post-2017 parent-header
-contamination defensively.
+Self-target PoW is not Bitcoin's contemporaneous target. The publication gate is available-evidence only, which matters because Fractal is post-BCH.
 """
 
 from __future__ import annotations

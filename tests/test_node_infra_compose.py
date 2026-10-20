@@ -1,18 +1,6 @@
-"""Rendered Compose policy tests for the Terracoin and Fractal node workspaces.
+"""Rendered Compose policy tests.
 
-Each test renders a real committed profile combination with
-`docker compose config --format json` under an empty env file, a controlled
-synthetic environment and a bounded timeout, then asserts the operational
-policy documented in `node-infra/`: noncreating retained binds, disabled
-restart by default, offline port resets and isolation flags, omitted bootstrap
-import, live RPC scoping and live resource limits. Rendering never starts
-containers, builds or pulls images, or contacts an RPC endpoint.
-
-The Docker Compose CLI is a hard prerequisite: a missing or failing renderer
-fails these tests instead of skipping them, so the policy coverage cannot
-silently disappear. The unsafe-case tests render temporary mutated copies of
-the real profiles and require the policy assertions to reject them; the
-committed profiles themselves are never modified.
+Rendering never starts containers. A missing Compose CLI fails these tests instead of skipping them. The committed profiles are not modified.
 """
 
 import functools

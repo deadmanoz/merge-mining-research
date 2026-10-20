@@ -120,16 +120,9 @@ def collect_candidates(
     *,
     upstream_path: Path | None = None,
 ) -> tuple[dict[tuple[int, str], str], dict[str, set[tuple[int, str]]], Counter[str]]:
-    """Scan every committed input under ``data_dir`` for VALID sidecar candidates.
+    """Collect committed VALID direct stales and accepted descendants.
 
-    Direct stales come from their committed per-chain loaders; accepted
-    descendants come from the strict canonical parent loader. Rows missing a
-    header are tracked per source rather than dropped silently. A key seen
-    with two different headers across sources is a warning and the later value
-    is discarded. Returns
-    ``(candidates, missing_header, warnings)`` where ``candidates`` maps
-    ``(height, hash) -> header_hex`` and ``warnings`` counts each distinct
-    warning message.
+    A missing header is counted, not dropped. Two headers for one ``(height, hash)`` warn, and the later header is discarded.
     """
     candidates: dict[tuple[int, str], str] = {}
     missing_header: dict[str, set[tuple[int, str]]] = {}
@@ -196,18 +189,9 @@ def build(
     upstream_path: Path,
     fills_output: Path | None = None,
 ) -> dict[str, int]:
-    """Compute and write both upstream contribution sidecar CSVs.
+    """Write upstream-new headers and header fills for committed VALID candidates.
 
-    ``output`` receives the committed VALID candidates whose ``(height, hash)``
-    is absent from the upstream ``stale-blocks.csv``; ``fills_output`` (default:
-    ``upstream_header_fills.csv`` beside ``output``) receives the candidates
-    whose key exists upstream but is recorded without a header. Both are sorted
-    by descending height then hash, with columns ``height, hash, header``. A
-    candidate missing a header that would otherwise qualify as upstream-new, or
-    that matches a hash-only upstream row it should fill, is counted as a
-    warning rather than silently dropped. Returns a stats dict:
-    ``{committed_valid_candidates, upstream_known, sidecar_rows,
-    header_fill_rows, warnings}``.
+    A qualifying candidate with no header is a warning, not a silent drop.
     """
     fills_output = fills_output or output.parent / FILLS_FILENAME
     if fills_output.resolve() == output.resolve():

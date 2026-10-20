@@ -78,6 +78,6 @@ host: it censuses every block version for the AuxPoW bit and chain ID
 `0x2137`, parses the embedded Bitcoin parent header and coinbase from
 each merge-mined block, and writes the standard raw-candidates CSV.
 Classification against Bitcoin Core then goes through
-`scripts/classify/classify_elcash_stales.py` (a thin `run_classifier`
-wrapper that reproduces the committed `data/validated-stales/elcash_validated_stales.csv`
-schema). See `docs/chains/elcash.md` for the stage counts.
+`scripts/classify/classify_elcash_stales.py`, which reproduces the committed
+`data/validated-stales/elcash_validated_stales.csv` schema. See
+`docs/chains/elcash.md` for the stage counts.

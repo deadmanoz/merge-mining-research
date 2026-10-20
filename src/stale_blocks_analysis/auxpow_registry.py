@@ -1,9 +1,4 @@
-"""Curated AuxPoW child-chain registry.
-
-The registry is intentionally data-only.  It gives the chain-ID inference
-helpers a stable set of known child-chain IDs without coupling them to the
-stale-block loaders or documentation tables.
-"""
+"""Data-only child-chain IDs for the inference helpers."""
 
 from __future__ import annotations
 

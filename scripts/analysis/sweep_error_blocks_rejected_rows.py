@@ -119,17 +119,8 @@ from stale_blocks_analysis.btc_stale_validation import (  # noqa: E402
     coinbase_scriptsig_length_error,
 )
 
-# Current archive families share ERROR_BLOCKS_CHAIN_ARCHIVE_ROOT; its redacted
-# default fails closed. A local mirror keys only on chain and filename.
-
-# Authoritative per-chain classified inventories on the chain archive host.
-# (chain, absolute path on ARCHIVE_HOST). Verified 2026-07-30: 45 REJECTED
-# rows across the eight regen-staging/scratch inventories; namecoin was added
-# afterwards to close a coverage hole (the largest error-block-producing chain
-# family had no archived inventory here at all) and its REJECTED-row tally has
-# not been observed yet. Current Kraft Huntercoin/Xaya families are also included.
-# This REJECTED-row coverage map is deliberately NOT the
-# shared 19-chain STALE_INVENTORIES map in _sweep_common.
+# Placeholder archive root fails closed. This map is not STALE_INVENTORIES.
+# A local mirror keys only on chain and filename.
 CHAIN_INVENTORIES: dict[str, str] = {
     "namecoin": f"{CHAIN_ARCHIVE_ROOT}/namecoin/classified/namecoin_stale_blocks.csv",
     "huntercoin": STALE_INVENTORIES["huntercoin"],
@@ -144,11 +135,8 @@ CHAIN_INVENTORIES: dict[str, str] = {
     "elastos": "~/canonical-fill-scratch/elastos/elastos_stale_blocks.csv",
 }
 
-# Namecoin is not one of the regen-staging chains covered by
-# STALE_INVENTORY_BASELINE_ROWS, so pin its complete current classified
-# inventory here. Every other chain keeps the shared baseline, and an unlisted
-# chain still raises KeyError rather than silently sweeping without coverage
-# enforcement.
+# Namecoin is pinned here. An unlisted chain raises rather than skipping
+# the coverage floor.
 NAMECOIN_BASELINE_ROWS = 466_184
 
 REJECTED_INVENTORY_BASELINE_ROWS = {
@@ -160,9 +148,7 @@ REJECTED_INVENTORY_BASELINE_ROWS = {
     for chain in CHAIN_INVENTORIES
 }
 
-# Rejection-reason classes, matched on the text after "REJECTED: ".
-# CONTEXTUAL: the header met the full Bitcoin PoW target but violates a
-# consensus rule that needs chain/mempool context — the error-block class.
+# After "REJECTED: ". Contextual means full PoW plus a context-dependent rule.
 CONTEXTUAL_REASONS = (
     "BIP34 coinbase height mismatch",
     "Bitcoin block version below historical minimum",
@@ -176,21 +162,12 @@ TARGET_REASONS = (
     "nBits mismatch",
 )
 
-# The MTP rejection needs the canonical parent's median-time-past, which is
-# not committed in the classified inventories: it cannot be re-derived
-# offline, so an MTP-labelled row is tallied separately and never confirmed
-# as an error block by this sweep.
+# MTP needs the canonical parent's median-time-past, which these inventories
+# do not store, so an MTP label is never confirmed here.
 MTP_REASON_PREFIX = "Bitcoin header time not greater than parent median-time-past"
 
-# The only ``bip34_height_error`` verdict that is a genuine raw coinbase-height
-# serialization failure: the scriptSig's encoded height push is actually wrong
-# for the claimed height. The gate's other REJECTED forms are NOT a
-# coinbase-height consensus failure — a too-low header VERSION ("Bitcoin block
-# version below 2 after BIP34 transition"), unusable evidence ("malformed ...",
-# "missing ..."), or a metadata cross-check disagreement ("decoded BIP34
-# coinbase height disagrees with btc_bip34_height", where the scriptSig encodes
-# the height correctly and only the optional column disagrees). Only the
-# raw-prefix mismatch confirms a BIP34-labelled contextual row.
+# Only a raw coinbase-height prefix mismatch confirms a BIP34 label.
+# A too-low version, missing evidence, or a btc_bip34_height disagreement does not.
 BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
 
 DEFAULT_REPORT = Path("results/analysis/error-blocks/rejected-rows-report.md")
@@ -206,31 +183,18 @@ class RejectedRow:
     reason: str
     reason_class: str  # "contextual" | "target" | "unrecognized"
     meets_full_pow: bool | None  # None when the header/bits cannot be parsed
-    # Whether the digest meets the canonical expected-nBits target. For a
-    # CONTEXTUAL row this is the corroborated canonical target (the
-    # inventory's expected_nbits corroborated against the committed epoch
-    # table, failing closed on a disagreement or a missing epoch start):
-    # decisive for promotion. For a TARGET row this is the digest against
-    # the inventory's expected_nbits verbatim (the target the row was
-    # rejected against): the anomaly signal, where a disagreement with the
-    # epoch table is itself part of what manual review must see. None when
-    # the target cannot be evaluated.
+    # Contextual rows use epoch-corroborated nBits and fail closed on disagreement.
+    # Target-class rows use the inventory target verbatim: the mismatch is the signal.
     meets_expected_pow: bool | None = None
-    # Whether the named contextual failure re-derives from the committed
-    # header/coinbase bytes via its btc_stale_validation gate. None when the
-    # failure needs canonical context that is not available offline (the
-    # median-time-past rejection) or the row is not contextual.
+    # True when the named gate reproduces the failure. None for MTP, which
+    # needs canonical context this sweep does not have.
     contextual_rederived: bool | None = None
     in_dataset: bool = False
 
     @property
     def is_error_block_candidate(self) -> bool:
-        # Confirmed only when the named contextual failure actually
-        # re-derives from the bytes — never on the rejection label alone —
-        # AND the digest meets the CANONICAL expected-nBits target, not just
-        # the header's own embedded bits: a contextual row meeting only an
-        # easy self-declared target is a share/contamination, not a confirmed
-        # error block (the same rule the offline validator enforces).
+        # Confirmed only when the named failure re-derives and the digest meets
+        # canonical nBits. The label alone, or an easy self-target, is not enough.
         return (
             self.reason_class == "contextual"
             and self.meets_full_pow is True
@@ -244,11 +208,8 @@ class RejectedRow:
 
     @property
     def is_pow_passing_target_anomaly(self) -> bool:
-        # An nBits-mismatch row that meets the *canonical expected* target is
-        # not a share: it is full-PoW at the real Bitcoin difficulty with a
-        # wrong nBits field (a contextual failure wearing a target-class
-        # label). Meeting only its own (wrong) bits is circular — a row
-        # rejected for wrong nBits trivially meets its own declared target.
+        # Meeting canonical nBits with a mismatched field is not a share.
+        # Meeting only the header's own wrong bits is circular.
         return self.reason_class == "target" and self.meets_expected_pow is True
 
 
@@ -271,36 +232,24 @@ class ChainReport:
     # Full-PoW contextual rows whose named failure did NOT re-derive from the
     # committed bytes: not confirmed error blocks.
     contextual_not_rederived: int = 0
-    # Full-PoW MTP-labelled rows: the named failure needs canonical parent
-    # context that is not committed in the inventories, so it cannot be
-    # re-derived offline and the row is not confirmed.
+    # MTP labels cannot be re-derived offline and are not confirmed.
     contextual_not_offline_rederivable: int = 0
-    # Full-PoW contextual rows whose named failure re-derives but whose digest
-    # does NOT meet the canonical expected-nBits target: share/contamination
-    # observations, not confirmed error blocks.
+    # Re-derived contextual rows that miss canonical nBits are shares, not error blocks.
     contextual_canonical_target_fail: int = 0
-    # Full-PoW contextual rows from a canonical-fill-scratch inventory (any
-    # chain in _SCRATCH_CHAINS) whose named failure re-derives AND whose
-    # digest meets the canonical expected-nBits target: the scratch
-    # inventory's btc_height is NOT canonical-verified, so the row is not
-    # promoted to a confirmed finding on an unverified height (the
-    # height-trust model the other error-block sweeps enforce).
+    # Scratch btc_height is not canonical-verified, so these rows are not
+    # promoted even when the failure re-derives and canonical nBits matches.
     untrustworthy_height: int = 0
     already_in_dataset: int = 0
     new_findings: list[RejectedRow] = field(default_factory=list)
-    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
-    # can be witnessed in several sibling-chain inventories, so the
-    # new_findings observation list overcounts distinct blocks.
+    # Distinct (height, hash) keys. Sibling chains can witness the same new block.
     new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
     target_anomalies: list[RejectedRow] = field(default_factory=list)
 
 
 def classify_reason(validation_status: str) -> tuple[str, str]:
-    """Split ``REJECTED: <reason>`` into (reason, reason_class).
+    """Split a REJECTED status into ``(reason, reason_class)``.
 
-    The reason class is ``contextual``, ``target``, or ``unrecognized``.
-    Matching is by prefix against the known reason strings; the parenthetical
-    detail (``(got ...)``) is ignored.
+    The class is contextual, target, or unrecognized. Parenthetical detail is ignored.
     """
     status = validation_status.strip()
     if not status.startswith("REJECTED:"):
@@ -318,29 +267,15 @@ def classify_reason(validation_status: str) -> tuple[str, str]:
 def rederive_contextual_failure(
     reason: str, row: dict[str, str], height: int
 ) -> bool | None:
-    """Re-derive the named contextual failure from the committed bytes.
+    """Whether the named contextual failure reproduces from the committed bytes.
 
-    Returns True when the gate matching the rejection label returns a
-    REJECTED string (the failure reproduces from the header/coinbase
-    evidence), False when it does not, and None when the named failure needs
-    canonical-chain context that is not committed in the inventories (the
-    median-time-past rejection) and so cannot be re-derived offline. The
-    gates are the same ``btc_stale_validation`` functions the validator
-    uses; an UNKNOWN: verdict (missing/malformed evidence) is not a
-    re-derived failure.
+    None means the failure needs canonical context this sweep does not have (MTP). UNKNOWN evidence is not a re-derived failure.
     """
     if reason.startswith(MTP_REASON_PREFIX):
         return None
     if reason.startswith("BIP34 coinbase height mismatch"):
-        # Confirm the failure is genuinely the raw coinbase-height
-        # serialization, not another rejection the same gate can return. The
-        # header version must PASS the version gate (a post-BIP34 version-1
-        # header makes bip34_height_error reject for the VERSION rule, not the
-        # coinbase height), and the verdict must be the genuine raw-prefix
-        # height mismatch — not a malformed-evidence rejection and not the
-        # metadata cross-check disagreement (the optional btc_bip34_height
-        # column disagreeing with a correctly-encoded scriptSig), neither of
-        # which is a coinbase-height consensus failure.
+        # Raw height-prefix mismatch only, and only when the version gate passes.
+        # A too-low version, missing evidence, or a column disagreement is not BIP34.
         if block_version_error(row, height) is not None:
             return False
         verdict = bip34_height_error(row, height)
@@ -356,19 +291,9 @@ def rederive_contextual_failure(
 
 
 def reverify_pow_against_target(header_hex: str, bits_text: str) -> bool | None:
-    """Re-verify the header against an externally supplied target.
+    """Whether the header meets an externally supplied target.
 
-    Used only for the canonical-target anomaly check on target-class rows:
-    the ``expected_nbits`` column is the canonical target the row was
-    rejected against, and meeting it marks an error-block candidate for
-    manual review. The value is used VERBATIM, not corroborated against the
-    epoch table: for a target-class row the anomaly is precisely that the
-    digest meets the target the inventory named, so a disagreeing
-    ``expected_nbits`` is part of the signal manual review must see (the
-    717696 retarget-boundary class). The corroborated, fail-closed variant
-    (``reverify_against_canonical_target``) governs the contextual-row
-    promotion check instead. Returns True/False, or None when the header hex
-    or the target cannot be parsed.
+    Target-class rows use ``expected_nbits`` verbatim. Contextual promotion uses the epoch-corroborated check instead.
     """
     try:
         header = bytes.fromhex((header_hex or "").strip())
@@ -414,15 +339,8 @@ def sweep_chain(
             height = -1
         block_hash = header_display_hash(row.get("btc_header_hex") or "") or ""
         meets_pow = reverify_full_pow(row.get("btc_header_hex") or "")
-        # The canonical-target check differs by reason class. For a
-        # CONTEXTUAL row the promotion check must corroborate the inventory's
-        # expected_nbits against the committed epoch table and fail closed on
-        # a disagreement or a missing epoch start: a malformed/artificially-
-        # easy inventory value must not let a contextual row pass
-        # meets_expected_pow into new_findings. For a TARGET row the decisive
-        # check is the canonical expected target the row was rejected against
-        # (not the header's own allegedly-wrong bits), used verbatim: the
-        # anomaly signal IS the digest meeting that named target.
+        # Contextual promotion fails closed unless expected_nbits matches the epoch table.
+        # Target-class rows compare against that inventory target verbatim.
         if reason_class == "contextual":
             meets_expected = reverify_against_canonical_target(
                 row.get("btc_header_hex") or "", row, height, nbits_by_epoch
@@ -476,17 +394,11 @@ def sweep_chain(
             and contextual_rederived is True
             and meets_expected is not True
         ):
-            # The named failure re-derives and the header meets its own
-            # embedded target, but the digest fails (or cannot be evaluated
-            # against) the canonical expected-nBits target: a
-            # share/contamination observation, not a confirmed error block.
+            # Missing or failing canonical nBits is a share, not an error block.
             report.contextual_canonical_target_fail += 1
         if rejected.is_error_block_candidate:
             if chain in _SCRATCH_CHAINS:
-                # A scratch inventory's btc_height is NOT canonical-verified,
-                # so a contextual row is never promoted to a confirmed finding
-                # on an unverified height (the height-trust model the other
-                # error-block sweeps enforce): tally it separately.
+                # Scratch height is not canonical-verified: do not promote.
                 report.untrustworthy_height += 1
             elif rejected.in_dataset:
                 report.already_in_dataset += 1

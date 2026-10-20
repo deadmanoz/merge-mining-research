@@ -15,7 +15,7 @@
 | Loader | `load_myriadcoin_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/myriadcoin_validated_stales.csv` |
 
-Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-PoW Huntercoin was integrated earlier, but both of its branches are merge-mined; Myriadcoin is the first chain with native-PoW branches that carry no AuxPoW at all). What it adds methodologically is the `nVersion` algo-bits filter - the node validates all five algorithms, but only the SHA-256d branch carries Bitcoin-parent AuxPoW commitments, so the extractor must drop ~78% of blocks (the non-SHA-256d four) before parsing. The filter pattern has since been reused by Argentum and Bitmark (same bits, different SHA-256d constants). With 40 validated stales over a 3¼-year coverage window from May 2017 to August 2020, the chain sits in a similar quality band to Terracoin and Unobtanium - modest absolute haul, meaningful enrichment of the multi-chain set.
+Myriadcoin is the **first multi-algo chain in the integrated pipeline** (dual-PoW Huntercoin was integrated earlier, but both of its branches are merge-mined; Myriadcoin is the first chain with native-PoW branches that carry no AuxPoW at all). What it adds methodologically is the `nVersion` algo-bits filter - the node validates all five algorithms, but only the SHA-256d branch carries Bitcoin-parent AuxPoW commitments, so the extractor must drop ~78% of blocks (the non-SHA-256d four) before parsing. The filter pattern has since been reused by Argentum and Bitmark (same bits, different SHA-256d constants). The validated set is 40 stales over a 3¼-year window from May 2017 to August 2020.
 
 ## 1. Chain data
 
@@ -64,12 +64,11 @@ The block header is `class CBlockHeader : public CPureBlockHeader { shared_ptr<C
 | After self-target PoW filter (unique) | 181,589 (35.3 % of SHA-256d-AuxPoW) |
 | After classification | **14,705 canonical + 40 stale + 166,844 unknown** |
 
-The 22.2% SHA-256d fraction is consistent with the equal-time-share assumption across five algorithms with combined ~60 s target spacing. The 35.3% self-target PoW pass rate is an extraction characteristic only; it is not a comparison with Bitcoin's contemporaneous difficulty. The 14,705 canonical rows come from the 2026-06-24 canonical refresh; the original 2026-05 run persisted only the stale/unknown split, leaving canonical implicit.
+The 22.2% SHA-256d fraction is consistent with the equal-time-share assumption across five algorithms with combined ~60 s target spacing. The 35.3% self-target PoW pass rate is an extraction characteristic only. Phase 2 does not establish Bitcoin's contemporaneous target. The 14,705 canonical rows come from the 2026-06-24 canonical refresh; the original 2026-05 run persisted only the stale/unknown split, leaving canonical implicit.
 
 **Chain-specific quirks.**
 
 - **Multi-algo PoW**: the chain's defining feature. Only the SHA-256d branch is Bitcoin-parent merge-mined; Scrypt merges with Litecoin/Dogecoin (out of scope); Groestl/Yescrypt/Argon2d are native PoW with no AuxPoW. The extractor's nVersion-bit algo filter is the gate.
-- **`fStrictChainId=false`**: the SHA-256d branch accepts AuxPoW from any SHA-256d parent. The classifier's self-target PoW check cannot identify the parent chain; Bitcoin Core classification and validation do so for accepted rows.
 - **Activation date correction**: catalogue records "2015-08" (month-precision); actual activation block 1,402,000 was mined 2015-09-26. `CHAINS_BY_AUXPOW_ACTIVATION` uses the precise date. Per the project chronological-ordering convention, we record production-activation, not chain genesis (2014-02-23).
 - **Pool population overlaps Terracoin**: both chains' validated windows are May 2017 → Aug 2020. The 39 stales claimed by earlier chains (chronological precedence) split as i0coin 19 / namecoin 10 / devcoin 7 / unobtanium 2 / crown 1 - meaning the SHA-256d miner substrate Myriadcoin witnessed in 2017–2020 is the same one those earlier chains had already been recording for years.
 
@@ -113,7 +112,11 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 **Methodological note.**
 
-Myriadcoin is the first multi-algo chain in the pipeline. The algo-filter pattern (decode `nVersion` algo bits at extraction time and discard non-SHA-256d branches before AuxPoW parsing) has since been reused by Argentum and Bitmark - same bits 9-11, but each chain encodes SHA-256d under a different constant (Myriadcoin 0, Argentum and Bitmark 1), so only the comparison constant changes. Auroracoin (also 5-algo with a SHA-256d branch) remains an uncovered candidate. The filter logic is ~3 lines in the extractor: read `nVersion` from the first 4 bytes of the block hex, mask with `BLOCK_VERSION_ALGO`, compare to `ALGO_SHA256D` (0).
+Argentum and Bitmark reuse the algo-bits filter: bits 9-11, with SHA-256d
+encoded as 0 here and as 1 on those chains. Auroracoin (also 5-algo with a
+SHA-256d branch) remains an uncovered candidate. The extractor reads
+`nVersion` from the first 4 bytes, masks with `BLOCK_VERSION_ALGO`, and
+compares to `ALGO_SHA256D` (0).
 
 ## 5. Integration history
 

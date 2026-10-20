@@ -8,14 +8,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class WalkResult:
-    """Outcome of walking an unknown header's prev-hash chain to its terminal node.
+    """Walk outcome. ``terminal_kind`` is the raw stop; ``depth`` is prev-hash hops.
 
-    `terminal_kind` is the raw walk outcome (`known_stale`, `mainchain`,
-    `consensus_invalid`, `cross_seen_root`, `cycle_or_bad_data`, or
-    `dangling_unknown`);
-    `terminal_hash` is the hash the walk stopped at; `depth` is the number of
-    prev-hash hops from the walk's start to that terminal. `category` derives
-    the reporting bucket from `terminal_kind` (see its docstring).
+    ``category`` maps that kind to the reporting bucket.
     """
 
     terminal_kind: str
@@ -24,15 +19,12 @@ class WalkResult:
 
     @property
     def category(self) -> str:
-        """Map `terminal_kind` to the reporting category used in output rows.
+        """``known_stale`` is ``direct_stale_child`` at depth 1, else ``stale_descendant``.
 
-        `known_stale` becomes `direct_stale_child` at depth 1 (the unknown
-        row's own prev-hash is a known stale) or `stale_descendant` at
-        greater depth; `mainchain` becomes `mainchain_descendant`;
-        `cross_seen_root` becomes `unknown_root_seen_elsewhere`;
-        `consensus_invalid` becomes `consensus_invalid_descendant`;
-        `cycle_or_bad_data` passes through unchanged; and anything else is
-        `dangling_unknown`.
+        ``mainchain`` is ``mainchain_descendant``. ``cross_seen_root`` is
+        ``unknown_root_seen_elsewhere``. ``consensus_invalid`` is
+        ``consensus_invalid_descendant``. ``cycle_or_bad_data`` passes through.
+        Anything else is ``dangling_unknown``.
         """
         if self.terminal_kind == "known_stale":
             return "direct_stale_child" if self.depth == 1 else "stale_descendant"

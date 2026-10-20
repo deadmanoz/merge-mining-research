@@ -1,51 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin AuxPoW headers from the Argentum blockchain via RPC.
+"""Extract Bitcoin AuxPoW headers from Argentum.
 
-Argentum is a multi-algo PoW chain:
-  - pre-2018-03 fork: Scrypt + SHA-256d only
-  - post-fork (height >= 2,977,000): Scrypt + SHA-256d + Lyra2REv2 +
-    Myriad-Groestl + Argon2d + Yescrypt
-
-Only the SHA-256d branch is Bitcoin-parent merge-mined; Scrypt
-merge-mines with Litecoin/Dogecoin (out of scope; only Bitcoin-parent
-AuxPoW is in scope here) and the four post-fork native algos have no
-AuxPoW.
-
-Algorithm encoding (src/primitives/pureheader.h, dbkeys/argentum):
-
-    BLOCK_VERSION_ALGO     = (7 << 9)   == 0x0E00
-    BLOCK_VERSION_SHA256D  = (1 << 9)   == 0x0200    <- in-scope filter
-    BLOCK_VERSION_LYRA2RE2 = (2 << 9)   == 0x0400
-    BLOCK_VERSION_GROESTL  = (3 << 9)   == 0x0600
-    BLOCK_VERSION_ARGON2D  = (4 << 9)   == 0x0800
-    BLOCK_VERSION_YESCRYPT = (5 << 9)   == 0x0A00
-    # ALGO_SCRYPT == 0 (no bits set; default case in GetAlgo())
-
-  NOTE: this differs from Myriadcoin, where SHA-256d is the *default*
-  (algo == 0). In Argentum SHA-256d is explicit (1<<9) and Scrypt is
-  the default. The Argentum filter is therefore
-      (nVersion & BLOCK_VERSION_ALGO) == BLOCK_VERSION_SHA256D
-  NOT the Myriadcoin-style `algo == 0`.
-
-AuxPoW flag (`VERSION_AUXPOW = 1 << 8`, bit 8 of nVersion) must also
-be set. We filter on both fields before attempting Namecoin-style
-CAuxPow deserialisation.
-
-AuxPoW activates at Argentum height 1,825,000
-(consensus.nStartAuxPow in src/chainparams.cpp; exact wall-clock date
-derivable from the block-1825000 timestamp). The extractor iterates
-1,825,000 -> tip, skipping blocks whose algo bits indicate a
-non-SHA-256d branch OR whose AuxPoW flag is not set.
-
-fStrictChainId is false on Argentum (identical to Myriadcoin) — the
-SHA-256d branch will accept AuxPoW from any SHA-256d parent. In
-practice Bitcoin is the only economically rational parent (the live
-SHA-256d difficulty is ~4.3e10, requiring real BTC-scale hashrate),
-but the downstream classify_*_candidates.py step is what enforces
-parent-against-BTC-mainchain matching.
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility.
+Only SHA-256d is in scope, and it is version bit ``1 << 9``, not the default algo. AuxPoW starts at height 1825000. ``fStrictChainId`` is false.
 """
 
 import os

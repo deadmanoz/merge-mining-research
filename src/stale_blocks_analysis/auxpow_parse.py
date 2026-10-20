@@ -1,25 +1,9 @@
 """Pure-stdlib CAuxPow / Bitcoin wire deserialisation.
 
-This module consolidates the CAuxPow deserialiser that was copy-pasted across
-~11 per-chain extract scripts (i0coin, ixcoin, devcoin, unobtanium, myriadcoin,
-crown, argentum, bitmark, fractal, huntercoin) plus the segwit-aware
-class-based reader in ``extract_bitcoin_vault_auxpow.py``.
-
-The AuxPoW binary format is identical across all Namecoin-family chains
-(the Vince Durham / Daniel Kraft specification). Only network magic bytes and
-AuxPoW activation heights differ, and those belong to the chain scripts, not
-here.
-
-Conventions:
-- Positional ``(buf, pos) -> (value, pos)`` cursor style throughout, built on
-  ``bitcoin_binary._varint``.
-- Byte order is always explicit. Display hex (RPC / explorer order) is produced
-  with the helpers in ``auxpow_chainid``; raw ``[::-1]`` is never used here.
-
-DEPLOYMENT CONSTRAINT: this module is imported by extract scripts that run on
-package-less / NixOS hosts. It MUST remain importable with the Python standard
-library plus intra-package pure helpers only. Do not add third-party imports
-(no ``requests``, ``numpy``, etc.).
+Namecoin-family AuxPoW is one wire format. Network magic and activation
+heights stay in the chain scripts. Cursors are ``(buf, pos) -> (value, pos)``.
+Display hex comes from ``auxpow_chainid``; raw ``[::-1]`` is not used here.
+Importable with the standard library plus intra-package pure helpers only.
 """
 
 from __future__ import annotations
@@ -103,17 +87,9 @@ def _read_txout(buf: bytes, pos: int) -> tuple[dict, int]:
 
 
 def read_transaction(buf: bytes, pos: int) -> tuple[dict, int]:
-    """Deserialise a Bitcoin transaction. Returns ``(tx_dict, new_pos)``.
+    """Segwit-aware transaction. Witness is skipped; ``raw`` is the bytes consumed, witness included.
 
-    Segwit-aware: handles the BIP144 marker (0x00) + flag byte and skips the
-    witness stack. The AuxPoW parent coinbase is conventionally non-segwit, but
-    the format is handled defensively because explorer-sourced parent blocks
-    (e.g. Bitcoin Vault) can carry witness data.
-
-    The returned dict carries:
-      ``version``, ``vin`` (list of input dicts), ``vout`` (list of output
-      dicts), ``locktime``, ``has_witness`` (bool) and ``raw`` (the
-      witness-inclusive serialised tx bytes as consumed from ``buf``).
+    The parent coinbase is usually non-segwit. Explorer-sourced parents can carry witness data.
     """
     tx_start = pos
     version = struct.unpack_from("<i", buf, pos)[0]
@@ -174,23 +150,7 @@ def read_merkle_branch(buf: bytes, pos: int) -> tuple[list[bytes], int]:
 
 
 def read_auxpow(buf: bytes, pos: int) -> tuple[dict, int]:
-    """Deserialise a CAuxPow structure. Returns ``(auxpow_dict, new_pos)``.
-
-    Serialisation order (from auxpow.h READWRITE macros):
-      CMerkleTx:
-        CTransaction          (the parent-chain coinbase tx)
-        hashBlock             (32 bytes, conventionally zero)
-        vMerkleBranch         (varint count + hashes)
-        nIndex                (int32)
-      CAuxPow tail:
-        vChainMerkleBranch    (varint count + hashes)
-        nChainIndex           (int32)
-        parentBlock           (80-byte CPureBlockHeader)
-
-    The returned dict carries the parsed ``coinbase_tx`` dict, the raw
-    ``hash_block`` / merkle-branch / index fields, and the 80-byte
-    ``parent_header_raw``.
-    """
+    """CAuxPow in ``auxpow.h`` order: parent coinbase, ``hashBlock``, merkle branch, ``nIndex``, chain branch, ``nChainIndex``, 80-byte parent header."""
     coinbase_tx, pos = read_transaction(buf, pos)
     hash_block = buf[pos : pos + 32]
     pos += 32
@@ -226,19 +186,7 @@ parse_auxpow_tail = read_auxpow
 
 
 def parse_parent_header(raw80: bytes) -> dict:
-    """Parse an 80-byte Bitcoin parent block header.
-
-    Returns a dict with explicit byte-order semantics:
-      ``version``     - int32 (signed)
-      ``prev_hash``   - display-hex (RPC order) of hashPrevBlock
-      ``merkle_root`` - display-hex (RPC order) of hashMerkleRoot
-      ``time``        - uint32 unix timestamp
-      ``bits``        - compact target as an int (big-endian value)
-      ``bits_hex``    - the same compact target as 8-char hex
-      ``nonce``       - uint32
-      ``hash``        - display-hex (RPC order) header hash
-      ``header_hex``  - the raw 80 bytes as hex
-    """
+    """80-byte parent header. Hashes are display order; ``version`` is signed int32; ``time`` and ``nonce`` are uint32; ``bits`` is the compact target."""
     if len(raw80) != 80:
         raise ValueError("expected exactly 80 header bytes")
     version = struct.unpack_from("<i", raw80, 0)[0]
@@ -267,13 +215,10 @@ def parse_child_header(
     expected_hash_display: str | None = None,
     nbits: int | None = None,
 ) -> dict:
-    """Return normalized child-chain evidence from an authenticated header.
+    """``child_block_hash`` is internal/wire order.
 
-    ``child_block_hash`` is the internal/wire-order double-SHA256 digest used
-    by the evidence-export contract. ``expected_hash_display``, when supplied,
-    is the independent RPC or archive hash in display order. ``nbits``
-    overrides the header field only for formats such as Xaya, where the
-    effective PoW target lives in the adjacent ``PowData`` wrapper.
+    ``expected_hash_display`` is an independent display-order hash. ``nbits``
+    overrides the header only when the target lives outside it (Xaya PowData).
     """
     parsed = parse_parent_header(raw80)
     if expected_hash_display is not None:
@@ -314,12 +259,7 @@ def validate_child_header_fields(
     *,
     nbits_from_header: bool = True,
 ) -> dict:
-    """Validate and normalize a complete four-field child-header bundle.
-
-    This accepts values decoded directly from a block as well as CSV strings.
-    Serialization-specific gates may additionally require an exact unpadded
-    representation before publishing an artifact.
-    """
+    """Complete four-field child bundle. Publication may also require the exact unpadded encoding."""
     values = _child_header_values(row)
     missing = [field for field, value in values.items() if not value]
     if missing:
@@ -348,12 +288,9 @@ def validate_available_child_header_fields(
     *,
     nbits_from_header: bool = True,
 ) -> dict[str, str]:
-    """Validate every populated field in a possibly partial child bundle.
+    """Each populated field of a partial bundle still uses the publication encoding.
 
-    Sources outside the historical hydration set do not all expose the complete
-    four-field contract. Each available value still uses the publication
-    encoding, and an available serialized header authenticates every other
-    populated field.
+    An available serialized header authenticates the other populated fields.
     """
     values = _child_header_values(row)
     raw80, _child_time, nbits_value = _validate_child_header_encodings(values)
@@ -539,12 +476,7 @@ def serialize_block_header(
 
 
 def nbits_to_target(bits: int) -> int:
-    """Expand a compact ``nBits`` value into the full 256-bit target integer.
-
-    Mirrors Bitcoin Core's ``CBigNum::SetCompact``: the top byte is the
-    base-256 exponent, the low 23 bits are the mantissa, and bit 0x800000 is a
-    sign bit (never set for real targets).
-    """
+    """``CBigNum::SetCompact``. Exponent is the top byte; bit ``0x800000`` is the sign and is invalid for a real target."""
     exp = bits >> 24
     mant = bits & 0x7FFFFF
     if bits & 0x800000:
@@ -555,13 +487,9 @@ def nbits_to_target(bits: int) -> int:
 
 
 def hash_meets_btc_difficulty(header_hash_internal: bytes, bits: int) -> bool:
-    """Return True if a header hash satisfies the ``bits`` target.
+    """``header_hash_internal`` is the direct sha256d output.
 
-    ``header_hash_internal`` is the internal-order (little-endian display)
-    32-byte hash, i.e. the direct ``sha256d`` output as returned by
-    ``auxpow_chainid.hash_from_header_bytes``. The numeric comparison uses the
-    big-endian integer value of that hash, matching how Bitcoin Core interprets
-    ``uint256`` targets.
+    The comparison uses that hash as a big-endian integer, matching Core's ``uint256`` targets.
     """
     if len(header_hash_internal) != 32:
         raise ValueError("expected exactly 32 hash bytes")
@@ -574,11 +502,9 @@ def hash_meets_btc_difficulty(header_hash_internal: bytes, bits: int) -> bool:
 
 
 def parse_coinbase_height(scriptsig: bytes) -> Optional[int]:
-    """Return the BIP34 height encoded in a coinbase scriptSig, or None.
+    """BIP34 height, or None. A leading data push is not a height.
 
-    A leading arbitrary data push is not height evidence. Bitcoin heights fit
-    in a nonnegative signed 32-bit integer; in particular, a 44-byte AuxPoW
-    commitment must never become an enormous apparent future height.
+    A 44-byte AuxPoW commitment must not become an apparent future height.
     """
     if not scriptsig:
         return None

@@ -23,8 +23,6 @@ Groupcoin (GPC) was a ~2011-launched Namecoin-family merge-mined chain (a Devcoi
 
 **Coverage.** The 30 accepted rows span BTC heights **181,492 → 312,238** (2012-05-25 → 2014-07-24, a ~2.2-year window). GPC heights **31,261 → 131,681**. The dump itself extends from GPC genesis (height 0) to GPC 235,751 with the first AuxPoW-bearing record at GPC 17,187, so the chain's AuxPoW observability window is February 2012 → July 2018, comfortably wider than the accepted direct-stale window.
 
-**Integration status.** Wired into the recovery loader and novelty pipeline. The validated CSV at `data/validated-stales/groupcoin_validated_stales.csv` (30 rows) is consumed by `load_groupcoin_stales()`, and Groupcoin sits at chronological position 7, after Devcoin and before Huntercoin.
-
 **Holes.**
 
 - **Pre-AuxPoW** (GPC < 17,187): no `auxpow` field; nothing to extract. Groupcoin's genesis-to-AuxPoW-activation gap is ~17 k blocks, covered by the dump but inert.
@@ -95,7 +93,7 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 ### Unknown inventory
 
-The 2,713 self-target-PoW-passing **unknowns-by-our-standard** (parent not on BTC mainchain, prev_hash also not on BTC mainchain) live in the private unknown-inventory bucket (`groupcoin_unknown_blocks.csv`) under `classification == "unknown"`. It is a comparatively small unknown inventory - the raw-hex parses of ixcoin, i0coin, and devcoin each carry tens to hundreds of thousands more.
+The 2,713 self-target-PoW-passing **unknowns-by-our-standard** (parent not on BTC mainchain, prev_hash also not on BTC mainchain) live in the private unknown-inventory bucket (`groupcoin_unknown_blocks.csv`) under `classification == "unknown"`.
 
 The unknown population is not yet characterised. It **may** encode a non-BTC SHA-256d substrate (for example testnet or private-chain BTC parents that Groupcoin miners attached as AuxPoW commits) or chain segments lost to deep BTC reorgs that no other AuxPoW chain in scope captured, but this reading is explicitly speculative pending the queued pool-attribution audit (§4). Until then the unknown rows are preserved verbatim for diagnostic use.
 

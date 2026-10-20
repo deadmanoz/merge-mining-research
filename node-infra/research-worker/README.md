@@ -55,10 +55,8 @@ of this workspace.
 
 Keep the repository's pinned upstream revisions and Git LFS payloads in the
 selected checkout/archive. Rebuild the image whenever the mounted checkout's
-source revision or dependencies change. The mounted checkout supplies the
-scripts, package source and data at runtime, while the image venv supplies the
-tested dependency installation from the build context. RPC settings can be
-supplied with the command's normal options or environment for a single run.
+source revision or dependencies change. RPC settings can be supplied with the
+command's normal options or environment for a single run.
 
 The image includes Git and Git LFS so the RSK classifier can verify the mounted
 checkout's exact revision and clean state. Use a clean standalone clone with

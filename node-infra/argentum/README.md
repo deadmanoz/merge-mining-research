@@ -126,13 +126,11 @@ cannot be used here.
   (Scrypt + SHA-256d only) the cadence was 32 s overall
   (`nPowTargetSpacingV1`).
 - Disk: single-digit to low-double-digit GB for a fully-indexed
-  (`txindex=1`) node - chain is on the order of 13 years old with a
-  modest block size, well within Myriadcoin/Terracoin ballpark.
+  (`txindex=1`) node.
 
 ## Reproduction and refresh
 
-This directory is the source of truth for the Argentum node-infra. To
-deploy on `<archival-host>`:
+To deploy on `<archival-host>`:
 
 ```bash
 rsync -av --delete node-infra/argentum/ <archival-host>:~/argentum-docker/

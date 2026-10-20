@@ -15,7 +15,7 @@
 | Loader | `load_crown_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/crown_validated_stales.csv` |
 
-Crown is a 2014 Bitcoin/Dash-derived chain. It carries Dash's masternode and on-chain governance layer on top of a Bitcoin-Core base, with standard Namecoin-style (Daniel Kraft lineage) SHA-256d AuxPoW. It is the **10th chain by AuxPoW-activation date**, slotting between Unobtanium (2015-05-08) and Myriadcoin (2015-09-26). The recovery is also a methodological footnote worth flagging: Crown was previously **deferred** after the network had been declared dead because every DNS seed and the hardcoded bootstrap went unreachable. It was unblocked the same way Argentum was, by harvesting a broken-today-but-archived-yesterday operator dashboard via the Wayback CDX index. The recovery yielded 23 publication-gate-accepted direct-stale candidates.
+Crown is a 2014 Bitcoin/Dash-derived chain. It carries Dash's masternode and on-chain governance layer on top of a Bitcoin-Core base, with standard Namecoin-style (Daniel Kraft lineage) SHA-256d AuxPoW. It is the **10th chain by AuxPoW-activation date**, slotting between Unobtanium (2015-05-08) and Myriadcoin (2015-09-26). Crown was previously **deferred** after the network had been declared dead because every DNS seed and the hardcoded bootstrap went unreachable. It was unblocked the same way Argentum was, by harvesting a broken-today-but-archived-yesterday operator dashboard via the Wayback CDX index. The recovery yielded 23 publication-gate-accepted direct-stale candidates.
 
 ## 1. Chain data
 
@@ -67,7 +67,6 @@ The ~1.88M extracted commitments across the PoW era confirm the ~99% merge-mined
 
 - **PoS-hybrid era splits the chain in two.** Crown is the first chain in the pipeline with a PoS era. The extractor handles it for free - PoS blocks never set the AuxPoW flag, so the same version-bit gate that skips pre-activation blocks also skips all of PoS. The `nVersion` chain-ID rotation 20 → 22 in the PoS era is cosmetic and never read by the extractor.
 - **No decoded `auxpow` in `getblock` JSON.** Crown's RPC predates the decoded-AuxPoW verbose output, forcing the raw-hex parse path. This is the Devcoin pattern, not the Syscoin/Terracoin pattern.
-- **`fStrictChainId=true`.** Crown rejects a parent header that uses Crown's own chain ID. This prevents same-chain AuxPoW, but it does not identify the parent as Bitcoin. Parent identity is established separately through Bitcoin Core classification and the publication validation gates.
 - **Catalogue activation date used.** Per the project chronological-ordering convention we record the 2015-08-25 production-activation date (CRW 453,273), not the October 2014 chain genesis (a standalone PoW chain with no Bitcoin-parent commitment).
 
 ## 3. Filtering → accepted direct-stale candidates
@@ -108,7 +107,3 @@ Current upstream overlap and chronological allocation are in the [novelty report
 - April-2019 full MN-PoS switch at CRW 2,330,000 (Crown v0.13.0 "Jade"): https://medium.com/crownplatform/crown-mn-pos-simplified-9c5bdac13460
 - 2026 dormant-token status (near-zero volume): https://coinmarketcap.com/currencies/crown/
 - Peer-discovery source: Wayback captures of `monitor.crownplatform.com/index.php?p=peers` (Crown's community masternode-tracker / monitor app, 2020-08 → 2026-03).
-
-**Methodological note.**
-
-Crown is the project's case study in **un-deferring a chain declared dead**. The recovery was previously shelved because peer discovery failed across every channel the source code offered - DNS seeds, fixed seeds, hardcoded bootstrap. It was unblocked by the same Wayback-CDX technique that recovered Argentum: an operator-rendered dashboard (`monitor.crownplatform.com`, a community masternode tracker) that is broken-today but stable-in-the-archive yields a historical peer list, and a single nine-year-old IP that still answers is enough to bootstrap a full IBD (via the Wayback CDX index). Any merge-mined chain with a community-run monitor, pool admin page, or masternode tracker that has since gone offline is a candidate for the same trick. The recovery yielded 23 publication-gate-accepted direct-stale candidates over an 18-month window. Crown's PoW era was a dense *merge-mining* environment (~99% of PoW blocks carry an AuxPoW commitment), but that is not the same as dense BTC-parent canonicity: only 5,483 of 389,128 unique self-target-valid parents are canonical Bitcoin, and the large unknown bucket is consistent with post-2017 non-BTC contamination rather than recovered Bitcoin. The lasting value here is as much methodological - un-deferring a chain declared dead - as it is the accepted-candidate count.

@@ -1,24 +1,7 @@
 #!/usr/bin/env python3
-"""Backfill coinbase_outputs with decoded addresses for Terracoin stales.
+"""Backfill Terracoin ``coinbase_outputs`` from ``scriptPubKey.hex``.
 
-Re-fetches the 35 validated-stale TRC blocks from a running terracoind and
-rewrites their `coinbase_outputs` in the shared canonical rendering (see
-docs/data-reference.md), sourced from `scriptPubKey.hex`. terracoind
-(Dash-Core-0.12.x-derived) decodes addresses through Dash's base58, so its
-`scriptPubKey.address`/`addresses` fields are never used. The columns
-rewritten are:
-  - data/validated-stales/terracoin_validated_stales.csv (committed; load_terracoin_stales input)
-  - data/terracoin_stale_blocks.csv (intermediate; stale rows only)
-
-Unknown rows in the intermediate are left untouched — they pass through
-output_scripts() in scripts/analysis/analyze_*_unknown_origin.py with a graceful
-fallback to scriptsig-based pool ID for any unresolvable label, and the
-~523k re-fetches are not worth the cost.
-
-Connectivity: talks to a terracoind JSON-RPC endpoint over HTTP
-(TERRACOIN_RPC_URL, default http://127.0.0.1:13332, with
-TERRACOIN_RPC_USER / TERRACOIN_RPC_PASS). When the node is on another host,
-forward its RPC port with `ssh -L 13332:localhost:13332 <host>`.
+Dash base58 address fields are not used. Unknown rows are left unchanged.
 """
 
 from __future__ import annotations

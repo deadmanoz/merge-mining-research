@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
-"""Recover Lyncoin's pre-Flex AuxPoW evidence via raw P2P ``getheaders``.
+"""Recover Lyncoin's pre-Flex AuxPoW headers over P2P getheaders.
 
-The live Lyncoin network can deliver extended headers much faster than full
-block bodies.  Lyncoin's header serialization includes the complete
-Namecoin-family CAuxPow object, so the height 0..260,499 header stream is a
-lossless input to the existing Bitcoin-parent classifier.
-
-The downloader is resumable at atomic batch-file boundaries.  On every start
-it verifies all existing batches from the pinned genesis through the last
-saved header before opening a socket.  It writes the classifier CSV only after
-the full pre-Flex range and the height-260,500 boundary proof validate.
-
-No RPC credentials are needed.  The peer is required explicitly so a changing
-public network endpoint never silently alters provenance.
+Saved batches are revalidated from genesis before a socket opens, and the CSV is written only after the height-260500 boundary proof validates.
 """
 
 from __future__ import annotations
@@ -137,13 +126,9 @@ def _fsync_directory(path: Path) -> None:
 def atomic_write_bytes(
     path: Path, data: bytes, *, refuse_existing: bool = False
 ) -> None:
-    """Write ``data`` to ``path`` atomically via a temp file, fsync, and rename.
+    """Atomically replace ``path`` via a temp file, fsync, and rename.
 
-    When ``refuse_existing`` is set, raises ``RecoveryValidationError``
-    rather than clobbering a file that already exists at ``path`` — checked
-    both before and after writing the temp file, closing the
-    check-then-act race against a concurrent writer. The temp file is
-    removed on every exit path, including after a successful rename.
+    With ``refuse_existing``, an existing destination raises, checked before and after the temp write.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     if refuse_existing and path.exists():
@@ -303,13 +288,9 @@ def _validate_and_add_header(
     raw_header: bytes,
     height: int,
 ) -> tuple[ParsedHeader, HeaderSummary]:
-    """Parse, validate, and append one raw header to ``state``.
+    """Append one raw header to the recovery state.
 
-    Applies genesis rules at height 0 (raising ``RecoveryValidationError``
-    if genesis is not actually first) and pre-Flex chain rules otherwise,
-    appends the resulting summary to ``state.history``, updates the
-    AuxPoW/solo and self-target-PoW-candidate counters, and returns
-    ``(parsed, summary)``.
+    Height 0 must be the genesis header. Later headers use the pre-Flex chain rules.
     """
     parsed = parse_extended_header(raw_header)
     if height == 0:
@@ -771,16 +752,9 @@ def append_network_batch(
     peer: tuple[str, int],
     peer_version: PeerVersion,
 ) -> None:
-    """Validate and persist one P2P ``headers`` response as the next batch.
+    """Persist one headers response as the next batch and refuse to overwrite an existing batch file.
 
-    Takes at most ``target_height - last_height`` headers (bounded further
-    by ``MAX_HEADERS_RESULTS``), raising ``RecoveryValidationError`` if the
-    response is empty or shorter than the minimum expected given how many
-    heights remain. When the batch reaches ``target_height``, also
-    validates and records the Flex-activation boundary proof from the
-    header immediately after it. Writes the batch file (refusing to
-    overwrite an existing one), appends its ``BatchInfo`` to ``state``, and
-    rewrites the manifest.
+    Reaching the target height also requires the Flex-activation boundary proof.
     """
     if not headers:
         raise RecoveryValidationError(
@@ -847,15 +821,9 @@ def append_network_batch(
 
 
 def write_candidates(state: RecoveryState) -> None:
-    """Re-derive and write the self-target-PoW-candidate CSV from the fully persisted batch set.
+    """Rewrite the candidate CSV from the persisted batches, not from scan counters.
 
-    This is an independent re-validation pass over every stored batch
-    (not a reuse of the counters accumulated during scan/append), so it
-    also re-raises ``RecoveryValidationError`` if the recomputed header
-    count or candidate count disagrees with ``state``. Writes atomically
-    and records the resulting file's row count, size, and sha256 as
-    ``state.candidate_artifact`` before rewriting the manifest. Requires
-    ``state.complete``.
+    A recomputed count that disagrees with ``state`` raises. Requires ``state.complete``.
     """
     if not state.complete:
         raise RecoveryValidationError(
@@ -918,16 +886,9 @@ def recover(
     output_dir: Path,
     timeout: float,
 ) -> RecoveryState:
-    """Drive one full recovery run and return the final ``RecoveryState``.
+    """Revalidate saved batches from genesis before using the network.
 
-    Creates the genesis batch if missing, revalidates every persisted
-    batch from disk (resumable — no network needed if already complete),
-    then, while short of ``AUXPOW_END_HEIGHT``, connects to ``peer`` and
-    pages through ``getheaders`` until the target height and Flex boundary
-    proof are reached. Writes the candidate CSV once complete, reusing an
-    already-verified artifact if the manifest and CSV on disk still match.
-    Raises ``RecoveryValidationError`` if the target is reached without a
-    valid Flex boundary proof.
+    The CSV is written only after the Flex boundary proof validates. Reaching the target without that proof raises.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     create_genesis_batch(output_dir)

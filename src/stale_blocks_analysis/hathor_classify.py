@@ -1,9 +1,7 @@
-"""Unified Hathor RFC0006 reconstruction and Bitcoin classification.
+"""Hathor RFC0006 reconstruction. Each observation lands in one terminal category.
 
-The classifier consumes the current sealed acquisition CSV directly. Every
-observation is written to exactly one terminal category and a VALID-only stale
-projection is written beside those categories. Outputs are built in a sibling
-temporary directory and published with one directory rename.
+A VALID-only stale projection is written beside those categories. The sibling
+temp directory is published with one rename.
 """
 
 from __future__ import annotations

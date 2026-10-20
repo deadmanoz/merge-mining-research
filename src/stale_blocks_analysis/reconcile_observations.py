@@ -47,13 +47,7 @@ NON_CHILD_HEIGHT_COLUMNS = {
 
 @dataclass(slots=True)
 class StaleObservation:
-    """One source row reporting a known-stale BTC header.
-
-    `source_kind` is `upstream`, `full_inventory`, or `validated_stales`.
-    `btc_height` is the BTC parent height; `child_height`
-    is the sibling-chain block height that carries the AuxPoW (empty for the
-    upstream sources, which have no child-chain column).
-    """
+    """Known-stale header. ``child_height`` is empty for upstream rows."""
 
     chain: str
     source_kind: str
@@ -70,16 +64,10 @@ class StaleObservation:
 
 @dataclass(slots=True)
 class UnknownObservation:
-    """One source row that is candidate evidence for stale ancestry.
+    """Candidate evidence from any classifier bucket. Bucket names are not verdicts.
 
-    It may come from any classifier bucket. Historical bucket names are not
-    final verdicts. `scriptsig_hex` and
-    `outputs` are the coinbase scriptSig/outputs evidence, if present;
-    `full_coinbase_hex` is the complete transaction when a source exposes it;
-    `header_hex` is the raw 80-byte BTC header hex used to recompute the header
-    hash and self-PoW during descendant validation. `source_child_hash` retains
-    the source schema's exact event selector: internal/wire order for normalized
-    Bitcoin-family rows and forward order for RSK.
+    ``source_child_hash`` keeps the source event selector: internal/wire order
+    for Bitcoin-family rows, forward order for RSK.
     """
 
     chain: str
@@ -119,12 +107,9 @@ def rel(path: Path) -> str:
 
 
 def parse_header_fields(header_hex: str) -> dict[str, str]:
-    """Parse `prev_hash`, `time`, and `bits` out of an 80-byte BTC header hex string.
+    """``prev_hash`` is display order. ``time`` and ``bits`` are read little-endian.
 
-    Returns `{}` for empty/invalid hex or a header shorter than 80 bytes.
-    `prev_hash` is converted to display-order (big-endian) lowercase hex;
-    `time` is a decimal string; `bits` is lowercase compact-bits hex (both
-    read little-endian off the wire, per the header's on-disk byte order).
+    Returns ``{}`` when the hex is missing, malformed, or shorter than 80 bytes.
     """
     header_hex = (header_hex or "").strip()
     if not header_hex:
@@ -144,11 +129,7 @@ def parse_header_fields(header_hex: str) -> dict[str, str]:
 
 
 def header_hash(header_hex: str) -> str:
-    """Compute the display-order (big-endian) SHA256d hash of an 80-byte BTC header hex string.
-
-    Returns `""` for empty/invalid hex or a header shorter than 80 bytes;
-    only the first 80 bytes are hashed, so trailing AuxPoW data is ignored.
-    """
+    """Display-order SHA256d of the first 80 bytes. Trailing AuxPoW is ignored."""
     try:
         raw = bytes.fromhex((header_hex or "").strip())
     except ValueError:
@@ -159,12 +140,7 @@ def header_hash(header_hex: str) -> str:
 
 
 def compact_target(bits_hex: str) -> int | None:
-    """Expand a compact-bits hex string to its full integer PoW target.
-
-    Returns None for invalid hex or for the negative-mantissa encoding (the
-    sign bit, 0x00800000, set in the mantissa), which Bitcoin Core also
-    treats as invalid.
-    """
+    """Integer target, or None for invalid hex or the negative mantissa (``0x00800000``)."""
     try:
         bits = int(bits_hex, 16)
     except ValueError:
@@ -192,12 +168,7 @@ def get_hash(row: dict[str, str], hash_col: str) -> str:
 
 
 def get_prev(row: dict[str, str], prev_col: str, header_col: str) -> tuple[str, bool]:
-    """Return the row's prev-hash, recovering it from `header_col`'s header
-    hex when the prev-hash column is empty.
-
-    Returns `(prev_hash, recovered)` where `recovered` is True only when the
-    value came from parsing the header hex rather than `prev_col` directly.
-    """
+    """``(prev_hash, recovered)``. ``recovered`` is true only when the column was empty."""
     prev_hash = normalize_hash(row.get(prev_col, "")) if prev_col else ""
     if prev_hash:
         return prev_hash, False
@@ -206,13 +177,7 @@ def get_prev(row: dict[str, str], prev_col: str, header_col: str) -> tuple[str, 
 
 
 def get_child_height(row: dict[str, str], fieldnames: Iterable[str] | None) -> str:
-    """Return the sibling-chain block height for `row`.
-
-    Looks for the first `*_height`-suffixed column not in
-    `NON_CHILD_HEIGHT_COLUMNS` (the per-chain child-height column, e.g.
-    `ixc_height`) with a non-empty value, falling back to a literal
-    `child_height` column.
-    """
+    """First ``*_height`` column outside ``NON_CHILD_HEIGHT_COLUMNS``, else ``child_height``."""
     for field in fieldnames or []:
         if field.endswith("_height") and field not in NON_CHILD_HEIGHT_COLUMNS:
             value = row.get(field, "").strip()
@@ -222,11 +187,7 @@ def get_child_height(row: dict[str, str], fieldnames: Iterable[str] | None) -> s
 
 
 def load_epoch_bits(path: Path) -> dict[int, str]:
-    """Load the epoch-start-height -> lowercase-hex-bits table from `path`.
-
-    Returns `{}` if `path` does not exist. Keys are BTC epoch-start heights
-    (multiples of 2016); values are lowercased compact-bits hex.
-    """
+    """Epoch-start height to lowercase compact bits. Missing file returns ``{}``."""
     if not path.exists():
         return {}
     with path.open() as f:
@@ -235,11 +196,7 @@ def load_epoch_bits(path: Path) -> dict[int, str]:
 
 
 def expected_bits_for_height(height: str, epoch_bits: dict[int, str]) -> str:
-    """Return the expected compact-bits hex for `height`'s retarget epoch, or `""`.
-
-    Looks up `epoch_bits[(height // 2016) * 2016]`; returns `""` when
-    `height` does not parse as an int or the epoch has no cached entry.
-    """
+    """Bits for ``(height // 2016) * 2016``, or ``""`` when the epoch is unknown."""
     h = int_or_none(height)
     if h is None:
         return ""
@@ -249,15 +206,9 @@ def expected_bits_for_height(height: str, epoch_bits: dict[int, str]) -> str:
 def discover_chain_names(
     data_dir: Path,
 ) -> tuple[set[str], dict[str, Path], dict[str, Path], dict[str, Path]]:
-    """Discover per-chain full-inventory and validated-stales CSVs under `data_dir`.
+    """Stale, unknown, and validated paths, plus documented chains with no CSV yet.
 
-    Chain names also include any `docs/chains/<chain>.md` stem even when
-    neither CSV exists for it, so chains documented but not yet extracted
-    still show up (as excluded) in the reconciliation inventory. Returns
-    `(chain_names, stale_inventory_paths, unknown_inventory_paths,
-    validated_stales_paths)`. The stale and unknown inventories are the two
-    halves of the classifier's bucket split; a never-split chain has only the
-    (commingled) stale file and no unknown file.
+    A never-split chain has only the commingled stale file.
     """
     full = {
         p.name.removesuffix("_stale_blocks.csv"): p
@@ -278,15 +229,7 @@ def discover_chain_names(
 
 
 def discover_canonical_files(data_dir: Path) -> dict[str, Path]:
-    """Discover classifier-emitted canonical companion inventories.
-
-    These files are a third classifier bucket, separate from the stale and
-    unknown inventories. Reconciliation treats their rows as ancestry
-    candidates rather than trusted Bitcoin main-chain facts because an
-    archive bucket can become stale after a node or classifier refresh. Every
-    row is candidate evidence and must earn its final verdict through ancestry,
-    consensus, and active-mainchain gates.
-    """
+    """Canonical companions are ancestry candidates, not trusted main-chain facts."""
     return {
         path.name.removesuffix("_canonical_blocks.csv"): path
         for path in data_dir.glob("*_canonical_blocks.csv")
@@ -299,16 +242,10 @@ def join_sorted(values: Iterable[str]) -> str:
 
 
 def load_mainchain_cache(cache_dir: Path) -> dict[str, dict]:
-    """Load and merge the shadow-resolver and unknown-origin mainchain-status caches.
+    """Merge the two mainchain caches. The unknown-origin file wins a shared hash.
 
-    Reads `shadow-resolver-mainchain-cache.json` then
-    `unknown_origin_btc_headers_by_hash.json` from `cache_dir` (the second
-    overwrites entries for the same hash), normalizing each value: a bare
-    bool is treated as `{"exists": v, "on_mainchain": v}`; a dict with a
-    `confirmations` field derives `on_mainchain` as `confirmations >= 0`; a
-    `null` value is recorded as `{"exists": False, "on_mainchain": False}`
-    only if the hash was not already present. Entries with a malformed hash
-    are skipped.
+    A bool is ``exists`` and ``on_mainchain``. ``confirmations >= 0`` is
+    on-mainchain. A null value is absent only when the hash is new.
     """
     out: dict[str, dict] = {}
     paths = [
@@ -345,10 +282,7 @@ def load_mainchain_cache(cache_dir: Path) -> dict[str, dict]:
 
 
 def save_mainchain_cache(cache_dir: Path, cache: dict[str, dict]) -> None:
-    """Write `cache` as pretty-printed, sorted JSON under `cache_dir`.
-
-    Target file: `unknown-stale-reconciliation-mainchain-cache.json`.
-    """
+    """Pretty-printed ``unknown-stale-reconciliation-mainchain-cache.json``."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / "unknown-stale-reconciliation-mainchain-cache.json"
     path.write_text(json.dumps(cache, indent=2, sort_keys=True) + "\n")
@@ -359,16 +293,9 @@ def fetch_mainchain_status(
     rpc: BtcRpc,
     batch_size: int,
 ) -> dict[str, dict]:
-    """Query Bitcoin Core for the mainchain status of `hashes`.
+    """``getblockheader`` status for well-formed hashes. No valid hashes returns ``{}``.
 
-    Deduplicates and filters `hashes` to well-formed hashes, then issues
-    batched `getblockheader` calls (chunked at `batch_size`) through `rpc` and
-    returns each hash's `{exists, on_mainchain, confirmations, height, time,
-    bits}`. Returns `{}` immediately if there are no valid hashes to query.
-
-    `rpc` reaches Bitcoin Core over HTTP; when the node is on another host,
-    forward its RPC port locally (`ssh -L 8332:localhost:8332 <host>`) and
-    point `--rpc-url` at the forward.
+    Reach a remote node by forwarding its RPC port and pointing ``--rpc-url`` there.
     """
     uniq = sorted(set(h for h in hashes if is_hash(h)))
     if not uniq:
@@ -385,8 +312,7 @@ def fetch_mainchain_status(
             }
             for i, block_hash in enumerate(chunk)
         ]
-        # BtcRpc.batch returns responses sorted by id, so responses[i] lines up
-        # with chunk[i].
+        # Responses come back sorted by id, matching this chunk.
         responses = rpc.batch(payload)
         for i, block_hash in enumerate(chunk):
             result = responses[i].get("result")
@@ -412,12 +338,7 @@ def fetch_active_hashes_by_height(
     *,
     verification_label: str,
 ) -> dict[str, dict]:
-    """Authenticate candidates as off-active by exact height comparison.
-
-    ``getblockhash(height)`` remains decisive even when a node no longer knows
-    the stale candidate itself. Each result records the active hash at the
-    candidate's independently inferred height and the authenticated RPC source.
-    """
+    """``getblockhash(height)`` decides, even when the node has forgotten the candidate."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", verification_label):
         raise ValueError(
             "RPC verification label must contain only letters, digits, '.', "
@@ -466,15 +387,7 @@ def scan_upstream_stales(
     excluded_keys: set[tuple[int, str]] | None = None,
     excluded_hashes: set[str] | None = None,
 ) -> int:
-    """Scan an upstream `stale-blocks.csv`-shaped file into the shared stale-index dicts.
-
-    Each row's 80-byte `header` hex is parsed for prev_hash/time/bits, tagged
-    as upstream evidence, and appended to `stale_by_hash[block_hash]`;
-    `all_hash_chains` and `prevs_by_hash` are updated in the same pass. Rows
-    with a malformed `hash` column are skipped. Mutates `stale_by_hash`,
-    `all_hash_chains`, and `prevs_by_hash` in place; returns the number of
-    rows added (0 if `path` does not exist).
-    """
+    """Mutates the shared indexes in place. A missing file or malformed hash adds nothing."""
     if not path.exists():
         return 0
     excluded = excluded_keys
@@ -569,12 +482,7 @@ def accepted_stale_root(row: dict[str, str]) -> bool:
 def stale_sources(
     observations: list[StaleObservation],
 ) -> tuple[str, str, str, str, str]:
-    """Summarize a known-stale hash's observations for a CSV output row.
-
-    Returns `(sources, chains, heights, times, bits)`, each a `|`-joined
-    sorted string: `sources` is `chain:source_kind` labels, and the rest are
-    the distinct non-empty values seen across `observations`.
-    """
+    """Pipe-joined ``chain:source_kind``, chains, heights, times, and bits."""
     source_labels = []
     chains = set()
     heights = set()
@@ -658,14 +566,7 @@ def load_observations(
         bits: str,
         explicit_expected: str,
     ) -> None:
-        """Record an nBits/epoch mismatch for one row into `nbits_mismatch_counts`.
-
-        Prefers `explicit_expected` (the source's own `expected_nbits`
-        column) over computing the epoch's bits from `height`; only counts a
-        mismatch when both the actual and expected bits are known and
-        differ. The first `row_number` seen for each mismatch group is kept
-        so the anomaly report can point at a concrete row.
-        """
+        """Count a mismatch only when both sides are known. Source ``expected_nbits`` wins."""
         actual = (bits or "").strip().lower()
         expected = (explicit_expected or "").strip().lower()
         height_source = "expected_nbits"
@@ -678,16 +579,7 @@ def load_observations(
             nbits_mismatch_first_row.setdefault(key, row_number)
 
     def scan_inventory_file(inv_path, chain, source_kind, notes):
-        """Scan one classifier inventory file (stale-only or unknown) into the
-        shared observation indices, dispatching each row by its ``classification``.
-
-        Reading stale, unknown, and canonical bucket files keeps split and
-        never-split chains correct. Every supported source bucket contributes
-        candidate evidence; no archive classification can anchor a trusted root
-        or select a final verdict.
-        Returns per-file ``(total, stale, unknown, missing_hash, missing_prev,
-        recovered_prev, hash_col, prev_col, header_col)``.
-        """
+        """One inventory file. No archive classification can anchor a trusted root."""
         source_sha256 = sha256_file(inv_path)
         try:
             # Keep selected aliases stable before resolving private archive links.
@@ -731,12 +623,7 @@ def load_observations(
 
                 source_classification = classification
                 if block_hash in consensus_invalid_hashes:
-                    # The reviewed catalogue, rather than an archive row, is
-                    # the authoritative ancestry terminal for this hash. Keep
-                    # it out of the candidate cohort so an already-admitted
-                    # error block is not re-emitted as an uncatalogued error
-                    # candidate. Descendants still resolve to it through the
-                    # explicit terminal index returned below.
+                    # The catalogue is the terminal. Do not re-emit it as a candidate.
                     continue
 
                 if recovered_prev:
@@ -787,12 +674,8 @@ def load_observations(
                 ):
                     raw_outputs = row.get("coinbase_outputs", "").strip()
                     if raw_outputs:
-                        # A legacy inventory cell predates the rendering
-                        # contract; normalize it with acquisition provenance
-                        # so a filtered projection is not read as absolute
-                        # transaction positions. An unparseable cell stays
-                        # verbatim and fails in parent-evidence selection
-                        # exactly as before, only if its hash is exercised.
+                        # Legacy cells are normalized in place. An unparseable
+                        # cell stays verbatim.
                         try:
                             raw_outputs = normalize_outputs_cell(
                                 raw_outputs, chain=chain

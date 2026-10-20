@@ -1,10 +1,5 @@
 # Surveyed and infrastructure-only chains
 
-This note records chain-specific infrastructure and edge-case recovery states
-that cannot be understood from the presence of a node workspace alone. It
-includes blocked and source-only chains as well as completed historical or
-surveyed recoveries with zero accepted direct-stale candidates.
-
 The presence of `node-infra/<chain>/`, archived source tarballs, retired Docker
 workdirs, or remote raw chain data is not enough to make a chain part of the
 analysis. A chain enters the integrated set only after it has a committed
@@ -33,11 +28,9 @@ acquisition provenance stays beside the relevant node workspace.
 
 ## Archive policy
 
-These artifacts are intentionally retained because they preserve recovery
-context: source provenance, build recipes, node-operation notes, or evidence
-that a live network path is unavailable. Lyncoin and SixEleven have completed
-that path and publish only their compact evidence and zero-stale files. For the
-partial, blocked, source-only, and excluded rows, infrastructure or private
-archives should not be copied into public `data/` or counted in public results
-unless a future task completes the normal extraction, classification,
-validation, and documentation path.
+Lyncoin and SixEleven publish only their compact evidence and zero-stale
+files. For the partial, blocked, source-only, and excluded rows, infrastructure
+or private archives should not be copied into public `data/` or counted in
+public results unless a future task completes the normal extraction,
+classification, validation, and documentation path. See
+[Research evidence contracts](../research-contracts.md).

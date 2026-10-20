@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
-"""Emit child-side AuxPoW chain-ID inference sidecars.
+"""Emit child-side AuxPoW chain-ID sidecars from blk*.dat files.
 
-This is the first Namecoin-family sidecar emitter. It reads raw blk*.dat files,
-parses the child-side CAuxPow proof, and uses the embedded parent coinbase by
-default. A caller may supply a precomputed coinbase marker census to join
-canonical BTC parents by internal-order parent-header hash; the embedded
-coinbase remains the fallback when the parent hash is absent from that input.
-
-Example:
-    python scripts/reports/emit_auxpow_chainid_sidecar.py \\
-        --chain namecoin \\
-        --blocks-dir ~/.namecoin/blocks \\
-        --output data/namecoin_auxpow_chainid_sidecar.csv
+Parents are joined by internal-order header hash. The embedded coinbase remains the fallback.
 """
 
 from __future__ import annotations

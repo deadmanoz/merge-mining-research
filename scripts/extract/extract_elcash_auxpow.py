@@ -1,24 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin parent headers from Electric Cash (ELCASH) AuxPoW blocks.
+"""Extract Bitcoin parent headers from Electric Cash.
 
-ELCASH is a Bitcoin Core 0.20 fork that merge-mines Bitcoin from a fresh
-December 2020 genesis with the standard Namecoin-style CAuxPow encoding
-(chain ID 0x2137, strict). getblock does not expose a decoded ``auxpow``
-JSON field, so we fetch raw block hex (``getblock <hash> false``) and
-parse the CAuxPow binary directly — the same approach as Crown / Devcoin
-/ Myriadcoin / Argentum.
-
-The version gate keeps only blocks with the AuxPoW flag AND chain ID
-0x2137 in the nVersion high bits, which doubles as a census: the stage
-counts report the merge-mined vs direct-mined split and the chain-id
-distribution actually observed. Run against the node-infra/elcash node;
-RPC uses cookie auth (``.cookie`` in the datadir) or explicit
-user/password via the environment.
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility; classify with ``scripts/classify/classify_elcash_stales.py``
-(a thin ``run_classifier`` wrapper that reproduces the committed
-``data/validated-stales/elcash_validated_stales.csv`` schema).
+``getblock`` does not expose decoded auxpow. The version gate requires the AuxPoW flag and chain ID 0x2137.
 """
 
 import argparse

@@ -122,4 +122,4 @@ accepted direct-stale counts do not change.
   unknowns formerly yielded 3 strict observations under the separate relevance axis; the
   remaining population is still useful for characterising the unidentified
   parent-header substrate without presuming a Bitcoin origin.
-- Extending coverage past BTC 422,212. The chain's IXC tip extends well past where accepted direct-stale candidates stop; understanding why would close the picture.
+- Extending coverage past BTC 422,212. The chain's IXC tip extends well past where accepted direct-stale candidates stop.

@@ -1,32 +1,7 @@
 #!/usr/bin/env python3
 """Classify Groupcoin AuxPoW parent headers against Bitcoin Core.
 
-Streams the archival `getblock`-JSON dump shared by Nicholas Stifter
-(`data/prototype/groupcoin/groupcoin_getblocks_0to235751_auxheight.json.gz`,
-1.8 GB gzipped, ~235k blocks total, 218k AuxPoW-bearing), filters records to
-those whose parent header meets its own encoded target, dedups by parent
-header hash, then classifies each unique parent against Bitcoin Core:
-
-  1. ``getblockheader <parent_hash>`` hit → ``canonical``.
-  2. miss → ``getblockheader <prev_hash>`` hit → ``stale``; height is
-     ``prev.height + 1``.
-  3. both miss → ``unknown``; ``btc_height`` is left blank.
-
-Quirk: ``coinbasetx.vout[*].scriptPubKey.addresses`` in the dump are
-Groupcoin-base58 encoded (e.g. ``2h…``), not BTC mainnet, and are never
-used. The classifier renders ``coinbase_outputs`` from the dump's raw
-``scriptPubKey.hex`` bytes in the shared canonical rendering
-(``format_outputs_canonical``; see docs/data-reference.md), so downstream
-pool ID reads exact-script evidence.
-
-Outputs:
-
-* ``data/groupcoin_canonical_blocks.csv``: canonical rows.
-* ``data/groupcoin_stale_blocks.csv``: stale rows.
-* ``data/groupcoin_unknown_blocks.csv``: unknown rows.
-* ``data/groupcoin_error_blocks.csv``: rows proven to break a consensus rule.
-* ``data/validated-stales/groupcoin_validated_stales.csv``: loader input;
-  ``classification == "stale"`` rows only.
+Dump addresses are Groupcoin base58 and are not used. ``coinbase_outputs`` is rendered from ``scriptPubKey.hex``.
 """
 
 from __future__ import annotations

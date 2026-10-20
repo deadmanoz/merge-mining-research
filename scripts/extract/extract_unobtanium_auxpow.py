@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin AuxPoW headers from the Unobtanium blockchain via RPC.
+"""Extract Bitcoin AuxPoW headers from Unobtanium.
 
-Unobtanium is a Bitcoin Core 0.11 fork; its JSON-RPC `getblock <hash> 1`
-does NOT decode the embedded CAuxPow into JSON the way Syscoin/Elastos do.
-So we fetch raw block hex via `getblock <hash> 0` and parse the Namecoin-
-style AuxPoW binary in Python, reusing the same primitives as
-`extract_auxpow_from_blkdat.py`.
-
-AuxPoW activates at UNO height 600,000 but the first AuxPoW block in
-practice is a few hundred higher (miners transitioned gradually).
-The extractor iterates 600,000 → tip, skipping blocks whose version
-does not have the AuxPoW flag set (bit 0x100).
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility.
+``getblock`` does not decode CAuxPow. AuxPoW is flagged by version bit 0x100 from height 600000.
 """
 
 import os

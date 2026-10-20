@@ -1,29 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin AuxPoW headers from the Fractal Bitcoin blockchain via RPC.
+"""Extract Bitcoin AuxPoW headers from Fractal.
 
-Fractal is a Bitcoin Core fork, but unlike Syscoin/Elastos/Terracoin its
-`getblock <hash> 1` JSON output does NOT include a decoded `auxpow`
-object. The CAuxPow proof is reachable via the `auxpow` boolean third
-argument to `getblockheader`: passing `(hash, false, true)` returns
-hex-serialised header data with the AuxPoW proof appended after the
-80-byte FB header, in the standard Namecoin-style CAuxPow binary layout.
-
-We therefore use the same compact header-hex + binary parse approach as
-`extract_unobtanium_auxpow.py`, with two Fractal-specific adjustments:
-
-  1. The RPC call is `getblockheader <hash> false true`
-     (non-verbose, auxpow=true).
-  2. Fractal Bitcoin's Cadence Mining assigns work across block classes. Only
-     chain ID 0x2024 with the 0x100 AuxPoW flag carries CAuxPow. The Indexer
-     class encoding 0x20260100 also sets that flag, so the flag is not
-     sufficient without the chain ID.
-
-AuxPoW is permitted on the post-genesis chain. The scan starts at FB height 1;
-height 1 is non-AuxPoW and height 2 is the first observed AuxPoW block. The
-version gate decides the proof format per block.
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility.
+Proof bytes come from ``getblockheader(hash, false, true)``. Chain ID 0x2024 is required; the AuxPoW flag alone is not sufficient.
 """
 
 import os

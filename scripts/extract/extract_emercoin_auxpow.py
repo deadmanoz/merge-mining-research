@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin AuxPoW headers from the Emercoin (EMC) blockchain via RPC.
+"""Extract Bitcoin AuxPoW headers from Emercoin.
 
-Emercoin is a hybrid PoW/PoS chain in the Peercoin lineage. Only PoW
-blocks carry the Namecoin-style AuxPoW commitment after the merged-
-mining activation height (MMHeight = 219,809). The PoS branch is
-filtered out via the RPC `flags` field — `"proof-of-work"` vs
-`"proof-of-stake"` — which mirrors the on-chain `nFlags & BLOCK_PROOF_OF_STAKE`
-predicate (`src/primitives/block.h:36`, `src/chain.h:206-213`).
-
-Unlike the Namecoin/ixcoin/devcoin/myriadcoin extractors, Emercoin RPC
-exposes the full `auxpow` object as structured JSON (parent header
-fields + decoded coinbase tx), so no binary CAuxPow deserialisation is
-required. The Bitcoin parent's 80-byte header is reconstructed from the
-JSON fields so the output schema matches the rest of the pipeline.
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility (only the first column name differs: `emc_height`).
+Only PoW blocks after height 219809 carry AuxPoW. The parent header is rebuilt from the JSON auxpow object.
 """
 
 import argparse

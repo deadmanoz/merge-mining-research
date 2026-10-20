@@ -1,27 +1,7 @@
 #!/usr/bin/env python3
 """Classify Emercoin AuxPoW parent headers against Bitcoin Core.
 
-Emercoin's extractor (``scripts/extract/extract_emercoin_auxpow.py``) emits the
-AuxPoW parent header for every PoW EMC block (the PoS branch is filtered out at
-extraction time via the RPC ``flags`` field, since PoS blocks carry no AuxPoW
-commitment). Most of those parent headers satisfy only Emercoin's child-chain
-target, not Bitcoin's full target. Classification now uses the shared classifier
-helpers (``run_classifier``), with a thin per-chain ``main()`` that preserves the
-one Emercoin-specific input concern the shared driver does not know about:
-
-  A legacy-schema normalizer (``standardize_row``) that maps the original
-  recovery columns (``btc_parent_hash`` / ``btc_timestamp``) onto the shared
-  unknown-inventory schema. Current raw extractor output already uses the
-  standard names, so this is a backward-compatibility shim for the legacy
-  ``emercoin_stale_blocks.csv`` input path.
-
-``main()`` applies that normalizer to the chosen input, writes a normalized temp
-CSV, and hands it to ``run_classifier`` for the Phase 1 PoW filter, Phase 2
-Bitcoin Core classification, and the non-skippable Phase 3 nBits gate.
-
-The primary output is ``data/emercoin_stale_blocks.csv`` in the shared
-unknown-inventory schema. The stale-only loader input
-(``data/validated-stales/emercoin_validated_stales.csv``) is written by the same driver.
+Legacy ``btc_parent_hash`` and ``btc_timestamp`` columns are normalized before the shared driver. The nBits gate is non-skippable.
 """
 
 from __future__ import annotations

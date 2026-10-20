@@ -27,8 +27,7 @@ CoiledCoin is a 2012 Bitcoin 0.6-era codebase. The build needs:
   `aarch64`).
 
 Berkeley DB 4.8.30 ships under the Sleepycat License (the Oracle Berkeley DB
-1.x to 6.0 license; the full text is in `LICENSE` inside the tarball). The
-checksum pin makes the fetched source verifiable and reproducible. Newer
+1.x to 6.0 license; the full text is in `LICENSE` inside the tarball). Newer
 Berkeley DB (6.0 and later) is AGPL-licensed; 4.8.30 predates that
 relicensing.
 

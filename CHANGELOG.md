@@ -33,11 +33,10 @@ precedence resolves RSK `0xcf5072f792246690c75c63638e3d98bb2554ff2c` (including
 Correct the Fractal child hash for error parent 957,780 to the exact internal
 byte order of the native block hash, preserving the other publication fields.
 
-Consolidate parent Merkle inclusion and child script/branch commitment checks
-for Huntercoin, Xaya, Qbit and Lyncoin in `auxpow_commitment`. Preserve each
-adapter's parsing, index guards, proof targets, first-failure order and errors,
-including Lyncoin's height and mismatch context. Keep non-coinbase control
-handling and the existing available-evidence scope unchanged.
+Preserve each Huntercoin, Xaya, Qbit, and Lyncoin adapter's parsing, index
+guards, proof targets, first-failure order and errors, including Lyncoin's
+height and mismatch context. Keep non-coinbase control handling and the
+existing available-evidence scope unchanged.
 
 Authenticate upstream-only intermediate headers when loading descendant paths,
 without adding unwitnessed blocks to the accepted parent or child-witness tables.
@@ -50,15 +49,11 @@ Correct current accounting and preserve dated recovery receipts. Treat bulky
 private exports and unchanged historical coverage reports as on-demand outputs
 rather than prerequisites for each publication refresh.
 
-Remove fixed ancestry totals from workflow documentation and redundant
-dataset smoke tests. Retain exact schema and manifest-inventory checks, and
-document archive-root priority for selecting matching source inventories.
+Retain exact schema and manifest-inventory checks, and document archive-root
+priority for selecting matching source inventories.
 
 Keep ancestry source coordinates stable when inputs move between staged data
 trees, preserving selected aliases and redacting external archive paths.
-
-Limit default pytest discovery to the Research suite so fetched upstream
-repositories do not add unrelated tests or development dependencies.
 
 Leave paths without a serialized root header unresolved during normal ancestry
 reconciliation. Reject contradictory supplied headers and preserve the committed
@@ -81,7 +76,6 @@ members before using a fallback source.
 
 Authenticate Xaya child heights against the complete child transaction body,
 including Merkle and witness commitments and the canonical BIP34 prefix.
-Move the normal producer into the recovery package and keep its CLI thin.
 Reuse the existing body authenticator at the Xaya transaction offset.
 
 Use the Kraft native dumps as the foundation inputs for Huntercoin and Xaya.
@@ -92,9 +86,7 @@ handling or a separate canonical source label. Use the ordinary archive layout
 for both current classifier families, with historical source acquisitions
 retained as dated private provenance only. Consolidate duplicated catalogue
 counts and mocked failure tests while retaining exact-key and real-input checks.
-Decode each Huntercoin proof once in its native scanner, share the transaction
-coinbase predicate with Xaya, and use numbered native-file selection for both
-extractors. Preserve the acquisition CSV columns and non-coinbase evidence
+Preserve the acquisition CSV columns and non-coinbase evidence
 dispositions. Replace remaining copied catalogue totals with exact relationships.
 Remove the retired mixed-chain classifier filter; the native producer selects the Bitcoin
 branch before its raw output reaches classification. Route invalid-block
@@ -102,11 +94,6 @@ diagnostic sweeps through the current Kraft families and raise their completenes
 floors while preserving authenticated height semantics. Align current validity,
 contribution and node-source guidance with the replacement data and retained
 ancestry evidence.
-
-Reduce `AGENTS.md` to the entry point and essential safeguards, routing detailed
-pipeline, evidence and node contracts into the shared `docs/` tree. Keep a
-single documentation hierarchy for contributors and agents, without a separate
-agent reference index or commit-baseline tracker.
 
 Add foundational native Huntercoin block-file acquisition. Authenticate genesis-linked heights, SHA-256d child targets
 and the child-to-parent AuxPoW commitment, retain complete parent coinbase
@@ -145,10 +132,8 @@ and repeated current novelty claims with report links. Require complete compact
 inputs and a verified upstream pin, preserve the report on failure, and share
 Git provenance helpers with attribution so failed inspection stays unknown.
 
-Remove the obsolete development Monitor workspace after ownership of both
-production and development deployment moved to a separately managed deployment
-workspace. Keep this repository as a read-only source of published Research
-evidence for the Monitor importer.
+Keep this repository as a read-only source of published Research evidence for
+the Monitor importer.
 
 Complete the body-invalid catalogue with four P2SH failures and the Eligius
 197,438 and AntPool 584,802 coinbase overpayments. Preserve all seven child
@@ -190,10 +175,6 @@ privately and preserve the complete existing Monitor evidence baseline.
 Document immutable archive inputs and path-preserving consolidation of exact
 duplicates. Keep original metadata receipts and replace disposable binary
 build inputs instead of modifying shared archived files in place.
-
-Move the private archive dashboard into the separate
-`deadmanoz/mmr-archive-dashboard` repository. Keep a pointer here and maintain
-its code, Docker recipe and operations in that repository.
 
 Support Fractal disk adoption with explicit retained-image selection,
 noncreating binds, the original configuration filename, networkless reads

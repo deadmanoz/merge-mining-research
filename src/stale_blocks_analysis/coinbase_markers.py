@@ -1,14 +1,6 @@
-"""Coinbase marker registry and decoders.
+"""Byte patterns in a Bitcoin coinbase: AuxPoW magic, OP_RETURN tags, other commitments, BIP141, and BIP34.
 
-Catalogues every byte pattern we recognise in a Bitcoin coinbase — AuxPoW
-magic, OP_RETURN tag-based merge-mining commitments, non-merge-mining
-commitments (EXSAT, sys, CORE, Veriblock), the BIP-141 SegWit commitment,
-the BIP-34 height push, and unknown ASCII tags ranked for review.
-
-The released surface is this reusable registry plus its pinned decoder tests.
-Downstream scanners can import it when constructing a per-block dataset. The
-registry is data-only; adding a chain means adding a row to a table, not
-changing decode logic.
+The registry is data. Adding a chain adds a row, not a decoder branch.
 """
 
 from __future__ import annotations
@@ -32,16 +24,9 @@ class AuxPoWMarker:
 
 
 def parse_auxpow_marker(scriptsig: bytes) -> Optional[AuxPoWMarker]:
-    """Locate fabe6d6d in scriptSig and decode the 44-byte commitment.
+    """First ``fabe6d6d`` and the following 44 bytes. The magic may occur only once.
 
-    Per the AuxPoW spec, the magic must occur at most once in the scriptSig
-    (this prevents an equivocation attack where a miner commits to two
-    different aux merkle roots in the same parent block). We honour that by
-    returning the first match; in practice rfind would yield the same
-    result on well-formed blocks.
-
-    Returns None if the magic isn't present or if there aren't enough
-    trailing bytes to form a full commitment.
+    None when the magic is absent or the tail is short.
     """
     offset = scriptsig.find(AUXPOW_MAGIC)
     if offset < 0:
@@ -59,11 +44,7 @@ def parse_auxpow_marker(scriptsig: bytes) -> Optional[AuxPoWMarker]:
 
 # ── BIP-34 height push (scriptSig) ───────────────────────────────────────
 def parse_bip34_height(scriptsig: bytes) -> Optional[int]:
-    """Decode the leading height push.
-
-    Returns the decoded integer or None if the scriptSig is empty or the
-    first byte isn't a valid push opcode.
-    """
+    """Leading BIP34 height, or None when the script is empty or the first byte is not a push."""
     if not scriptsig:
         return None
     op = scriptsig[0]
@@ -244,12 +225,7 @@ OP_RETURN_TAGS: tuple[OpReturnTag, ...] = (
 
 
 def parse_op_return_payload(script: bytes) -> Optional[bytes]:
-    """Return the pushed payload of an OP_RETURN script, or None if the
-    script isn't an OP_RETURN or the push can't be decoded.
-
-    Only decodes the first push — coinbase OP_RETURNs in practice carry
-    exactly one push.
-    """
+    """First push of an OP_RETURN script, or None."""
     if not script or script[0] != OP_RETURN or len(script) < 2:
         return None
     op = script[1]
@@ -281,13 +257,10 @@ class OpReturnMatch:
 
 
 def classify_payload_only(payload: bytes) -> tuple[str, str]:
-    """Match a pushed OP_RETURN payload against OP_RETURN_TAGS.
+    """``(name, klass)`` for a payload. Unmatched is ``unknown:<first-4-bytes-hex>``.
 
-    Returns (name, klass). For unmatched payloads returns
-    ("unknown:<first-4-bytes-hex>", "unknown"). Lives separately from
-    classify_op_return so the --reclassify path can re-match stored
-    `payload_hex` values without needing to reconstruct the OP_RETURN
-    wrapper.
+    Separate from ``classify_op_return`` so stored ``payload_hex`` can be
+    re-matched without rebuilding the script.
     """
     for tag in OP_RETURN_TAGS:
         if payload.startswith(tag.pattern):
@@ -297,12 +270,7 @@ def classify_payload_only(payload: bytes) -> tuple[str, str]:
 
 
 def classify_op_return(script: bytes, vout: int) -> Optional[OpReturnMatch]:
-    """Match an OP_RETURN scriptPubKey against the tag registry.
-
-    Returns the first match keyed on the pushed payload starting with a
-    registered tag. Unknown OP_RETURNs are returned with name
-    `unknown:<first-4-bytes-hex>` so they can be ranked and reviewed.
-    """
+    """First registered tag that prefixes the pushed payload. Unknowns keep the four-byte label."""
     if not script or script[0] != OP_RETURN:
         return None
     payload = parse_op_return_payload(script)
@@ -362,16 +330,9 @@ HATHOR_SCRIPTSIG_MAGIC = b"Hath"
 def classify_scriptsig_extras(
     scriptsig: bytes, auxpow_offset: Optional[int]
 ) -> list[Marker]:
-    """Extract non-AuxPoW, non-pool markers from a coinbase scriptSig.
+    """Non-AuxPoW scriptSig markers, including ASCII tag runs. Does not consult the pool registry.
 
-    AuxPoW is hoisted to dedicated columns in the output schema. This function
-    records other scriptSig markers, including pool-like ASCII strings, but
-    does not resolve them against an external pool registry:
-
-      - Hathor's scriptSig-variant "Hath" magic (reference coordinator path)
-      - Unknown 4-byte+ ASCII runs that look like tags
-
-    Returns an empty list for clean scriptSigs.
+    Hathor's scriptSig ``Hath`` magic is included. A clean script returns an empty list.
     """
     markers: list[Marker] = []
 

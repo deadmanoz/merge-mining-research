@@ -1,9 +1,6 @@
-"""Authenticate bodies associated with reviewed, externally verified verdicts.
+"""Authenticate body identity for a reviewed invalid-blocks reference.
 
-A pinned invalid-blocks reference records the source of the invalidity verdict.
-This module checks that reference's form and authenticates the body identity;
-it does not fetch the reference or reproduce its consensus-rule verification.
-Admission therefore requires review of the referenced independent evidence.
+Does not fetch the reference or re-derive its consensus verdict.
 """
 
 from __future__ import annotations
@@ -36,11 +33,7 @@ _HEX_256 = re.compile(r"[0-9a-f]{64}")
 
 
 def load_body_evidence(path: Path) -> dict[tuple[int, str], dict[str, str]]:
-    """Read the sidecar; absence is allowed only for catalogues without body rules.
-
-    ``validate_row`` rejects any body-rule row lacking an entry. Dataset
-    validation additionally rejects unused sidecar entries.
-    """
+    """Absence is allowed only when the catalogue has no body rules. Unused sidecar entries are rejected."""
     if not path.exists():
         return {}
     records: dict[tuple[int, str], dict[str, str]] = {}

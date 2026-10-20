@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
 """Classify Argentum SHA-256d AuxPoW extracts as canonical, stale, or unknown.
 
-Argentum is a multi-algo PoW chain (Scrypt + SHA-256d + 4 native algos
-post-2018-03 fork). Only the SHA-256d branch is Bitcoin-parent merge-mined;
-extract_argentum_auxpow.py has already filtered to SHA-256d-only by the time
-we get here, so the algo selection is purely an extractor concern. The
-classifier just consumes BTC parent-header rows and runs the shared helpers:
-
-1. keep only unique headers that meet their encoded nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-Argentum's ``fStrictChainId=false`` means the SHA-256d branch technically
-accepts AuxPoW from any SHA-256d parent. The self-target PoW filter does not
-identify the parent; the RPC classification step decides whether the
-header actually belongs to Bitcoin, and the nBits gate defends against post-2017
-BCH/BSV-family parent-header contamination.
+SHA-256d is explicit in the version bits, not the default algo. ``fStrictChainId`` is false, so self-target PoW does not identify a Bitcoin parent. The nBits gate is non-skippable.
 """
 
 from __future__ import annotations

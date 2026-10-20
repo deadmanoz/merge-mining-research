@@ -9,8 +9,7 @@ not interchangeable.
 The survey is final for this pass: all nine sources have either a validated
 recovery result or a reproducible terminal status. The outcome table is current
 through the 2026-07-22 Doichain exact-target audit; 2026-07-10 remains the date
-of the original catalogued-source recovery pass. This document and the
-individual chain or infrastructure notes are the singular coverage record. A
+of the original catalogued-source recovery pass. A
 chain remains outside the integrated stale census until
 its final extract, Bitcoin classification, validation gates, compact data
 artifact, and loader documentation all agree.
@@ -202,4 +201,5 @@ BTC orphans.
 
 Raw datadirs, block archives, source dumps, extractor intermediates, and
 classifier scratch outputs remain outside the public repository. Only compact,
-auditable artifacts belong in `data/` or `results/`.
+auditable artifacts belong in `data/` or `results/`. See
+[Research evidence contracts](../research-contracts.md).

@@ -15,7 +15,7 @@
 | Loader | `load_xaya_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/xaya_validated_stales.csv` |
 
-Xaya (CHI) is Daniel Kraft's blockchain-gaming platform and the successor to Huntercoin, built on a `namecoin-29.x` (Bitcoin Core 29.x lineage) base with Kraft's own Namecoin-style AuxPoW. It is the **19th chain by AuxPoW-activation date**, slotting between Bitmark (2018-06-07) and Elastos (2018-08-26). Two things make the earlier recovery notable. First, in that snapshot, 26.7% of the 6.34M scanned blocks carry a SHA256D merge-mining parent, yielding 38,483 self-target-PoW-valid candidates. Second, it is the **first node-less full-history recovery driven by a chain's own published block dump**: the legacy P2P network is dead, but Xaya openly serves a raw `xayad` `blocks/` directory as a single `blocks.zip`, which is all the extractor needs.
+Xaya (CHI) is Daniel Kraft's blockchain-gaming platform and the successor to Huntercoin, built on a `namecoin-29.x` (Bitcoin Core 29.x lineage) base with Kraft's own Namecoin-style AuxPoW. It is the **19th chain by AuxPoW-activation date**, slotting between Bitmark (2018-06-07) and Elastos (2018-08-26). In the earlier snapshot, 26.7% of the 6.34M scanned blocks carry a SHA256D merge-mining parent, yielding 38,483 self-target-PoW-valid candidates. That recovery was node-less: the legacy P2P network is dead, and Xaya served a raw `xayad` `blocks/` directory as a single `blocks.zip`.
 
 The 2026-06-24 refresh recovered **40 accepted direct-stale candidates**,
 reclassifying six previously canonical headers as stale. The original 34 rows
@@ -204,10 +204,6 @@ Current upstream overlap and chronological allocation are in the [novelty report
 - `docs/auxpow-recovery.md` - cross-chain summary table (Xaya row).
 - Xaya source and the `PowData` format: `xaya/xaya` on GitHub (`src/powdata.{h,cpp}`, `src/primitives/pureheader.h`).
 - Block dump: `https://downloads.xaya.io/blocks.zip` (2024-11-15 snapshot).
-
-**Methodological note.**
-
-Xaya is the project's first **node-less full-history recovery driven by a chain's own published block dump**. Where Bitcoin Vault demonstrated node-less recovery via a third-party Blockbook REST explorer, Xaya goes further: the chain operator openly serves the raw `xayad` `blocks/` directory, so the entire history is one unauthenticated download away even though the P2P network is dead. Any wound-down chain whose team still hosts a `blocks.zip`, `bootstrap.dat`, or raw block tarball is a candidate for the same approach. The Kraft generation contains 42 accepted direct-stale candidates; the historical snapshot counts above remain provenance for the earlier generation.
 
 The October 2026 native generation is retained separately from the 2024
 snapshot, with sealed acquisition receipts, raw inventories, proof audit and

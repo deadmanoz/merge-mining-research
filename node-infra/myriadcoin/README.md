@@ -60,8 +60,7 @@ just down                  # stop container (data volume persists)
 
 ## Reproduction and refresh
 
-This directory is the source of truth for the Myriadcoin node-infra. To
-deploy on `<archival-host>`:
+To deploy on `<archival-host>`:
 
 ```bash
 rsync -av --delete node-infra/myriadcoin/ <archival-host>:~/myriadcoin-docker/

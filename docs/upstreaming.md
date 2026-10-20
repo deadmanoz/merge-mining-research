@@ -62,9 +62,7 @@ Bitcoin `nBits` reference.
 
 ## Keeping the upstream pin current
 
-The project keeps an exact commit pin instead of following a moving branch.
-This gives each project commit a precise upstream baseline while making
-freshness easy to check:
+The project keeps an exact commit pin instead of following a moving branch:
 
 ```bash
 just upstream-check
@@ -102,10 +100,9 @@ which read these strings verbatim. The rejection-reason tokens include:
 - `bip34_block_version_below_2` and `coinbase_scriptsig_length_below_2` —
   vocabulary-only correctness hardening (no committed row uses them yet).
 
-The research catalogue and the monitor importer form a lockstep schema
-contract. A monitor release must pin a research commit whose classification
-and rejection-rule vocabulary it already understands; the research dataset
-does not describe a temporary mixed-version state as valid publication.
+A monitor release must pin a research commit whose classification and
+rejection-rule vocabulary it already understands; the research dataset does
+not describe a temporary mixed-version state as valid publication.
 
 The body-invalid admissions use the existing `error_block` classification and
 `VALID_ERROR_BLOCK` status. Their rejection families include

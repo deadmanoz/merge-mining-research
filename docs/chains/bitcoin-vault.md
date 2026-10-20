@@ -67,7 +67,7 @@ bucket to 9, from 8 in the original run):
 | `stale` | 9 |
 | **Total** | **9** |
 
-Zero unknowns is unusual. Most pipeline chains have orders-of-magnitude more unknowns than accepted direct-stale candidates. A historical private attribution pass associated the surviving 2020-11 to 2021-09 rows with KnoxPool, BTCPool, and TogetherPool, and later low-target submissions with Binance Pool. The public recovery pipeline does not reproduce those pool labels. It establishes only that no self-target-PoW-valid unknown rows were observed in this extraction.
+A historical private attribution pass associated the surviving 2020-11 to 2021-09 rows with KnoxPool, BTCPool, and TogetherPool, and later low-target submissions with Binance Pool. The public recovery pipeline does not reproduce those pool labels. It establishes only that no self-target-PoW-valid unknown rows were observed in this extraction.
 
 **Chain-specific quirks.**
 

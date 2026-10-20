@@ -59,9 +59,7 @@ just down                  # stop container (data volume persists)
 - The cold node reached height 790,173 in approximately five minutes during the
   May 2026 recovery. Confirm the current tip with `just height`; the public
   explorer uses a non-Iquidus API and is not the source of the recorded height.
-- Genesis-to-retained-tip span: December 2013 to May 2026 (about 12.4 years),
-  but the hybrid spacing keeps the chain shorter than a pure 10-minute PoW
-  chain would be.
+- Genesis-to-retained-tip span: December 2013 to May 2026 (about 12.4 years).
 - Measured post-activation PoW/AuxPoW share: 15.5% (88,201 of 570,365 scanned
   blocks); the other 84.5% were PoS or had no AuxPoW.
 - Accepted direct-stale yield: 96 rows after the June 2026 canonical refresh
@@ -70,8 +68,7 @@ just down                  # stop container (data volume persists)
 
 ## Reproduction and refresh
 
-This directory is the source of truth for the Emercoin node-infra. To
-deploy on `<archival-host>`:
+To deploy on `<archival-host>`:
 
 ```bash
 rsync -av --delete node-infra/emercoin/ <archival-host>:~/emercoin-docker/
