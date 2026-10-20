@@ -1,9 +1,6 @@
-"""Recognize RSKj's variable-width RLP fallback signature representation.
+"""RSKj variable-width RLP fallback signature: representation and scalar bounds only.
 
-This checks representation and scalar constraints, not the recovered signing
-key or the chain's activation/difficulty rules. The trusted RSKj source owns
-those consensus checks. See ProofOfWorkRule.validFallbackBlockSignature in
-RSKj VETIVER-9.0.1.
+The signing key and activation rules belong to ProofOfWorkRule.validFallbackBlockSignature in RSKj VETIVER-9.0.1.
 """
 
 from .config import (

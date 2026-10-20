@@ -1,35 +1,12 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin parent headers from Xaya (CHI) blk*.dat AuxPoW commitments.
+"""Xaya blk*.dat parent headers. This is not the Namecoin version-bit layout.
 
-Xaya does NOT use the Namecoin-family version-bit AuxPoW layout that
-extract_auxpow_from_blkdat.py handles. A Xaya block on disk is:
-
-    [80-byte CPureBlockHeader][PowData][varint tx count][txs...]
-
-where PowData (src/powdata.h) serialises as:
-
-    algo   : uint8   (PowAlgo; high bit 0x80 = FLAG_MERGE_MINED)
-    nBits  : uint32  (the PoW target for the chosen algo)
-    payload: CAuxPow            if (algo & 0x80)   merge-mined
-             CPureBlockHeader   otherwise          standalone "fake header"
-
-In Xaya, SHA256D blocks MUST be merge-mined and NEOSCRYPT blocks must not
-(src/powdata.cpp), so every merge-mined block carries a CAuxPow whose
-parentBlock is a Bitcoin header. We therefore key purely on the merge-mined
-flag and validate each parent against Bitcoin difficulty downstream, which is
-robust regardless of the exact PowAlgo integer values.
-
-The CAuxPow tail at offset 85 is the standard Namecoin CAuxPow, so the shared
-``read_auxpow`` / ``parse_parent_header`` / ``hash_meets_btc_difficulty``
-parser is reused unchanged.
-
-The output CSV uses the canonical ``run_classifier`` input schema
-(``btc_header_hash`` / ``btc_bits`` plus exact ``xaya_height``). Xaya enforces
-BIP34 from child height 1, so the extractor reads the consensus height from the
-child coinbase after the ``PowData`` wrapper, authenticating its full
-transaction vector and witness commitment against the pure child header.
-
-Requires: Python 3.10+ and the installed stale_blocks_analysis package.
+PowData follows the 80-byte header: algo uint8 (``0x80`` means merge-mined),
+nBits uint32, then CAuxPow or a standalone fake header. SHA256D must be
+merge-mined; NEOSCRYPT must not. The CAuxPow tail starts at offset 85.
+BIP34 applies from child height 1, so height is read from the child coinbase
+after the wrapper, with the transaction vector and witness commitment checked
+against the pure child header.
 """
 
 from __future__ import annotations
@@ -174,17 +151,10 @@ def parse_xaya_block(block_data: bytes) -> dict | None:
 
 
 def main() -> None:
-    """Scan a directory of Xaya ``blk*.dat`` files and write recovered BTC
-    parent headers to the output CSV.
+    """Scan sorted ``blk*.dat`` files. All-zero and all-ones ``bits`` are dropped.
 
-    Auto-detects an ``xor.dat`` deobfuscation key in ``--blocks-dir``,
-    iterates numbered ``blk*.dat`` files in sorted order, and for each
-    merge-mined block parses the CAuxPow tail and BTC parent header. Rows
-    with an all-zero or all-ones ``bits`` field are dropped as
-    unparseable; by default (``--all-headers`` unset) rows are further
-    filtered to those whose parent hash meets the target encoded in its header. The
-    emitted ``xaya_height`` is the exact consensus height encoded by the
-    BIP34 child coinbase. Prints periodic progress and a final scan summary.
+    Without ``--all-headers``, the parent hash must meet its own target.
+    ``xaya_height`` is the BIP34 coinbase height.
     """
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--blocks-dir", type=Path, required=True)

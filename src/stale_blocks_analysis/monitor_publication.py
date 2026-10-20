@@ -1250,12 +1250,9 @@ def _observation_refinement(
 def _authenticated_event_bundles(
     observations: tuple[PublishedObservation, ...],
 ) -> tuple[tuple[PublishedObservation, ...], ...]:
-    """Bundle claims for one authenticated child event into one observation.
+    """One staged row per authenticated child hash within a ``(chain, parent_hash)`` anchor.
 
-    Physical source rows are not publication multiplicity. Within one
-    ``(chain, parent_hash)`` anchor, a valid child block hash identifies one
-    logical event. Every claim for that event must refine into the same staged
-    row. Rows without an authenticated child hash remain singleton claims.
+    Rows without that hash stay singleton claims.
     """
     by_child_hash: dict[str, list[PublishedObservation]] = {}
     bundles: list[tuple[PublishedObservation, ...]] = []

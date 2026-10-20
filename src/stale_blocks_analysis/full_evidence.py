@@ -113,11 +113,7 @@ def build_full_evidence_exports(
     reported_output_dir: Path | None = None,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> dict[str, object]:
-    """Write normalized full-evidence artifacts and summary reports.
-
-    ``reported_output_dir`` is the logical final location recorded in
-    manifests when generation writes through a separate staging directory.
-    """
+    """``reported_output_dir`` is the logical path when the write goes to a staging directory."""
     logical_output_dir = reported_output_dir or output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     sources = discover_evidence_sources(data_dir, chain_archive_dirs)

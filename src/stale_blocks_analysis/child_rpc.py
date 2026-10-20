@@ -1,11 +1,6 @@
-"""Shared child-chain JSON-RPC client with 429-aware retry/backoff.
+"""Child-chain JSON-RPC. Per-thread sessions; connection errors and HTTP 429 retry with jitter.
 
-A thread-pooled ``requests`` client for the merge-mined child chains' own
-nodes/APIs (distinct from ``btc_rpc``, which talks to Bitcoin Core). Each
-worker thread keeps its own keep-alive session; connection errors and HTTP 429
-retry with jittered backoff. Parameterized by JSON-RPC version and optional
-basic auth so both the JSON-RPC-2.0 chains (e.g. Elastos) and the
-JSON-RPC-1.0-with-auth chains (e.g. Emercoin) use one implementation.
+JSON-RPC 2.0 (Elastos named params) and 1.0-with-auth (Emercoin) share this client.
 """
 
 from __future__ import annotations
@@ -61,14 +56,7 @@ class RpcClient:
         return s
 
     def _request(self, payload, label: str):
-        """POST ``payload`` with the shared retry/backoff and return the parsed
-        JSON body (a dict for a single call, a list for a batch).
-
-        Retries on connection errors and HTTP 429 with jittered backoff
-        (capped at 3s per attempt, up to ``max_retries`` attempts). ``label``
-        is only used in the exhausted-retries message. Does not interpret
-        RPC-level errors; the caller decides what an error payload means.
-        """
+        """POST with retry. Does not interpret an RPC-level error payload."""
         session = self._session()
         backoff = 0.1
         for attempt in range(self.max_retries):
@@ -91,13 +79,7 @@ class RpcClient:
         raise RuntimeError(f"Exceeded {self.max_retries} retries for {label}")
 
     def call(self, method: str, params: list | dict):
-        """Issue one JSON-RPC call and return its ``result``.
-
-        ``params`` is positional (list) or named (dict; JSON-RPC 2.0 chains
-        such as Elastos take named params). Retries per ``_request`` and
-        raises ``RuntimeError`` on an RPC-level error or once retries are
-        exhausted.
-        """
+        """One call. ``params`` may be a list or a dict. An RPC error raises."""
         payload = {"jsonrpc": self.jsonrpc, "id": 0, "method": method, "params": params}
         data = self._request(payload, f"{method}({params})")
         if data.get("error"):
@@ -105,12 +87,5 @@ class RpcClient:
         return data["result"]
 
     def batch(self, calls: list) -> list:
-        """POST a pre-built JSON-RPC batch (a list of call dicts) and return the
-        parsed response list.
-
-        Unlike ``call``, this does not raise on per-item RPC errors: batch
-        callers match responses by ``id`` and inspect per-call errors
-        themselves. Retries per ``_request``; raises ``RuntimeError`` once
-        retries are exhausted.
-        """
+        """A batch returns per-item errors to the caller. Exhausted retries raise."""
         return self._request(calls, f"a batch of {len(calls)} calls")

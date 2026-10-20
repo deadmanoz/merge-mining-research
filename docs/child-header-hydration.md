@@ -161,17 +161,11 @@ Bitcoin-parent `nTime` is zero. The child header and its timestamp authenticate
 correctly against the Crown source; the outlier is retained as unknown evidence
 and does not describe a canonical Bitcoin block.
 
-The normal publication build now emits every available canonical row together
-with accepted direct stales, accepted descendants, and strict/weak unknown-row
-observations for every chain. It does not use a chain allowlist. The committed
-monitor-evidence and strict/weak projections were regenerated from those
-inputs. The stale-descendant publication joins accepted parent verdicts from
-`data/stale_descendants.csv` to authenticated source-chain witnesses from
-`data/stale_descendant_observations.csv`. Each witness retains its source bucket
-as audit provenance, while the parent verdict and
-`validation_status=VALID_STALE_DESCENDANT` come from the ancestry and consensus
-gates. All ordinary artifacts, the error-observation aggregate, counts, and
-manifest are staged and replaced as one coherent transaction. Complete
+The committed monitor-evidence and strict/weak projections were regenerated
+from the refreshed inputs. Normal publication includes every available
+canonical row and does not use a chain allowlist; ancestry joins and the
+one-transaction install are in
+[research contracts](research-contracts.md#research-semantics). Complete
 normalized full-evidence and canonical-classifier inventories are retained as
 dated external refreshes because those broad artifacts are too large for the
 repository's normal source-data boundary.

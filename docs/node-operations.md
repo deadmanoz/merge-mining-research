@@ -1,11 +1,8 @@
 # Node and archive operations
 
-Read before touching node-infra, private archives or deployment inputs, then read the relevant workspace README and justfile. These restrictions protect retained evidence and legacy datadirs.
+Read before touching node-infra, private archives or deployment inputs, then
+read the relevant workspace README and justfile.
 All paths and commands are relative to the repository root.
-
-## Contents
-
-- [Node Infrastructure](#node-infrastructure)
 
 ## Node Infrastructure
 

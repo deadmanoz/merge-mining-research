@@ -1,24 +1,7 @@
 #!/usr/bin/env python3
-"""Build the per-chain strict/weak BTC-orphan CSVs.
+"""Build per-chain strict/weak orphan CSVs from monitor-evidence exports.
 
-Filters each committed monitor-evidence export
-(``results/monitor-evidence/<chain>_monitor_evidence.csv``, written by
-``scripts/reports/build_monitor_evidence.py``) down to its
-``classification=unknown`` rows — exactly the rows admitted with a
-``strict_btc_orphan`` or ``weak_btc_orphan`` verdict — and writes them per
-chain under ``results/strict-weak-orphans/``, mirroring the per-chain
-convention of the ``data/validated-stales/<chain>_validated_stales.csv`` loader inputs.
-
-Verdicts are per header, not per observation: the same header seen by
-several chains carries the strongest verdict any chain's evidence
-establishes (see ``load_orphan_relevance_verdicts``), so a chain's file
-lists that chain's observations of strict/weak headers. Every complete-coverage
-per-chain monitor-evidence export gets a ``<chain>_strict_weak_orphans.csv``
-(header-only when the chain has no admitted rows). Canonical-only partial
-sources and stale-only publication inputs are excluded because a zero-row file
-would falsely imply completed strict/weak coverage. A
-``strict-weak-orphans-counts.csv`` summary. Row order and schema follow the
-monitor-evidence export unchanged, so regeneration is deterministic.
+Verdicts are per header. A header-only file is written only for a complete-coverage export, so it is not a claim that strict/weak coverage finished.
 """
 
 from __future__ import annotations

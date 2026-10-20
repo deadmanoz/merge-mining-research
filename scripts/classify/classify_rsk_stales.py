@@ -231,17 +231,9 @@ def validate_distinct_paths(
     *,
     skip_ledger_path: Path | None = None,
 ) -> None:
-    """Refuse to run when any two input/output paths resolve to the same file.
+    """Refuse aliased input or output paths.
 
-    The staged family still promotes each final path in sequence, so an aliased
-    pair would silently replace an earlier member during promotion. Pointing
-    ``--error-blocks-out`` at ``--stales-out`` would leave only the error
-    blocks; pointing it at ``--validated-out`` would erase that member.
-
-    This mirrors ``_validate_distinct_paths`` in
-    ``classify_auxpow_candidates.py``. That one is not reused: its parameters
-    are positional over that script's own artifact set and it derives that
-    script's publication split, neither of which describes RSK's outputs.
+    The staged family is promoted in sequence, so two names for one file would replace an earlier member.
     """
     labelled = {
         "input": Path(args.input).resolve(),
@@ -662,13 +654,9 @@ def stale_validation_error(
     expected_nbits: str,
     parent_median_time_past: int,
 ) -> str | None:
-    """Return an MTP, version, or nBits rejection reason.
+    """Return an MTP, version, or nBits rejection.
 
-    The three verdict strings are the shared vocabulary the rest of the
-    pipeline routes on: the MTP and version reasons come straight from the
-    shared gate functions, and the nBits reason carries the shared
-    ``NBITS_MISMATCH_PREFIX`` so ``route_rejected_stale_rows`` recognises it as
-    the contamination verdict rather than a judgement on the block.
+    The nBits reason keeps ``NBITS_MISMATCH_PREFIX`` so routing treats it as contamination, not as a judgement of the block.
     """
     mtp_error = median_time_past_error(row, parent_median_time_past)
     if mtp_error is not None:
@@ -695,20 +683,9 @@ def gate_and_route(
     stales_with_height: list[tuple[int, dict[str, str], int]],
     canon_bits_at: dict[int, str],
 ) -> GatedRows:
-    """Apply the publication gate, then route the rejections by what they mean.
+    """Apply the publication gate, then route rejections from each row's own bytes.
 
-    Returns ``(verified, stale_rows, error_blocks, rerouted_unknowns)``, where
-    ``verified`` is the VALID subset of ``stale_rows``. Rows are mutated in
-    place, gaining ``classification``, ``validation_status``, and
-    ``expected_nbits``.
-
-    The router re-derives the broken consensus rules from each row's own bytes
-    rather than reading the verdict string, so a rejection whose evidence was
-    merely unusable produces no rules and the row stays a stale. For RSK only
-    the median-time-past, block-version, and epoch-retarget rules can ever
-    fire: the midstate-compressed proof carries no parent coinbase, so the
-    coinbase scriptSig-length and BIP34-height rules have nothing to evaluate
-    and never contribute a violation.
+    Unusable evidence stays stale. RSK's compressed proof has no parent coinbase, so scriptSig-length and BIP34 never fire.
     """
     gated: list[tuple[int, dict[str, str]]] = []
     for height, row, parent_median_time_past in stales_with_height:

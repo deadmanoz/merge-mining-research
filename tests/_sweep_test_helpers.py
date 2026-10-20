@@ -1,16 +1,4 @@
-"""Shared synthetic-header helpers for the error-block sweep tests.
-
-The four sweep test modules (``test_sweep_error_blocks``,
-``test_sweep_error_blocks_version_bip``,
-``test_sweep_error_blocks_coinbase_form``,
-``test_sweep_error_blocks_time_rule``) build synthetic 80-byte Bitcoin
-headers and BIP34 coinbase scriptSig prefixes. The byte-identical helpers
-live here once, including the shared inventory-text / reader / epoch-table
-fixtures. Each test module keeps its own ``_row`` builder (the inventory
-row shape differs per sweep) and, where its header layout differs (the
-rejected-rows and time-rule sweeps use a different ``_header_hex``
-signature), its own local ``_header_hex``.
-"""
+"""Shared synthetic 80-byte headers and BIP34 prefixes for the error-block sweep tests."""
 
 from __future__ import annotations
 

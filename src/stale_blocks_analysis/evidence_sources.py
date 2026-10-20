@@ -65,11 +65,7 @@ def normalize_chain_archive_dirs(chain_archive_dirs: Iterable[Path] = ()) -> lis
 
 
 def archive_candidates(root: Path, chain: str, suffix: str, family: str) -> list[Path]:
-    """Candidate paths for ``<chain>_<suffix>.csv`` under an archive root.
-
-    Checks the per-chain ``family`` subdirectory (``classified/`` or
-    ``validated/``), the chain directory itself, then the root.
-    """
+    """``family`` subdirectory, then the chain directory, then the archive root."""
     return [
         root / chain / family / f"{chain}_{suffix}.csv",
         root / chain / f"{chain}_{suffix}.csv",
@@ -217,17 +213,11 @@ def discover_canonical_sources(
     data_dir: Path = DATA_DIR,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> dict[str, EvidenceSource]:
-    """Discover per-chain canonical-parent companions where they exist.
+    """Existing ``<chain>_canonical_blocks.csv`` companions only.
 
-    Canonical parents are kept in a separate
-    ``<chain>_canonical_blocks.csv`` artifact (written by ``run_classifier``;
-    the same convention the private archive uses), so they are discovered
-    independently of the stale/unknown inventory and merged into the exports.
-    Only chains with an existing companion appear in the result. A
-    never-split chain's inventory can already carry the same canonical rows
-    as its companion (see i0coin). Full-evidence exports retain both physical
-    observations. Final monitor publication may collapse them only after exact
-    child-identity hydration proves they are the same event.
+    A never-split inventory may already contain the same rows. Full-evidence
+    exports keep both observations. Monitor publication may collapse them
+    only after child-identity hydration proves one event.
     """
     archive_dirs = normalize_chain_archive_dirs(chain_archive_dirs)
     sources: dict[str, EvidenceSource] = {}
@@ -281,15 +271,10 @@ def discover_unknown_sources(
     data_dir: Path = DATA_DIR,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> dict[str, EvidenceSource]:
-    """Discover per-chain unknown companions where they exist.
+    """Existing ``<chain>_unknown_blocks.csv`` companions only.
 
-    Unknown rows are split into a separate ``<chain>_unknown_blocks.csv``
-    artifact (the classifier's shared writer), so they are discovered
-    independently of the stale-only inventory and merged into the exports. A
-    never-split chain has no unknown companion -- its unknowns stay in the
-    commingled ``<chain>_stale_blocks.csv`` -- so only chains with an existing
-    companion appear here. Rows carry ``source_kind="full_inventory"`` so
-    ``collect_source_rows`` processes them exactly like the inventory's unknowns.
+    A never-split chain keeps unknowns in ``<chain>_stale_blocks.csv``.
+    Companion rows use ``source_kind="full_inventory"``.
     """
     archive_dirs = normalize_chain_archive_dirs(chain_archive_dirs)
     sources: dict[str, EvidenceSource] = {}
@@ -321,11 +306,7 @@ def discover_unknown_sources(
 def stale_descendant_parent_verdict_source(
     data_dir: Path,
 ) -> EvidenceSource | None:
-    """Build the parent-verdict source for ``data/stale_descendants.csv``.
-
-    Returns None when the canonical parent interface is absent. Exports retain
-    the reserved artifact chain key ``stale-descendants``.
-    """
+    """Parent-verdict source for ``stale_descendants.csv``, or None when that interface is absent."""
     path = data_dir / "stale_descendants.csv"
     if not path.exists():
         return None
@@ -340,12 +321,6 @@ def stale_descendant_parent_verdict_source(
     )
 
 
-# ── Namecoin header-hex hydration ───────────────────────────────────────
-#
-# Namecoin's committed validated input carries most, but not all, of the
-# recovered 80-byte parent headers. Its strict/weak-orphan archive rows may
-# also be headerless. The merge-mining-monitor refuses headerless rows at
-# import because it PoW-validates every header, so hydrate only the missing
-# `btc_header_hex` values from the Namecoin block.dat prototype extracts or
-# private archive sources. A recovered header is written only when it verifies
-# against the row's own `btc_header_hash`.
+# Namecoin header hydration. The monitor refuses a headerless row, so fill a
+# missing ``btc_header_hex`` from the block.dat prototype or private archive
+# only when that header hashes to the row's ``btc_header_hash``.

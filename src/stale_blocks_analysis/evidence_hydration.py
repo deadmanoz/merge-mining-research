@@ -30,20 +30,9 @@ def load_namecoin_header_hexes(
     targets: set[str],
     candidate_paths: Iterable[Path],
 ) -> dict[str, str]:
-    """Map ``btc_hash`` -> ``btc_header_hex`` for ``targets`` from prototype extracts.
+    """Earlier paths win. Does not check that the header hashes to ``btc_hash``.
 
-    Reads the ``candidate_paths`` CSVs in order (by convention the namecoin
-    ``*_blkdat_classified.csv`` then ``*_blkdat_candidates.csv`` extracts,
-    which carry full 80-byte headers), recording each row's header hex keyed
-    by its own ``btc_hash`` column and restricted to ``targets``. Missing
-    files are skipped, and scanning stops early once every target hash is
-    resolved, so an earlier path in the list wins when it covers the targets.
-    Returns ``{block_hash: header_hex}`` for the resolved subset of ``targets``.
-
-    This is a pure loader keyed by the source CSV's own ``btc_hash`` column;
-    it does NOT check that a header hex actually hashes to that hash (the
-    reconcile loader this was lifted from did not either). Callers that need a
-    verified header must check it -- ``hydrate_namecoin_headers`` does.
+    ``hydrate_namecoin_headers`` verifies before writing.
     """
     if not targets:
         return {}
@@ -66,14 +55,7 @@ def namecoin_header_candidate_paths(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> list[Path]:
-    """Ordered ``btc_header_hex`` recovery sources for namecoin, repo-local first.
-
-    The repo-local ``data/prototype/`` pair takes precedence, then each
-    normalized chain-archive root's ``namecoin/classified`` +
-    ``namecoin/raw-extraction`` extract pair. ``load_namecoin_header_hexes``
-    reads these in order and stops once every target is resolved, so the
-    repo-local extracts win when they cover the targets.
-    """
+    """Repo-local ``data/prototype/`` first, then each archive's classified and raw pair."""
     paths = [
         data_dir / "prototype" / "namecoin_blkdat_classified.csv",
         data_dir / "prototype" / "namecoin_blkdat_candidates.csv",
@@ -89,12 +71,7 @@ def namecoin_header_candidate_paths(
 
 
 def verified_header_hex(header_hex: str, expected_display_hash: str) -> bool:
-    """True if ``header_hex``'s 80-byte double-SHA256, reversed, is ``expected_display_hash``.
-
-    ``expected_display_hash`` is a display-order (RPC-order) lowercase hex
-    hash. A malformed hex string, a header shorter than 80 bytes, or any hash
-    disagreement returns False, so a bad candidate header is never written.
-    """
+    """Display-order SHA256d of the first 80 bytes. A bad candidate is False, never written."""
     try:
         raw = bytes.fromhex(header_hex)
     except ValueError:
@@ -106,13 +83,9 @@ def verified_header_hex(header_hex: str, expected_display_hash: str) -> bool:
 
 @dataclass(slots=True)
 class HydrationStats:
-    """Per-run namecoin ``btc_header_hex`` hydration coverage.
+    """``hash_mismatch_rejected`` is a present header that failed verification.
 
-    ``targets`` is the number of headerless namecoin rows considered;
-    ``hydrated`` gained a verified header; ``hash_mismatch_rejected`` is the
-    subset of ``still_missing`` whose candidate header was present but failed
-    verification. ``sources_available`` records whether any candidate extract
-    file existed at all, so a zero-source run is never silent.
+    ``sources_available`` keeps a zero-source run from looking like a clean miss.
     """
 
     targets: int = 0
@@ -140,16 +113,7 @@ def hydrate_namecoin_headers(
     rows: list[dict[str, str]],
     candidate_paths: list[Path],
 ) -> HydrationStats:
-    """Fill empty ``btc_header_hex`` on namecoin rows from recovered extracts, in place.
-
-    Targets the namecoin rows whose ``btc_header_hex`` is empty but whose
-    ``btc_header_hash`` is a well-formed hash, loads their headers via
-    ``load_namecoin_header_hexes`` (lazily -- no files are read when there are
-    no targets), and writes a header ONLY when it verifies against the row's
-    hash (``verified_header_hex``). A candidate that is missing, malformed, or
-    hashes to the wrong value is never written and is counted. The ``rows``
-    list is mutated in place; returns the coverage stats.
-    """
+    """Write a header only when it verifies. A mismatch is counted and not written."""
     stats = HydrationStats()
     target_rows = [
         row
@@ -186,22 +150,9 @@ def hydrate_namecoin_headers(
     return stats
 
 
-# ── Child identity hydration ──────────────────────────────────────
-#
-# Generic per-chain ledgers under data/child-identity/ authenticate exact child
-# events. They are grouped here by (chain, btc_header_hash), then resolved by
-# authenticated child height/hash when one parent has multiple witnesses. The
-# five active hydration chains (namecoin, rsk, syscoin, elastos, fractal) use
-# identities recovered from their reachable nodes. Historical Devcoin and
-# Ixcoin rows pin complete child headers authenticated from archive source rows;
-# selected error witnesses also record independent RPC verification. Hathor
-# retains source-authenticated identity directly in its acquisition artifact
-# and needs no separate ledger.
-# merge-mining-monitor keys events by
-# (source, child_height, child_block_hash), so imported rows need the exact
-# identity to deduplicate against live capture. RSK rows additionally carry the
-# fields the monitor's rsk_merge_mining_evidence sidecar requires; they are
-# attached to the row and published only in the RSK export's extra columns.
+# Grouped by (chain, btc_header_hash), then by child height/hash.
+# Monitor dedup is (source, child_height, child_block_hash). RSK sidecar
+# fields publish only in the RSK export. Hathor keeps its acquisition identity.
 
 CHILD_IDENTITY_DIR_NAME = "child-identity"
 
@@ -217,19 +168,13 @@ CHILD_IDENTITY_CORE_FIELDS = [
     "child_nbits",
 ]
 
-# The five active child chains whose evidence rows REQUIRE a separate recovered
-# child identity: merge-mining-monitor enforces
-# ``UNIQUE (source_id, child_block_hash)``, and its importer skips rows
-# without exact identity. Hydration targets these chains unconditionally --
-# a missing or empty identity file must surface as missing_identity, never
-# silently narrow the target set.
+# Monitor ``UNIQUE (source_id, child_block_hash)`` skips rows without identity.
+# A missing file is ``missing_identity``, not a smaller target set.
 CHILD_IDENTITY_HYDRATION_CHAINS = frozenset(
     {"namecoin", "rsk", "syscoin", "elastos", "fractal"}
 )
 
-# Hathor is also an active child chain and its published rows must carry the
-# same complete identity before publication. Its acquisition already provides
-# that identity, so it is checked here but is not a sidecar-hydration target.
+# Hathor is required at publication but is not a sidecar-hydration target.
 CHILD_IDENTITY_REQUIRED_CHAINS = frozenset({*CHILD_IDENTITY_HYDRATION_CHAINS, "hathor"})
 
 
@@ -320,16 +265,9 @@ def child_identity_candidates(
 
 
 def load_child_identity(data_dir: Path) -> ChildIdentityIndex:
-    """Index authenticated child events under ``(chain, btc_header_hash)``.
+    """Usable rows have a verification method, nonnegative height, 32-byte hash, and positive time.
 
-    Reads every ``data/child-identity/*_child_identity.csv``; a row is usable
-    only when its ``verification`` names a non-empty authentication method, its
-    ``child_height`` is a nonnegative integer, its ``child_block_hash`` is a
-    well-formed 32-byte hex value, and its ``child_block_time`` is a positive
-    integer. An authenticated-but-incomplete row (malformed or manually truncated
-    sidecar) is dropped here, so the affected evidence rows surface as
-    ``missing_identity`` downstream instead of hydrating blanks that defeat
-    the publication gate.
+    An authenticated but incomplete row is dropped so it surfaces as ``missing_identity``.
     """
     identity = ChildIdentityIndex()
     identity_dir = data_dir / CHILD_IDENTITY_DIR_NAME
@@ -408,17 +346,9 @@ def load_child_identity(data_dir: Path) -> ChildIdentityIndex:
 
 @dataclass(slots=True)
 class ChildIdentityStats:
-    """Per-chain child-identity hydration coverage.
+    """``missing_identity`` and ``height_mismatch`` are fatal for non-canonical rows.
 
-    ``targets`` is the number of rows considered for a verified identity;
-    ``hydrated`` gained or confirmed one. ``missing_identity`` and
-    ``height_mismatch`` count NON-canonical rows that remain incomplete or
-    retain an unmatched source event (fatal to a publication build: the
-    monitor importer requires an exact identity for these categories).
-    ``canonical_unhydrated`` counts canonical rows left empty. These rows are
-    still emitted because canonical evidence is part of the publication set;
-    the count records the source's child-identity limit without treating an
-    absent optional identity join as contradictory evidence.
+    Empty canonical rows are still emitted. That count is not a contradiction.
     """
 
     targets: int = 0
@@ -445,31 +375,13 @@ def hydrate_child_identity(
     rows: list[dict[str, str]],
     identity: ChildIdentityIndex,
 ) -> ChildIdentityStats:
-    """Fill empty child identity fields from verified recovery rows, in place.
+    """Hydrate ``CHILD_IDENTITY_HYDRATION_CHAINS`` in place. A missing file is a shortfall.
 
-    Targets every row for a chain in the separate hydration set
-    (``CHILD_IDENTITY_HYDRATION_CHAINS``), except complete fresh RSK bundles,
-    regardless of whether the source prepopulated ``child_block_hash``.
-    A populated normalized source hash is
-    an exact-event selector and must match the node-verified sidecar (internal
-    wire order for Bitcoin-family chains, forward order for RSK); a missing
-    identity still counts as a shortfall. Fresh RSK rows with a complete source
-    bundle need no identity sidecar and are not counted as hydration targets
-    unless an exact matching sidecar is available. Other chains are targeted
-    when their source hash is empty and identity data was loaded for them.
-    For rows requiring hydration, a missing, empty, or verification-less
-    identity file surfaces as
-    ``missing_identity`` instead of silently narrowing the target set. The
-    identity row fills an explicitly unavailable source ``child_height`` but
-    must agree with every populated source height. Multiple identities for one
-    parent are selected only by a matching source child height or hash; an
-    unresolved choice fails rather than substituting an arbitrary event. A
-    Bitcoin-family disagreement leaves the row untouched and is counted.
-    RSK height, hash, timestamp or populated sidecar disagreements raise
-    ``ChildHeaderValidationError`` rather than returning a partial bundle.
-    RSK sidecar fields ride along on the row dict and only reach output when
-    the caller includes them
-    in the export's field list.
+    A source hash is an exact selector: internal/wire order for Bitcoin-family
+    chains, forward order for RSK. An ambiguous parent fails rather than
+    picking an event. Bitcoin-family disagreements leave the row untouched.
+    RSK disagreements raise ``ChildHeaderValidationError``. A complete fresh
+    RSK bundle is not a target unless a matching sidecar exists.
     """
     stats = ChildIdentityStats()
     chains_with_identity = {chain for chain, _ in identity.parent_keys()}
@@ -477,10 +389,8 @@ def hydrate_child_identity(
         chain = row.get("chain", "")
         if chain not in CHILD_IDENTITY_HYDRATION_CHAINS:
             if chain in CHILD_IDENTITY_REQUIRED_CHAINS:
-                # Hathor's API acquisition is the authoritative identity
-                # source. Do not replace it from a sidecar, but count an
-                # incomplete non-canonical source row as a publication
-                # shortfall so the monitor gate cannot silently drop it.
+                # Hathor's acquisition identity is not replaced. An incomplete
+                # non-canonical row is still a publication shortfall.
                 if (row.get("classification") or "") != "canonical":
                     child_height = int_or_none(row.get("child_height"))
                     child_hash = normalize_hash(row.get("child_block_hash"))
@@ -497,9 +407,7 @@ def hydrate_child_identity(
                         stats.missing_identity += 1
                 continue
             if row.get("child_block_hash"):
-                # Chains outside the separate hydration set keep their
-                # source-supplied identity untouched (the explicit-recovery
-                # artifacts are authoritative for it).
+                # Explicit-recovery artifacts stay authoritative outside the hydration set.
                 continue
             if chain not in chains_with_identity:
                 continue
@@ -540,8 +448,7 @@ def hydrate_child_identity(
             candidate = exact_candidates[0]
             candidate_time = (candidate.get("child_block_time") or "").strip()
             source_time = (row.get("child_block_time") or "").strip()
-            # Exact height and hash select one child event. A different
-            # timestamp for that event is conflicting evidence.
+            # Same height and hash with a different timestamp is a conflict.
             if candidate_time != source_time:
                 raise ChildHeaderValidationError(
                     f"rsk child time disagrees with source bundle for BTC header {block_hash}"
@@ -657,10 +564,9 @@ def hydrate_child_identity(
                         f"{chain} child identity {field} disagrees with the "
                         f"source-authenticated bundle for BTC header {block_hash}"
                     )
-        # The node-verified identity is authoritative for live chains. Its hash
-        # fills a blank or repeats the exact source selector established above;
-        # its timestamp replaces the source value. An authenticated source
-        # header is retained when the identity source has no serialized header.
+        # Node-verified hash fills a blank or repeats the source selector.
+        # Its timestamp replaces the source value. A source header stays when
+        # the identity row has none.
         row["child_block_hash"] = (candidate.get("child_block_hash") or "").strip()
         row["child_block_time"] = (candidate.get("child_block_time") or "").strip()
         for field in ("child_header_hex", "child_nbits"):

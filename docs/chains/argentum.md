@@ -15,7 +15,7 @@
 | Loader | `load_argentum_stales()` in `src/stale_blocks_analysis/stale_blocks.py` |
 | Validated CSV | `data/validated-stales/argentum_validated_stales.csv` |
 
-Argentum is the **second multi-algo chain integrated into the pipeline** after Myriadcoin, and the closest structural analog - both are Daniel Kraft–lineage codebases with `fStrictChainId=false` and a SHA-256d branch carrying Bitcoin-parent AuxPoW alongside other algorithms that are out of scope. The one methodological difference from Myriadcoin is small but easy to miss: the algo-encoding constants are *inverted* relative to Myriadcoin, so the extractor filter is `(nVersion & 0x0E00) == 0x0200` rather than `== 0`. The substantive finding is the **accepted-to-unknown rate**: 2 accepted direct-stale candidates against 634,277 unknowns, or 0.000315%, about 76 times below Myriadcoin's 0.02397% (40 / 166,844). This is what any write-up of Argentum should lead with, not the modest 2-candidate yield itself. The accepted candidates provide **sparse, nonzero Bitcoin-parent evidence**.
+Argentum is the **second multi-algo chain integrated into the pipeline** after Myriadcoin, and the closest structural analog - both are Daniel Kraft–lineage codebases with `fStrictChainId=false` and a SHA-256d branch carrying Bitcoin-parent AuxPoW alongside other algorithms that are out of scope. The one methodological difference from Myriadcoin is small but easy to miss: the algo-encoding constants are *inverted* relative to Myriadcoin, so the extractor filter is `(nVersion & 0x0E00) == 0x0200` rather than `== 0`. The accepted-to-unknown rate is 2 accepted direct-stale candidates against 634,277 unknowns, or 0.000315%, about 76 times below Myriadcoin's 0.02397% (40 / 166,844). That comparison describes the recovered populations; it is not a hashrate estimate. The accepted candidates are sparse, nonzero Bitcoin-parent evidence.
 
 ## 1. Chain data
 
@@ -67,13 +67,11 @@ The block header is `class CBlockHeader : public CPureBlockHeader { shared_ptr<C
 
 The 24% SHA-256d fraction across the full 1.825M → tip window is broadly consistent with the post-2018-fork dilution to six algorithms (an equal-share assumption gives 1/6 ≈ 17% in that era, weighted against the 1/2 share that held in the pre-fork ~2016-04 → 2018-03 window). Pipeline timing on `<archival-host>`: extraction 99.9 min wall-clock (localhost RPC fetch sustained ~1,944 blk/s); classification 95.8 s at 6,625 headers/s against the local Bitcoin archive RPC.
 
-**The 49 % self-target PoW pass-rate requires careful interpretation.** Roughly half of all SHA-256d-AuxPoW parent headers satisfy the targets encoded in those same headers. It does not show that they met Bitcoin's contemporaneous mainnet target. Bitcoin Core recognises only 27 as canonical, while 2 more have canonical predecessors and pass the publication gates; the remaining 634,277 are unknown.
-
 **Chain-specific quirks.**
 
 - **Algo-encoding inverse from Myriadcoin** - the gotcha. Argentum: `BLOCK_VERSION_SHA256D = 1 << 9 = 0x200` (explicit), Scrypt = default `0`. Myriadcoin: SHA-256d = default `0`, Scrypt = explicit. Confused filter constants would silently extract the wrong algo's branch. The extractor docstring (`scripts/extract/extract_argentum_auxpow.py:14-28`) calls this out and the filter is `(nVersion & 0x0E00) == 0x0200`, not `== 0`.
 - **Pre-fork vs post-fork SHA-256d share differs.** Between ARG 1,825,000 (~2016-04) and 2,977,000 (~2018-03) the chain ran Scrypt + SHA-256d only, so SHA-256d produced ~50% of blocks; from 2,977,000 onward, with six algorithms, ~17%. A single ratio doesn't apply across the whole extraction window.
-- **`fStrictChainId=false` leaves parent identity open.** The 634,277 unknown headers satisfy their encoded self-target but do not sit on Bitcoin's active chain and do not extend a canonical Bitcoin predecessor. They may belong to BCH, BSV, another SHA-256 chain, or a chain-specific header substrate; the current evidence does not identify a single origin.
+- **`fStrictChainId=false` leaves parent identity open.** The 634,277 unknown headers satisfy their encoded self-target but do not sit on Bitcoin's active chain and do not extend a canonical Bitcoin predecessor. They may belong to BCH, BSV, another SHA-256 chain, or a chain-specific header substrate; the current evidence does not identify a single origin. A strict-chain-ID setting would not, by itself, resolve that ambiguity: standard AuxPoW chain-ID checks prevent same-chain parent reuse but do not prove that the parent is Bitcoin.
 - **Catalogue activation date used.** Per the project chronological-ordering convention we record the 2016-04-10 multi-algo + AuxPoW relaunch ANN date (catalogue precision), not the 2013-05-22 chain genesis (which was a standalone-Scrypt PoW chain with no Bitcoin parent commitment).
 
 ## 3. Filtering → accepted direct-stale candidates
@@ -95,26 +93,15 @@ classification == "stale" and validation_status in {
 
 Current upstream overlap and chronological allocation are in the [novelty report](../../results/novelty.md).
 
-### The actually interesting finding: sparse Bitcoin-parent evidence
-
-The main result of Argentum's recovery is not the 2-candidate yield but its
-**accepted-to-unknown rate**: 2 / 634,277 = 0.000315%. Myriadcoin's comparable
-rate is 40 / 166,844 = 0.02397%, about 76 times higher. This comparison
-describes the recovered populations; it is not a hashrate estimate.
-
-The mechanism is straightforward, given the `fStrictChainId=false` design choice. The SHA-256d branch will accept AuxPoW from any SHA-256d parent; the source-side data does not establish parent identity. Of the self-target-PoW-valid headers, Bitcoin Core recognises 27 as mainchain-canonical, and 2 more extend canonical predecessors and pass the publication gates. The 634,277 unknowns remain evidence of an unidentified SHA-256 header substrate, not proven Bitcoin, BCH, or BSV blocks.
-
-This makes Argentum a publishable case study for **sparse Bitcoin-parent
-AuxPoW evidence**. Bitcoin Core recognises 27 parent headers as canonical, and
-2 more extend canonical predecessors and pass the publication gate, but those
-29 observations are microscopic beside 634,277 unknowns. Doichain is a useful
-contrast for a different reason: its surveyed extract contains 300,625
-canonical-tip commitments that match exact expected Bitcoin `nBits` and BIP34
-height, yet no accepted direct-stale candidates. Doichain therefore provides
-strong aggregate evidence of Bitcoin-derived work templates despite a zero
-stale yield. Together, the chains show why AuxPoW structure alone does not
-establish parent identity and why a zero stale count does not establish absent
-or vestigial Bitcoin merge mining.
+Bitcoin Core recognises 27 parent headers as canonical, and 2 more extend
+canonical predecessors and pass the publication gate, but those 29 observations
+are microscopic beside 634,277 unknowns. Doichain's surveyed extract contains
+300,625 canonical-tip commitments that match exact expected Bitcoin `nBits`
+and BIP34 height, yet no accepted direct-stale candidates. Doichain therefore
+provides strong aggregate evidence of Bitcoin-derived work templates despite a
+zero stale yield. AuxPoW structure alone does not establish parent identity,
+and a zero stale count does not establish absent or vestigial Bitcoin merge
+mining.
 
 ## 4. Outputs & references
 
@@ -139,7 +126,3 @@ or vestigial Bitcoin merge mining.
 - Original launch ANN: `bitcointalk.org/index.php?topic=231524.0` (2013-06-11, Scrypt-only).
 - Multi-algo + AuxPoW relaunch ANN: `bitcointalk.org/index.php?topic=1432608.0` (2016-04-10).
 - Peer-discovery source: Wayback captures of `chainetics.com/nodes/arg.php` (17 snapshots, 2024-03 → 2026-03).
-
-**Methodological note.**
-
-Argentum is the project's clearest demonstration that **structural AuxPoW evidence is not equivalent to validated Bitcoin-parent evidence**. The source code and substantial SHA-256d activity suggested a potentially large recovery source, but the public validation path admits only 2 direct-stale candidates. The 634,277 unknowns satisfy only their encoded self-target and lack canonical Bitcoin linkage. A strict-chain-ID setting would not, by itself, resolve that ambiguity: standard AuxPoW chain-ID checks prevent same-chain parent reuse but do not prove that the parent is Bitcoin.

@@ -19,15 +19,7 @@ _OP_CHECKMULTISIGVERIFY = 0xAF
 
 
 def _read_compact_size(raw: bytes, pos: int) -> tuple[int, int]:
-    """Read a CompactSize integer, enforcing Core's canonical minimal form.
-
-    ``ReadCompactSize`` rejects a value serialized wider than necessary
-    ("non-canonical ReadCompactSize()"), and those count/length bytes sit
-    outside every txid and the witness commitment: a rewritten-but-equal
-    encoding would change only ``block_sha256`` while every derived check
-    still passed, so a block Core would refuse to even deserialize must not
-    authenticate here.
-    """
+    """Canonical CompactSize. A wider encoding would change only ``block_sha256`` while derived checks still passed."""
     value, new_pos = _varint(raw, pos)
     width = new_pos - pos
     if (
@@ -40,13 +32,7 @@ def _read_compact_size(raw: bytes, pos: int) -> tuple[int, int]:
 
 
 def count_legacy_sigops_in_script(script: bytes) -> int:
-    """Count legacy sigops in one script (``CScript::GetSigOpCount(false)``).
-
-    CHECKSIG/CHECKSIGVERIFY count 1; CHECKMULTISIG/CHECKMULTISIGVERIFY count
-    the 20-key maximum (the inaccurate mode Core uses for the block-wide
-    legacy count). A truncated push ends the walk with the count so far,
-    matching Core's ``GetOp`` loop.
-    """
+    """``GetSigOpCount(false)``: CHECKSIG is 1, CHECKMULTISIG is 20. A truncated push stops the walk."""
     count = 0
     pos = 0
     end = len(script)
@@ -77,17 +63,10 @@ def count_legacy_sigops_in_script(script: bytes) -> int:
 def _transaction_at(
     raw: bytes, pos: int, *, capture_coinbase: bool = False
 ) -> tuple[int, bytes, bytes, list[bytes] | None, list[bytes] | None, int]:
-    """Walk one transaction; return its evidence fields and the new position.
+    """Legacy txid excludes marker, flag, and witness. Wtxid covers the full serialization. Both are internal order.
 
-    Returns ``(legacy_sigops, txid, wtxid, coinbase_output_scripts,
-    coinbase_witness_stack, new_pos)``. The txid is the sha256d of the
-    transaction's LEGACY serialization (version, inputs, outputs, locktime --
-    excluding any segwit marker, flag, and witness data); the wtxid is the
-    sha256d of the FULL serialization (equal to the txid for a non-segwit
-    transaction). Both are internal byte order, ready for merkle-tree use.
-    ``capture_coinbase`` additionally collects the output scriptPubKeys and
-    the complete witness stack of the first input, so the commitment check
-    can enforce BIP141's exactly-one-32-byte-item rule on the coinbase.
+    ``capture_coinbase`` keeps output scripts and the first input's witness
+    stack so BIP141's one 32-byte item can be checked.
     """
     start = pos
     pos += 4  # nVersion
@@ -144,15 +123,7 @@ def _transaction_at(
 
 
 def _merkle_root(txids: list[bytes]) -> bytes:
-    """Fold internal-order txids into the block merkle root (Core's rule).
-
-    Rejects the CVE-2012-2459 mutation: duplicating the final element of an
-    odd-length level yields the SAME root as the unduplicated list, so a
-    substituted body with appended duplicate transactions would otherwise
-    still merkle-authenticate while changing the derived sigop count. Core
-    flags an equal adjacent pair at any level (scanned before its own
-    odd-level padding) as a mutated block; mirror that by failing closed.
-    """
+    """Merkle root in internal order. An equal adjacent pair at any level fails closed (CVE-2012-2459)."""
     level = txids
     while len(level) > 1:
         for index in range(0, len(level) - 1, 2):
@@ -177,23 +148,14 @@ def _witness_commitment_error(
     coinbase_outputs: list[bytes],
     coinbase_witness: list[bytes] | None,
 ) -> str | None:
-    """Re-derive the BIP141 witness commitment, or explain why it fails.
+    """BIP141 commitment, or why it fails.
 
-    The legacy txid merkle root does not cover witness bytes, so a body with
-    altered witness data (and a matching updated ``block_sha256``) would still
-    txid-merkle-authenticate while changing exactly the witness-path sigops
-    these rows attribute the excess to. When any transaction carries witness
-    data, Bitcoin requires the coinbase to commit to the wtxid merkle tree:
-    the commitment is sha256d(witness merkle root || witness reserved value),
-    where the coinbase's wtxid leaf is 32 zero bytes and the reserved value is
-    the coinbase's witness stack, which BIP141 requires to be EXACTLY one
-    32-byte item (Core's ``bad-witness-nonce-size``): the zeroed leaf means
-    any extra coinbase witness item would escape the commitment entirely, so
-    a surplus item is rejected, never ignored. The commitment must appear in the
-    LAST coinbase output whose scriptPubKey begins ``6a24aa21a9ed`` (Core's
-    ``GetWitnessCommitmentIndex`` scan). The caller invokes this when some
-    transaction carries witness data OR the coinbase carries a commitment
-    output, mirroring Core: a stripped body must not skip the check.
+    The commitment is sha256d(witness merkle root || reserved value). The
+    coinbase wtxid leaf is 32 zero bytes, so the reserved value must be
+    exactly one 32-byte witness item; a surplus item is rejected. The
+    commitment is the last coinbase output whose script begins
+    ``6a24aa21a9ed``. Called when any transaction has witness data or the
+    coinbase carries a commitment output.
     """
     commitment_script = None
     for script in coinbase_outputs:
@@ -218,16 +180,9 @@ def _witness_commitment_error(
 
 
 def parse_block_body(raw: bytes) -> tuple[int, bytes]:
-    """Walk a serialized block; return (legacy sigops, derived merkle root).
+    """Legacy sigops from the block bytes, plus the txid merkle root for header bytes 36-68.
 
-    The sigop count sums ``count_legacy_sigops_in_script`` over every
-    transaction's input scriptSigs and output scriptPubKeys -- the portion of
-    Bitcoin Core's block sigop cost that is derivable from the block bytes
-    alone. The P2SH and witness portions need the spent prevout scripts and
-    are deliberately out of scope. The merkle root is derived from the
-    transactions' legacy txids so a caller can authenticate the body against
-    header bytes 36-68; ``authenticate_block_body`` additionally verifies the
-    BIP141 witness commitment.
+    P2SH and witness sigop cost need prevout scripts and are out of scope.
     """
     total, merkle_root, _witness_error = _walk_block(raw)
     return total, merkle_root
@@ -236,16 +191,12 @@ def parse_block_body(raw: bytes) -> tuple[int, bytes]:
 def authenticate_block_body(
     raw: bytes, *, segwit_active: bool = True, transaction_offset: int = 80
 ) -> tuple[int, list[str]]:
-    """Fully authenticate a block body; return (legacy sigops, failures).
+    """Txid merkle root against header bytes 36-68, and the BIP141 commitment when witness data is present.
 
-    Checks both the legacy txid merkle root against header bytes 36-68 and,
-    when any transaction carries witness data, the BIP141 witness commitment
-    (see ``_witness_commitment_error``). A body that fails either check must
-    not be treated as re-derived evidence for the header. Before activation,
-    a commitment-looking output alone does not require witness data. Actual
-    witness serialization still requires authentication at any claimed height.
-    ``transaction_offset`` selects the vector after a child proof envelope;
-    the Merkle root remains in the first 80-byte pure header.
+    Before activation, a commitment-looking output alone does not require
+    witness data. Actual witness serialization still does, at any claimed
+    height. ``transaction_offset`` selects the vector after a child proof
+    envelope; the merkle root stays in the first 80 bytes.
     """
     total, merkle_root, witness_error = _walk_block(
         raw, segwit_active=segwit_active, transaction_offset=transaction_offset

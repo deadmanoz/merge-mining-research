@@ -45,9 +45,7 @@ Devcoin was the sixth Namecoin-family SHA-256d AuxPoW chain by merged-mining act
 
 ## 2. Extraction → potential stales
 
-**Method.** RPC raw-hex against the local devcoind. For each DVC block ≥ 25,000, fetch `getblock <hash> 0` and parse the binary CAuxPow tail. The AuxPoW format is the Daniel Kraft / Vince Durham lineage - byte-identical to Namecoin/i0coin/ixcoin/CoiledCoin.
-
-> **Surprise from extraction**: a clean JSON path via `getblock <hash> 1` was anticipated (since Devcoin is a Bitcoin Core 22.x fork with `AuxpowToJSON()` available in the codebase). In practice the deployed build of `devcoind` did not return a decoded `auxpow` object in the JSON response, so the raw-hex + binary parse was the path taken. Same pattern as ixcoin (0.14.x) and Unobtanium (0.11.x) despite those chains' much older lineage.
+**Method.** RPC raw-hex against the local devcoind. For each DVC block ≥ 25,000, fetch `getblock <hash> 0` and parse the binary CAuxPow tail. The AuxPoW format is the Daniel Kraft / Vince Durham lineage - byte-identical to Namecoin/i0coin/ixcoin/CoiledCoin. The deployed build did not return a decoded `auxpow` object from `getblock <hash> 1`, so the raw-hex path was required. Same pattern as ixcoin (0.14.x) and Unobtanium (0.11.x).
 
 **Phases.**
 
@@ -160,11 +158,10 @@ The six BTC-epoch-matching unknown rows are:
 
 **Conclusion.** Devcoin answers the same way as Namecoin, but more strongly: the broad unknown class is not lost BTC deep-reorg material. The overwhelming majority of Devcoin unknowns fail BTC's contemporaneous nBits schedule, including essentially the entire multiblock unknown graph. The few BTC-like exceptions are already known historical fork/shadow-chain fragments.
 
-**Loader decision.** `load_devcoin_stales()` should continue loading only rows
-with `classification == "stale"` and one of the two exact accepted
+**Loader decision.** No Devcoin unknown subset is sufficiently BTC-rooted to
+admit into fork-rate accounting. `load_devcoin_stales()` still loads only
+`classification == "stale"` rows with one of the two exact accepted
 `validation_status` values shown above.
-No Devcoin unknown subset is sufficiently BTC-rooted to admit into fork-rate
-accounting.
 
 **Remaining work.**
 

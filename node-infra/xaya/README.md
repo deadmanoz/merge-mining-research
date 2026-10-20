@@ -3,13 +3,9 @@
 Build `xayad` v1.13 in a container for AuxPoW stale-block extraction. See
 [`../../docs/chains/xaya.md`](../../docs/chains/xaya.md) for recovery details.
 
-Xaya is an integrated research source with 42 accepted direct-stale
-observations. The Kraft native dump extends offline recovery beyond the
-earlier `blocks.zip` snapshot and the migration height. No daemon was started;
-this directory remains an unverified node scaffold. See
-[`../../docs/chains/xaya.md`](../../docs/chains/xaya.md) for stored-ancestry
-coverage, unlinked side headers and provenance, and the
-[`../../results/novelty.md`](../../results/novelty.md) report for chronology.
+No daemon was started for the committed recovery. This directory remains an
+unverified node scaffold. Chronology is in
+[`../../results/novelty.md`](../../results/novelty.md).
 
 ## Why ubuntu:24.04
 
@@ -29,10 +25,6 @@ The block header is also non-standard for this lineage: it appends a
 fakeHeader | CAuxPow }`. The embedded `CAuxPow` itself is the standard
 Namecoin lineage; only the outer block-header parsing needs custom logic
 in the extractor.
-
-The offline recovery measured 1,695,912 SHA256D merge-mined blocks among
-6,344,114 scanned blocks, a 26.7% share; the remaining 73.3% were the
-non-merge-mined Neoscrypt branch.
 
 ## One-time setup
 

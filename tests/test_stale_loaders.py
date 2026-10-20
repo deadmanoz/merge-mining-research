@@ -1,11 +1,6 @@
-"""Contract tests for the stale-block loaders in stale_blocks.py.
+"""Contract tests for the stale-block loaders.
 
-Each test monkeypatches a module-level <chain>_CSV constant (the
-globals()[spec.csv_attr] contract), writes a pinned fixture, and asserts the
-gate behaviour and emitted record shape. Covers the default LoaderSpec path
-(xaya), the exact-status contract that retains "VALID (post-BCH ...)"
-rows (namecoin/i0coin), the addr-output OP_RETURN drop (syscoin/terracoin/
-bitcoin-vault), and RSK's bespoke parallel schema.
+Each test monkeypatches the module-level CSV path, which is the LoaderSpec contract.
 """
 
 from __future__ import annotations

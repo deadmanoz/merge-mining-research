@@ -1,28 +1,7 @@
 #!/usr/bin/env python3
-"""
-Extract Bitcoin parent headers from RSK (Rootstock) merge-mining proofs.
+"""Extract Bitcoin parent headers from RSK merge-mining proofs.
 
-RSK is an EVM chain, not a Bitcoin Core fork — it exposes merge-mining data
-directly on each block via Ethereum-style JSON-RPC:
-
-    eth_getBlockByNumber returns:
-      bitcoinMergedMiningHeader              — 80-byte Bitcoin parent header
-      bitcoinMergedMiningCoinbaseTransaction : trimmed SHA-256 state plus the
-                                               unhashed coinbase tail; the full
-                                               scriptSig is not preserved
-      bitcoinMergedMiningMerkleProof         : Merkle path linking the proof
-                                               commitment to the BTC coinbase
-      hashForMergedMining                    — 32-byte hash committed in coinbase
-      miner                                  - RBTC miner address retained for analysis
-
-The retained historical extraction starts at RSK block 139,999. This is an
-acquisition lower bound, not a consensus activation: earlier blocks interleave
-full 80-byte merge-mining headers with variable-width RLP fallback signatures. Current
-runs require explicit bounds and retain the full headers while accounting for
-those fallback shapes and the exact height-zero ``0x00`` sentinel as skips.
-
-Output: CSV with one row per extracted RSK merge-mining proof containing the Bitcoin parent
-header fields and the available miner and truncated-coinbase evidence.
+The retained coinbase is trimmed: the full scriptSig is not preserved. Height 139999 is an acquisition bound, not a consensus activation.
 """
 
 import argparse
@@ -279,13 +258,9 @@ def _try_parse_outputs(body: bytes) -> list[dict] | None:
 
 
 def parse_coinbase_tail(tail_hex: str) -> list[dict] | None:
-    """Locate the outputs section in RSK's truncated coinbase tail.
+    """Find outputs in RSK's truncated coinbase tail.
 
-    The tail starts at a SHA-256 midstate boundary inside the coinbase tx, so
-    its leading bytes are arbitrary mid-data. We walk forward from each offset
-    looking for a parse that lands exactly on the locktime (last 4 bytes of
-    the tx). If multiple offsets succeed we prefer the leftmost (more output
-    history captured).
+    The tail starts at a SHA-256 midstate, so the leading bytes are not a transaction start. The leftmost parse that ends on the locktime wins.
     """
     try:
         raw = bytes.fromhex(tail_hex.removeprefix("0x"))
@@ -486,16 +461,9 @@ def extract_range(
     previous_hash: str = "",
     expected_start_identity: dict | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, int], dict, dict, int]:
-    """Extract and validate one durable interval of canonical heights.
+    """Extract one durable height interval, including uncles.
 
-    Walks both canonical RSK blocks and any uncle/ommer blocks they reference.
-    RPC batches are independently capped by ``rpc_batch_size`` while the whole
-    interval remains in memory as one durable checkpoint unit.  Every canonical
-    height and every advertised uncle has exactly one raw-row or skip-ledger
-    outcome. Transient RPC failures retry the affected batch. Null responses,
-    unadvertised identities, broken continuity and unsupported proof shapes
-    fail immediately without advancing the checkpoint; diagnose the source
-    before resuming those integrity failures.
+    Every canonical height and advertised uncle has one raw row or skip. Integrity failures do not advance the checkpoint.
     """
     if not 1 <= rpc_batch_size <= BATCH_SIZE:
         raise ValueError(f"rpc_batch_size must be between 1 and {BATCH_SIZE}")

@@ -1,37 +1,7 @@
 #!/usr/bin/env python3
-"""Extract Bitcoin AuxPoW headers from the Crown blockchain via RPC.
+"""Extract Bitcoin AuxPoW headers from Crown.
 
-Crown (CRW) is a 2014 Bitcoin/Dash-derived chain with SHA-256d AuxPoW
-(standard Namecoin / Daniel Kraft lineage, chain ID 20, fStrictChainId
-true). AuxPoW activates at Crown height 453,273. Crown went PoS-hybrid
-at height 2,330,000 — PoS blocks carry no AuxPoW. In the PoS era the
-chain-ID field in nVersion also rotated from 20 (0x14) to 22 (0x16),
-but that is irrelevant here: PoS blocks never have the AuxPoW flag set.
-
-Crown is single-algo (SHA-256d) so there is no per-algo filter — unlike
-Myriadcoin/Argentum. The only gate is the AuxPoW flag.
-
-nVersion layout (Namecoin-style):
-    bits 0-7   : base version
-    bit  8     : VERSION_AUXPOW (1 << 8) — AuxPoW present
-    bits 16+   : chain ID (20 for Crown's PoW era; 22 in the PoS era)
-
-Observed in practice (probed 2026-05-20):
-    h 453,273          version 0x00140002  PoW  auxbit 0  (activation block, pre-merge)
-    h 460,000-2,330,000 version 0x00140102 PoW  auxbit 1  (merge-mined — in scope)
-    h 2,330,001+       version 0x0016xxxx  PoS  auxbit 0  (PoS-hybrid era)
-
-The extractor iterates 453,273 -> tip, skips any block whose AuxPoW flag
-is clear (covers both the pre-merge-mining PoW blocks and the entire
-PoS era), and parses the Namecoin-style CAuxPow tail for the rest.
-
-getblock does NOT expose a decoded `auxpow` JSON field on Crown's RPC,
-so we fetch raw block hex (`getblock <hash> false`) and parse the
-CAuxPow binary directly — same approach as Devcoin / Myriadcoin /
-Argentum.
-
-Output CSV schema matches the other chain extractors for pipeline
-compatibility.
+AuxPoW starts at height 453273. PoS blocks have no AuxPoW flag. ``getblock`` does not expose decoded auxpow, so the extractor parses raw block hex.
 """
 
 import os

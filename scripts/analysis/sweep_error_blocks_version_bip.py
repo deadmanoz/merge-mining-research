@@ -142,14 +142,8 @@ _TOKEN_BIP34_VERSION = "bip34_block_version_below_2"
 _TOKEN_BIP34 = "bip34_coinbase_height_mismatch"
 _TOKEN_BIP34_V2 = "bip34_v2_coinbase_height_mismatch"
 
-# The only ``bip34_height_error`` verdict that is a genuine raw coinbase-height
-# serialization failure: the scriptSig's encoded height push is actually wrong
-# for the claimed height. The gate's other REJECTED forms are NOT a
-# coinbase-height consensus failure — unusable evidence ("malformed ...",
-# "missing ...") or a metadata cross-check disagreement ("decoded BIP34
-# coinbase height disagrees with btc_bip34_height", where the scriptSig encodes
-# the height correctly and only the optional column disagrees). Only the
-# raw-prefix mismatch is a BIP34 coinbase-height violation.
+# Only a raw coinbase-height prefix mismatch is a BIP34 consensus failure.
+# A too-low version, missing evidence, or a btc_bip34_height column disagreement is not.
 _BIP34_HEIGHT_MISMATCH_PREFIX = "REJECTED: BIP34 coinbase height mismatch"
 
 
@@ -164,19 +158,11 @@ class Candidate:
     block_hash: str
     header_version: int  # re-derived from the header bytes
     meets_full_pow: bool
-    # Whether the claimed height is authoritative: True for the 16
-    # regen-chain stale inventories (classifier-derived from an active-chain
-    # prev) and for the committed validated-stales (they passed the
-    # active-parent gate). The canonical-fill-scratch stale inventories do
-    # not carry a canonical-verified height.
+    # Authoritative for regen-chain and validated-stale heights only.
+    # Scratch inventories are not canonical-verified.
     authoritative_height: bool
-    # Whether the header digest meets the CANONICAL expected-nBits target at
-    # the claimed height (the inventory's expected_nbits column, else the
-    # epoch table at the height's epoch start). None when neither source
-    # yields a parseable target. Meeting only the header's own embedded bits
-    # is not enough: an easy self-declared-target header is a
-    # share/contamination, not a confirmed error block (the same rule the
-    # offline validator enforces).
+    # Canonical expected nBits, not the header's own target.
+    # None if that target cannot be evaluated. An easy self-declared target is a share.
     meets_expected_pow: bool | None = None
     violation: str = ""  # a RULE_GATES token, or "" when both gates pass
     gate_detail: str = ""  # the gate's REJECTED: reason text
@@ -213,19 +199,13 @@ class ChainReport:
     no_usable_rows: bool = False
     version_violations: int = 0
     bip34_violations: int = 0
-    # Full-PoW gate violations whose digest does NOT meet the canonical
-    # expected-nBits target at the claimed height: share/contamination
-    # observations, never confirmed error blocks.
+    # Full-PoW violations that miss the canonical nBits target: shares, not error blocks.
     canonical_target_fail: int = 0
     already_in_dataset: int = 0
-    # Distinct (height, hash) violation keys already in the dataset: the same
-    # BTC error block is recorded by several sibling chains, so the
-    # observation tally above overcounts distinct blocks.
+    # Distinct (height, hash) keys. Sibling chains can witness the same block.
     in_dataset_keys: set[tuple[int, str]] = field(default_factory=set)
     new_findings: list[Candidate] = field(default_factory=list)
-    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
-    # can be witnessed in several sibling-chain inventories, so the
-    # new_findings observation list overcounts distinct blocks.
+    # Distinct (height, hash) keys. Sibling chains can witness the same new block.
     new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
 
 
@@ -241,36 +221,14 @@ def parse_header_version(header_hex: str) -> int | None:
 
 
 def apply_version_bip_gates(row: dict[str, str], height: int) -> tuple[str, str] | None:
-    """Apply the version and BIP34 gates at the claimed height.
+    """Return ``(token, detail)`` for a version or raw BIP34-prefix failure, else None.
 
-    Returns (rule_token, gate_detail) for the failing gate, or None when the
-    row passes both gates (including heights below BIP34 activation, where
-    neither rule applies). The gates are the shared
-    ``stale_blocks_analysis.btc_stale_validation`` functions; an UNKNOWN:
-    verdict (missing/malformed evidence) is not a violation — the row passes
-    as far as this sweep can tell. The version gate
-    (``block_version_error``) is coinbase-independent — it needs only the
-    header version and the height — so it runs for any row with a usable
-    header, including header-only rows whose chain does not expose the real
-    parent coinbase (RSK). The BIP34 coinbase-height gate DOES need the
-    coinbase, so it only runs when the row carries a scriptSig; a row
-    without one is BIP34-unevaluable (a documented negative), never a BIP34
-    finding. A BIP34 coinbase-height token is emitted
-    only for the genuine raw-prefix height mismatch (the scriptSig's encoded
-    height push is actually wrong). The gate's other REJECTED forms are not a
-    BIP34 height violation: a malformed/missing-evidence verdict is unusable
-    evidence, and the metadata cross-check disagreement (the optional
-    ``btc_bip34_height`` column disagreeing with a correctly-encoded
-    scriptSig) is an inconsistent-metadata observation, not a Bitcoin
-    consensus failure.
+    UNKNOWN evidence is not a violation. The version gate does not need a coinbase, so header-only rows (RSK) are still checked. A BIP34 token requires a raw height-prefix mismatch; a missing scriptSig, bad evidence, or a ``btc_bip34_height`` column disagreement is not one.
     """
     version_error = block_version_error(row, height)
     if version_error is not None and version_error.startswith("REJECTED:"):
-        # Map the token by the same thresholds the gate uses: the gate
-        # requires version 2 (BIP34) at [BIP34_HEIGHT, BIP66_HEIGHT), 3
-        # (BIP66) at [BIP66_HEIGHT, BIP65_HEIGHT), and 4 (BIP65) above. A v1
-        # header at a BIP34-era height violates the v2 minimum, so it is the
-        # BIP34 token, not bip66_block_version_below_3.
+        # v2 from BIP34, v3 from BIP66, v4 from BIP65. A v1 header in the
+        # BIP34 era is the BIP34 version token, not the BIP66 token.
         if height >= BIP65_HEIGHT:
             token = _TOKEN_BIP65
         elif height >= BIP66_HEIGHT:
@@ -279,21 +237,15 @@ def apply_version_bip_gates(row: dict[str, str], height: int) -> tuple[str, str]
             token = _TOKEN_BIP34_VERSION
         return token, version_error
     if not (row.get("coinbase_scriptsig_hex") or "").strip():
-        # No coinbase scriptSig (e.g. RSK, whose proof does not expose the
-        # real parent coinbase): the BIP34 coinbase-height rule is
-        # unevaluable. The version rule above already ran; there is no BIP34
-        # finding to make.
+        # No coinbase (RSK does not expose it): BIP34 height is unevaluable.
+        # The version rule above already ran.
         return None
     bip34_error = bip34_height_error(row, height)
     if bip34_error is not None and bip34_error.startswith(
         _BIP34_HEIGHT_MISMATCH_PREFIX
     ):
-        # Only the genuine raw-prefix height mismatch is a BIP34 coinbase-height
-        # violation. The gate's other REJECTED forms are not: a malformed/
-        # missing-evidence verdict is unusable evidence, and the metadata
-        # cross-check disagreement (the optional btc_bip34_height column
-        # disagreeing with a correctly-encoded scriptSig) is an inconsistent-
-        # metadata observation, not a Bitcoin consensus failure.
+        # Raw height-prefix mismatch only. Missing evidence and a
+        # btc_bip34_height column disagreement are not consensus failures.
         token = _TOKEN_BIP34 if height >= BIP34_HEIGHT else _TOKEN_BIP34_V2
         return token, bip34_error
     return None
@@ -325,13 +277,8 @@ def sweep_inventory(
         report.total_rows += 1
         header_hex = (row.get("btc_header_hex") or "").strip()
         if not header_hex:
-            # A row without the committed header bytes cannot be re-verified
-            # or gated at all; it is not a usable candidate. A missing
-            # coinbase scriptSig does NOT make the row unusable: the version
-            # gate is coinbase-independent (RSK does not expose the real
-            # parent coinbase, but its headers still carry a checkable
-            # version), so header-only rows are evaluated for the version
-            # rule and are simply BIP34-unevaluable.
+            # A missing header cannot be checked. A missing coinbase does not:
+            # the version rule is header-only (RSK), and BIP34 stays unevaluable.
             continue
         usable_rows += 1
         height = claimed_height(row)
@@ -353,10 +300,7 @@ def sweep_inventory(
         verdict = apply_version_bip_gates(row, height)
         if verdict is None:
             continue
-        # Candidate identity (and hence dataset membership) is keyed on the
-        # display hash derived from the header bytes, never the inventory's
-        # btc_header_hash column: the PoW check already parsed the header, so
-        # this digest is authoritative.
+        # Identity is the header-derived display hash, not the inventory hash column.
         block_hash = header_display_hash(header_hex)
         if block_hash is None:
             report.pow_unparseable += 1
@@ -383,9 +327,7 @@ def sweep_inventory(
         else:
             report.bip34_violations += 1
         if cand.meets_expected_pow is not True:
-            # The digest fails (or cannot be evaluated against) the canonical
-            # expected-nBits target at the claimed height: a
-            # share/contamination observation, not a confirmed error block.
+            # Missing or failing the canonical nBits target is a share, not an error block.
             report.canonical_target_fail += 1
         elif cand.in_dataset:
             report.already_in_dataset += 1
@@ -642,8 +584,7 @@ def main(argv: list[str] | None = None) -> int:
     dataset_keys = load_dataset_keys()
 
     reports: list[ChainReport] = []
-    # Source 1/2: the archive stale inventories (classified chains authoritative,
-    # scratch chains untrustworthy-height).
+    # Archive stale inventories. Scratch chains have an untrustworthy height.
     for chain, path in STALE_INVENTORIES.items():
         reports.append(
             sweep_inventory(
@@ -655,8 +596,7 @@ def main(argv: list[str] | None = None) -> int:
                 dataset_keys=dataset_keys,
             )
         )
-    # Source 3: the committed validated-stales (accepted stales; the
-    # btc_height passed the active-parent gate, so it is authoritative).
+    # Accepted validated stales. Their height passed the active-parent gate.
     for chain, path in validated_stales_inventories(VALIDATED_STALES_GLOB).items():
         reports.append(
             sweep_inventory(

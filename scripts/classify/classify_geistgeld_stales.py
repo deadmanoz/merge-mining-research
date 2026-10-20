@@ -1,41 +1,7 @@
 #!/usr/bin/env python3
 """Classify Geistgeld AuxPoW parent headers against Bitcoin Core.
 
-Geistgeld is a dead 2011-era merge-mined chain with no surviving public
-infrastructure. The input is a complete `getblock`-JSON dump shared by
-Nicholas Stifter; one JSONL record per Geistgeld block,
-~7.3M total, ~2.49M AuxPoW-bearing. Records carry a fully-decoded
-``auxpow`` object with ``coinbasetx`` (scriptsig only — no ``vout``) and
-``parent_block`` (BTC header fields plus a pre-computed ``hash``).
-
-There is no separate ``extract_*`` step: the dump itself is the
-extraction output. This script merges what extract+classify do for the
-other chains:
-
-  1. Stream the gzipped JSONL and select AuxPoW-bearing records.
-  2. Reconstruct the 80-byte BTC header from ``parent_block`` fields and
-     check ``SHA256d(header)`` against the header's own ``nBits`` at full
-     Bitcoin difficulty. Discard headers that meet only Geistgeld's
-     lower target.
-  3. Deduplicate by BTC parent header hash (many GG blocks can embed the
-     same parent during a BTC interval).
-  4. Classify non-canonical headers against Bitcoin Core via
-     ``getblockheader``: prev_hash on mainchain → ``stale``, otherwise
-     ``unknown``. ``btc_height = prev.height + 1`` for stales.
-
-Outputs are written in the shared classifier schema (matches
-``classify_huntercoin_stales.py``):
-
-  - ``data/geistgeld_canonical_blocks.csv``: canonical rows.
-  - ``data/geistgeld_stale_blocks.csv``: stale rows.
-  - ``data/geistgeld_unknown_blocks.csv``: unknown rows.
-  - ``data/geistgeld_error_blocks.csv``: rows proven to break a consensus rule.
-  - ``data/validated-stales/geistgeld_validated_stales.csv``: stale-only subset, the
-    loader's input.
-
-``coinbase_outputs`` is always empty for Geistgeld: ``auxpow.coinbasetx``
-in the dump carries no ``vout`` field. The scriptSig is preserved as the only
-available evidence for a later attribution phase.
+Headers must meet Bitcoin's own nBits, not Geistgeld's easier target. ``coinbase_outputs`` stays empty: the dump has no vout.
 """
 
 from __future__ import annotations
@@ -97,11 +63,9 @@ OUTPUT_COLUMNS = output_columns(_SPEC.height_column)
 
 
 def hash_meets_target(header_hex: str) -> bool:
-    """Phase 1 PoW predicate: does the 80-byte parent header meet its own BTC nBits?
+    """Whether the 80-byte header meets its own nBits.
 
-    Routes the header hash through the mandated byte-order helper
-    (``hash_from_header_bytes`` -> internal 32 bytes) and the shared
-    ``hash_meets_btc_difficulty`` rather than ad hoc ``[::-1]`` / int(display).
+    Hash via ``hash_from_header_bytes`` (internal order). Do not reverse the digest ad hoc.
     """
     try:
         raw = bytes.fromhex(header_hex)
@@ -115,14 +79,9 @@ def hash_meets_target(header_hex: str) -> bool:
 
 
 def reconstruct_header_hex(pb: dict) -> str:
-    """80-byte BTC header hex from a decoded `parent_block` dict.
+    """Rebuild the 80-byte header from ``parent_block``.
 
-    Layout (each field little-endian):
-      version (4) | prev hash (32) | merkle root (32) | time (4) |
-      bits (4) | nonce (4)
-
-    The hex strings in the JSON are big-endian display form, so they're
-    byte-reversed before concatenation.
+    JSON hashes and compact bits are display order and are reversed. Version, time, and nonce are packed little-endian.
     """
     version = struct.pack("<I", pb["version"])
     prev = bytes.fromhex(pb["previousblockhash"])[::-1]
@@ -137,17 +96,9 @@ def reconstruct_header_hex(pb: dict) -> str:
 
 
 def stream_candidates(input_path: Path) -> tuple[dict[str, dict], dict[str, int]]:
-    """Walk the gzipped JSONL once. Returns (unique_candidates, stats).
+    """Stream AuxPoW records whose header meets its own nBits.
 
-    The unique-candidate map keys on BTC parent header hash (Stifter's
-    pre-computed value, sample-verified to match SHA256d(header) — see
-    the verification report in the brief). The first AuxPoW record
-    embedding a given parent wins; later duplicates are skipped, so
-    ``geistgeld_height`` is the minimum GG height that witnessed that
-    parent.
-
-    Stats include total records, AuxPoW count, self-target-PoW-pass count
-    (pre-dedup), and the final unique-parent count.
+    The first record for a parent hash wins.
     """
     candidates: dict[str, dict] = {}
     stats = {

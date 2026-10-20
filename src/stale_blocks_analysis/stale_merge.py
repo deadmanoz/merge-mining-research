@@ -1,15 +1,6 @@
-"""Merging and pool-tagging of loaded stale-block records.
+"""Merge upstream and AuxPoW stales by ``(height, hash)``, then tag pools.
 
-Analysis-side companions to the loaders in `stale_blocks.py`:
-`merge_stale_sources` combines the upstream bitcoin-data/stale-blocks
-baseline with AuxPoW-recovered records (deduplicating by (height, hash)),
-and `tag_stale_blocks` attributes each record to a mining pool via
-`identify_pool`. The loaders themselves stay free of pool attribution so
-the acquisition/recovery pipeline never imports the pool dataset.
-
-Depends on: config (BLOCKS_DIR), bitcoin_binary (parse_coinbase),
-pool_identification (identify_pool_detailed), coinbase_output_claims
-(parse/merge/render claim helpers).
+Loaders do not import pool attribution.
 """
 
 import hashlib
@@ -28,16 +19,10 @@ def merge_stale_sources(
     primary: list[dict],
     auxpow: list[dict],
 ) -> list[dict]:
-    """Merge stale block lists, deduplicating by (height, hash).
+    """Primary wins an exact duplicate. A different hash at the same height is kept.
 
-    Primary (bitcoin-data/stale-blocks) wins on exact duplicates; AuxPoW
-    records at new (height, hash) pairs are added. Records at the same
-    height but with different hashes are both kept (multi-way forks).
-
-    For exact duplicates, the AuxPoW coinbase fields (_scriptsig_hex,
-    _outputs_str) are carried over to the primary record so
-    tag_stale_blocks() can use them as a fallback when the .bin file is
-    missing.
+    The AuxPoW coinbase fields are copied onto the primary record for the
+    missing-.bin fallback.
     """
     # Deduplicate exact keys inside the primary list itself (first row
     # wins), so a duplicated upstream row can never double-count a stale
@@ -110,25 +95,13 @@ def tag_stale_blocks(
     allow_partial: bool = False,
     archive_blobs: dict[str, str] | None = None,
 ) -> list[dict]:
-    """Parse .bin files and tag each block with its pool name.
+    """Tag from a ``.bin`` body, or from the carried AuxPoW coinbase when there is no binary.
 
-    For AuxPoW-sourced blocks (no .bin file), uses the pre-parsed coinbase
-    scriptsig hex and output addresses carried in the record.
-
-    *archive_blobs* maps each archived filename to the blob the checkout
-    tracks for it, and is what makes a binary usable: the header proves
-    which block a file claims, but only the blob proves its body was not
-    replaced. A binary the manifest does not cover is unauthenticated,
-    whether because the file is untracked or because no manifest was
-    supplied at all, and an unauthenticated, mismatched, misplaced, or
-    unparseable binary stops the run unless *allow_partial* permits the
-    AuxPoW fallback. Rejected rows carry `_bin_rejected` so a caller can
-    report the run as degraded, and read `has_bin=False`. Records that
-    arrive pre-tagged (pool already set by a caller that labels before
-    tagging) skip identification entirely; in this repo's own assembly no
-    record arrives pre-tagged — RSK rows enter untagged and receive their
-    historical registry labels in a later attribution pass, so coinbase
-    evidence wins.
+    ``archive_blobs`` is the authenticated body. A binary the manifest does
+    not cover stops the run unless ``allow_partial`` allows the AuxPoW
+    fallback. Rejected rows set ``_bin_rejected`` and read ``has_bin=False``.
+    A pre-tagged record is left alone. RSK rows arrive untagged, so coinbase
+    evidence wins and the historical label is a later pass.
     """
     for b in blocks:
         # A caller-supplied label bypasses identification, but the "Unknown"

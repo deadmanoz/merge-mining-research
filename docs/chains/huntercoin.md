@@ -83,7 +83,8 @@ header paths, full Bitcoin work and the root violation are authenticated by
 published as `error_block`, leaving no strict/weak Huntercoin observations.
 The source unknown bucket remains unchanged as audit evidence.
 The historical 29-row pool audit cannot
-be extrapolated to the expanded population. Full Bitcoin block-body validity is generally unproven by AuxPoW.
+be extrapolated to the expanded population. Stored header ancestry does not
+prove full Bitcoin block validity; see the native-dump limits below.
 
 **Current workflow.** The Kraft dump is the sole foundation input. The retired
 Arweave fetcher, per-height binary route, index comparison and failure-manifest
@@ -201,8 +202,6 @@ Across all integrated chains' validated-stale sets (`namecoin`, `i0coin`, `ixcoi
 | Validated stales | 13 | 13 (100.0%) | 3 (F2Pool, Eligius, CloudHashing) |
 
 Under the pre-committed decision rule (≤25% recognisable BTC pool tags → H2), this is unambiguous: **H2 is supported** for Huntercoin's isolated 29-unknown chain segment. The miners producing these AuxPoW headers were not pointing at recognised BTC pools, and the unknown miner population is disjoint from the validated-stale miner population that *was* mining BTC at the same February–March 2014 window. Combined with the cross-chain isolation table above, the simplest reading is that these 29 rows record a defunct non-BTC SHA-256d substrate (or Huntercoin-specific synthetic/test AuxPoW noise), not lost deep-BTC-reorg material.
-
-This aligns the Huntercoin unknown subset with the project-wide H1/H2 finding: Namecoin, Devcoin, Terracoin and Unobtanium all converge on H2, and Huntercoin joins them as a further H2-convergent chain.
 
 Private-archive outputs from this audit (not committed in this repository):
 

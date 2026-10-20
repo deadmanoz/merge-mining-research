@@ -1,21 +1,8 @@
-"""Stale block loaders.
+"""Loaders for the upstream stale-blocks CSV and per-chain validated CSVs.
 
-Reads the upstream bitcoin-data/stale-blocks CSV and the per-chain
-AuxPoW-recovered validated CSVs (Geistgeld, Namecoin, CoiledCoin, Syscoin,
-Devcoin, ixcoin, i0coin, Groupcoin, Huntercoin, Elastos, Unobtanium, Doichain,
-Myriadcoin, Bitmark, Argentum, Terracoin, RSK, Xaya, Bitcoin Vault,
-Electric Cash, ROD, Lyncoin, SixEleven, Qbit, and Fractal Bitcoin; see docs/ for
-methodology), returning the established
-row shape (`height`, `hash`, `source`, and where available
-`_scriptsig_hex` / `_outputs_str`). Merging across sources is handled
-separately. The loaders do not import a pool registry or perform pool
-attribution.
-
-Depends on: config (STALE_CSV, MIN_HEIGHT, ARGENTUM_CSV, AUXPOW_CSV,
-BITCOIN_VAULT_CSV, BITMARK_CSV, COILEDCOIN_CSV, DEVCOIN_CSV, ELASTOS_CSV, FRACTAL_CSV,
-GEISTGELD_CSV, GROUPCOIN_CSV, HUNTERCOIN_CSV, I0COIN_CSV, IXCOIN_CSV,
-LYNCOIN_CSV, QBIT_CSV, ROD_CSV, RSK_CSV, SIXELEVEN_CSV, STALE_DESCENDANTS_CSV, SYSCOIN_CSV, TERRACOIN_CSV,
-UNOBTANIUM_CSV, ELCASH_CSV), coinbase_output_claims.
+Records are ``height``, ``hash``, ``source``, and where available
+``_scriptsig_hex`` / ``_outputs_str``. Merging and pool attribution are
+separate passes.
 """
 
 import csv
@@ -39,11 +26,8 @@ from .stale_descendants import (
     load_stale_descendant_parents,
 )
 
-# The per-chain *_CSV path constants below are referenced only indirectly, via
-# globals()[spec.csv_attr] at load time (see the LoaderSpec docstring), so a test
-# that does monkeypatch.setattr(stale_blocks, "<CHAIN>_CSV", ...) still takes
-# effect. They are imported for that name binding but never used by name here;
-# keep them and silence F401 rather than dropping them.
+# Bound for LoaderSpec's globals()[csv_attr] lookup and for
+# monkeypatch.setattr(stale_blocks, "<CHAIN>_CSV", ...). Unused by name.
 from .config import (  # noqa: F401
     ARGENTUM_CSV,
     AUXPOW_CSV,
@@ -92,30 +76,12 @@ def load_stale_csv(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 @dataclass(frozen=True)
 class LoaderSpec:
-    """Declarative description of one AuxPoW validated-stale loader.
+    """CSV-reading differences among the per-chain loaders.
 
-    Captures only the loader-level (CSV-reading) variation between the
-    near-identical per-chain load_<chain>_stales functions:
-
-      - csv_attr: name of the module-level *_CSV path constant. Resolved by
-        attribute lookup at call time (NOT captured at import) so tests that
-        monkeypatch e.g. stale_blocks.HATHOR_CSV still take effect.
-      - source: the record `source` label.
-      - height_col / hash_col: the BTC parent height / hash column names in
-        that chain's validated CSV.
-      - require_stale: gate rows on classification == "stale" (the default;
-        every normalized validated CSV is stale-only).
-      - every committed input row must have one of the two exact accepted
-        validation statuses: ``VALID`` or
-        ``VALID (post-BCH, difficulty matches BTC)``.
-      - skip_empty_height: skip rows whose height column is empty (Terracoin).
-
-    Loader-level concerns deliberately live here rather than on
-    config.ChainSpec: ChainSpec documents extraction/classification provenance
-    (chain ID, activation height, raw/output CSV paths) and is shared with the
-    extractor/classifier scripts, whereas these fields (hash column, source
-    label, output-encoding mode) describe only how this module reads the
-    already-validated CSV.
+    ``csv_attr`` is resolved at call time, not import, so a monkeypatch of
+    the path constant still applies. Committed rows must be exactly ``VALID``
+    or ``VALID (post-BCH, difficulty matches BTC)``. These fields stay off
+    ``ChainSpec``, which is the extraction registry shared with the scripts.
     """
 
     csv_attr: str
@@ -129,13 +95,9 @@ class LoaderSpec:
 def load_auxpow_validated_stales(
     spec: LoaderSpec, min_height: int = MIN_HEIGHT
 ) -> list[dict]:
-    """Spec-driven loader for AuxPoW-recovered validated stale CSVs.
+    """Read ``spec.csv_attr`` at call time. An absent CSV returns ``[]``.
 
-    Reads the CSV named by ``spec.csv_attr`` (resolved against this module's
-    globals at call time), applies the spec's classification/validation gates
-    and height floor, passes the canonical ``coinbase_outputs`` cell through
-    unchanged, and emits canonical records ({height, hash, source, _scriptsig_hex,
-    _outputs_str}) sorted by height. Returns [] if the CSV is absent.
+    The ``coinbase_outputs`` cell is passed through unchanged.
     """
     csv_path = globals()[spec.csv_attr]
     if not csv_path.exists():
@@ -157,9 +119,8 @@ def load_auxpow_validated_stales(
             h = int(row[spec.height_col])
             if h < min_height:
                 continue
-            # Every chain now commits the same rendering, which the claims
-            # parser reads directly. Rewriting it here dropped placeholder
-            # outputs (renumbering the survivors) and stripped their amounts.
+            # Pass the committed cell through. Rewriting dropped placeholders
+            # and stripped amounts.
             outputs_str = row.get("coinbase_outputs", "")
             rows.append(
                 {
@@ -175,15 +136,12 @@ def load_auxpow_validated_stales(
     return rows
 
 
-# Per-chain loader specs. Each thin load_<chain>_stales wrapper below binds
-# one of these to load_auxpow_validated_stales while preserving the public
-# function name and signature so all existing callers keep working.
+# Public load_<chain>_stales wrappers bind these specs.
 _LOADER_SPECS: dict[str, LoaderSpec] = {
     "qbit": LoaderSpec(csv_attr="QBIT_CSV", source="qbit"),
     "namecoin": LoaderSpec(
-        # Normalized to the shared schema in the data pass (legacy file used
-        # btc_stale_height / btc_hash / btc_bits_hex). The shared exact-status
-        # gate preserves the documented "VALID (post-BCH ...)" contract.
+        # Legacy columns were btc_stale_height / btc_hash / btc_bits_hex.
+        # Exact statuses still include "VALID (post-BCH, difficulty matches BTC)".
         csv_attr="AUXPOW_CSV",
         source="namecoin",
     ),
@@ -200,9 +158,8 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
         source="devcoin",
     ),
     "i0coin": LoaderSpec(
-        # Normalized to the shared schema in the data pass (legacy file used
-        # btc_stale_height / btc_hash / btc_bits_hex). The shared exact-status
-        # gate preserves the documented "VALID (post-BCH ...)" contract.
+        # Legacy columns were btc_stale_height / btc_hash / btc_bits_hex.
+        # Exact statuses still include "VALID (post-BCH, difficulty matches BTC)".
         csv_attr="I0COIN_CSV",
         source="i0coin",
     ),
@@ -295,29 +252,16 @@ _LOADER_SPECS: dict[str, LoaderSpec] = {
 
 
 def load_namecoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Namecoin merged mining data.
-
-    Returns records in the same shape as load_stale_csv() but with the
-    coinbase data pre-parsed from the AuxPoW extraction (no .bin file
-    needed). Only loads entries with classification "stale" and
-    one of the exact accepted direct-stale validation statuses.
-    """
+    """Namecoin coinbase evidence comes from the AuxPoW CSV, not a .bin."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["namecoin"], min_height=min_height
     )
 
 
 def load_geistgeld_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Geistgeld merged mining data.
+    """Geistgeld's dump has no ``auxpow.coinbasetx.vout``, so outputs are empty.
 
-    Returns records in the same shape as load_coiledcoin_stales() with
-    source="geistgeld". Only loads entries with classification "stale".
-
-    Geistgeld's source dump (a complete `getblock`-JSON archival dump shared
-    by Nicholas Stifter) lacks `auxpow.coinbasetx.vout` entirely, so the
-    validated CSV's `coinbase_outputs` column is always empty.
-    `_scriptsig_hex` still preserves the intact BTC parent coinbase scriptSig
-    for any later attribution research.
+    ``_scriptsig_hex`` still keeps the parent coinbase scriptSig.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["geistgeld"], min_height=min_height
@@ -325,86 +269,39 @@ def load_geistgeld_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_syscoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Syscoin merged mining data.
+    """Syscoin address-derived payouts are recipient-only ``pkh`` claims.
 
-    Returns records in the same shape as load_namecoin_stales() with
-    source="syscoin". Only loads entries with classification "stale".
-
-    Legacy Syscoin acquisition decoded payouts through the child node
-    (version-63 base58 / `sys1` bech32), so address-derived entries survive as
-    recipient-only `pkh(<hash160>)` claims. The committed cell follows the
-    shared rendering contract (docs/data-reference.md) and the loader passes
-    it through unchanged.
+    The child node decoded version-63 base58 / ``sys1``. The cell is passed
+    through unchanged.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["syscoin"], min_height=min_height)
 
 
 def load_devcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Devcoin merged mining data.
-
-    Returns records in the same shape as load_syscoin_stales() with
-    source="devcoin". Only loads entries with classification "stale".
-
-    Devcoin coinbases often have many outputs (50k DVC split between the
-    miner and project funds). The loader preserves every address, including
-    the leading miner payout, as evidence for later attribution research.
-    """
+    """Devcoin keeps every output, including the leading miner payout."""
     return load_auxpow_validated_stales(_LOADER_SPECS["devcoin"], min_height=min_height)
 
 
 def load_i0coin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from i0coin merged mining data.
-
-    Returns records in the same shape as load_namecoin_stales() with
-    source="i0coin". Only loads entries with an exact accepted direct-stale
-    validation status. The committed CSV uses the shared normalized
-    validated-stales schema, including ``btc_height`` and
-    ``btc_header_hash``. ``coinbase_outputs`` follows the shared rendering
-    contract (docs/data-reference.md).
-    """
     return load_auxpow_validated_stales(_LOADER_SPECS["i0coin"], min_height=min_height)
 
 
 def load_coiledcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from CoiledCoin merged mining data.
-
-    Returns records in the same shape as load_devcoin_stales() with
-    source="coiledcoin". Only loads entries with classification "stale".
-    CoiledCoin's `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is passed through unchanged for later
-    attribution research. The CSV
-    also carries an `eligius_attack_window` flag column
-    marking records in the Jan 2012 Eligius 51% attack window
-    (BTC ~160,000-163,000); this column is preserved for diagnostic use
-    but does not affect the loader filter.
-    """
+    """``eligius_attack_window`` marks BTC ~160,000-163,000 and is not a filter."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["coiledcoin"], min_height=min_height
     )
 
 
 def load_ixcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from ixcoin merged mining data.
-
-    Returns records in the same shape as load_devcoin_stales() with
-    source="ixcoin". Only loads entries with classification "stale".
-    """
     return load_auxpow_validated_stales(_LOADER_SPECS["ixcoin"], min_height=min_height)
 
 
 def load_groupcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Groupcoin merged mining data.
+    """Groupcoin ``addresses`` are Groupcoin base58 (``2h…``), not BTC mainnet.
 
-    Returns records in the same shape as load_huntercoin_stales() with
-    source="groupcoin". Only loads entries with classification "stale".
-
-    Groupcoin's data was sourced from a complete `getblock`-JSON archival
-    dump shared by Nicholas Stifter; the network is dead and has no surviving
-    public infrastructure. `coinbase_outputs` follows the shared rendering
-    contract (docs/data-reference.md), rendered from the dump's raw script
-    bytes. The dump's pre-decoded `vout[*].scriptPubKey.addresses` are
-    Groupcoin-base58-encoded (e.g. `2h…`) rather than BTC mainnet and must
-    NOT be used — the classifier renders from the script bytes instead.
+    Outputs are rendered from ``scriptPubKey.hex``. Those decoded addresses
+    must not be used.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["groupcoin"], min_height=min_height
@@ -412,18 +309,9 @@ def load_groupcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_huntercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Huntercoin (SHA-256d branch)
-    merged mining data.
+    """Kraft native dump, SHA-256d chain ID 6 only.
 
-    Returns records in the same shape as load_unobtanium_stales() with
-    source="huntercoin". Only loads entries with classification "stale".
-
-    Huntercoin's current data comes from the Kraft native dump. Earlier
-    Arweave recovery is documented as history. The validated CSV holds
-    only the SHA-256d branch (chain ID 6, BTC parent); the Scrypt branch
-    (chain ID 2, LTC parent) is out of scope. ``coinbase_outputs`` follows the shared
-    rendering contract (docs/data-reference.md) and is preserved unchanged
-    for later attribution.
+    The Scrypt branch (chain ID 2, LTC parent) is out of scope.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["huntercoin"], min_height=min_height
@@ -431,82 +319,35 @@ def load_huntercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_unobtanium_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Unobtanium merged mining data.
-
-    Returns records in the same shape as load_elastos_stales() with
-    source="unobtanium". Only loads entries with classification "stale".
-    Unobtanium `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is preserved unchanged for later attribution
-    research.
-    """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["unobtanium"], min_height=min_height
     )
 
 
 def load_myriadcoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Myriadcoin (SHA-256d branch).
-
-    Returns records in the same shape as load_unobtanium_stales() with
-    source="myriadcoin". Only loads entries with classification "stale".
-    Myriadcoin's multi-algo PoW (SHA-256d / Scrypt / Groestl / Yescrypt /
-    Argon2d) means only the SHA-256d branch is Bitcoin-parent merge-mined;
-    the extractor filters on nVersion bits 9-11 before parsing. Myriadcoin
-    `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is preserved for later attribution research.
-    """
+    """Only the SHA-256d branch (nVersion bits 9-11, algo 0) is Bitcoin-parent."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["myriadcoin"], min_height=min_height
     )
 
 
 def load_sixeleven_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load the header-only SixEleven validated-stale publication input.
-
-    The complete recovery found no accepted direct-stale candidates. A normal
-    loader keeps the zero-row artifact inside chronology and novelty checks and
-    will admit future VALID stale rows without a second integration path.
-    """
+    """Header-only until a VALID stale row is admitted. No second path."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["sixeleven"], min_height=min_height
     )
 
 
 def load_bitmark_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Bitmark (SHA-256d branch).
-
-    Returns records in the same shape as load_myriadcoin_stales() with
-    source="bitmark". Only loads entries with classification "stale".
-
-    Bitmark is an 8-algo PoW chain where all branches are merge-mineable,
-    but only the SHA-256d branch is Bitcoin-parent in this project scope.
-    The extractor filters on nVersion bits 9-11 (ALGO_SHA256D = 1 on
-    Bitmark) and the AuxPoW flag before parsing the Namecoin-style CAuxPow
-    payload. `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is preserved unchanged for later attribution
-    research.
-    """
+    """SHA-256d is nVersion bits 9-11 with ``ALGO_SHA256D = 1``, not Myriadcoin's 0."""
     return load_auxpow_validated_stales(_LOADER_SPECS["bitmark"], min_height=min_height)
 
 
 def load_argentum_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Argentum (SHA-256d branch).
+    """SHA-256d is ``(nVersion & 0x0E00) == 0x0200`` (``1 << 9``), not algo 0.
 
-    Returns records in the same shape as load_myriadcoin_stales() with
-    source="argentum". Only loads entries with classification "stale".
-
-    Argentum is a multi-algo PoW chain — only the SHA-256d branch is
-    Bitcoin-parent merge-mined. The extractor filters on
-    (nVersion & 0x0E00) == 0x0200 (BLOCK_VERSION_SHA256D = 1 << 9)
-    BEFORE parsing the Namecoin-style CAuxPow. Note this differs from
-    Myriadcoin where SHA-256d is the default 0; in Argentum SHA-256d is
-    explicit (1<<9) and Scrypt is the default. fStrictChainId=false on
-    Argentum (identical to Myriadcoin). The self-target PoW filter establishes
-    header consistency; Bitcoin Core parent lookup plus the expected-nBits
-    gate establish Bitcoin parentage for accepted stales.
-
-    The completed extraction recovered two accepted direct-stale candidates.
-    As with every shared loader, an absent CSV returns an empty list.
+    Scrypt is the default. ``fStrictChainId`` is false. Parentage is Bitcoin
+    Core lookup plus the expected-nBits gate, not the self-target check.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["argentum"], min_height=min_height
@@ -514,55 +355,26 @@ def load_argentum_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_crown_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Crown merged mining data.
+    """Chain ID 20, ``fStrictChainId``. AuxPoW from height 453,273.
 
-    Returns records in the same shape as load_myriadcoin_stales() with
-    source="crown". Only loads entries with classification "stale".
-
-    Crown is a 2014 Bitcoin/Dash-derived chain with standard Namecoin-style
-    AuxPoW (chain ID 20, fStrictChainId=true). Single-algo SHA-256d — no
-    per-algo filter. AuxPoW activates at Crown height 453,273; the chain
-    went PoS-hybrid at 2,330,000 (PoS blocks carry no AuxPoW). The
-    extractor (extract_crown_auxpow.py) gates on the AuxPoW version bit
-    and parses the Namecoin-style CAuxPow from raw block hex. Crown
-    `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is preserved unchanged for later attribution
-    research.
+    PoS-hybrid at 2,330,000 carries no AuxPoW. No per-algo filter.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["crown"], min_height=min_height)
 
 
 def load_xaya_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Xaya (CHI) merged mining data.
+    """Chain ID 1829. SHA256D must be merge-mined; NEOSCRYPT carries no AuxPoW.
 
-    Returns records in the same shape as load_crown_stales() with
-    source="xaya". Only loads entries with classification "stale".
-
-    Xaya is a multi-algo chain (NEOSCRYPT solo-mined or SHA256D merge-mined);
-    the source enforces "SHA256D must be merge-mined", so every SHA256D block
-    carries a Bitcoin-parent CAuxPow and NEOSCRYPT blocks carry none (chain ID
-    1829; Xaya has no fStrictChainId flag). SHA256D-AuxPoW is active from genesis
-    (2018-07-13). The extractor (extract_xaya_auxpow.py) parses Xaya's PowData
-    block-header wrapper, keys on the 0x80 merge-mined flag, and reuses the
-    shared Namecoin-style CAuxPow parser. Xaya `coinbase_outputs` follows the
-    shared rendering contract (docs/data-reference.md) and is preserved
-    unchanged for later attribution research.
+    PowData is keyed on the ``0x80`` merge-mined flag. Active from genesis
+    (2018-07-13). No ``fStrictChainId`` flag.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["xaya"], min_height=min_height)
 
 
 def load_terracoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Terracoin merged mining data.
+    """Terracoin decoded addresses collapse P2PK to P2PKH-form ``pkh`` claims.
 
-    Returns records in the same shape as load_syscoin_stales() with
-    source="terracoin". Only loads entries with classification "stale".
-
-    The committed `coinbase_outputs` cells are decode-era evidence: the
-    original backfill read terracoind's decoded address fields, whose
-    rendering collapses P2PK to the P2PKH-form address, so address-derived
-    payouts survive as recipient-only `pkh(<hash160>)` claims per the shared
-    contract (docs/data-reference.md). The loader passes the cell through
-    unchanged.
+    The cell is passed through unchanged.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["terracoin"], min_height=min_height
@@ -570,61 +382,29 @@ def load_terracoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_emercoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Emercoin merged mining data.
-
-    Returns records in the same shape as load_myriadcoin_stales() with
-    source="emercoin". Only loads entries with classification "stale".
-
-    Emercoin is a hybrid PoW/PoS chain (Peercoin lineage). Only PoW blocks
-    carry the Namecoin-style AuxPoW commitment; the PoS branch is filtered
-    at extraction time (~15.5% of post-MMHeight EMC blocks are PoW).
-    `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md) and is preserved unchanged for later attribution
-    research.
-    """
+    """Only PoW blocks carry AuxPoW. PoS is filtered at extraction."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["emercoin"], min_height=min_height
     )
 
 
 def load_doichain_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load validated Bitcoin-parent stales recovered from Doichain AuxPoW.
-
-    The complete height 1 through 430,684 survey yielded no stale rows, so the
-    committed CSV is header-only. Keeping a normal loader makes reruns and any
-    future extension follow the same integration contract as other chains.
-    """
+    """Header-only through height 430,684 until a stale row is admitted."""
     return load_auxpow_validated_stales(
         _LOADER_SPECS["doichain"], min_height=min_height
     )
 
 
 def load_elastos_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Elastos merged mining data.
-
-    Returns records in the same shape as load_i0coin_stales() with
-    source="elastos". Only loads entries with classification "stale"
-    and validation_status "VALID" — rejected (BCH/BSV contamination) and
-    unknown rows are excluded. Elastos `coinbase_outputs` follows the
-    shared rendering contract (docs/data-reference.md) and is preserved
-    unchanged for later attribution research.
-    """
+    """Rejected BCH/BSV-contamination rows and unknown rows stay out."""
     return load_auxpow_validated_stales(_LOADER_SPECS["elastos"], min_height=min_height)
 
 
 def load_rsk_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load stale blocks recovered from RSK merge-mining data.
+    """RSK's compressed proof does not reconstruct the BTC parent coinbase.
 
-    RSK extraction differs from the Namecoin-family chains: the full BTC parent
-    coinbase transaction is not reconstructable from the compressed proof.
-    The CSV preserves the BTC header, limited proof-tail diagnostics, and
-    historical label columns from an earlier RSK miner-address analysis, but
-    this loader ignores everything except the accepted header identity.
-
-    Like every other chain, the committed loader input is VALID-stales-only
-    (`data/validated-stales/rsk_validated_stales.csv`, carrying the shared validated-stales layout plus
-    RSK's historical miner-label columns). The full stale/unknown
-    inventory stays in the private chain archive.
+    Historical ``pool_label`` columns stay in the CSV. This loader returns
+    only the accepted header identity.
     """
     if not RSK_CSV.exists():
         return []
@@ -655,66 +435,26 @@ def load_rsk_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_hathor_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load stale blocks recovered from Hathor merge-mining data.
+    """RFC-0006 split-header proof, coinbase tag ``Hath``, not CAuxPow.
 
-    Returns records in the same shape as load_devcoin_stales() with
-    source="hathor". Only loads entries with classification "stale" and
-    validation_status "VALID".
-
-    Hathor uses an RFC-0006 split-header proof with the coinbase tag "Hath"
-    (not Namecoin-family CAuxPow). The classifier pipeline
-    (`classify_hathor.py`) handles funds+graph reconstruction, Bitcoin
-    predecessor linkage, and BIP34 height parsing in one pass.
-    RPC-miss rows remain unresolved and never enter this loader. By the time
-    this loader sees the data, only self-target-PoW-passing stales remain.
-
-    The classifier renders each coinbase output per the shared contract
-    (docs/data-reference.md) with satoshi amounts, and the loader passes the
-    cell through unchanged.
+    RPC-miss rows stay unresolved and never enter this loader.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["hathor"], min_height=min_height)
 
 
 def load_fractal_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Fractal Bitcoin merged mining data.
+    """AuxPoW flag plus chain ID ``0x2024``. ``0x2026`` Indexer is a different proof.
 
-    Returns records in the same shape as load_unobtanium_stales() with
-    source="fractal". Only loads entries with classification "stale"
-    and validation_status "VALID".
-
-    Fractal Bitcoin's Cadence Mining splits blocks across three classes;
-    only the merge-mined class carries an AuxPoW proof. The classifier CSV
-    contains only that subset. The extractor requires the AuxPoW flag together
-    with chain ID 0x2024, excluding the 0x2026 Indexer class that shares the
-    flag but serializes a different proof. The shared publication gate rejects
-    parent headers that fail the available Bitcoin context checks before rows
-    reach the committed loader input.
-
-    `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md), rendered by the binary CAuxPow parser from the
-    embedded script bytes. Fractald's compact
-    `getblockheader <hash> false true` response includes the CAuxPow tail but
-    does not decode the embedded BTC parent coinbase into JSON, so the
-    extractor renders from the raw script bytes rather than any node-decoded
-    address. The scriptsig markers and outputs are retained for a later
-    attribution phase.
+    Compact ``getblockheader`` does not decode the parent coinbase, so outputs
+    are rendered from the script bytes.
     """
     return load_auxpow_validated_stales(_LOADER_SPECS["fractal"], min_height=min_height)
 
 
 def load_bitcoin_vault_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Bitcoin Vault merged mining data.
+    """Dormant chain; outputs come from raw block hex, not a live node.
 
-    Returns records in the same shape as load_syscoin_stales() with
-    source="bitcoin-vault". Only loads entries with classification "stale".
-
-    BTCV is dormant — extraction was REST-driven via Blockbook
-    (`scripts/extract/extract_bitcoin_vault_auxpow.py`) rather than a live
-    node. `coinbase_outputs` follows the shared rendering contract
-    (docs/data-reference.md): the extractor binary-parses the raw block hex
-    and renders exact scripts via `format_outputs_canonical` (no `requests` /
-    `bitcoinlib` dependency on the 4-host extraction fleet). Nulldata survives
-    only as the legacy `OP_RETURN` label.
+    Nulldata survives only as the legacy ``OP_RETURN`` label.
     """
     return load_auxpow_validated_stales(
         _LOADER_SPECS["bitcoin_vault"], min_height=min_height
@@ -722,33 +462,17 @@ def load_bitcoin_vault_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
 
 
 def load_elcash_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load AuxPoW-recovered stale blocks from Electric Cash merged mining data.
-
-    Returns records in the same shape as load_i0coin_stales() with
-    source="elcash". Only loads entries with classification "stale" and
-    validation_status "VALID". The extraction did not preserve decoded
-    coinbase outputs, so pool identification downstream relies on scriptsig
-    markers only.
-    """
+    """No decoded coinbase outputs. Attribution can use scriptSig markers only."""
     return load_auxpow_validated_stales(_LOADER_SPECS["elcash"], min_height=min_height)
 
 
 def load_lyncoin_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load the header-only Lyncoin validated-stale publication input.
-
-    The complete pre-Flex recovery found no accepted direct-stale candidates.
-    A normal loader keeps the zero-row artifact inside chronology and novelty
-    checks and will admit future VALID stale rows without a second path.
-    """
+    """Header-only pre-Flex recovery. No second path for a later VALID row."""
     return load_auxpow_validated_stales(_LOADER_SPECS["lyncoin"], min_height=min_height)
 
 
 def load_rod_stales(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load future accepted ROD direct stales through the shared contract.
-
-    The reviewed recovery currently has only a canonical companion, so the
-    deliberately absent validated-stales path returns an empty list.
-    """
+    """Canonical companion only. The absent validated-stales path returns ``[]``."""
     return load_auxpow_validated_stales(_LOADER_SPECS["rod"], min_height=min_height)
 
 
@@ -763,18 +487,11 @@ def _outputs_for_tagging(raw_outputs: str) -> str:
 
 
 def load_stale_descendants(min_height: int = MIN_HEIGHT) -> list[dict]:
-    """Load accepted BTC stale-fork descendant parent verdicts.
+    """Admit only ``stale_descendant`` / ``VALID_STALE_DESCENDANT`` parents.
 
-    `scripts/analysis/reconcile_unknown_stale_ancestry.py` writes this file
-    after walking candidate evidence from every source bucket back to trusted
-    BTC stale headers. Source classifications remain audit metadata in the
-    separate observation ledger. This loader admits only parent rows with
-    `classification == "stale_descendant"` and
-    `validation_status == "VALID_STALE_DESCENDANT"` so downstream consumers get
-    valid stale-fork continuation headers without weakening the one-hop stale
-    classifier semantics. The canonical observation loader is also run before
-    any parent is admitted, so a missing, malformed, or parent-inconsistent
-    witness ledger fails closed.
+    Source classifications stay in the observation ledger. A missing,
+    malformed, or parent-inconsistent witness ledger fails closed before any
+    parent is admitted.
     """
     load_stale_descendant_observations(
         STALE_DESCENDANT_OBSERVATIONS_CSV,

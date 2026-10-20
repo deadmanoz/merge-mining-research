@@ -1,12 +1,6 @@
-"""Wrapper-preservation tests for the run_classifier adopter scripts.
+"""Record the ChainSpec, paths, decimal flag, and RPC arguments each wrapper forwards.
 
-Adopting ``run_classifier`` reduced each Bucket A classifier to a thin ``main()``.
-Parse/import smoke tests prove the modules load, but not that each wrapper still
-forwards the right ChainSpec, paths, decimal flag, and RPC/transport. These
-tests load a classifier as a module, replace its ``run_classifier`` reference
-with a recorder, invoke ``main()`` with explicit CLI args, and assert the
-forwarded call -- so a wrapper that silently dropped a default, an env var, or
-the decimal flag would fail here.
+Import smoke is not enough: a dropped default or decimal flag must fail here.
 """
 
 from __future__ import annotations

@@ -81,11 +81,8 @@ from stale_blocks_analysis.evidence_sources import select_foundation_classifier_
 from stale_blocks_analysis.error_blocks import load_error_block_keys
 from stale_blocks_analysis.stale_descendants import load_stale_descendant_parents
 
-# Reasons stamped on confirmed direct-stale / stale-descendant rows. These
-# rows write an EMPTY `btc_stale_relevance` (the primary `classification`
-# plus a VALID `validation_status` already say "confirmed"; the derived axis
-# holds only the unknown-row refinement values), so the reason string is
-# what identifies them for the summary counters below.
+# Confirmed direct stales and descendants keep an empty btc_stale_relevance.
+# These reason strings identify them for the summary counters.
 CONFIRMED_REASONS = ("valid_direct_stale", "valid_stale_descendant")
 
 
@@ -170,14 +167,7 @@ OUTPUT_FIELDS = [
 
 @dataclass(slots=True)
 class SourceRow:
-    """One raw CSV row plus the column-detection context needed to read it.
-
-    `source_kind` is `full_inventory`, `validated_stales`, or
-    `stale_descendant`; `source_schema` (from `source_schema_for`) is
-    `standard`, `rsk`, `hathor`, `xaya`, `validated_stales`, or
-    `stale_descendant`. `hash_col`/`prev_col`/`bits_col`/`header_col` are the
-    column names detected for this file (empty string if not present).
-    """
+    """One CSV row plus the column names detected for that file."""
 
     chain: str
     source_kind: str
@@ -194,13 +184,9 @@ class SourceRow:
 
 @dataclass(slots=True)
 class StrictHeightEvidence:
-    """Result of trying to derive a strict BIP34 height for an unknown row.
+    """BIP34 height attempt for an unknown row.
 
-    `attempted` is True once a candidate height was found (even if it was
-    ultimately rejected), so callers can distinguish "no BIP34 evidence" from
-    "BIP34 evidence found but not usable". `note` carries the rejection
-    reason (e.g. a `..._time_epoch_mismatch` or `..._out_of_epoch_cache_range`
-    suffix) when `source`/`expected_bits` are left empty.
+    ``attempted`` stays true when a candidate height was found and then rejected, so missing BIP34 evidence stays distinct from unusable BIP34 evidence.
     """
 
     height: str
@@ -212,13 +198,7 @@ class StrictHeightEvidence:
 
 @dataclass(slots=True)
 class EpochTimeLookup:
-    """Timestamp-indexed view of the epoch-headers cache for weak-orphan matching.
-
-    `headers` is the sorted-by-time list loaded by `load_epoch_headers`;
-    `times` is the parallel list of their `time` values for `bisect`; and
-    `bits_by_height` indexes the same headers by `height` for the +/-1-epoch
-    neighbor lookup in `expected_for_time`.
-    """
+    """Epoch headers sorted by time for weak-orphan nBits matching."""
 
     headers: list[dict[str, Any]]
     times: list[int]
@@ -226,12 +206,7 @@ class EpochTimeLookup:
 
     @classmethod
     def from_headers(cls, headers: list[dict[str, Any]]) -> "EpochTimeLookup":
-        """Build an EpochTimeLookup from parsed epoch-header dicts.
-
-        `headers` must already be sorted by ascending `time` (as
-        `load_epoch_headers` returns them); this only derives the parallel
-        `times` list and the height->bits index used by `expected_for_time`.
-        """
+        """Index headers that are already sorted by ascending time."""
         return cls(
             headers=headers,
             times=[int(row["time"]) for row in headers],
@@ -241,14 +216,9 @@ class EpochTimeLookup:
         )
 
     def expected_for_time(self, ts: str) -> tuple[str, str, str]:
-        """Look up expected nBits for a BTC timestamp using the epoch-time index.
+        """Return ``(expected_bits, allowed_pm1, epoch_height)`` for ``ts``.
 
-        Returns `(expected_bits, allowed_bits_pm1_epoch, epoch_height)` where
-        `expected_bits` is the bits of the retarget epoch whose start time is
-        at or before `ts`, `allowed_bits_pm1_epoch` is a `|`-joined set of
-        bits for that epoch plus its immediate neighbors, and `epoch_height`
-        is the matched epoch's starting height. Returns `("", "", "")` when
-        `ts` is empty/unparseable or falls outside the covered time range.
+        ``allowed_pm1`` joins the matched retarget epoch with its immediate neighbors. Empty strings mean ``ts`` is missing or outside the table.
         """
         if not ts or not self.headers:
             return "", "", ""
@@ -273,10 +243,7 @@ class EpochTimeLookup:
 
 
 def rel(path: Path) -> str:
-    """Return `path` relative to the project root.
-
-    Delegates to `stale_blocks_analysis.reconcile_observations.rel`.
-    """
+    """Return ``path`` relative to the project root."""
     return rec.rel(path)
 
 
@@ -291,12 +258,9 @@ def csv_status(value: object) -> str:
 
 
 def source_classification(src: SourceRow) -> str:
-    """Return the row's `classification`, lowercased and stripped.
+    """Return the lowercased source classification.
 
-    Validated-stales rows with no explicit `classification` column default to
-    `"stale"`, since that file only ever carries stale rows. Full inventories
-    with a blank classification are legacy unknown observations and follow the
-    same strict/weak path as an explicit `"unknown"` value.
+    Validated-stales rows with no classification column are ``stale``. A blank full-inventory classification is a legacy unknown.
     """
     classification = src.row.get("classification", "").strip().lower()
     if classification:
@@ -320,11 +284,7 @@ def validation_rejects(status: str) -> bool:
 
 
 def get_header_hash(src: SourceRow) -> str:
-    """Return the row's BTC header hash.
-
-    Recovers it from `header_hex` via SHA256d when the hash column is empty or
-    malformed.
-    """
+    """Return the BTC header hash, recovering it from header bytes when the column is empty or malformed."""
     block_hash = rec.get_hash(src.row, src.hash_col)
     if not rec.is_hash(block_hash) and src.header_col:
         block_hash = rec.header_hash(src.row.get(src.header_col, ""))
@@ -332,19 +292,13 @@ def get_header_hash(src: SourceRow) -> str:
 
 
 def get_prev_hash(src: SourceRow) -> str:
-    """Return the row's BTC prev-hash.
-
-    Recovers it from `header_hex` when the prev-hash column is empty.
-    """
+    """Return the BTC prev-hash, recovering it from header bytes when the column is empty."""
     prev_hash, _recovered = rec.get_prev(src.row, src.prev_col, src.header_col)
     return prev_hash
 
 
 def get_bits(src: SourceRow) -> str:
-    """Return the row's `btc_bits` as lowercase hex.
-
-    Recovers it from `header_hex` when the bits column is empty.
-    """
+    """Return lowercase ``btc_bits``, recovering it from header bytes when the column is empty."""
     bits = src.row.get(src.bits_col, "").strip().lower() if src.bits_col else ""
     if not bits and src.header_col:
         bits = rec.parse_header_fields(src.row.get(src.header_col, "")).get("bits", "")
@@ -352,10 +306,7 @@ def get_bits(src: SourceRow) -> str:
 
 
 def get_btc_time(src: SourceRow) -> str:
-    """Return the row's `btc_time`.
-
-    Recovers it from `header_hex` when no `btc_time` column value is present.
-    """
+    """Return ``btc_time``, recovering it from header bytes when the column is empty."""
     btc_time = rec.get_value(src.row, src.fieldnames, ("btc_time",))
     if not btc_time and src.header_col:
         btc_time = rec.parse_header_fields(src.row.get(src.header_col, "")).get(
@@ -365,12 +316,9 @@ def get_btc_time(src: SourceRow) -> str:
 
 
 def get_btc_height(src: SourceRow) -> str:
-    """Return the row's BTC height from whichever height column is populated.
+    """Return the populated BTC height.
 
-    `stale_descendant` rows always read `btc_height` directly (the
-    reconciliation walk's inferred height); other rows try `btc_height`,
-    `btc_bip34_height`, `btc_stale_height`, then `height` in that order and
-    return the first non-empty value.
+    Stale-descendant rows use ``btc_height`` only. Other rows try ``btc_height``, ``btc_bip34_height``, ``btc_stale_height``, then ``height``.
     """
     if src.source_kind == "stale_descendant":
         return src.row.get("btc_height", "").strip()
@@ -383,12 +331,9 @@ def get_btc_height(src: SourceRow) -> str:
 
 
 def compute_self_pow(block_hash: str, bits: str, row: dict[str, str]) -> bool:
-    """Determine whether `block_hash` satisfies its own PoW target.
+    """Whether ``block_hash`` meets its own target.
 
-    Recomputes the check from `bits` when present, via `hash_meets_bits`.
-    Falls back to a source-provided `pow_valid` flag (`"true"/"1"/"yes"` vs
-    `"false"/"0"/"no"`) only when `bits` is missing, and defaults to False for
-    any other or unrecognized flag value.
+    Recompute from ``bits`` when present. A source ``pow_valid`` flag is used only when ``bits`` is missing.
     """
     if bits:
         return rec.hash_meets_bits(block_hash, bits)
@@ -401,13 +346,7 @@ def compute_self_pow(block_hash: str, bits: str, row: dict[str, str]) -> bool:
 
 
 def source_schema_for(chain: str, source_kind: str) -> str:
-    """Classify a row's schema family for downstream strict/weak-orphan logic.
-
-    Returns `stale_descendant` for reconciliation rows, `rsk`/`hathor`/`xaya`
-    for those chains' bespoke inventories, `validated_stales` for the
-    VALID-only loader input, and `standard` for the ordinary full-inventory
-    schema.
-    """
+    """Return ``stale_descendant``, ``rsk``, ``hathor``, ``xaya``, ``validated_stales``, or ``standard``."""
     if source_kind == "stale_descendant":
         return "stale_descendant"
     if chain == "rsk":
@@ -424,12 +363,7 @@ def source_schema_for(chain: str, source_kind: str) -> str:
 def normalized_chain_archive_dirs(
     chain_archive_dirs: Iterable[Path] = (),
 ) -> list[Path]:
-    """Resolve each private chain-archive root to its `chains/` subdirectory.
-
-    Expands `~` in each path and descends into a `chains/` child when one
-    exists; otherwise the root itself is used as-is. Falsy entries are
-    skipped.
-    """
+    """Resolve each archive root to its ``chains/`` directory when that child exists."""
     roots: list[Path] = []
     for root in chain_archive_dirs:
         if not root:
@@ -444,19 +378,7 @@ def discover_sources(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> tuple[set[str], dict[str, Path], dict[str, Path], dict[str, Path], list[Path]]:
-    """Discover per-chain full-inventory and validated-stales CSVs.
-
-    Combines chains found under `data_dir` (via
-    `stale_blocks_analysis.reconcile_observations.discover_chain_names`, minus
-    `NON_CHAIN_DOC_STEMS`) with any private chain archives passed via
-    `chain_archive_dirs`, whose `*/classified/*_stale_blocks.csv` and
-    `*/validated/*_validated_stales.csv` files are globbed in. Explicit archive
-    layouts shared with the publication pipeline are applied after discovery.
-    Returns
-    `(chain_names, stale_inventory_paths, unknown_inventory_paths,
-    validated_stales_paths, normalized_archive_dirs)`. The stale and unknown
-    inventories are the two halves of the classifier's bucket split.
-    """
+    """Find full-inventory and validated-stales CSVs under ``data_dir`` and private archives."""
     chain_names, full_files, unknown_files, validated_files = rec.discover_chain_names(
         data_dir
     )
@@ -535,12 +457,7 @@ def iter_csv_source(
     excluded_keys: set[tuple[int, str]] | None = None,
     excluded_hashes: set[str] | None = None,
 ) -> Iterable[SourceRow]:
-    """Yield a `SourceRow` for every data row in a per-chain CSV.
-
-    Detects the header-hash/prev-hash/bits/header-hex column names once per
-    file and resolves `source_schema` via `source_schema_for` before
-    iterating rows (row numbers start at 2, accounting for the header line).
-    """
+    """Yield one ``SourceRow`` per data row, with hash, prev, bits, and header columns detected once."""
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
@@ -571,12 +488,9 @@ def iter_csv_source(
 
 
 def source_exclusion_hash(src: SourceRow) -> str | None:
-    """Return the authenticated parent hash used for error-block exclusion.
+    """Authenticated parent hash for error-block exclusion.
 
-    Some legacy unknown inventories store the BIP34 coinbase's encoded height
-    rather than the Bitcoin parent's height. The committed error catalogue
-    authenticates the parent hash independently, so consensus-invalid parents
-    must also be excluded by hash instead of relying only on the legacy height.
+    Legacy unknown inventories may store a BIP34 height instead of the parent height, so exclusion is by hash, not that height.
     """
     block_hash = rec.normalize_hash(src.row.get(src.hash_col, ""))
     if not rec.is_hash(block_hash) and src.header_col:
@@ -609,13 +523,7 @@ def iter_source_rows(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> Iterable[SourceRow]:
-    """Yield source rows plus the accepted stale-descendant parent verdicts.
-
-    For each chain (sorted), yields its full-inventory rows first (if
-    present) then its validated-stales rows (if present). Afterward, if
-    `data/stale_descendants.csv` is found under `data_dir`, yields its rows
-    too via `iter_stale_descendant_rows`.
-    """
+    """Yield full-inventory rows, then validated stales, then accepted stale-descendant parents."""
     chain_names, full_files, unknown_files, validated_files, _archive_dirs = (
         discover_sources(
             data_dir,
@@ -641,8 +549,7 @@ def iter_source_rows(
             )
         unknown_path = unknown_files.get(chain)
         if unknown_path is not None:
-            # The unknown half of the split; same source_kind — the per-row
-            # classification filter routes it to the strict/weak orphan logic.
+            # Unknown inventory half; per-row classification still selects strict/weak.
             yield from iter_csv_source(
                 unknown_path,
                 chain,
@@ -673,12 +580,7 @@ def iter_stale_descendant_rows(
     *,
     data_dir: Path = DATA_DIR,
 ) -> Iterable[SourceRow]:
-    """Yield a `SourceRow` for every accepted descendant parent verdict.
-
-    The canonical loader authenticates the serialized Bitcoin header, Core
-    off-active verdicts, exact accepted state, and duplicate identities before
-    any parent reaches the relevance classifier.
-    """
+    """Yield accepted descendant parents after header, Core verdict, accepted state, and identity are authenticated."""
     for parent in load_stale_descendant_parents(path, data_dir=data_dir).values():
         row = parent.row
         yield SourceRow(
@@ -697,14 +599,7 @@ def iter_stale_descendant_rows(
 
 
 def load_epoch_headers(path: Path) -> tuple[list[dict[str, Any]], dict[str, object]]:
-    """Load the per-epoch time/bits/height table used for weak-orphan matching.
-
-    Reads `path` as a JSON list of `{time, bits, height}` objects, coercing
-    types and dropping malformed rows, and sorts the survivors by ascending
-    `time`. Returns `(headers, metadata)` where `metadata` records whether the
-    file was found, how many rows loaded, and a `status` of `missing`,
-    `unreadable`, `loaded`, or `empty_or_unsupported` for the summary JSON.
-    """
+    """Load ``{time, bits, height}`` rows sorted by time, plus summary metadata when the file is missing or unreadable."""
     metadata: dict[str, object] = {
         "path": rel(path),
         "found": path.exists(),
@@ -744,12 +639,7 @@ def load_epoch_headers(path: Path) -> tuple[list[dict[str, Any]], dict[str, obje
 
 
 def load_epoch_bits(path: Path) -> tuple[dict[int, str], dict[str, object]]:
-    """Load the per-epoch-start-height nBits table used for strict-orphan matching.
-
-    Delegates parsing to `stale_blocks_analysis.reconcile_observations.load_epoch_bits`
-    and wraps the result with the same `metadata` shape as
-    `load_epoch_headers` (found/rows/status), for the summary JSON.
-    """
+    """Load epoch-start nBits for strict matching, with the same metadata shape as ``load_epoch_headers``."""
     metadata: dict[str, object] = {
         "path": rel(path),
         "found": path.exists(),
@@ -770,13 +660,7 @@ def load_epoch_bits(path: Path) -> tuple[dict[int, str], dict[str, object]]:
 
 
 def normalize_mainchain_cache_value(value: object) -> dict[str, object] | None:
-    """Normalize one raw mainchain-cache JSON value to the internal shape.
-
-    Accepts a bare bool (legacy `exists`/`on_mainchain` shorthand) or a dict
-    with an optional `confirmations` field (`confirmations >= 0` overrides
-    `on_mainchain` when present). Returns None for a value of an unsupported
-    shape.
-    """
+    """Normalize a bool or ``{confirmations, on_mainchain}`` cache value. ``confirmations >= 0`` overrides ``on_mainchain``."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -803,15 +687,7 @@ def normalize_mainchain_cache_value(value: object) -> dict[str, object] | None:
 def load_mainchain_caches(
     cache_dir: Path,
 ) -> tuple[dict[str, dict[str, object]], list[dict[str, object]]]:
-    """Merge the known mainchain-status cache files into one hash->status dict.
-
-    Reads each file in `MAINCHAIN_CACHE_FILES` (later files overwrite earlier
-    entries for the same hash), normalizing every value via
-    `normalize_mainchain_cache_value` and tagging it with its source
-    `cache_file`. Returns `(cache, metadata)` where `metadata` is a per-file
-    list recording entries seen/loaded, `unknown_entries` (explicit `null`
-    values), and `unsupported_entries` (malformed hash or value shape).
-    """
+    """Merge mainchain cache files. Later files overwrite the same hash."""
     cache: dict[str, dict[str, object]] = {}
     metadata: list[dict[str, object]] = []
     for filename in MAINCHAIN_CACHE_FILES:
@@ -866,14 +742,7 @@ def mainchain_status(
     block_hash: str,
     cache: dict[str, dict[str, object]],
 ) -> tuple[bool, str]:
-    """Look up `block_hash` in the merged mainchain cache.
-
-    Returns `(False, "not_checked")` when the hash is absent; otherwise
-    `(on_mainchain, status)` where `status` is one of
-    `rpc_on_mainchain`/`cache_on_mainchain`/`rpc_not_mainchain`/`cache_not_mainchain`
-    depending on the cache entry's `on_mainchain` flag and whether it came
-    from a live RPC check or a prior cache file.
-    """
+    """Return ``(on_mainchain, status)``, or ``(False, "not_checked")`` when the hash is absent."""
     value = cache.get(block_hash)
     if not value:
         return False, "not_checked"
@@ -884,11 +753,7 @@ def mainchain_status(
 
 
 def decode_bip34_height(scriptsig_hex: str) -> int | None:
-    """Decode a BIP34 coinbase-height push from `scriptsig_hex`.
-
-    Returns None on empty/invalid hex or a scriptSig whose leading push does
-    not decode to a BIP34 height (see `auxpow_parse.parse_coinbase_height`).
-    """
+    """Decode a BIP34 height push, or None when the scriptSig does not carry one."""
     scriptsig_hex = (scriptsig_hex or "").strip()
     if not scriptsig_hex:
         return None
@@ -904,17 +769,9 @@ def strict_height_evidence(
     epoch_bits: dict[int, str],
     time_lookup: EpochTimeLookup,
 ) -> StrictHeightEvidence:
-    """Derive strict BIP34-height evidence for an unknown-classified row.
+    """Derive strict BIP34 height evidence for an unknown row.
 
-    Tries to decode a BIP34 coinbase height (from `coinbase_scriptsig_hex`
-    for chains in `BTC_COINBASE_SCRIPTSIG_CHAINS`, then from any column in
-    `STRICT_HEIGHT_COLUMNS`), accepting only heights at or above
-    `BIP34_HEIGHT`. A candidate height is cross-checked against the row's
-    timestamp-derived retarget epoch (via `time_lookup`) and against the
-    epoch-bits cache's covered range before its expected nBits is resolved
-    (see `resolve_height`). Returns an empty, `attempted=False`
-    `StrictHeightEvidence` for RSK/Xaya rows or when no candidate
-    height is found.
+    RSK and Xaya have no strict path. A candidate must be at or above BIP34 activation, match the timestamp's retarget epoch, and fall inside the epoch-bits cache.
     """
     if src.source_schema in {"rsk", "xaya"}:
         return StrictHeightEvidence("", "", "", False, "")
@@ -930,15 +787,7 @@ def strict_height_evidence(
     )
 
     def resolve_height(height: int, source: str) -> StrictHeightEvidence:
-        """Resolve one candidate height/source pair into `StrictHeightEvidence`.
-
-        Rejects the height (via a `<source>_time_epoch_unavailable`,
-        `_time_epoch_mismatch`, or `_out_of_epoch_cache_range` note) when the
-        row's timestamp epoch is missing, disagrees with the height's own
-        retarget epoch, or exceeds the epoch-bits cache's covered maximum;
-        otherwise looks up the expected nBits for the height and notes
-        `<source>_unresolved` if the epoch-bits table has no entry for it.
-        """
+        """Accept a height only when its retarget epoch matches the row timestamp and the epoch-bits cache covers it."""
         if missing_time_epoch:
             return StrictHeightEvidence(
                 str(height),
@@ -996,15 +845,7 @@ def strict_height_evidence(
 
 
 def base_output(src: SourceRow) -> dict[str, object]:
-    """Build the base output row for `src` with all `OUTPUT_FIELDS` populated.
-
-    Extracts hash/prev/height/time/bits via the `get_*` helpers and copies
-    through the optional per-schema columns (`rsk_*`, `pool_label`,
-    `is_uncle`/`uncle_index`, `root_stale_*`, `stale_fork_depth`,
-    `ancestry_relation`, `observed_chains`); relevance/reason/notes and the
-    evidence-computation fields start empty and are filled in by
-    `classify_source_row`/`finish`.
-    """
+    """Build an output row. ``classify_source_row`` fills the evidence fields."""
     return {
         "chain": src.chain,
         "source_path": rel(src.source_path),
@@ -1047,11 +888,7 @@ def finish(
     reason: str,
     notes: Iterable[str] = (),
 ) -> dict[str, object]:
-    """Stamp `out` with a final verdict and return it.
-
-    Sets `btc_stale_relevance`/`relevance_reason` and joins the non-empty
-    `notes` with `"; "` into `out["notes"]`. Mutates `out` in place.
-    """
+    """Stamp ``btc_stale_relevance``, ``relevance_reason``, and joined notes."""
     out["btc_stale_relevance"] = relevance
     out["relevance_reason"] = reason
     out["notes"] = "; ".join(note for note in notes if note)
@@ -1065,21 +902,9 @@ def classify_source_row(
     time_lookup: EpochTimeLookup,
     mainchain_cache: dict[str, dict[str, object]],
 ) -> dict[str, object]:
-    """Classify one source row into a `btc_stale_relevance` bucket.
+    """Assign one relevance bucket.
 
-    Applies, in order: header/prev-hash well-formedness, mainchain/known-stale
-    lookups, and self-PoW validation, then branches on `classification` --
-    stale-descendant rows resolve directly from their reconciliation verdict;
-    validation-rejected direct stales, canonical/near, and
-    known-mainchain/known-stale rows are excluded; confirmed `stale` rows get
-    an empty relevance with reason
-    `valid_direct_stale`; and `unknown`/`orphan` rows fall through to strict
-    height evidence
-    (`strict_btc_orphan` on an nBits match, `pending` above the epoch-bits
-    horizon) and then timestamp-based weak evidence (`weak_btc_orphan` on a
-    +/-1-epoch nBits match, `pending` above the epoch-headers horizon).
-    Returns the finished output row (see `base_output`/`finish`); reads from
-    but does not mutate the known-hash sets or caches.
+    Confirmed stales keep an empty derived axis. Unknowns use strict height, then timestamp evidence.
     """
     out = base_output(src)
     classification = str(out["source_classification"])
@@ -1178,16 +1003,7 @@ def build_known_stale_membership(
     data_dir: Path,
     chain_archive_dirs: Iterable[Path] = (),
 ) -> tuple[set[str], dict[str, object]]:
-    """Build the set of BTC hashes already known to be stale.
-
-    Scans the upstream stale-blocks CSV (via
-    `stale_blocks_analysis.reconcile_observations.scan_upstream_stales`), then every
-    discovered chain's rows: `stale`-classified rows with a validation status
-    that allows a direct stale are added to `known_stale_hashes`;
-    canonical accepted stale-descendant parents are also added to
-    `known_stale_hashes`. Returns `(known_stale_hashes, summary)` where
-    `summary` reports per-source row/hash counts for the summary JSON.
-    """
+    """Collect BTC hashes already known stale, including only direct stales whose validation status allows that label."""
     stale_by_hash: dict[str, list[rec.StaleObservation]] = defaultdict(list)
     all_hash_chains: dict[str, set[str]] = defaultdict(set)
     prevs_by_hash: dict[str, set[str]] = defaultdict(set)
@@ -1243,13 +1059,7 @@ def collect_mainchain_rpc_candidates(
     mainchain_cache: dict[str, dict[str, object]],
     known_stale_hashes: set[str],
 ) -> list[str]:
-    """Collect unknown-classified BTC hashes worth an RPC mainchain check.
-
-    Iterates every source row, keeping the header hash of rows whose
-    `classification` is `unknown`/`orphan` and that are absent from
-    `mainchain_cache` and `known_stale_hashes`.
-    Returns the candidates sorted and deduplicated.
-    """
+    """Unknown-classified hashes absent from the mainchain cache and the known-stale set."""
     candidates: set[str] = set()
     for src in iter_source_rows(data_dir, chain_archive_dirs):
         classification = source_classification(src)
@@ -1275,16 +1085,7 @@ def apply_mainchain_rpc(
     batch_size: int,
     max_hashes: int,
 ) -> dict[str, object]:
-    """Query Bitcoin Core for unknown-classified hashes.
-
-    Updates `mainchain_cache` in place. Collects candidates via
-    `collect_mainchain_rpc_candidates`, caps them at
-    `max_hashes` (0 or negative means no cap), fetches their status via
-    `stale_blocks_analysis.reconcile_observations.fetch_mainchain_status`, and merges
-    normalized results into `mainchain_cache` tagged `status_source: "rpc"`.
-    Returns a summary dict with candidate/queried counts and whether the
-    candidate list was truncated.
-    """
+    """Fill ``mainchain_cache`` from Bitcoin Core for unknown hashes, capped by ``max_hashes``."""
     candidates = collect_mainchain_rpc_candidates(
         data_dir,
         chain_archive_dirs,
@@ -1315,11 +1116,7 @@ def apply_mainchain_rpc(
 def counter_records(
     counter: Counter[tuple], fieldnames: list[str]
 ) -> list[dict[str, object]]:
-    """Convert a `Counter` keyed by tuples into sorted `{field: value, ..., count}` rows.
-
-    Non-tuple keys are wrapped in a 1-tuple first. Rows are ordered by the
-    sorted counter keys, not by count.
-    """
+    """Turn a tuple-keyed Counter into rows sorted by key, not by count."""
     rows: list[dict[str, object]] = []
     for key, count in sorted(counter.items()):
         if not isinstance(key, tuple):
@@ -1335,14 +1132,7 @@ def build_input_file_summary(
     chain_archive_dirs: Iterable[Path],
     processed_counts: Counter[tuple[str, str]],
 ) -> dict[str, object]:
-    """Build the `input_files` section of the summary JSON.
-
-    Combines `discover_sources` output with `processed_counts` (rows actually
-    written per source file) into a report of every processed file, which
-    chains have only a validated-stales file (no full inventory), which
-    chains have no full inventory at all, and the resolved full-inventory /
-    validated-stales / stale-descendants paths.
-    """
+    """Summarize discovered inputs and how many rows each file wrote."""
     chain_names, full_files, _unknown_files, validated_files, archive_dirs = (
         discover_sources(
             data_dir,
@@ -1385,20 +1175,7 @@ def build_input_file_summary(
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
-    """Run the full relevance-classification pass and write the inventory CSV and summary JSON.
-
-    Loads the epoch-bits/epoch-headers/mainchain caches, builds known-stale
-    membership, optionally refreshes the mainchain
-    cache via RPC (`--check-mainchain`), then classifies every source row
-    with `classify_source_row` and streams the result to
-    `results/analysis/btc-stale-relevance/btc-stale-relevance-inventory.csv`.
-    Also accumulates
-    per-chain/per-relevance/per-reason counts, tracks BTC-coinbase-scriptsig
-    chains outside `BTC_COINBASE_SCRIPTSIG_CHAINS` as warnings, samples RSK
-    weak-orphan rows, and writes the aggregated summary to
-    `results/analysis/btc-stale-relevance/btc-stale-relevance-summary.json`
-    (also returned).
-    """
+    """Classify every source row and write the inventory CSV plus summary JSON."""
     args.results_dir.mkdir(parents=True, exist_ok=True)
     chain_archive_dirs = tuple(getattr(args, "chain_archive_dirs", ()) or ())
 
@@ -1630,11 +1407,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser.
-
-    Covers the data/results/cache directories, private chain-archive roots,
-    and the optional mainchain RPC check.
-    """
+    """Build the CLI parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument(

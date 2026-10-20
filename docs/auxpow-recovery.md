@@ -1,18 +1,15 @@
 # AuxPoW recovery of Bitcoin stale blocks
 
-The stale-block census in this repository goes back further and runs
-deeper than the canonical `bitcoin-data/stale-blocks` dataset alone
-can support. The extra coverage comes from parsing merge-mining proofs
-embedded in blocks of chains that share Bitcoin's proof-of-work. Namecoin-
-family chains use `CAuxPow`; RSK uses a distinct midstate-compressed proof;
-Hathor uses an RFC-0006, `Hath`-tagged split-header proof.
+The stale-block census in this repository extends past the canonical
+`bitcoin-data/stale-blocks` dataset. The extra coverage comes from parsing
+merge-mining proofs embedded in blocks of chains that share Bitcoin's
+proof-of-work. Namecoin-family chains use `CAuxPow`; RSK uses a distinct
+midstate-compressed proof; Hathor uses an RFC-0006, `Hath`-tagged
+split-header proof.
 The source artifacts provide a Bitcoin parent header and varying amounts of
 commitment data. A row is accepted as a direct-stale header candidate only when
-its header hash satisfies its encoded target, its parent is on Bitcoin's active
-chain, and it passes the publication gates available for that chain. Those
-gates include expected `nBits`, median-time-past, historical minimum block
-versions, coinbase scriptSig length, and BIP34's contemporaneous
-coinbase-height rule where the real coinbase scriptSig is available. RSK cannot
+it passes the publication gates available for that chain. Those gates are in
+[research contracts](research-contracts.md#research-semantics). RSK cannot
 independently apply the two coinbase-dependent checks because its proof is
 midstate-compressed. Exact-key cross-chain exclusions protect known shared
 failures.
@@ -131,12 +128,12 @@ reports apply the gate by exact `(height, hash)` key.
 Accepted stale descendants use a separate two-table module:
 `data/stale_descendants.csv` contains accepted parent verdicts and
 `data/stale_descendant_observations.csv` contains their authenticated
-child-chain witnesses. Reconciliation evaluates all authenticated candidates,
-walks only from declared trusted stale roots, requires active-mainchain
-placement for a direct stale root, and routes consensus-invalid candidates to
-the error-block catalogue first. A witness's source bucket is audit evidence,
-not a classification authority. Height 656,478 is therefore represented as a
-valid stale descendant because its predecessor is a trusted stale root.
+child-chain witnesses. Reconciliation rules are in
+[research contracts](research-contracts.md#research-semantics). Height 656,478
+is represented as a valid stale descendant because its predecessor is a trusted
+stale root. Monitor publication emits each accepted witness once as
+`classification=stale_descendant` with
+`validation_status=VALID_STALE_DESCENDANT`.
 
 Upstream census membership alone does not establish a direct stale root: the
 census also includes stale-fork continuations. Reconciliation authenticates each
@@ -179,18 +176,6 @@ bundle must be regenerated from their original sources, not post-processed.
 
 Rows follow the documented **merge-mining evidence chronology**, matching
 `CHAINS_BY_AUXPOW_ACTIVATION` in `config.py`.
-
-One derived contribution sits outside the per-chain direct-stale counts. The
-stale-descendant module stores accepted parent verdicts in
-`data/stale_descendants.csv` and authenticated child-chain witnesses in
-`data/stale_descendant_observations.csv`. Reconciliation considers every
-authenticated candidate bucket, starts only from declared trusted stale roots,
-excludes active-mainchain parents from the descendant class, and gives
-consensus-invalid candidates error-block precedence. Source classifications
-remain audit provenance and cannot create or override the parent verdict.
-Monitor publication emits each accepted witness once as
-`classification=stale_descendant` with
-`validation_status=VALID_STALE_DESCENDANT`.
 
 Four stale-ancestry candidates are consensus-invalid and therefore live only
 in the error-block catalogue and observation ledger. Their coinbase BIP34

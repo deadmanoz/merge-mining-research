@@ -1,38 +1,18 @@
-"""Shared driver for the per-chain stale/unknown classifier family.
+"""Shared driver for the per-chain stale/unknown classifier.
 
-The ``scripts/classify/classify_<chain>_stales.py`` family (ixcoin, devcoin, unobtanium,
-myriadcoin, crown, terracoin, syscoin, elastos, emercoin, ...) duplicates the
-same three-phase pipeline roughly seventeen times. The canonical template is
-``scripts/classify/classify_ixcoin_stales.py``:
+Phase 1 checks each 80-byte parent header against the target in its own nBits
+(self-consistency, not Bitcoin's contemporaneous target) and deduplicates by
+header hash. Phase 2 uses Bitcoin Core: positive ``getblockheader``
+confirmations mean canonical; a confirmed parent means STALE at the
+authoritative prev-height+1; the remainder are UNKNOWN. Phase 3 is
+NON-SKIPPABLE: active-chain parent at the expected height, nBits,
+median-time-past, historical minimum block versions, the 2..100-byte coinbase
+scriptSig limit, and BIP34's two-stage coinbase-height rule. Passing this
+profile is not full-block validation.
 
-  Phase 1 -- PoW filter (pure Python, no RPC):
-    Compute SHA256d of each 80-byte parent header and check it meets the
-    target encoded in its own nBits. This is a self-consistency check, not a
-    comparison with Bitcoin's contemporaneous target. Deduplicate by header
-    hash so each unique candidate header is classified once.
-
-  Phase 2 -- Bitcoin Core classification (batched RPC):
-    For each surviving unique header, ``getblockheader <hash>`` with positive
-    confirmations means canonical. Otherwise, ``getblockheader <prev_hash>``
-    with positive confirmations means STALE (with the authoritative
-    prev-height+1 override); the remainder are UNKNOWN.
-
-  Phase 3 -- available-evidence header/context gates (NON-SKIPPABLE):
-    Require an active-chain parent at the expected height, validate nBits and
-    median-time-past, enforce historical minimum block versions, enforce the
-    2..100-byte coinbase scriptSig limit, and apply BIP34's two-stage
-    coinbase-height rule. Passing this profile is not full-block validation.
-
-This module provides the reusable driver. The Bucket-A ``classify_*_stales.py``
-scripts have since been reduced to thin ``main()`` wrappers that call
-``run_classifier(CHAIN_SPECS['<chain>'])`` (preserved by
-``tests/test_classifier_wrappers.py``); Bucket-B chains keep a bespoke ``main()``
-where their pipeline diverges from the three-phase template.
-
-DEPLOYMENT NOTE: ``run_classifier`` needs an RPC client, so it is not part of
-the stdlib-only deployment surface. The Phase 1 PoW predicate it leans on
-(``hash_meets_btc_difficulty``) lives in the stdlib-only ``auxpow_parse``
-module.
+``run_classifier`` needs an RPC client, so it is not on the stdlib-only
+deployment surface. Its Phase 1 predicate, ``hash_meets_btc_difficulty``,
+lives in the stdlib-only ``auxpow_parse`` module.
 """
 
 from __future__ import annotations
@@ -112,11 +92,10 @@ def _is_active_chain_header(result: object, *, block_hash: str) -> bool:
 def _ordered_batch_responses(
     responses: object, *, expected_count: int, method: str
 ) -> list[dict[str, Any]]:
-    """Validate batch response ids and return exact request order.
+    """JSON-RPC batch ids may arrive in any order.
 
-    JSON-RPC batch responses may arrive in any order. Missing, duplicate,
-    boolean, negative, or out-of-range ids make positional association unsafe,
-    so the entire batch fails closed instead of silently omitting candidates.
+    Missing, duplicate, boolean, negative, or out-of-range ids fail the whole
+    batch closed.
     """
     if not isinstance(responses, list):
         raise ValueError(f"{method} batch response is not a list")
@@ -141,9 +120,8 @@ def _ordered_batch_responses(
     return [by_id[i] for i in range(expected_count)]
 
 
-# Standard output column order for confirmed stale/unknown rows, matching the
-# canonical ixcoin template. The per-chain child-height column is appended
-# before ``classification`` so the layout is stable across chains.
+# Shared column order. The child-height column is inserted before
+# ``classification`` so the layout stays stable across chains.
 _BASE_OUTPUT_COLUMNS = [
     "btc_height",
     "btc_header_hash",
@@ -166,23 +144,16 @@ _CHILD_OUTPUT_COLUMNS = [
     "child_nbits",
 ]
 
-# The pipe-joined set of consensus rules a row's own bytes prove it violated.
-# It exists only on the error-block artifact: it is the evidence for that
-# classification, and no other bucket has a claim to record. The name and the
-# ``|`` separator are the canonical authored error-catalogue contract and are
-# also emitted by diagnostic classifiers so reviewed candidates use the same
-# vocabulary before admission.
+# Pipe-joined consensus rules the row's own bytes prove. Error-block artifact
+# only. The name and ``|`` separator are the authored error-catalogue contract.
 RULES_VIOLATED_COLUMN = "rules_violated"
 
 
 def output_columns(height_col: str) -> list[str]:
-    """Build the OUTPUT_COLUMNS list for a chain.
+    """``height_col`` stays present even when a row cannot authenticate it.
 
-    ``height_col`` is the per-chain child-height column (e.g. ``ixc_height``).
-    It is always present even when a source cannot authenticate a value for
-    every row. The nBits-gate annotation columns (``validation_status`` /
-    ``expected_nbits``) trail the row so the Phase 3 gate output is always
-    carried.
+    ``validation_status`` and ``expected_nbits`` trail the row so the Phase 3
+    annotations are always carried.
     """
     if (
         not isinstance(height_col, str)
@@ -198,20 +169,13 @@ def output_columns(height_col: str) -> list[str]:
 
 
 def normalize_bits_hex(value: object, *, source_is_decimal: bool = False) -> str:
-    """Normalize a ``btc_bits`` value to lowercase 8-char hex compact bits.
+    """Normalize ``btc_bits`` to lowercase 8-char hex. Never infer the base.
 
-    ``validate_stale_nbits`` compares ``btc_bits`` directly against Bitcoin
-    Core's hex ``bits``, so every row must carry lowercase 8-char hex. The base
-    is NEVER inferred from the value's digits: an 8-char all-digit string such as
-    ``19548732`` is valid hex, while a 9-digit string such as ``386924253``
-    from the Bitcoin Vault source export is decimal. The caller states which
-    by passing ``source_is_decimal`` based on the input artifact format, not
-    the chain identity.
-
-    With ``source_is_decimal`` true, ``value`` is parsed as a decimal int and
-    re-emitted as hex. Otherwise the value must already be 8 hex chars and is
-    only lowercased; a non-conforming value raises ``ValueError`` so a real
-    data problem is loud rather than silently mis-gated.
+    ``validate_stale_nbits`` compares the value with Bitcoin Core's hex
+    ``bits``. ``19548732`` is valid hex; ``386924253`` (Bitcoin Vault) is
+    decimal. ``source_is_decimal`` names the input artifact, not the chain.
+    Decimal values are re-emitted as hex; hex values are only lowercased. A
+    non-conforming value raises ``ValueError``.
     """
     text = str(value).strip()
     if source_is_decimal:
@@ -223,11 +187,10 @@ def normalize_bits_hex(value: object, *, source_is_decimal: bool = False) -> str
 
 
 def _meets_btc_difficulty(header_hex: str) -> bool:
-    """Phase 1 PoW predicate for a hex parent header.
+    """Phase 1 self-target check through ``hash_from_header_bytes``.
 
-    Mirrors the inline ``hash_meets_target`` but routes through the mandated
-    byte-order helper (``hash_from_header_bytes``) and the shared
-    ``hash_meets_btc_difficulty`` rather than ad hoc ``[::-1]`` slicing.
+    Display order comes from that helper and ``hash_meets_btc_difficulty``,
+    not ad hoc ``[::-1]`` slicing.
     """
     try:
         raw = bytes.fromhex(header_hex)
@@ -298,20 +261,10 @@ def classify_candidates(
     candidates: list[dict],
     rpc: BtcRpc,
 ) -> list[dict]:
-    """Classify a batch of headers that pass their encoded self-target.
+    """Active-chain header is canonical; active-chain parent is direct stale.
 
-    For each candidate:
-      1. ``getblockheader <btc_header_hash>`` -- if it resolves on the active
-         chain, the header is CANONICAL and is emitted with Bitcoin Core's
-         authoritative height.
-      2. Otherwise ``getblockheader <btc_prev_hash>`` -- if the prev resolves
-         on the active chain, the candidate is a direct STALE block; otherwise
-         its parent state is UNKNOWN.
-
-    For stale rows the canonical prev height + 1 is authoritative. The Phase 3
-    BIP34 gate then rejects, rather than silently corrects, any mandatory
-    coinbase-height mismatch. Chain-specific columns on each candidate (such
-    as the child height) pass through untouched.
+    Stale height is the canonical prev height + 1. Phase 3 rejects a mandatory
+    BIP34 coinbase-height mismatch rather than correcting it.
     """
     results: list[dict] = []
     if not candidates:
@@ -331,9 +284,7 @@ def classify_candidates(
                 f"candidate row {i}: btc_header_hex does not satisfy its nBits target"
             )
 
-    # Step 1: canonical check via getblockheader(hash). Canonical parents are
-    # merge-mining evidence in their own right (which pool built on which
-    # canonical block, via which chain), so they are emitted, not dropped.
+    # Canonical parents are merge-mining evidence and are emitted, not dropped.
     calls = [
         {
             "jsonrpc": "1.0",
@@ -367,7 +318,6 @@ def classify_candidates(
     if not non_canonical:
         return results
 
-    # Step 2: prev-hash linkage for non-canonical headers.
     prev_calls = [
         {
             "jsonrpc": "1.0",
@@ -387,7 +337,6 @@ def classify_candidates(
         candidate = non_canonical[idx]
         prev_data = _header_result(resp, block_hash=candidate["btc_prev_hash"])
         if _is_active_chain_header(prev_data, block_hash=candidate["btc_prev_hash"]):
-            # Active-chain prev exists => direct-stale header candidate.
             candidate["classification"] = "stale"
             # prev+1 height is authoritative. A mandatory BIP34 mismatch is
             # rejected by the Phase 3 consensus gate.
@@ -421,17 +370,11 @@ def _contamination_evidence(
     bits_key: str,
     expected_key: str,
 ) -> Optional[bool]:
-    """Report whether the header's difficulty is Bitcoin's at its own height.
+    """Whether this header's difficulty is not Bitcoin's at its height.
 
-    ``True`` means it is not, so the header belongs to another SHA-256 chain;
-    ``False`` means it matches; ``None`` means the comparison could not be made
-    and neither answer is supported.
-
-    A surviving contamination verdict settles it on its own. Otherwise the
-    durable per-row evidence decides, because ``validate_stale_header_context``
-    may overwrite an nBits REJECTED with a later context REJECTED: the status
-    string then no longer names the contamination, while ``expected_nbits`` --
-    the canonical value the nBits gate persisted for this height -- still does.
+    ``True`` is another SHA-256 chain, ``False`` matches, ``None`` is
+    inconclusive. A later context REJECTED can overwrite an nBits status, so
+    the durable evidence is ``expected_nbits``.
     """
     if status.startswith(NBITS_MISMATCH_PREFIX):
         return True
@@ -448,19 +391,11 @@ def _meets_canonical_btc_difficulty(
     expected_key: str,
     header_hex_key: str = "btc_header_hex",
 ) -> bool:
-    """Report whether the header's digest meets Bitcoin's target at this height.
+    """Whether the digest meets Bitcoin's canonical target at this height.
 
-    ``_meets_btc_difficulty`` answers the Phase 1 question -- does the digest
-    meet the target the header's OWN nBits encodes -- and that is not the same
-    question here. At an epoch start where difficulty rose, the previous
-    epoch's bits are the easier ones, so a header carrying them can clear its
-    embedded target while falling short of the canonical one. Such a header is
-    a share at Bitcoin difficulty, not a block, so the ``expected_nbits`` the
-    nBits gate persisted for this height is the target that decides it.
-
-    Fails closed. An unusable header or an unparseable ``expected_nbits``
-    returns False, because neither supports the claim that this digest is full
-    Bitcoin proof of work.
+    Phase 1 only checks the header's own nBits. At a rising retarget those
+    bits are easier, so a header can clear its embedded target and still be a
+    share. Fails closed: an unusable header or ``expected_nbits`` is False.
     """
     try:
         raw = bytes.fromhex(str(row.get(header_hex_key, "") or "").strip())
@@ -483,41 +418,20 @@ def rejection_route(
     bits_key: str = "btc_bits",
     expected_key: str = "expected_nbits",
 ) -> Optional[str]:
-    """Return the classification a REJECTED verdict supports, or ``None``.
+    """Classification a REJECTED verdict supports, or ``None`` to leave it.
 
-    ``None`` means the rejection says nothing about what the row is, so the
-    caller leaves the row's classification alone.
+    Several claims can hold at once. The weakest wins, in order:
 
-    A rejected row can satisfy several of these at once and the weakest claim
-    has to win, so the order matters:
-
-      1. A placement rejection beats everything. Without an active-chain
-         predecessor the row's height was never established, so every
-         height-dependent rule re-derived from its bytes is unreliable -- and
-         the row is not a direct stale at all. That is what ``unknown`` means,
-         and it is what Phase 2 would have assigned had the parent not resolved.
-         Only unknown rows are walked back to a stale root by the ancestry
-         reconciliation, so leaving such a row stale strands a fork continuation
-         outside that path.
-      2. Contamination beats a broken rule. A header whose difficulty is not
-         Bitcoin's at this height is another SHA-256 chain's block; calling it a
-         consensus-invalid Bitcoin block would be a claim about the wrong chain,
-         even when its bytes also break a Bitcoin rule. The single exception is
-         ``NBITS_RETARGET_RULE``, the sanctioned nBits mismatch that IS a
-         Bitcoin violation: those bits are the previous epoch's by definition,
-         so that rule escapes this branch rather than being buried by it --
-         but only once the digest is shown to meet the CANONICAL target too.
-         Both rules and contamination are read off the bits values alone, and
-         Phase 1 only proved the header meets its own embedded target; where a
-         retarget raised difficulty the previous epoch's bits are the easier
-         ones, so without that check a share at Bitcoin difficulty would be
-         published as full-proof-of-work Bitcoin evidence.
-      3. Only then do the re-derived rules make the row an error block.
-      4. Anything else -- a rejection resting on unusable evidence -- stays put.
-
-    When the contamination comparison cannot be made at all the row also stays
-    put. Absence of contamination evidence is not evidence that the header is
-    Bitcoin's, and it must not promote the row to a published error block.
+    1. Placement rejection: no active-chain predecessor, so the height was
+       never established and the row is ``unknown``. Only unknown rows are
+       walked back to a stale root.
+    2. Contamination beats a broken rule, except ``NBITS_RETARGET_RULE`` once
+       the digest also meets the canonical target. Phase 1 only proved the
+       embedded target; at a rising retarget the previous epoch's bits are
+       easier, so a share must not be published as full proof of work.
+    3. Re-derived rules then make the row an error block.
+    4. Unusable evidence stays put. A contamination comparison that cannot be
+       made is not evidence the header is Bitcoin's.
     """
     if status == PLACEMENT_REJECTION:
         return "unknown"
@@ -542,39 +456,13 @@ def route_rejected_stale_rows(
     *,
     nbits_by_epoch: Optional[dict[int, int]] = None,
 ) -> None:
-    """Re-route the gate's rejected stale rows by what the rejection means.
+    """Re-route rejected stale rows in place by ``rejection_route``.
 
-    Mutates the given rows in place, so the caller's ``all_results`` sees the
-    new ``classification`` and the shared writer partitions on it. Rows that are
-    not rejected stales are left untouched, and the caller re-derives its own
-    stale list afterwards.
-
-    The REJECTED prefix covers three unrelated situations and only one of them
-    is a verdict on the block, so each row is routed by the fixed precedence
-    ``rejection_route`` documents: an unplaceable predecessor first (its height
-    was never established), then a difficulty that is not Bitcoin's at that
-    height (another SHA-256 chain, unless the mismatch is the one that proves an
-    unapplied retarget), and only then a re-derived consensus violation, which
-    is the sole case that makes the row an error block.
-
-    Rules are re-derived from the bytes rather than read back out of the verdict
-    string, so a rejection whose evidence was merely unusable produces no rules
-    and stays put. (Those normally surface as UNKNOWN and abort the run; this
-    keeps the classification honest if one ever does not.)
-
-    A row routed to ``error_block`` keeps the full rule set on
-    ``RULES_VIOLATED_COLUMN``, pipe-joined, for the error-block writer to
-    publish. Without it the artifact would assert a consensus violation while
-    recording only ``validation_status``, which names the ONE gate that fired
-    first and can name a different thing entirely: an unapplied retarget is
-    routed on ``nbits_retarget_not_applied`` but rejected as a generic nBits
-    mismatch, and a header breaking several rules keeps only the primary one.
-
-    ``nbits_by_epoch`` is the committed retarget-epoch reference table, loaded
-    once per call when the caller does not already hold it. It is only read for
-    a row whose routing actually consults it: a placement rejection is settled
-    first, so a run that only ever rejects on placement never touches the
-    table.
+    Rules come from the bytes, not the verdict string, so unusable evidence
+    stays put. An ``error_block`` row stores the full pipe-joined set on
+    ``RULES_VIOLATED_COLUMN``: ``validation_status`` names only the first
+    gate, and an unapplied retarget is rejected as a generic nBits mismatch.
+    The epoch table is read only when routing consults it.
     """
     rejected = [
         row
@@ -586,13 +474,9 @@ def route_rejected_stale_rows(
     for row in rejected:
         status = str(row.get("validation_status", ""))
         if status == PLACEMENT_REJECTION:
-            # Placement has top precedence in ``rejection_route`` and needs no
-            # re-derived rules, so settle it before the epoch table is
-            # consulted. ``nbits_retarget_not_applied_error`` raises when the
-            # committed reference does not reach the row's height (deliberately
-            # fail-closed), and at a retarget-boundary height beyond the
-            # checked-in table that would abort the whole run over a row whose
-            # classification never depended on that rule.
+            # Settle placement before the epoch table. A height past the
+            # committed reference fails closed in the retarget check and would
+            # abort a run whose route never needed that rule.
             route = rejection_route(row, [], status=status)
             if route is not None:
                 row["classification"] = route
@@ -615,12 +499,7 @@ def route_rejected_stale_rows(
 
 
 def _derive_tag_path(stale_path: str, tag: str) -> str:
-    """Substitute a bucket tag into the stale-inventory path's basename.
-
-    ``_stale_blocks`` -> ``tag`` in the basename; when the name has no
-    ``_stale_blocks`` marker the tag is appended to the stem. Shared by
-    ``derive_split_paths`` and the near-file derivation in ``run_classifier``.
-    """
+    """Replace ``_stale_blocks`` in the basename, or append ``tag`` to the stem."""
     p = Path(stale_path)
     name = p.name
     if "_stale_blocks" in name:
@@ -629,15 +508,9 @@ def _derive_tag_path(stale_path: str, tag: str) -> str:
 
 
 def derive_split_paths(stale_path: str) -> tuple[str, str, str]:
-    """Derive the canonical, unknown, and error-block output paths from the
-    stale-inventory path: ``_stale_blocks`` -> ``_canonical_blocks`` /
-    ``_unknown_blocks`` / ``_error_blocks``. When the name has no
-    ``_stale_blocks`` marker, the tag is appended to the stem. Returns
-    ``(canonical_path, unknown_path, error_block_path)``.
+    """Map ``_stale_blocks`` to the canonical, unknown, and error-block peers.
 
-    Every peer of the stale inventory that ``write_classifier_outputs`` needs a
-    path for comes from here, so a caller cannot pick up two of them and then
-    invent a name for the third.
+    Every path ``write_classifier_outputs`` needs comes from here.
     """
     return (
         _derive_tag_path(stale_path, "_canonical_blocks"),
@@ -647,12 +520,7 @@ def derive_split_paths(stale_path: str) -> tuple[str, str, str]:
 
 
 def _write_split_file(path: str, rows: list[dict], *, columns: list[str]) -> None:
-    """Write ``rows`` to ``path`` on the shared ``columns`` schema.
-
-    Rows are sorted by ``btc_height`` and the header is always written, even
-    when the bucket is empty. Extra keys are ignored so a raw candidate row can
-    be written against the split schema unchanged.
-    """
+    """Sort by ``btc_height`` and always write the header, even when empty."""
     rows.sort(key=lambda x: int(x.get("btc_height", 0) or 0))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
@@ -663,23 +531,11 @@ def _write_split_file(path: str, rows: list[dict], *, columns: list[str]) -> Non
 
 
 def _validate_distinct_outputs(labelled: dict[str, str]) -> None:
-    """Refuse to write when any two of a run's outputs are the same file.
+    """Refuse aliased outputs before any file is opened.
 
-    The files are written in sequence, so an aliased pair fails silently and
-    destructively: the later write replaces an artifact the run has just
-    finished. The dangerous case is the VALID-only ``validated`` loader input,
-    which a caller can point at a derived peer's name (``--output /tmp/foo.csv
-    --validated-output /tmp/foo_error_blocks.csv``) and have replaced by the
-    error-block bucket on the final write.
-
-    ``write_classifier_outputs`` passes its five bucket destinations;
-    ``run_classifier`` passes those plus whichever of its two optional files
-    (near, all-valid) the run will actually write, because those two are
-    written outside the shared writer and so are invisible to its own check.
-
-    This mirrors ``validate_distinct_paths`` in ``classify_rsk_stales.py``.
-    That helper is not reused because it is named over RSK's artifact set,
-    which is not the shared writer's.
+    Later writes replace earlier ones, so a VALID-only loader path pointed at
+    a derived peer would be overwritten by that bucket. Near and all-valid
+    files are written outside the shared writer and must be in the same check.
     """
     seen: dict[Path, str] = {}
     for label, path in labelled.items():
@@ -701,47 +557,17 @@ def write_classifier_outputs(
     error_block_path: str,
     error_blocks_path: Path = ERROR_BLOCKS_CSV,
 ) -> dict[str, int]:
-    """Partition classified rows by ``classification`` and write the five
-    bucket-split output files.
+    """Partition on primary ``classification`` and write the five bucket files.
 
-    Four of them are written on the caller's ``columns`` schema unchanged. The
-    error-block file alone gets ``RULES_VIOLATED_COLUMN`` appended, because it
-    is the only bucket that asserts a consensus violation and the rule set is
-    the evidence for that assertion. The extra column is appended to whatever
-    the caller supplied rather than to a fixed base, so a per-chain column
-    (coiledcoin's ``eligius_attack_window``) is carried into the error-block
-    file too. Its four peers keep their exact schema -- including
-    ``validated``, the committed ``*_validated_stales.csv`` loader input, whose
-    column contract the ``stale_blocks.py`` loaders and the monitor importer
-    read.
-
-    ``canonical`` / ``stale`` / ``unknown`` are partitioned on the primary
-    ``classification`` -- never on ``validation_status``. Canonical and
-    unresolved-unknown output rows clear stale-gate annotations because their
-    state is already final on the primary axis. ``validated`` is the
-    ``classification == "stale"`` AND ``validation_status == "VALID"`` subset --
-    minus exact catalogue keys, matching the downstream loader exclusion.
-    Raw source buckets retain their classification as audit evidence. Each file
-    is sorted by ``btc_height`` and its header is always written, even when the
-    bucket is empty. Returns bucket counts for the caller's summary.
-
-    Every row must carry one of the four bucket classifications. A row whose
-    ``classification`` is missing or unrecognised raises ``ValueError`` rather
-    than being dropped: silently discarding it would lose the row from all four
-    files *and* from the returned counts, so an incomplete run would report as a
-    complete one. ``near`` rows never reach here -- they are separated before
-    Phase 2 and written by their own path.
-
-    ``rejected`` counts every gate rejection the run produced, whichever bucket
-    the routing moved the row into, and ``rejected_stale`` /
-    ``rejected_error_block`` / ``rejected_unknown`` break that total down.
-    Counting only the stale bucket would let a run that rejected and re-routed
-    every candidate report zero rejections. The verdict is read off the input
-    rows because the canonical and unknown output rows have already had their
-    gate annotations cleared.
-
-    All five destinations must resolve to distinct files; aliasing any two
-    raises ``ValueError`` before anything is written.
+    Only the error-block file appends ``RULES_VIOLATED_COLUMN``. Peers keep
+    the caller's schema, including the committed validated-stale loader input
+    the monitor importer reads. ``validated`` is ``stale`` with
+    ``validation_status == "VALID"``, minus exact catalogue keys. Canonical
+    and unresolved-unknown rows clear stale-gate annotations. A missing or
+    unrecognised classification raises rather than dropping the row. ``near``
+    rows never reach here. ``rejected`` counts every bucket, because counting
+    only stale rows would hide a fully re-routed run. Aliased paths raise
+    before anything is written.
     """
     _validate_distinct_outputs(
         {
@@ -830,69 +656,22 @@ def run_classifier(
     bits_source_is_decimal: bool = False,
     rpc: Optional[BtcRpc] = None,
 ) -> dict[str, Any]:
-    """Run the full Phase 1/2/3 classifier for one chain.
+    """Run Phases 1--3 for one chain. Phase 3 is NON-SKIPPABLE.
 
-    ``input_path`` / ``output_path`` default to ``spec.input_csv`` /
-    ``spec.output_csv`` (the full stale/unknown inventory). ``validated_output_path``
-    defaults to ``spec.validated_csv`` and receives the VALID-only loader input
-    (``classification == "stale"`` AND ``validation_status == "VALID"``) -- this
-    is the committed artifact the ``stale_blocks.py`` loaders read. ``rpc``
-    defaults to a stdlib-transport ``BtcRpc`` using cookie/conf auth from
-    ``get_btc_auth``; inject a client (a fake or an SSH-tunnelled transport) to
-    avoid the network.
-
-    ``bits_source_is_decimal`` is a property of the INPUT ARTIFACT, not the
-    chain: leave it False for normal hex raw inputs; set it True only when
-    reading a decimal Bitcoin Vault source artifact. Either way ``btc_bits`` is
-    normalized to canonical lowercase 8-char hex via ``normalize_bits_hex``
-    before the gate and before writing, so the gate never falsely rejects a
-    decimal value.
-
-    ``near`` rows, whose hashes do not meet the targets encoded in their own
-    headers, are dropped by design. When ``keep_near`` is
-    true they are instead retained (deduped by header hash, the same as the
-    valid path), tagged ``classification == "near"``, and written to a fifth
-    file: ``near_output_path`` or the ``_stale_blocks`` -> ``_near_blocks``
-    derivation of ``output_path``, on the same split schema. ``keep_near`` is
-    off by default so a standard run is byte-identical to omitting it. Near rows
-    never enter Phase 2/3, so the canonical/stale/unknown/validated files are
-    unaffected.
-
-    When ``all_valid`` is true the deduplicated self-target-PoW-valid headers are
-    also written to ``all_valid_path`` or ``<output>.btc_valid.csv`` for
-    debugging.
-
-    Every destination the run will write -- the five bucket files, plus
-    whichever of the two optional files above their flags enable -- must
-    resolve to a distinct path, and aliasing any two raises ``ValueError``
-    before the first output is opened. An optional path the flags leave unused
-    is not part of that set.
-
-    Before the (potentially large) Phase 1 scan, a single ``getblockcount``
-    preflight fails fast on an unreachable/misconfigured node. Each Phase 2 batch
-    that raises is retried one candidate at a time so a single bad row or
-    transient error does not abort the whole run.
-
-    The Phase 3 header-context gates (``validate_stale_header_context``) are always run
-    over the stale rows and are not skippable. Output is bucket-split by the shared
-    ``write_classifier_outputs`` into four files on one schema: canonical ->
-    ``canonical_output_path`` (``_stale_blocks`` -> ``_canonical_blocks``),
-    unknown -> ``unknown_output_path`` (``_stale_blocks`` -> ``_unknown_blocks``),
-    stale -> ``output_path`` (stale rows only), and the VALID-stale subset ->
-    ``validated_output_path``. Returns a summary count dict:
-    ``{total, btc_valid, canonical, stale, unknown, error_block, valid,
-    rejected, rejected_stale, rejected_error_block, rejected_unknown,
-    validation_unknown, output_path, unknown_output_path,
-    error_block_output_path, validated_output_path, canonical_output_path}``.
-    ``rejected`` is the run's total gate rejections across every bucket the
-    routing produced; the three ``rejected_*`` keys break it down.
+    The validated output is ``stale`` with ``validation_status == "VALID"``,
+    the committed loader input. ``bits_source_is_decimal`` describes the input
+    artifact, not the chain; ``btc_bits`` is lowercase 8-char hex before the
+    gate. Near rows miss their own encoded target and stay out of Phase 2/3
+    unless ``keep_near``; the default run stays byte-identical. Every path
+    this run writes must be distinct. ``getblockcount`` preflights before
+    Phase 1, and a failed Phase 2 batch is retried one row at a time. Passing
+    this profile is not full-block validation.
     """
     in_path = input_path or str(spec.input_csv)
     out_path = output_path or str(spec.output_csv)
     validated_path = validated_output_path or str(spec.validated_csv)
-    # Canonical parents are a distinct output, kept in a separate artifact
-    # (the <chain>_canonical_blocks.csv convention) so the stale/unknown
-    # inventory keeps its established composition.
+    # Canonical parents stay in their own artifact so the stale inventory
+    # keeps its established composition.
     default_canonical, default_unknown, default_error_block = derive_split_paths(
         out_path
     )
@@ -903,14 +682,9 @@ def run_classifier(
     error_block_path = error_block_output_path or default_error_block
     height_col = spec.height_column
 
-    # Resolve every destination this run will actually write, and check them
-    # together before the first one is opened. ``write_classifier_outputs``
-    # only sees its own five, and the two optional files are written outside
-    # it: the all-valid dump before it and the near bucket after it. So an
-    # aliased near path silently replaces the error-block bucket, and an
-    # aliased all-valid path is silently replaced by it. The optional
-    # destinations join the set only when their flag is on, so a default path
-    # that this run will never write cannot fail it.
+    # Check every path this run will write before opening one. Near and
+    # all-valid files sit outside the shared writer, so an alias would replace
+    # a bucket. Unused defaults are not in the set.
     near_path_out: Optional[str] = None
     if keep_near:
         near_path_out = near_output_path or _derive_tag_path(out_path, "_near_blocks")
@@ -936,8 +710,6 @@ def run_classifier(
         auth = get_btc_auth()
         rpc = BtcRpc(auth=auth)
 
-    # --- Preflight: fail fast on an unreachable/misconfigured node before the
-    # potentially large Phase 1 scan. ---
     try:
         probe = rpc.batch(
             [{"jsonrpc": "1.0", "id": 0, "method": "getblockcount", "params": []}]
@@ -949,7 +721,6 @@ def run_classifier(
             f"Bitcoin Core RPC preflight failed before classifying {spec.key}: {exc}"
         ) from exc
 
-    # --- Phase 1: PoW filter + dedup by header hash ---
     valid_headers: list[dict] = []
     near_headers: list[dict] = []
     seen_near: set[str] = set()
@@ -992,9 +763,8 @@ def run_classifier(
                     seen_hashes.add(btc_hash)
                     valid_headers.append(row)
             elif keep_near:
-                # Header fails its own encoded target: dropped by the standard run, kept
-                # here (deduped by hash, same as the valid path) as sibling
-                # evidence for shared-parent fork detection.
+                # Misses its own encoded target. Kept, deduped by hash, as
+                # sibling evidence for shared-parent fork detection.
                 btc_hash = parsed_header["hash"]
                 if btc_hash and btc_hash not in seen_near:
                     seen_near.add(btc_hash)
@@ -1006,7 +776,7 @@ def run_classifier(
             writer.writeheader()
             writer.writerows(valid_headers)
 
-    # --- Phase 2: batched classification, with batch-to-single fallback ---
+    # A failed batch is retried one candidate at a time.
     all_results: list[dict] = []
     for batch_start in range(0, len(valid_headers), BATCH_SIZE):
         batch = valid_headers[batch_start : batch_start + BATCH_SIZE]
@@ -1035,8 +805,7 @@ def run_classifier(
 
     stales = [r for r in all_results if r["classification"] == "stale"]
 
-    # --- Phase 3: header-context gates (NON-SKIPPABLE) --- (mutates the stale rows,
-    # which are the same dicts the shared writer re-partitions out of all_results)
+    # NON-SKIPPABLE. Mutates the stale dicts the writer later re-partitions.
     validate_stale_header_context(
         stales,
         rpc.batch,
@@ -1046,7 +815,6 @@ def run_classifier(
         expected_key="expected_nbits",
     )
 
-    # --- Routing: sort the rejected rows by what the rejection means ---
     route_rejected_stale_rows(stales)
     stales = [row for row in stales if row["classification"] == "stale"]
 
@@ -1061,7 +829,6 @@ def run_classifier(
             f"({len(validation_unknown)} of {len(stales)} stale candidates UNKNOWN)"
         )
 
-    # --- Output: four bucket-split files (canonical / stale / unknown / validated) ---
     counts = write_classifier_outputs(
         all_results,
         columns=output_columns(height_col),
@@ -1072,7 +839,6 @@ def run_classifier(
         validated_path=validated_path,
     )
 
-    # --- Optional fifth file: retained near rows (sibling evidence) ---
     if near_path_out is not None:
         for row in near_headers:
             row["classification"] = "near"

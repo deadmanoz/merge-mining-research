@@ -70,9 +70,9 @@ Alternative fork sources (per discovery brief):
 
 ## Deployment
 
-This directory is the source of truth for the Bitmark node-infra. Copy it to
-the target host, run `just init`, then `just build` and `just up`. After
-startup, monitor `just logs` and `just height` until sync reaches tip.
+Copy this directory to the target host, run `just init`, then `just build`
+and `just up`. After startup, monitor `just logs` and `just height` until
+sync reaches tip.
 
 ## Historical offline operation
 

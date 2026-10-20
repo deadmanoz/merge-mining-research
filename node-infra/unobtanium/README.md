@@ -8,9 +8,8 @@ extraction. See `../../docs/chains/unobtanium.md` for the recovery details.
 Unobtanium is a Bitcoin Core 0.11 fork. Last release v0.11.5 (Sep 2020) pre-dates
 GCC 11 / Boost 1.74+. Master branch landed two portability fixes in Feb 2024
 ('Add missing boost build flags' and 'Fix qt5 byte array for gcc11+') but no
-new tag was cut. Pinning master @ 54d68b08 and building against ubuntu:20.04
-(GCC 9, Boost 1.71) keeps us close to the codebase's original toolchain era
-and dodges the patch-a-dead-repo fight entirely.
+new tag was cut. Pin master @ 54d68b08 and build on ubuntu:20.04
+(GCC 9, Boost 1.71), matching that toolchain era.
 
 ## Why this config works without fresh DNS seeds
 

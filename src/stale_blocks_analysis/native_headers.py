@@ -1,8 +1,4 @@
-"""Genesis-linked heights for stored native block-file headers.
-
-These heights count authenticated predecessor links. They do not establish
-native active-chain membership or replay child-chain consensus.
-"""
+"""Heights count authenticated predecessor links. They are not active-chain membership or child consensus."""
 
 from __future__ import annotations
 

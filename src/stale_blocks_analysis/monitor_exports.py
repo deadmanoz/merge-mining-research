@@ -78,14 +78,10 @@ DEFAULT_RELEVANCE_INVENTORY = (
 REPORTED_RELEVANCE_INVENTORY = "<external>/btc-stale-relevance-inventory.csv"
 STALE_DESCENDANT_OBSERVATION_ARTIFACT = "stale-descendant-observations"
 
-# The full-evidence exports in ``full_evidence.py`` carry every evidence state,
-# which makes them large (unknown/near rows dominate). This module keeps only
-# the categories the merge-mining-monitor ingests as final —
-# canonical rows, VALID direct stales, valid stale descendants, and
-# strict/weak BTC orphans. Strict/weak verdicts are joined from the relevance
-# inventory (scripts/analysis/classify_btc_stale_relevance.py) by header hash;
-# the `btc_stale_relevance` / `relevance_reason` columns use the exact strings
-# the monitor's importer parses.
+# Final monitor categories: canonical rows, VALID direct stales, valid stale
+# descendants, and strict/weak orphans. Verdicts join the relevance inventory
+# by header hash. ``btc_stale_relevance`` and ``relevance_reason`` are the
+# importer's exact strings.
 
 MONITOR_EVIDENCE_FIELDS = EVIDENCE_FIELDS + [
     "btc_stale_relevance",
@@ -128,22 +124,11 @@ class MonitorVerdict:
 
 
 def load_orphan_relevance_verdicts(path: Path | None) -> dict[str, MonitorVerdict]:
-    """Map ``btc_header_hash`` to an authenticated strict/weak verdict.
+    """Strict/weak verdict by header. The strongest bucket wins; its first row is kept.
 
-    Reads the relevance inventory produced by
-    ``scripts/analysis/classify_btc_stale_relevance.py``. Only the
-    strict/weak orphan buckets are retained: excluded rows are dropped by
-    the monitor, and ``pending`` rows have no final verdict yet.
-
-    The verdict is per header: the same header observed by several chains
-    can carry different per-row verdicts (evidence quality differs by
-    source), and the strongest wins — a strict verdict from any observing
-    chain beats a weak one, and the first row of the winning bucket is kept so
-    regeneration is deterministic. Every strict verdict must carry the exact
-    Bitcoin height and recognized height-evidence source authenticated by the
-    relevance classifier. Conflicting strict heights for one parent fail
-    closed. Weak verdicts retain their timestamp-only semantics and never
-    project a height from this join.
+    Every strict verdict must carry the classifier's exact height and
+    recognized height-evidence source. Conflicting strict heights fail closed.
+    A weak verdict stays timestamp-only and does not project a height.
     """
     if path is None or not path.exists():
         return {}
@@ -225,17 +210,10 @@ def monitor_verdict(
     row: dict[str, str],
     orphan_verdicts: dict[str, MonitorVerdict],
 ) -> MonitorVerdict | None:
-    """Final-category verdict for a normalized evidence row; None drops it.
+    """Final-category verdict, or None to drop the row.
 
-    Canonical rows carry an empty relevance (the relevance layer refines
-    stale candidacy, not canonical membership). Stales and descendants must
-    pass their persisted validation gates, and carry an empty relevance too:
-    a confirmed row already restates its VALID verdict on the primary
-    `classification`/`validation_status` axes, so the derived axis is left
-    empty and only the `relevance_reason` records the confirmation.
-    Unknown-classified rows survive only with a strict/weak verdict from the
-    relevance inventory. Accepted descendants already arrive as final rows from
-    the canonical observation ledger.
+    Canonical, stale, and descendant rows carry an empty relevance. Unknown
+    rows survive only with a strict or weak inventory verdict.
     """
     classification = str(row.get("classification", ""))
     status = str(row.get("validation_status", "")).strip()
@@ -264,18 +242,11 @@ def _monitor_rows_and_counts(
     *,
     include_canonical: bool = True,
 ) -> tuple[list[dict[str, str]], Counter[str]]:
-    """Filter normalized rows to the monitor-facing set and tally categories.
+    """Canonical rows, VALID stales and descendants, and strict/weak unknowns.
 
-    Keeps canonical rows (unless ``include_canonical`` is False), VALID
-    stales and descendants (with an empty derived relevance and a
-    ``valid_direct_stale``/``valid_stale_descendant`` reason), and unknown
-    rows carrying a strict/weak verdict; everything else is dropped. Accepted
-    descendant witnesses arrive as final rows from the canonical observation
-    ledger. Each kept row gains the
-    ``btc_stale_relevance`` / ``relevance_reason`` columns the monitor parses.
-    The counter uses ``stale_descendant`` for admitted source observations,
-    primary classification for canonical/stale rows, and bucket for
-    strict/weak rows.
+    Kept rows gain ``btc_stale_relevance`` and ``relevance_reason``. Counts
+    use ``stale_descendant`` for admitted observations, primary classification
+    for canonical and stale rows, and the bucket for strict/weak rows.
     """
     kept: list[dict[str, str]] = []
     counts: Counter[str] = Counter()
@@ -346,14 +317,7 @@ def monitor_count_row(
 def _stale_descendant_evidence_rows(
     data_dir: Path,
 ) -> dict[str, list[dict[str, str]]]:
-    """Project the accepted witness ledger into normalized evidence rows.
-
-    The ledger is the sole witness/provenance interface. Source bucket names
-    remain audit metadata there, while every projected row carries the final
-    accepted stale-descendant verdict. A raw archive copy can collapse into a
-    ledger row only after child-identity hydration proves the same event and
-    semantic reconciliation preserves every evidence claim.
-    """
+    """Project the witness ledger. Source bucket names stay audit metadata; every row is an accepted descendant."""
     parents_path = data_dir / "stale_descendants.csv"
     observations_path = data_dir / "stale_descendant_observations.csv"
     parents = load_stale_descendant_parents(parents_path, data_dir=data_dir)
@@ -477,15 +441,11 @@ def _merge_authenticated_child_event_rows(
     stats: SourceStats,
     orphan_verdicts: dict[str, MonitorVerdict],
 ) -> tuple[list[dict[str, str]], int]:
-    """Collapse only semantically compatible copies of one child event.
+    """Collapse copies of one child event only when every populated fact agrees.
 
-    A validated 80-byte child header authenticates the chain-local event hash.
-    Rows without that complete bundle stay distinct, so sparse source evidence
-    can never be deleted by parent-hash matching. Duplicate hashes must agree
-    on every populated child height and Bitcoin parent. The strongest final
-    classification wins, while every populated evidence fact from every copy
-    is retained or required to agree. Coinbase outputs use the shared semantic
-    claim merger rather than raw-string equality.
+    Rows without a complete 80-byte child header stay distinct. Duplicate
+    hashes must agree on child height and Bitcoin parent. The strongest
+    classification wins. Coinbase outputs use the semantic claim merger.
     """
 
     def authenticates_event(row: dict[str, str]) -> bool:
@@ -609,20 +569,13 @@ def build_monitor_evidence_exports(
     fail_on_missing_child_identity: bool = False,
     include_error_observations: bool = False,
 ) -> dict[str, object]:
-    """Write per-chain monitor-facing evidence CSVs plus a counts manifest.
+    """Per-chain monitor CSVs and a counts manifest.
 
-    ``include_canonical=False`` skips canonical rows for every chain in an
-    explicitly diagnostic build. ``fail_on_missing_child_identity`` makes an
-    unhydrated live-chain row fatal: the monitor importer deliberately skips
-    rows without exact child identity, so a publication build must fail closed
-    rather than silently publish rows the importer will drop.
-    ``reported_output_dir`` is the logical final directory recorded in counts
-    and manifests when a caller writes to a temporary staging directory first.
-    ``reported_relevance_inventory`` can supply a stable logical publication
-    name while diagnostic callers retain the sanitized path they actually read.
-    ``include_error_observations`` is enabled only by a complete publication
-    build because the recovered witness ledger must agree with the catalogue;
-    diagnostic exports deliberately leave the aggregate absent.
+    ``fail_on_missing_child_identity`` is fatal: the importer skips rows
+    without exact child identity. ``reported_output_dir`` and
+    ``reported_relevance_inventory`` are the logical publication paths when
+    the write itself is staged. Error observations are included only when the
+    witness ledger agrees with the catalogue.
     """
     logical_output_root = safe_path(reported_output_dir or output_dir)
 
@@ -668,16 +621,10 @@ def build_monitor_evidence_exports(
         validated: EvidenceSource | None = None,
         unknown_companion: EvidenceSource | None = None,
     ) -> None:
-        """Write one chain's monitor-evidence CSV and record its counts.
+        """One chain's CSV. ``unknown_companion`` is merged unconditionally.
 
-        ``validated`` supplies authoritative stale verdicts. Fresh sealed RSK
-        observations retain each child witness for an accepted parent; other
-        stale rows are replaced by the compact validated file; ``companion``
-        merges a canonical-parent companion file; ``unknown_companion`` merges
-        the split-out ``_unknown_blocks.csv`` and is applied UNCONDITIONALLY --
-        after the split the stale inventory has no unknown rows, so a
-        conditional merge would silently drop every unknown monitor row and
-        empty the strict/weak orphan join.
+        After the split the stale inventory has no unknown rows, so a
+        conditional merge would drop every strict/weak monitor row.
         """
         if validated is not None:
             # The committed validated file is the arbiter of which stales

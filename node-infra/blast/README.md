@@ -70,8 +70,7 @@ generally follow miner.cpp's height switch) but is **not what the
 consensus rule says**. Any future extractor must mirror the consensus
 rule (two-value whitelist, no height check) and additionally record
 **which id was observed per block** so the height/id distribution is
-preserved for later analysis. A `BLAST_LIVE_PARSER_MUST_RECORD_ID_USED`
-comment in the extractor entry-point is the cheapest reminder.
+preserved for later analysis.
 
 ## Network reachability - chain is effectively unrecoverable
 
@@ -92,23 +91,14 @@ All standard discovery paths verified dead 2026-05-16:
   silent for 6+ years.
 - **Block explorers**: `chainz.cryptoid.info` does not host BLAST. No
   Wayback snapshot of a retired chainz entry has been surfaced.
-- **Community signal**: the project's ANN at Bitcointalk topic
-  `2547036` was observed locked by a Bitcointalk moderator with 162+
-  posts deleted during the 2026-05-16 Workstream 3 sweep; the live
-  thread state is the source of that observation (the 2023-09-27
-  Wayback snapshot returns only the page boilerplate). Consistent with
-  the post-2019 silence and the dead infrastructure.
+- **Community signal**: Bitcointalk topic `2547036` was locked by a
+  moderator, with 162+ posts deleted, as observed on 2026-05-16. The
+  live thread is the source of that observation. The 2023-09-27 Wayback
+  snapshot returns only the page boilerplate.
 
 Without a private archive (a 2018-2020 `blk*.dat` from a former pool
-operator, a saved peers.dat from a long-running node, etc.) the daemon
-will start, sync the empty mempool, and find zero peers. This directory
-is preserved as the buildable source-of-truth in case a peer surfaces
-or a snapshot is recovered.
-
-Use `just probe-seeds` to re-check periodically - the cost is zero and
-the upside (the project domain comes back online, or a community member
-re-registers and points the seeders at real nodes) would unblock the
-rest of the recovery.
+operator, or a saved peers.dat from a long-running node) the daemon
+starts, syncs an empty mempool, and finds zero peers.
 
 ## Usage
 
@@ -146,7 +136,7 @@ just down                  # stop container (data volume persists)
   patches. Re-evaluate the jincoin patch set only if the wallet-enabled
   build itself fails.
 
-## Phase 3 deployment
+## Deployment
 
 To deploy on `<archival-host>`:
 
@@ -155,26 +145,20 @@ rsync -av --delete node-infra/blast/ <archival-host>:~/blast-docker/
 ssh <archival-host> 'cd ~/blast-docker && just init && just build && just up'
 ```
 
-After `up`, monitor `just logs` and `just peers` for any signs of life.
-If peers stays at 0 for ~24 h, Phase 4 (live sync) is conclusively
-dead. The Dockerfile build itself is the deliverable in that case - it
-documents that the source still compiles under a modern Ubuntu 22.04 /
-Boost 1.74 / OpenSSL 3 toolchain, useful for any future researcher who
-locates a private archive.
+After `up`, monitor `just logs` and `just peers`. If the peer count stays
+at 0 for about 24 hours, no live sync is available.
 
-## Optional Phase 5 (outreach for peers / archives)
+## Outreach for peers and archives
 
-If Phase 4 fails (the realistic case), the next step is contacting
-parties most likely to still hold a `blk*.dat` or `peers.dat`:
+If the peer count stays at zero, the parties most likely to still hold
+a `blk*.dat` or `peers.dat` are:
 
-- BLAST ANN thread on Bitcointalk (`2547036`) - moderator-locked but
-  the OP may still be reachable via PM. Lock reason worth quietly
-  searching the Reputation / Scam Accusations boards for before
-  spending more time.
-- Any post-2019 BLAST community channel (Discord / Telegram) - none
-  surfaced in the 2026-05-16 W3 sweep but cheap to re-check.
+- the BLAST ANN thread on Bitcointalk (`2547036`), which is
+  moderator-locked; the OP may still be reachable by PM
+- a post-2019 BLAST community channel (Discord or Telegram); none
+  surfaced on 2026-05-16
 - 2018-2019 SHA-256d merge-mining pool operators that may have offered
-  BLAST as a hash-side option.
+  BLAST as a hash-side option
 
 If a private peer surfaces, drop it into `peers.list` (one per line,
 `host[:port]`), re-run `just init`, and restart the container.

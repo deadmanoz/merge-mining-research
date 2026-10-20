@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
-"""
-Extract Bitcoin AuxPoW headers from the Terracoin blockchain.
+"""Extract Bitcoin AuxPoW headers from Terracoin.
 
-Iterates all Terracoin blocks from the first AuxPoW block (height 833,000)
-to the chain tip, extracting the embedded Bitcoin parent block header and
-coinbase transaction data from each merge-mined block.
-
-Shape matches scripts/extract/extract_syscoin_auxpow.py. Terracoin runs Dash Core
-0.12.2.x which only supports boolean verbose on getblock — verbosity 1 (true)
-already exposes the fully-decoded `auxpow` object.
+AuxPoW starts at height 833000. Boolean-verbose ``getblock`` already exposes the decoded auxpow object.
 """
 
 import argparse

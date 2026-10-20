@@ -1,18 +1,10 @@
-"""Fail-closed parsing and validation for Lyncoin's raw P2P header stream.
+"""Fail-closed parser for Lyncoin's raw P2P header stream.
 
-Lyncoin serialises the full Namecoin-family ``CAuxPow`` object as part of a
-``CBlockHeader``.  Consequently a ``headers`` P2P response contains all of the
-Bitcoin-parent evidence needed by the stale-block classifier, without waiting
-for the child block bodies.  This module owns the bounded wire parser and the
-pre-Flex consensus checks used by the recovery client.
-
-The constants below are pinned to Lyncoin Core v4.0.0 source commit
-``c289540da7ea3bb78f6e9eb661ad72b90476cc40``.  The supported recovery range is
-height 0 through 260,499.  Height 260,500 activates the Flex hash family, which
-is deliberately retained only as a one-header boundary proof.
-
-This module is pure stdlib plus the package's existing pure helpers.  Keep it
-safe to import on package-light recovery hosts.
+A headers response carries the full Namecoin-family CAuxPow, so parent
+evidence does not wait on child bodies. Constants are pinned to Lyncoin Core
+v4.0.0 commit ``c289540da7ea3bb78f6e9eb661ad72b90476cc40``. Supported range is
+height 0 through 260,499. Height 260,500 is the Flex boundary only. Stdlib
+plus existing pure helpers, so package-light hosts can import it.
 """
 
 from __future__ import annotations
@@ -131,11 +123,7 @@ def hash_to_display(hash_internal: bytes) -> str:
 
 
 def encode_compact_size(value: int) -> bytes:
-    """Encode ``value`` as a Bitcoin-style CompactSize (varint).
-
-    Raises ``RecoveryValidationError`` for a negative value or one that does
-    not fit in a uint64.
-    """
+    """CompactSize for a uint64. A negative or wider value raises."""
     if value < 0:
         raise RecoveryValidationError("CompactSize value cannot be negative")
     if value < 253:
@@ -195,12 +183,7 @@ class WireReader:
         return struct.unpack("<Q", self.take(8))[0]
 
     def compact_size(self, maximum: int | None = None) -> int:
-        """Decode a canonical Bitcoin CompactSize (varint).
-
-        Rejects non-minimal encodings (a value that could have used a shorter
-        prefix) and, when ``maximum`` is given, raises if the decoded value
-        exceeds it.
-        """
+        """Canonical CompactSize. Non-minimal encodings are rejected."""
         prefix = self.take(1)[0]
         if prefix < 253:
             value = prefix
@@ -305,12 +288,7 @@ class DecodedBatch:
 
 
 def _parse_transaction(reader: WireReader) -> ParsedTransaction:
-    """Deserialise one transaction from ``reader`` into a ``ParsedTransaction``.
-
-    Handles the BIP144 witness marker/flag. ``raw_without_witness`` is
-    rebuilt field-by-field regardless of whether witness data is present, so
-    ``txid_internal`` is always computed over the correct (non-witness) bytes.
-    """
+    """``txid_internal`` is always the non-witness serialization, even with a BIP144 flag."""
     start = reader.pos
     version_raw = reader.take(4)
     version = struct.unpack("<i", version_raw)[0]
@@ -410,11 +388,9 @@ def _parse_auxpow(reader: WireReader) -> ParsedAuxPow:
 
 
 def _parse_extended_header(reader: WireReader) -> ParsedHeader:
-    """Parse one Lyncoin extended header: the 80-byte pure header, plus a
-    CAuxPow tail when ``nVersion`` carries the AuxPoW flag.
+    """80-byte header plus a CAuxPow tail when ``nVersion`` has the AuxPoW flag.
 
-    Raises ``RecoveryValidationError`` if the serialized header exceeds
-    ``MAX_HEADER_SIZE``.
+    A header over ``MAX_HEADER_SIZE`` raises.
     """
     start = reader.pos
     pure = reader.take(80)
@@ -472,11 +448,9 @@ def parse_headers_payload(payload: bytes) -> tuple[ParsedHeader, ...]:
 
 
 def encode_p2p_message(command: str, payload: bytes = b"") -> bytes:
-    """Encode a full Lyncoin P2P message: magic, zero-padded 12-byte command,
-    payload length, checksum, and payload.
+    """Magic, zero-padded 12-byte command, length, checksum, payload.
 
-    Raises ``RecoveryValidationError`` for an invalid command or a payload
-    over ``MAX_MESSAGE_PAYLOAD``.
+    An invalid command or a payload over ``MAX_MESSAGE_PAYLOAD`` raises.
     """
     encoded = command.encode("ascii")
     if not encoded or len(encoded) > 12 or b"\x00" in encoded:
@@ -494,12 +468,7 @@ def encode_p2p_message(command: str, payload: bytes = b"") -> bytes:
 
 
 def decode_p2p_header(raw24: bytes) -> tuple[str, int, bytes]:
-    """Parse and validate a 24-byte P2P message header.
-
-    Returns ``(command, payload_size, checksum)``. Raises
-    ``RecoveryValidationError`` on the wrong network magic, a malformed or
-    non-ASCII command, or a payload length over ``MAX_MESSAGE_PAYLOAD``.
-    """
+    """``(command, payload_size, checksum)``. Wrong magic, a non-ASCII command, or an oversized payload raises."""
     if len(raw24) != 24:
         raise RecoveryValidationError("P2P message header must be 24 bytes")
     if raw24[:4] != NETWORK_MAGIC:
@@ -613,17 +582,12 @@ def _hash_meets_target(hash_internal: bytes, bits: int) -> bool:
 
 
 def validate_auxpow(header: ParsedHeader, height: int) -> None:
-    """Validate ``header``'s CAuxPow object against Lyncoin v4 consensus rules.
+    """Lyncoin v4 CAuxPow: branch bounds, foreign parent chain ID, both merkle proofs.
 
-    Checks the chain-merkle branch length bound, parent-merkle-index and
-    chain-index sanity, that the parent header does not reuse Lyncoin's own
-    chain ID, the parent coinbase merkle proof, that the child's merkle root
-    is committed in the parent coinbase scriptSig (with correct placement
-    relative to the merged-mining magic when present, or within the first 20
-    bytes for the legacy no-magic form), the commitment's tree-size and
-    LCG-derived chain-index, and that the parent header's own PoW meets the
-    child's ``bits`` target. Raises ``RecoveryValidationError`` on the first
-    violation found; returns ``None`` on success.
+    The child root must sit in the parent coinbase scriptSig (merged-mining
+    magic placement, or the first 20 bytes of the legacy no-magic form), with
+    the commitment's tree size and LCG chain index. Parent PoW must meet the
+    child's ``bits``. The first violation raises.
     """
     auxpow = header.auxpow
     if auxpow is None:
@@ -688,11 +652,7 @@ def validate_auxpow(header: ParsedHeader, height: int) -> None:
 
 
 def validate_genesis(header: ParsedHeader) -> HeaderSummary:
-    """Validate the genesis header against the pinned source bytes, hash, and PoW.
-
-    Returns its ``HeaderSummary`` (height 0); raises ``RecoveryValidationError``
-    on any mismatch.
-    """
+    """Genesis must match the pinned source bytes, hash, and proof of work."""
     if header.raw != GENESIS_RAW:
         raise RecoveryValidationError(
             "genesis header does not match pinned source bytes"
@@ -719,15 +679,11 @@ def validate_pre_flex_header(
     height: int,
     history: list[HeaderSummary],
 ) -> HeaderSummary:
-    """Validate one pre-Flex header at ``height`` against the running ``history``.
+    """Pre-Flex header against ``history`` of length ``height``.
 
-    Checks the supported height range, that ``history`` carries exactly
-    ``height`` prior entries, the Flex version flag is absent, the legacy
-    version-1 encoding is rejected, the chain ID, previous-hash linkage, the
-    expected ``nBits`` from ``expected_next_bits``, either a valid AuxPoW
-    commitment or solo PoW meeting the header's own target, and any pinned
-    checkpoint hash. Returns the resulting ``HeaderSummary``; raises
-    ``RecoveryValidationError`` on the first violation found.
+    Rejects the Flex version flag and legacy version 1, then checks chain ID,
+    previous-hash linkage, expected ``nBits``, AuxPoW or solo PoW against the
+    header's own target, and any pinned checkpoint.
     """
     if height <= 0 or height > AUXPOW_END_HEIGHT:
         raise RecoveryValidationError(
@@ -792,11 +748,9 @@ def validate_flex_boundary(
     header: ParsedHeader,
     previous: HeaderSummary,
 ) -> dict[str, Any]:
-    """Validate the source-visible parts of height 260,500.
+    """Height 260,500 links to the last pre-Flex hash and carries the pinned version and bits.
 
-    Lyncoin's Flex hashes are outside this repository's pure-stdlib recovery
-    scope.  We can still prove that the next serialized header links to the
-    final pre-Flex hash and carries the source-pinned activation version/bits.
+    Flex hashes themselves are outside this pure-stdlib recovery.
     """
     if previous.height != AUXPOW_END_HEIGHT:
         raise RecoveryValidationError("Flex boundary requires height 260,499")
@@ -861,13 +815,7 @@ def candidate_row(
 
 
 def encode_batch(metadata: dict[str, Any], raw_headers: list[bytes]) -> bytes:
-    """Serialise ``metadata`` and ``raw_headers`` into the ``LYNHDR01`` batch format.
-
-    Layout: magic, version, metadata length, canonical-JSON metadata bytes,
-    header count, then each header as a length-prefixed blob. Raises
-    ``RecoveryValidationError`` if the metadata or any header exceeds its
-    size limit.
-    """
+    """``LYNHDR01``: magic, version, metadata length, canonical JSON, header count, length-prefixed headers."""
     metadata_raw = json.dumps(
         metadata,
         sort_keys=True,
@@ -888,12 +836,7 @@ def encode_batch(metadata: dict[str, Any], raw_headers: list[bytes]) -> bytes:
 
 
 def decode_batch(raw: bytes) -> DecodedBatch:
-    """Decode a ``LYNHDR01`` batch produced by ``encode_batch``.
-
-    Validates magic, version, metadata JSON shape, and header count/sizes,
-    and requires the buffer be fully consumed. Returns a ``DecodedBatch``;
-    raises ``RecoveryValidationError`` on any malformed or trailing data.
-    """
+    """Inverse of ``encode_batch``. The buffer must be fully consumed."""
     reader = WireReader(raw)
     if reader.take(len(BATCH_MAGIC)) != BATCH_MAGIC:
         raise RecoveryValidationError("wrong Lyncoin header-batch magic")

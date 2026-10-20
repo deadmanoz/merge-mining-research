@@ -25,7 +25,7 @@ Terracoin is the **only Dash-Core-derived chain** in scope (RSK, Elastos, and Ha
 
 **Holes.**
 
-- **Pre-AuxPoW** (TRC 0 → 832,999): merged mining not yet active. The chain was launched Oct 2012, suffered a well-known ~1.2 TH/s 51% attack in July 2013, and was relaunched by the Terracoin Foundation in Feb 2016 on a Dash-Core-derived codebase. Hard fork 1 at TRC 833,000 (block time 2016-09-23) activated DGW difficulty and merged mining; hard fork 2 at TRC 1,087,500 (2017-10-02) enabled the Dash masternode/governance features, and the client line later moved to Dash Core 0.12.2.x. Pre-AuxPoW history is historical trivia, not data we recover.
+- **Pre-AuxPoW** (TRC 0 → 832,999): merged mining not yet active. The chain was launched Oct 2012, suffered a well-known ~1.2 TH/s 51% attack in July 2013, and was relaunched by the Terracoin Foundation in Feb 2016 on a Dash-Core-derived codebase. Hard fork 1 at TRC 833,000 (block time 2016-09-23) activated DGW difficulty and merged mining; hard fork 2 at TRC 1,087,500 (2017-10-02) enabled the Dash masternode/governance features, and the client line later moved to Dash Core 0.12.2.x. Pre-AuxPoW history is not recovered.
 - **Activation-to-first-stale gap**: AuxPoW activated 2016-09-23 (BTC ~431,000), but the first validated stale is at BTC 467,186 (May 2017), roughly eight months and 162,500 TRC blocks later. Nothing in the opening stretch of the AuxPoW era yielded a validated stale parent.
 - **`validation_status` / `expected_nbits` gate columns**: the validated CSV
   persists the nBits gate. The 2026-07-30 normal source rerun also recovered
@@ -125,7 +125,7 @@ private archive and are not reproduced by this public release.
 
 **Conclusion: H2, decisively.** Terracoin's 523,315 unknowns contain **zero headers matching Bitcoin's expected `nBits` epoch**. All 22 of the Namecoin-cross-confirmed unknown roots that Terracoin owns appear in the Terracoin unknown set, but none pass the epoch test. A historical private attribution pass labelled them **BTC.TOP: 16, Unknown: 4, Huobi Pool: 1, WAYI.CN: 1**. That label distribution is supporting context, not a result reproduced by the current public pipeline.
 
-This wraps the cross-chain question: Namecoin (~7,841 unknowns, H2), Devcoin (75,141, H2 stronger), Terracoin (523,315, H2 strongest) all converge on the same answer. The broad unknown class across the integrated set is not lost BTC deep-reorg material.
+Namecoin (~7,841 unknowns, H2), Devcoin (75,141, H2), and Terracoin (523,315, H2) give the same answer. The broad unknown class is not lost BTC deep-reorg material.
 
 ## 4. Outputs & references
 

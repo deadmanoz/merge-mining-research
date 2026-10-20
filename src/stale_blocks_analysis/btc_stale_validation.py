@@ -1,8 +1,7 @@
-"""Necessary Bitcoin header/context checks for direct-stale candidates.
+"""Necessary header and context checks for direct-stale candidates.
 
-Passing these checks is not proof that the complete Bitcoin block was
-consensus-valid. The compact recovery artifacts normally contain the parent
-header and coinbase evidence, not every transaction in the candidate block.
+Passing this profile is not full-block validation. The artifacts normally
+carry the parent header and coinbase, not every transaction.
 """
 
 from __future__ import annotations
@@ -163,12 +162,9 @@ def bip34_height_error(
     scriptsig_key: str = "coinbase_scriptsig_hex",
     header_hex_key: str = "btc_header_hex",
 ) -> str | None:
-    """Return a rejection reason for a mandatory BIP34-height failure.
+    """BIP34 height prefix: version 2 from 224,413, mandatory for every block from 227,931.
 
-    BIP34's coinbase-height rule applied to version 2 or newer blocks from
-    height 224,413. At height 227,931, version 1 became invalid and the prefix
-    became mandatory for every block. A pre-decoded column is corroborating
-    metadata, not a substitute for the raw consensus input.
+    A pre-decoded column does not replace the raw scriptSig.
     """
     if expected_height < BIP34_VERSION_2_HEIGHT:
         return None
@@ -256,12 +252,9 @@ LENGTH_RULES = frozenset(
 
 
 def expected_version_rule(height: int) -> str:
-    """Return the version-rule token for a version violation at ``height``.
+    """Version token at ``height``: v2 from BIP34, v3 from BIP66, v4 from BIP65.
 
-    Mirrors the thresholds ``block_version_error`` enforces: version 2 (BIP34)
-    at [BIP34_HEIGHT, BIP66_HEIGHT), 3 (BIP66) at [BIP66_HEIGHT, BIP65_HEIGHT),
-    and 4 (BIP65) above. A v1/v2 header at a BIP65-era height violates the v4
-    minimum, so the token is ``bip65_block_version_below_4``.
+    A v1 or v2 header in the BIP65 era is ``bip65_block_version_below_4``.
     """
     if height >= BIP65_HEIGHT:
         return "bip65_block_version_below_4"
@@ -275,13 +268,10 @@ def expected_length_rule(
     *,
     scriptsig_key: str = "coinbase_scriptsig_hex",
 ) -> str | None:
-    """Return the length-rule token for the actual scriptSig length, or None.
+    """Length token for a present scriptSig outside 2..100 bytes, else None.
 
-    Returns None when the length cannot be derived: an EMPTY scriptSig is
-    missing evidence (the row may simply not expose the parent coinbase, as
-    RSK never does), not a zero-byte violation, and malformed hex is likewise
-    unusable. Only a PRESENT scriptSig whose length violates 2..100 yields a
-    token.
+    An empty scriptSig is missing evidence (RSK never exposes one), not a
+    zero-byte violation. Malformed hex is likewise unusable.
     """
     scriptsig_text = str(row.get(scriptsig_key, "") or "").strip()
     if not scriptsig_text:
@@ -305,32 +295,12 @@ def nbits_retarget_not_applied_error(
     bits_key: str = "btc_bits",
     expected_key: str = "expected_nbits",
 ) -> str | None:
-    """Return a rejection when the row failed to apply an epoch retarget.
+    """Epoch-start bits equal the previous epoch, not the new ``expected_nbits``.
 
-    All three conditions must hold: the height is an epoch start, the row's
-    bits differ from the newly retargeted value it should have used, and the
-    row's bits equal the PREVIOUS epoch's value.
-
-    A mid-epoch nBits mismatch is not this rule -- that is the contamination
-    gate's target class (a foreign-chain parent), not a consensus violation of
-    a Bitcoin block. This rule is specifically the boundary case where the
-    header still carries full proof of work but kept the old difficulty.
-
-    The newly retargeted value is taken from the row's own ``expected_nbits``
-    when it carries one, because the nBits gate persisted it from Bitcoin Core
-    for exactly this height, which is more authoritative than the committed
-    reference and, crucially, still available for a boundary the table has not
-    reached yet. Without that the table would have to cover every rejected
-    row's height, and a candidate landing on the first boundary past the
-    reference would abort an entire classifier run rather than routing as the
-    ordinary contamination it usually is. The committed table remains the
-    fallback, and the PREVIOUS epoch is read from it either way; that entry is
-    a full retarget interval older, so a reference that lags the chain still
-    has it.
-
-    Raises ``ValueError`` when the claim cannot be evaluated -- malformed bits,
-    or neither source supplying a value. Failing closed matters here: silently
-    returning None would let an unevaluated row look clean.
+    A mid-epoch mismatch is contamination, not this rule. Prefer the row's
+    own ``expected_nbits``; the committed table is the fallback, and the
+    previous epoch is always read from the table. ``ValueError`` on an
+    unevaluable claim. Returning None would let that row look clean.
     """
     try:
         bits = int(str(row.get(bits_key, "") or "").strip(), 16)
@@ -372,37 +342,12 @@ def consensus_violations(
     scriptsig_key: str = "coinbase_scriptsig_hex",
     header_hex_key: str = "btc_header_hex",
 ) -> list[str]:
-    """Return every consensus rule this row's evidence proves it violated.
+    """Rules the bytes prove. Empty is not a validity claim.
 
-    A row with a non-empty result is an error block: a Bitcoin block carrying
-    full proof of work that breaks a consensus rule. An empty result means the
-    evidence proves no violation -- which is NOT the same as the block being
-    valid, only that nothing here demonstrates otherwise.
-
-    This is deliberately stricter than "the gate returned REJECTED". The gate
-    reports three different situations under that one prefix and only the first
-    is an error block:
-
-    - a consensus rule was broken -- reported here;
-    - the evidence was unusable (missing or malformed coinbase scriptSig, a
-      malformed BIP34 column, an unparseable header) -- we cannot tell, so no
-      token is produced;
-    - the row is not a direct stale at all, because its predecessor is not the
-      expected active-chain block -- a placement verdict from
-      ``validate_stale_header_context``, never a property of the block itself.
-
-    Unlike ``stale_header_context_error`` this does not stop at the first
-    failure: a block can break several rules at once and the published
-    ``rules_violated`` column records all of them. Order is the gate's own
-    precedence (median-time-past, version, scriptSig length, BIP34 height), so
-    the first element is the primary rejection reason.
-
-    Two rules need context the row does not carry, so the caller supplies it
-    and omitting it means that rule is simply not evaluated:
-    ``parent_median_time_past`` comes from the canonical parent's header, which
-    the classifier already fetches to check placement, and ``nbits_by_epoch``
-    is the committed retarget-epoch reference table. Every other rule is
-    derived from the header and coinbase bytes alone.
+    A gate ``REJECTED`` is an error block only when a rule re-derives.
+    Unusable evidence and a placement failure produce no token. Every firing
+    rule is returned, in gate order, so the first is the primary reason.
+    Omit ``parent_median_time_past`` or ``nbits_by_epoch`` to skip that rule.
     """
     rules: list[str] = []
 
@@ -493,13 +438,7 @@ def validate_stale_header_context(
     scriptsig_key: str = "coinbase_scriptsig_hex",
     header_hex_key: str = "btc_header_hex",
 ) -> None:
-    """Apply necessary direct-stale parent, MTP, and available-evidence gates.
-
-    A ``VALID`` result means only that the row passed this declared profile.
-    It does not cover rules requiring unavailable complete-block evidence,
-    including transaction merkle-root, weight, witness, sigop, finality, and
-    UTXO/script validation.
-    """
+    """``VALID`` means this profile passed, not merkle, weight, witness, sigop, finality, or UTXO validity."""
     validate_stale_nbits(
         stales,
         rpc_batch,

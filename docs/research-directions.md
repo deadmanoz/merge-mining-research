@@ -51,17 +51,12 @@ propagation. See
 
 ### Error blocks
 
-A distinct category recovered alongside the stale candidates. An **error block**
-is a full-proof-of-work Bitcoin block, witnessed via merge mining, that violates
-a named consensus rule and so was never a stale/orphan contender: it lost no
-race because it was never eligible to race. A header that merely fails the
-Bitcoin PoW target is a `near` row, a different and out-of-scope category.
-`error_block` sits on the primary `classification` axis alongside `canonical`,
-`stale`, and `unknown`, not on the derived `btc_stale_relevance` refinement of
-unknown rows. The catalogue under `data/error-blocks/` is simultaneously the
-evidence record and the exact-key exclusion gate that keeps consensus-invalid
-candidates out of every publication surface. See
-[`error-blocks.md`](error-blocks.md).
+A distinct category recovered alongside the stale candidates. `error_block` is
+a primary `classification`, not a `btc_stale_relevance` bucket. A header that
+merely fails the Bitcoin PoW target remains `near`. The catalogue under
+`data/error-blocks/` is the evidence record and the exact-key exclusion gate.
+See [`error-blocks.md`](error-blocks.md) and
+[research contracts](research-contracts.md#research-semantics).
 
 ### Bitcoin coinbase commitment markers
 

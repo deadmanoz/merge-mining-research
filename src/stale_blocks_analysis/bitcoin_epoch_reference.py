@@ -1,9 +1,4 @@
-"""Build the compact Bitcoin epoch reference used by stale relevance gates.
-
-The source is a public Esplora-compatible API. Only retarget-boundary blocks
-and one confirmed horizon block are retained, which is sufficient for strict
-height-based and weak timestamp-based nBits matching.
-"""
+"""Compact epoch table: retarget-boundary blocks plus one confirmed horizon, enough for strict height and weak timestamp nBits checks."""
 
 from __future__ import annotations
 
@@ -26,11 +21,7 @@ DEFAULT_API_BASE = "https://mempool.space/api"
 
 
 def load_nbits_by_epoch(directory: Path) -> dict[int, int]:
-    """Load the committed epoch table as ``{epoch_start_height: nbits_int}``.
-
-    The consensus gates need integer bits keyed by height; the committed file
-    stores hex keyed by a string height.
-    """
+    """``{epoch_start_height: nbits_int}``. The file stores hex under a string height."""
     with open(Path(directory) / NBITS_FILENAME) as f:
         table = json.load(f)
     return {int(height): int(bits, 16) for height, bits in table.items()}

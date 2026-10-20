@@ -38,11 +38,7 @@ def parent_merkle_matches(
     index: int,
     parent_root_internal: bytes,
 ) -> bool:
-    """Check transaction inclusion using internal-order hashes throughout.
-
-    Parsing, transaction completeness and branch/index guards belong to callers.
-    This does not establish coinbase identity or parent body consensus.
-    """
+    """Internal-order inclusion only. Not coinbase identity or parent-body consensus."""
     return (
         fold_merkle_branch(txid_internal, branch_internal, index)
         == parent_root_internal
@@ -56,11 +52,10 @@ def child_commitment_failure(
     script: bytes,
     chain_id: int,
 ) -> CommitmentFailure | None:
-    """Check the display-order child root, placement, footer and chain slot.
+    """Display-order child root, placement, footer, and chain slot.
 
-    Use the first root and marker occurrences, including the legacy offset-20
-    boundary. Callers own branch/index guards and protocol-specific rules;
-    in particular, do not move a caller's later slot failure ahead of inclusion.
+    First root and marker, including the legacy offset-20 boundary. Do not
+    move a later slot failure ahead of inclusion.
     """
     root_internal = fold_merkle_branch(child_hash_internal, branch_internal, index)
     root = bytes.fromhex(hash_to_display_hex(root_internal))

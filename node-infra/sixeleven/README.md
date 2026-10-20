@@ -103,15 +103,8 @@ a real datadir. Omit the overlay only when an online session is intended.
 
 ## Completed recovery
 
-The 2026-07-10 run reached height 999,406 with six peers and then froze the
-datadir for extraction. The complete pass scanned 999,407 blocks: 969,317
-AuxPoW, 30,090 non-AuxPoW, and no parse or chain-ID errors. Of 80,364 parent
-headers meeting their claimed Bitcoin target, Bitcoin Core classified 7 as
-canonical, 0 as stale, and 80,357 as unknown. The subsequent BTC-relevance
-pass found 0 strict and 0 weak orphans; every unknown candidate failed the
-Bitcoin epoch-nBits consistency gates.
-
+Stage counts are in [`docs/chains/sixeleven.md`](../../docs/chains/sixeleven.md).
 The compact canonical evidence is
 `results/monitor-evidence/sixeleven_monitor_evidence.csv`. The header-only
-`data/validated-stales/sixeleven_validated_stales.csv` preserves the zero-stale outcome. The raw
-and normalized 80,364-row candidates remain in the private archive.
+`data/validated-stales/sixeleven_validated_stales.csv` preserves the zero-stale
+outcome. Raw and normalized candidates remain in the private archive.

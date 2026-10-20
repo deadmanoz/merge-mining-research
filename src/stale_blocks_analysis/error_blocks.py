@@ -1,10 +1,4 @@
-"""Load exact keys excluded from the direct-stale publication path.
-
-Every row in ``data/error-blocks/error_blocks.csv`` is a consensus-invalid
-full-proof-of-work Bitcoin block (an "error block"), so the exclusion key set
-is derived directly from ``classification == "error_block"`` rows. This
-dataset is the single source of truth for the gate.
-"""
+"""Keys excluded from the direct-stale path. Every catalogue row is ``classification == "error_block"``."""
 
 from __future__ import annotations
 

@@ -1,11 +1,4 @@
-"""Semantic reconciliation for heterogeneous Bitcoin coinbase outputs.
-
-Source datasets preserve different projections of the same ordered output
-vector.  Some contain exact scripts without amounts, some contain decoded
-addresses and BTC-denominated amounts, and some contain only an ``OP_RETURN``
-type claim.  This module converts each projection into compatible per-position
-claims before choosing a publication representation.
-"""
+"""Reconcile heterogeneous coinbase-output projections into one ordered claim vector."""
 
 from __future__ import annotations
 
@@ -74,18 +67,12 @@ def _normalized_hex(value: str, *, label: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class CoinbaseOutputClaim:
-    """A partial claim about one output in an ordered coinbase transaction.
+    """One output claim. ``script_hex`` is exact; ``script_prefix_hex`` is a prefix (OP_RETURN type).
 
-    ``script_hex`` is an exact scriptPubKey. ``script_prefix_hex`` is a weaker
-    byte-prefix constraint, currently used when a decoded source exposes only
-    the ``OP_RETURN`` output type. ``recipient_hash160`` preserves the
-    destination claim exposed by legacy ``scriptPubKey.addresses`` output. A
-    P2PKH-style address can describe either an exact P2PKH script or an exact
-    P2PK script whose public key hashes to the same recipient.
-    ``position_exact=False`` means ``position`` is only the claim's order in a
-    filtered legacy address projection. Such claims must match an ordered
-    subsequence of an exact output vector. A claim may know only an amount,
-    only a script/destination constraint, or both.
+    ``recipient_hash160`` is the legacy address claim and can match either
+    P2PKH or a P2PK whose pubkey hashes to it. ``position_exact=False`` means
+    the position is only the order in a filtered projection and must match an
+    ordered subsequence of an exact vector.
     """
 
     position: int
@@ -275,13 +262,9 @@ def _satoshi_value(value: str) -> int:
 
 
 def amount_to_sats(value: str) -> int:
-    """Parse an amount that may be canonical satoshis or a legacy BTC decimal.
+    """Canonical integer satoshis, or a legacy BTC decimal (point or exponent).
 
-    The canonical rendering emits integer satoshis, while the legacy
-    address/BTC-value forms emitted decimals such as ``12.50000000`` or
-    ``1e-08``. A decimal point or exponent marks the BTC form; a bare integer
-    is satoshis. Reading a canonical satoshi amount as BTC would inflate it by
-    a factor of 100,000,000.
+    Reading satoshis as BTC would inflate the amount by 100,000,000.
     """
     normalized = value.strip()
     if "." in normalized or "e" in normalized.lower():
@@ -540,12 +523,7 @@ def _merge_filtered_into_exact(
     exact: tuple[CoinbaseOutputClaim, ...],
     filtered: tuple[CoinbaseOutputClaim, ...],
 ) -> tuple[CoinbaseOutputClaim, ...]:
-    """Merge one ordered filtered projection into an exact-position vector.
-
-    Every compatible alignment is considered. Multiple alignments are allowed
-    only when they produce the same maximal claim vector; otherwise the
-    evidence is materially ambiguous and publication fails closed.
-    """
+    """Every compatible alignment of a filtered projection. More than one distinct result fails closed."""
     if not filtered:
         return exact
 
@@ -656,21 +634,12 @@ def parse_coinbase_output_claims(
     *,
     child_decoded_addresses: bool = False,
 ) -> tuple[CoinbaseOutputClaim, ...]:
-    """Parse and reconcile heterogeneous output text and a raw coinbase tx.
+    """Canonical ``scripthex:value_sats``, prefix ``*``, ``pkh()``, and a leading ``~`` for a filtered projection.
 
-    Canonical text is pipe-joined ``scripthex:value_sats``. An empty value
-    denotes an unknown amount, a trailing ``*`` denotes a script prefix, and
-    ``pkh(<hash160>)`` preserves an address-derived recipient claim when no
-    exact script is available. A leading ``~`` marks an ordered filtered
-    projection whose ordinals are not absolute transaction positions. Legacy
-    raw-script, address, and address/BTC-value forms are also accepted;
-    ``child_decoded_addresses`` marks the text as a child node's address
-    decode, where even a version-0 address establishes only the recipient
-    hash160 because such a decode collapses P2PK to the same address.
-    Filtered projections must say so with ``~``: an acquisition that dropped
-    outputs without a decoded address is not inferable from the rendering,
-    because the canonical rendering shows every address-bearing script as an
-    address.
+    ``child_decoded_addresses`` means even a version-0 address is only a
+    hash160: the child decode collapses P2PK to the same address. A dropped
+    output is not inferable from an address rendering, so the ``~`` marker is
+    required.
     """
     explicit: list[CoinbaseOutputClaim] = []
     normalized = (outputs or "").strip()
@@ -719,15 +688,10 @@ def parse_coinbase_output_claims(
 
 
 def render_coinbase_outputs_column(claims: Iterable[CoinbaseOutputClaim]) -> str:
-    """Render claims in the committed ``coinbase_outputs`` column contract.
+    """Committed column: semicolon-joined address or raw script, with an optional satoshi amount.
 
-    Semicolon-joined, in coinbase order, each entry ``<payout>`` or
-    ``<payout>:<value_sats>``, with the Bitcoin address for address-bearing
-    standard templates and raw scriptPubKey hex otherwise. This is the form
-    published datasets carry; ``render_coinbase_output_claims`` renders the
-    module's own reconciliation form instead, which differs only in separator
-    and in always emitting the amount field. Both carry script prefixes and
-    recipient-only claims.
+    ``render_coinbase_output_claims`` is the reconciliation form and always
+    emits the amount. Both forms carry prefixes and recipient-only claims.
     """
     merged = merge_coinbase_output_claim_sets(claims)
     if not merged:

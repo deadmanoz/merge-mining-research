@@ -1,12 +1,7 @@
-"""Durable acquisition contract for the private RSK merge-mining corpus.
+"""RSK acquisition writes parent-header rows and the skipped-proof ledger as one checkpoint.
 
-The RSK extractor writes two append-only CSVs as one checkpointed unit: the
-raw 80-byte parent-header rows and an exact ledger of variable-width RLP fallback
-proofs plus the exact height-zero genesis sentinel that were intentionally
-skipped. A checkpoint integrity-protects every committed byte interval, the
-canonical-chain continuity at that boundary, and the pinned source-chain
-endpoints. The classifier consumes only a completed, content-addressed
-checkpoint through :func:`load_complete_extraction`.
+The checkpoint covers every committed byte interval, canonical continuity,
+and the pinned endpoints. The classifier reads only a completed checkpoint.
 """
 
 from __future__ import annotations
@@ -90,12 +85,7 @@ def empty_stats() -> dict[str, int]:
 
 
 def fsync_directory_best_effort(path: Path) -> None:
-    """Try to persist directory metadata without obscuring a completed rename.
-
-    Some filesystems reject directory fsync.  Both opening and fsyncing are
-    therefore best effort.  In particular, an error after ``os.replace`` must
-    not report that the replacement failed when it already happened.
-    """
+    """Directory fsync is best effort. An error after ``os.replace`` does not mean the rename failed."""
     directory_fd: int | None = None
     try:
         directory_fd = os.open(path, os.O_RDONLY)

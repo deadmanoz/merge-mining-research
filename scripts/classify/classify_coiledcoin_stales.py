@@ -1,25 +1,7 @@
 #!/usr/bin/env python3
-"""
-Classify CoiledCoin AuxPoW candidates as canonical, stale, or unknown.
+"""Classify Coiledcoin AuxPoW candidates as canonical, stale, or unknown.
 
-Input: output of extract_auxpow_from_blkdat.py --chain coiledcoin
-       (fields: child_height, btc_hash, btc_prev_hash, btc_time, btc_bits_hex,
-                btc_bip34_height, btc_nonce, coinbase_scriptsig_hex,
-                coinbase_outputs, btc_header_hex, child_block_hash,
-                child_header_hex, child_block_time, child_nbits). The BIP34
-                commitment is retained as evidence; it is not promoted to the
-                authoritative btc_height field.
-
-Phases:
-  1. Deduplicate by btc_hash (multiple CLC blocks can embed the same BTC header)
-  2. Batch-query local Bitcoin Core:
-       - getblockheader <hash>       → canonical? skip.
-       - getblockheader <prev_hash>  → prev exists? STALE; else UNKNOWN.
-  3. Flag the Eligius attack window (BTC ~160,000-163,000, Jan 2012).
-  4. Apply the shared header-context gate, including expected Bitcoin nBits.
-
-The candidate range (Dec 2011 to May 2016) is pre-BCH, but contemporaneous
-Bitcoin nBits validation still applies to every stale candidate.
+The BIP34 commitment is evidence, not the authoritative height. Expected Bitcoin nBits still applies, including the Eligius window near height 160000.
 """
 
 import argparse

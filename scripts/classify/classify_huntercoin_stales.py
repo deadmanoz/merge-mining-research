@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
 """Classify Huntercoin AuxPoW parent headers against Bitcoin Core.
 
-Huntercoin's extractor emits all SHA-256d-branch AuxPoW parent headers. Most
-of those headers satisfy only Huntercoin's child-chain target, not Bitcoin's
-full target. The native producer selects the Bitcoin branch and authenticates
-its proofs before writing the raw CSV. This wrapper projects that acquisition
-schema onto the shared classifier input, without another chain-ID filter.
-
-``main()`` requires the native raw extraction, writes a normalized temporary
-CSV, and hands that to ``run_classifier`` for the Phase 1 PoW filter,
-Phase 2 Bitcoin Core classification, and the non-skippable Phase 3 nBits gate.
-
-The primary output is ``data/huntercoin_stale_blocks.csv`` in the shared
-unknown-inventory schema. The stale-only loader input
-(``data/validated-stales/huntercoin_validated_stales.csv``) is written by the same driver. The
-unknown bucket is written on the shared schema with
-``classification == "unknown"``.
+The native producer authenticates proofs before this wrapper. Self-target PoW is not Bitcoin's contemporaneous target. The nBits gate is non-skippable.
 """
 
 from __future__ import annotations

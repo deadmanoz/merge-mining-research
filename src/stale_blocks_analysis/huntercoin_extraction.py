@@ -1,8 +1,4 @@
-"""Authenticated Huntercoin native-dump extraction.
-
-Native heights count stored predecessor links to the known genesis, rather
-than asserting active-chain membership or full child-chain consensus validity.
-"""
+"""Huntercoin native-dump extraction. Heights count stored links to genesis, not active-chain membership."""
 
 from __future__ import annotations
 

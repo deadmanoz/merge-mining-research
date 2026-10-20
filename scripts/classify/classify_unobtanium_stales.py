@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
 """Classify Unobtanium AuxPoW extracts as canonical, stale, or unknown.
 
-Unobtanium extraction writes one row per merge-mined UNO block with the
-embedded Bitcoin parent header and coinbase transaction. This classifier uses
-the shared classifier helpers:
-
-1. keep only unique headers that meet the Bitcoin nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-The default input/output paths point at the operator's private extraction
-archive (``~/uno-extract``) rather than the committed ``data/`` tree, matching
-the original Phase 3 driver. ``btc_bits`` in the UNO raw extract is already
-emitted as lowercase 8-char hex (``parse_parent_header`` -> ``f"{bits:08x}"``),
-so ``bits_source_is_decimal`` stays False.
+The nBits gate is non-skippable. ``btc_bits`` is already lowercase 8-char hex.
 """
 
 from __future__ import annotations

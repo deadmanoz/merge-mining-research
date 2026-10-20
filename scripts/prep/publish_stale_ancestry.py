@@ -74,13 +74,7 @@ def _csv_row_count(path: Path) -> int:
 def _install_transaction(staged_by_target: dict[Path, Path]) -> None:
     """Install a validated multi-file set with adjacent rollback copies.
 
-    POSIX has no cross-directory multi-file rename. Every replacement is first
-    copied beside its target, every old target gets an adjacent recovery copy,
-    and any in-process failure attempts to restore all files already replaced.
-    Recovery copies are removed only after the install or rollback completes.
-    Preflight rejects adjacent recovery files left by any process; an
-    interrupted process or incomplete rollback deliberately leaves every
-    ``.previous-*`` file as recovery evidence.
+    POSIX has no cross-directory multi-file rename. An interrupted install leaves ``.previous-*`` files, and preflight refuses to publish over them.
     """
     pid = os.getpid()
     prepared: dict[Path, Path] = {}

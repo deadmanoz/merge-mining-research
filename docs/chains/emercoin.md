@@ -79,7 +79,6 @@ The 2026-06-24 canonical-refresh re-run reclassified the same archived 88,201-ro
 - **Hybrid PoW/PoS**: the defining methodological feature. The PoS filter via the RPC `flags` field is the gate; without it the extractor would fail or produce garbage on the PoS majority. This is the first chain in the pipeline with a non-PoW majority - the filter pattern is reusable for any future Peercoin-lineage hybrid (Reddcoin, Blackcoin, etc., if any of those ever shipped Bitcoin-parent AuxPoW).
 - **JSON-exposed AuxPoW**: unlike Namecoin/ixcoin/devcoin/myriadcoin/elastos (binary CAuxPow blob parse), Emercoin's RPC exposes the full `auxpow` object as structured JSON - `parent_block.{hash, version, previousblockhash, merkleroot, time, bits, nonce}` plus decoded `coinbasetx`. No binary parser needed; the extractor reconstructs the 80-byte BTC header bytes from the JSON for the downstream PoW filter and validates via SHA256d hash match.
 - **Chain ID via raw conditional**: `src/pow.cpp:173` performs the AuxPoW chain-ID check inline rather than through a chainparams flag. Like the standard strict-chain-ID rule, this does not prove Bitcoin parent identity; it prevents a parent header from using the auxiliary chain's own ID.
-- **Six-year coverage straddling BCH and BSV forks**: BTC range 467,186 → 777,172 covers May 2017 → Feb 2023, which includes the BCH fork (Aug 2017, BTC ~478,558) and the BSV split (Nov 2018). The 16,545-row unknown count is largely BCH/BSV-parent pollution - pools that merge-mined EMC against those forks would surface in the BTC node's view as headers whose `prev_hash` isn't on mainchain. The relative unknown:stale ratio (~172:1 against the 96 committed stales) is much higher than older chains' for this reason.
 
 ## 3. Filtering → accepted direct-stale candidates
 
@@ -123,7 +122,10 @@ Current upstream overlap and chronological allocation are in the [novelty report
 
 **Methodological note.**
 
-Emercoin is the first hybrid PoW/PoS chain in the pipeline. The PoS-filter pattern (read the RPC `flags` field and skip `"proof-of-stake"` blocks before any AuxPoW handling) is reusable for any future Peercoin-lineage hybrid. The filter is a single conditional in the extractor: skip any block whose RPC `flags` field is not `"proof-of-work"`. The economic implication of hybrid consensus - a 15 % PoW share means roughly 15 % of the per-block AuxPoW yield of a pure-PoW chain of equivalent length - is significant for forward planning: a 790 k-block hybrid chain delivers AuxPoW-extractable data comparable to a 120 k-block pure-PoW chain, not the full 790 k.
+A 15 % PoW share means roughly 15 % of the per-block AuxPoW yield of a
+pure-PoW chain of equivalent length: a 790 k-block hybrid chain delivers
+AuxPoW-extractable data comparable to a 120 k-block pure-PoW chain, not the
+full 790 k. The PoS filter is the RPC `flags` check described above.
 
 ## 5. Integration history
 

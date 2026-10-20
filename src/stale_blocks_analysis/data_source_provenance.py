@@ -22,10 +22,9 @@ def read_pinned_ref(manifest_path: Path, key: str) -> str | None:
 
 
 def clone_state(path: Path) -> dict | None:
-    """Return commit/dirty metadata; the entire state is None if Git fails.
+    """Commit and dirty flag, or None for the whole state if Git fails.
 
-    Unknown state must never imply a clean checkout. A .git file also supports
-    linked worktrees; a directory nested inside another repo is not a clone.
+    Unknown is not clean. A ``.git`` file covers a linked worktree; a nested directory is not this clone.
     """
     if not (path / ".git").exists():
         return None

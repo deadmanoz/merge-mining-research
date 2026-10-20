@@ -213,12 +213,9 @@ def is_hash(value: str) -> bool:
 
 
 def parse_header_fields(header_hex: str) -> dict[str, str]:
-    """Derive header fields from an 80-byte header hex string.
+    """Display-order ``hash`` and ``prev_hash``. ``time`` and ``nonce`` are little-endian.
 
-    Returns ``hash`` / ``prev_hash`` (display-order hex), ``time`` /
-    ``nonce`` (decimal strings), and ``bits`` (big-endian hex), or {} when
-    the hex is missing, malformed, or shorter than 80 bytes. Used to fill
-    columns a source CSV omits.
+    ``bits`` is big-endian hex. Missing, malformed, or short hex returns ``{}``.
     """
     header_hex = (header_hex or "").strip()
     if not header_hex:
@@ -244,13 +241,9 @@ def reconcile_parent_header_fields(
     context: str,
     parsed: dict[str, str] | None = None,
 ) -> None:
-    """Fill and authenticate normalized audit fields from a parent header.
+    """A parseable parent header fills blanks and must agree with populated fields.
 
-    A parseable serialized Bitcoin parent header is the authoritative source
-    for its hash, previous hash, time, bits, and nonce. Missing normalized
-    fields are filled in place; every populated field must agree after the
-    normal lowercase normalization for hashes and bits. Missing or malformed
-    header hex remains the caller's separate coverage concern.
+    Hashes and bits are compared lowercase. Missing hex is the caller's concern.
     """
     if parsed is None:
         parsed = parse_header_fields(row.get("btc_header_hex", ""))
@@ -285,13 +278,7 @@ def int_or_none(value: str) -> int | None:
 def btc_height(
     row: dict[str, str], fieldnames: Iterable[str] | None, classification: str
 ) -> str:
-    """Resolve the BTC parent height for a row, as a string.
-
-    Takes the first populated height column; for stale rows falls back to
-    ``btc_parent_height + 1`` (the stale sits one above its canonical
-    parent), then to the validated BIP34 coinbase height used by legacy
-    Namecoin inventories. Returns '' when nothing resolves.
-    """
+    """First height column, else stale ``btc_parent_height + 1``, else BIP34 height."""
     height = get_value(row, fieldnames, BTC_HEIGHT_COLUMNS)
     if height:
         return height
@@ -308,14 +295,10 @@ def child_height_for(
     row: dict[str, str],
     fieldnames: Iterable[str] | None,
 ) -> str:
-    """Resolve the authenticated child-chain height for ``source``.
+    """Blank for scan-order and parent-only sources.
 
-    Sources whose declared schema records scan order instead of consensus
-    height return blank for later authenticated hydration. Parent-only sources
-    declare child height not applicable and also return blank. Authenticated
-    child sources prefer the chain's registered ``height_column`` from
-    CHAIN_SPECS, then any populated ``*_height`` column that is not a BTC-side
-    height, then a literal ``child_height`` column. Returns '' when absent.
+    Authenticated sources use ``CHAIN_SPECS.height_column``, then a non-BTC
+    ``*_height``, then ``child_height``.
     """
     if source.child_height_semantics in {
         CHILD_HEIGHT_UNAUTHENTICATED_SCAN_ORDER,
@@ -367,22 +350,10 @@ def child_hash_for(
 
 
 def _is_legacy_address_projection(outputs: str) -> bool:
-    """True when a legacy cell holds only decoded addresses and no placeholder.
+    """Address-only legacy cell with nothing dropped, for filtered acquisitions only.
 
-    An all-address vector identifies an address *decode*, but a decode is a
-    projection only for an acquisition that dropped what it could not name,
-    so the caller applies this test solely to ``FILTERED_ACQUISITION_CHAINS``
-    rows. Bitcoin Vault reads exact scripts; Terracoin and Syscoin's legacy
-    decodes kept a placeholder for every unnameable output, so their
-    address-only cells are complete vectors with exact positions. The test is
-    on the source tokens rather than the parsed claims because a P2SH address
-    parses to an exact script, which would hide an all-P2SH filtered row.
-
-    Canonical vectors can also contain only addresses. The caller's
-    ``rendered == outputs`` guard keeps those cells out of this inference;
-    only a cell requiring legacy normalization reaches it. A retained
-    ``OP_RETURN`` placeholder means nothing was dropped, so those stay exact.
-    Once normalized the projection is stated with the marker instead.
+    Tested on source tokens: a P2SH address parses to an exact script. A
+    retained ``OP_RETURN`` or raw script is not a projection.
     """
     tokens = [
         token.strip() for token in outputs.replace("|", ";").split(";") if token.strip()
@@ -403,22 +374,10 @@ def _is_legacy_address_projection(outputs: str) -> bool:
 
 
 def normalize_outputs_cell(outputs: str, *, chain: str) -> str:
-    """Render a populated, possibly legacy, cell through the claims layer.
+    """Re-render a legacy cell. A cell that already round-trips is canonical.
 
-    An archive row's cell can predate the rendering contract; publication and
-    reconciliation must still emit the contract, so the cell is re-rendered
-    from its parsed claims. ``chain`` carries the acquisition provenance,
-    applied only to a cell the contract would rewrite -- one that already
-    round-trips unchanged is canonical and states its own claims:
-
-    - a ``CHILD_DECODED_ACQUISITION_CHAINS`` legacy cell holds the child
-      node's decoded addresses, which collapse P2PK to the P2PKH form, so its
-      address tokens establish only the recipient hash160 and render as
-      ``pkh(...)`` even in Bitcoin's version-0 form;
-    - a ``FILTERED_ACQUISITION_CHAINS`` all-address legacy cell kept only the
-      outputs the decode could name, so it gains the ``~`` filtered marker.
-
-    Raises ``ValueError`` when the cell does not parse.
+    Child-decoded addresses collapse P2PK to ``pkh(...)``. Filtered
+    all-address cells gain the ``~`` marker. Unparseable cells raise.
     """
     rendered = render_coinbase_outputs_column(parse_coinbase_output_claims(outputs))
     if rendered == outputs:
@@ -437,14 +396,9 @@ def normalize_outputs_cell(outputs: str, *, chain: str) -> str:
 def parse_coinbase_fields(
     row: dict[str, str], *, chain: str
 ) -> tuple[str, str, str, bool]:
-    """Extract coinbase evidence, decoding ``full_coinbase_hex`` when needed.
+    """``(scriptsig, outputs, full_coinbase, malformed)``. Empty columns parse ``full_coinbase_hex``.
 
-    Returns ``(scriptsig_hex, outputs, full_coinbase_hex, malformed)``.
-    Hathor-style rows carry only the full coinbase transaction; when the
-    scriptsig or outputs columns are empty, they are filled by parsing it.
-    ``chain`` is the source chain, carried into the legacy-cell normalization
-    so the filtered-projection inference applies only to acquisitions that
-    actually filtered. ``malformed`` flags a cell that failed to parse.
+    Filtered-projection inference uses ``chain``.
     """
     scriptsig = row.get("coinbase_scriptsig_hex", "").strip()
     outputs = row.get("coinbase_outputs", "").strip()
@@ -469,12 +423,7 @@ def parse_coinbase_fields(
 
 
 def normalize_classification(source: EvidenceSource, row: dict[str, str]) -> str:
-    """Normalize a row's classification value.
-
-    Validated-stales files may omit the column (every row is a stale);
-    the legacy ``orphan`` spelling maps to ``unknown``; anything else
-    passes through lowercased, defaulting to ``unknown`` when empty.
-    """
+    """Omitted validated-stales rows are ``stale``. Legacy ``orphan`` is ``unknown``."""
     classification = row.get("classification", "").strip().lower()
     if not classification and source.source_kind == "validated_stales":
         return "stale"
@@ -484,12 +433,7 @@ def normalize_classification(source: EvidenceSource, row: dict[str, str]) -> str
 
 
 def rejection_reason(row: dict[str, str], validation_status: str) -> str:
-    """Return the row's rejection reason.
-
-    Prefers an explicit ``rejection_reason`` column; otherwise a
-    REJECTED-prefixed ``validation_status`` doubles as the reason. '' for
-    rows that were not rejected.
-    """
+    """Explicit column, else a ``REJECTED`` validation status, else ``""``."""
     direct = row.get("rejection_reason", "").strip()
     if direct:
         return direct
@@ -504,14 +448,7 @@ def normalize_evidence_row(
     fieldnames: Iterable[str] | None,
     row_number: int,
 ) -> tuple[dict[str, str], set[str]]:
-    """Normalize one source CSV row into the EVIDENCE_FIELDS shape.
-
-    Fills header fields from ``btc_header_hex`` where the source omits
-    columns, normalizes the classification (legacy ``orphan`` becomes
-    ``unknown``), and resolves coinbase evidence. Returns the normalized
-    row plus a set of error labels (missing/malformed header hash, header
-    hex, or full coinbase) that feed the per-source stats.
-    """
+    """EVIDENCE_FIELDS row plus error labels. Legacy ``orphan`` becomes ``unknown``."""
     classification = normalize_classification(source, row)
     normalized_input = set(EVIDENCE_FIELDS).issubset(fieldnames or ())
 
@@ -571,9 +508,7 @@ def normalize_evidence_row(
         field for field in CHILD_HEADER_FIELDS if child_bundle[field]
     ]
     source_spec = CHAIN_SPECS.get(source.chain)
-    # Every target historical row enters the complete-bundle validator,
-    # including an all-empty row. Non-target sources retain whatever child
-    # evidence their native format exposes, with all available fields checked.
+    # Historical targets require a complete bundle, even when every field is empty.
     try:
         if source.chain in HISTORICAL_CHILD_HEADER_CHAINS or len(
             populated_child_fields
@@ -621,10 +556,8 @@ def normalize_evidence_row(
     expected_nbits = row.get("expected_nbits", "").strip()
     normalized_rejection_reason = rejection_reason(row, validation_status)
     if classification in ("canonical", "unknown"):
-        # Canonical and unresolved-unknown state is already represented on the
-        # primary axis. Source-specific annotations do not belong on the
-        # stale-validation axis; accepted descendants receive their verdict
-        # later from the accepted parent-verdict module.
+        # Canonical and unknown are final on the primary axis, so gate
+        # annotations are cleared.
         validation_status = ""
         expected_nbits = ""
         normalized_rejection_reason = ""
@@ -659,10 +592,7 @@ def normalize_evidence_row(
         "rejection_reason": normalized_rejection_reason,
     }
     if source.chain == "rsk":
-        # Fresh RSK classifier families carry the complete monitor sidecar
-        # bundle themselves. Preserve it through normalization so a matching
-        # historical child-identity row can validate and replace the bundle as
-        # one unit instead of creating a field-by-field hybrid.
+        # Keep the RSK sidecar as one bundle so identity hydration cannot hybridize it.
         for field in RSK_SIDECAR_EXPORT_FIELDS:
             if field == "rsk_merkle_proof":
                 value = row.get(field, "") or row.get("merge_mining_merkle_proof", "")
@@ -717,11 +647,7 @@ def enforce_unknown_split_contract(
 def write_csv(
     path: Path, rows: Iterable[dict[str, object]], fieldnames: list[str]
 ) -> int:
-    """Write rows to ``path`` restricted to ``fieldnames``; return the row count.
-
-    Missing keys are written as empty strings, so every output artifact has
-    a uniform column set regardless of source variation.
-    """
+    """Missing keys are empty, so every artifact has the same columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
     with path.open("w", newline="") as f:
@@ -738,16 +664,11 @@ def iter_source_rows(
     *,
     data_dir: Path = DATA_DIR,
 ) -> Iterable[tuple[dict[str, str], set[str]]]:
-    """Yield ``(normalized_row, errors)`` for every row of a source CSV.
-
-    Row numbers start at 2 to match spreadsheet line numbering (line 1 is
-    the header). Yields nothing when the source has no path.
-    """
+    """Row numbers start at 2. No path yields nothing."""
     if source.path is None:
         return
     if source.source_kind == "stale_descendant_parent_verdicts":
-        # Import lazily because the canonical parent loader authenticates
-        # serialized fields with helpers from this module.
+        # Lazy: the parent loader authenticates fields with helpers from here.
         from .stale_descendants import load_stale_descendant_parents
 
         for parent in load_stale_descendant_parents(
@@ -787,15 +708,7 @@ def collect_source_rows(
     error_blocks_path: Path | None = None,
     excluded_error_rows: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], SourceStats]:
-    """Read and normalize an entire source CSV, accumulating SourceStats.
-
-    Every normalized row is kept except requested source classifications and
-    exact identities in the committed error-blocks dataset. Applying
-    exclusions here keeps them out of both projection and source statistics.
-    Final-category conflicts are not repaired at this boundary: source
-    classifiers must emit the current verdict, and the publication validator
-    rejects any conflicting snapshot.
-    """
+    """Exclusions leave both the projection and the stats. Conflicts are not repaired here."""
     stats = SourceStats()
     rows: list[dict[str, str]] = []
     if source.path is None:
@@ -840,8 +753,7 @@ def collect_source_rows(
                 continue
             if errors:
                 raise ValueError(f"{source.path}: malformed accepted RSK observation")
-            # The compact file owns the parent verdict; the sealed inventory
-            # owns each distinct child observation and its complete sidecar.
+            # Compact file owns the parent verdict; the inventory owns the child event.
             for field in ("validation_status", "expected_nbits", "rejection_reason"):
                 normalized[field] = verdict[field]
         rows.append(normalized)
@@ -871,12 +783,7 @@ def collect_source_rows(
 
 
 def canonical_evidence_status(source: EvidenceSource, stats: SourceStats) -> str:
-    """Classify how well the discovered source represents canonical parents.
-
-    ``canonical_retained`` means canonical rows made it into the stats
-    (in-file or via a companion); a validated-stales source that cannot
-    carry them reports the stale-only-publication status instead.
-    """
+    """``canonical_retained``, or the stale-only status when the source cannot carry them."""
     if source.source_kind == "missing":
         return "not_checked_missing_source"
     if source.source_kind == "stale_descendant_parent_verdicts":

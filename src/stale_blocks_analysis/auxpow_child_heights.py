@@ -1,9 +1,6 @@
-"""Resolve provisional blk-file child records to exact RPC-backed heights.
+"""Fill blank blk-file child heights from a node. Disk order is not consensus order.
 
-The generic Namecoin-family blk-file extractor leaves child height blank
-because disk order is not consensus order. This module validates each raw child
-hash and version against a running child-chain node before atomically filling
-the uniform height slot with the exact consensus height.
+Each raw hash and version is checked before the uniform height slot is written atomically.
 """
 
 from __future__ import annotations
@@ -106,12 +103,7 @@ Transport = Callable[[bytes], bytes]
 
 
 class ChildChainRpc:
-    """Single-request stdlib JSON-RPC client compatible with legacy 611d.
-
-    SixEleven rejects batch-array JSON roots, including one-element batches.
-    Lyncoin accepts the same standard single-request object, so both chains use
-    this transport rather than the Bitcoin-specific batched client.
-    """
+    """Single-request JSON-RPC. SixEleven rejects batch-array roots, including a one-element batch."""
 
     def __init__(
         self,
@@ -145,11 +137,7 @@ class ChildChainRpc:
             return response.read()
 
     def call(self, method: str, params: list | None = None) -> Any:
-        """Make a single JSON-RPC request and return its ``result``.
-
-        Raises ``RuntimeError`` if the response is not a JSON object or
-        carries a non-null ``error``.
-        """
+        """One request. A non-object response or a non-null ``error`` raises."""
         request = {
             "jsonrpc": "1.0",
             "id": 0,
@@ -241,14 +229,10 @@ def _resolve_row(
     rpc: RpcClient,
     tip_height: int,
 ) -> dict[str, str]:
-    """Validate one raw child row and resolve its exact consensus height via RPC.
+    """Check both hash orders, version shape, and time before RPC.
 
-    Every child hash byte-order pair, ``child_version`` AuxPoW/chain-ID shape,
-    and ``child_block_time`` is checked before the RPC call. The RPC result
-    (``spec.rpc_method`` on the display hash, then ``getblockhash`` at the
-    resolved height) must agree on hash, height range, version, time, and
-    canonical linkage. Returns ``row`` with ``child_height`` populated;
-    raises ``ValueError`` on any mismatch.
+    ``spec.rpc_method`` on the display hash and ``getblockhash`` at the
+    resolved height must agree on hash, height, version, time, and linkage.
     """
     internal_hash = _require_hash(
         row.get("child_block_hash"),
@@ -371,12 +355,7 @@ def _resolve_row(
 def _write_csv_atomic(
     output_path: Path, fieldnames: list[str], rows: Iterable[dict[str, str]]
 ) -> int:
-    """Write ``rows`` to ``output_path`` via a temp file + ``os.replace``.
-
-    Fsyncs before the rename so a crash mid-write cannot leave a partial file
-    at ``output_path``. On any exception the temp file is removed and the
-    exception re-raised. Returns the number of rows written.
-    """
+    """Temp file, fsync, then ``os.replace``. A failure removes the temp and re-raises."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent

@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 """Acquire complete Hathor v3 evidence from an audited metadata ledger.
 
-The metadata ledger establishes one ``tx_id`` for every ``version_3_ready``
-height. This collector requests each missing transaction and appends one sealed
-row to the acquisition dataset. Failed attempts remain append-only history and
-are retried on later runs. The failure log also schedules bounded runs by least
-completed failure round then height, so a permanent early failure cannot starve
-later heights under ``--limit``. Each dataset row retains the lossless
-transaction and AuxPoW bytes, its derived funds-graph prefix, request
-provenance, and a SHA-256 record seal. Resume and audit reject damaged rows.
-Run one process for each dataset/failure-output pair.
-
-The dataset is private archival data. The repository's default ``data/hathor/``
-location is gitignored.
+Failed attempts stay append-only and are retried. A permanent early failure must not starve later heights under ``--limit``. Resume and audit reject damaged rows. The dataset is private.
 """
 
 from __future__ import annotations

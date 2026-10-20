@@ -1,9 +1,7 @@
-"""Authenticate error parents extending a reviewed invalid fork root.
+"""Recheck headers, predecessor edges, heights, full work, and the root's minimum-version violation.
 
-Root placement is a retained Bitcoin Core canonical-parent receipt. Header
-identities, every predecessor edge, heights, full Bitcoin work, and the root's
-minimum-version violation are rechecked offline. This does not validate bodies
-or infer invalidity from an unknown source bucket.
+Root placement is a retained Core canonical-parent receipt. This does not
+validate bodies or infer invalidity from a source bucket.
 """
 
 from __future__ import annotations

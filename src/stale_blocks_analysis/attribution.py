@@ -1,56 +1,11 @@
-"""Per-stale-block pool attribution: assembly, evidence basis, and export.
+"""Pool attribution over this repo's recovered evidence. The census is not merged here.
 
-This is the attribution layer's driver. It merges every per-chain
-AuxPoW-recovered loader in `stale_blocks.py` plus the stale descendants,
-tags each record with a mining pool, and records what kind of evidence
-produced each label.
-
-The scope is deliberately this repo's own recovered evidence. The upstream
-census is not merged or labelled here: the combined census-plus-recovered
-set is the stale-rate analysis's input, and the companion repo assembles it
-from these same functions.
-
-Acquisition and recovery stay free of pool attribution; this module is the
-separate pass over already-loaded records described in
-`docs/pool-attribution.md`.
-
-Three passes run over the merged, tagged records, in order:
-
-1. `attribution_basis` is set to `coinbase` where coinbase identification
-   produced a real label, and `unattributed` otherwise.
-2. Rows whose `(height, hash)` matches an accepted RSK stale observation
-   are joined against the `pool_label` column of the committed
-   `rsk_validated_stales.csv`, whose labels come from a historical
-   miner-address registry rather than the BTC parent coinbase (RSK's proof
-   does not expose it). The join key is `(height, hash)`, regardless of
-   which source's row survived the merge, and never displaces a coinbase
-   attribution. Labelled rows carry `attribution_basis=rsk_historical`
-   so a consumer can always tell them apart: they are historical evidence,
-   never a current attribution result.
-3. `template_producer` is folded from the tag-owner label for
-   coinbase-attributed rows, so every record carries both the tag owner and,
-   where the measurement evidence supports it, the entity that actually
-   built the template. Rows whose label is not coinbase-derived
-   (`rsk_historical`, `unattributed`) carry their label unfolded: the fold
-   table's evidence is coinbase-tag measurement and does not apply to them.
-
-Export contract (`results/analysis/pool-attribution/stale-block-attributions.csv`,
-a gitignored regenerable run product):
-
-    height,hash,source,pool,template_producer,attribution_basis,has_bin
-
-`attribution_basis` is one of `coinbase`, `rsk_historical`, or
-`unattributed`.
-
-`min_height` is a plain caller-supplied floor passed through to every loader.
-It carries no windowing semantics of its own: the default of 0 means
-"everything available", and analysis-side callers that need a narrower
-population supply their own floor.
-
-Depends on: config (CHAIN_SPECS, CHAINS_BY_AUXPOW_ACTIVATION, RESULTS_DIR,
-RSK_CSV, BLOCKS_DIR), stale_blocks (per-chain loaders), stale_merge
-(merge_stale_sources, tag_stale_blocks), template_producers
-(fold_template_producer).
+Passes, in order: ``coinbase`` where identification produced a label, else
+``unattributed``; then historical RSK ``pool_label`` on ``(height, hash)``,
+never displacing coinbase (``rsk_historical`` is not a current result); then
+``template_producer``, folded only for coinbase-derived labels. Export columns
+are ``height,hash,source,pool,template_producer,attribution_basis,has_bin``.
+``min_height`` is a plain floor; 0 means everything available.
 """
 
 from __future__ import annotations
@@ -96,9 +51,7 @@ ATTRIBUTIONS_CSV = (
 )
 ATTRIBUTIONS_CSV.parent.mkdir(parents=True, exist_ok=True)
 
-# The declared vocabulary of the attribution_basis column. Consumers group
-# by it, so a caller-supplied value outside this set would silently break
-# their grouping.
+# Consumers group on this vocabulary. A value outside it would split groups.
 ATTRIBUTION_BASES = ("coinbase", "rsk_historical", "unattributed")
 
 ATTRIBUTION_COLUMNS = [
@@ -113,12 +66,7 @@ ATTRIBUTION_COLUMNS = [
 
 
 def auxpow_loader_roster() -> list[tuple[str, Callable]]:
-    """Per-chain stale loaders in CHAINS_BY_AUXPOW_ACTIVATION order.
-
-    Derived from the public CHAIN_SPECS registry — new chains join the
-    attribution export automatically when their loader lands in
-    stale_blocks.py.
-    """
+    """``CHAINS_BY_AUXPOW_ACTIVATION`` order. A new loader joins by name."""
     return [
         (key, getattr(_stale_loaders, f"load_{key.replace('-', '_')}_stales"))
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION
@@ -126,14 +74,9 @@ def auxpow_loader_roster() -> list[tuple[str, Callable]]:
 
 
 def apply_attribution_basis(stale: list[dict]) -> None:
-    """Record whether coinbase identification produced a real pool label.
+    """``coinbase`` only when ``_pool_match`` produced the label.
 
-    Only labels that identification actually produced (the record carries a
-    `_pool_match` from `tag_stale_blocks`) can become `coinbase`. A record
-    labelled by the caller before tagging must also carry its own
-    `attribution_basis`, which is preserved; without one there is no way to
-    know what kind of evidence the label rests on, so that is an error
-    rather than a guess.
+    A caller-supplied label must already carry an ``attribution_basis``.
     """
     for s in stale:
         supplied = s.get("attribution_basis")
@@ -171,19 +114,10 @@ def apply_attribution_basis(stale: list[dict]) -> None:
 
 
 def apply_rsk_historical_labels(stale: list[dict]) -> None:
-    """Join the historical miner-registry `pool_label` onto RSK observations.
+    """Apply RSK ``pool_label`` as ``rsk_historical``, not a coinbase result.
 
-    RSK's merge-mining proof does not expose the BTC parent coinbase, so
-    `load_rsk_stales` deliberately returns header identity only. The labels
-    live in the committed loader input's `pool_label` column and are applied
-    here, flagged as `rsk_historical` so they are never mistaken for a
-    coinbase-derived attribution result.
-
-    The join key is `(height, hash)`, the identity of the observed header,
-    not the merged row's retained `source`: when an RSK-observed header also
-    appears in the census or an earlier-activation chain, that primary
-    row's source survives the merge, but the header was still accepted as
-    an RSK stale observation and its historical label still applies.
+    RSK does not expose the parent coinbase. The key is ``(height, hash)``,
+    not the merged row's retained ``source``.
     """
     if not RSK_CSV.exists():
         return
@@ -198,19 +132,14 @@ def apply_rsk_historical_labels(stale: list[dict]) -> None:
             ) not in ACCEPTED_STALE_VALIDATION_STATUSES:
                 continue
             label = (row.get("pool_label") or "").strip()
-            # The registry column uses the literal sentinel "Unknown" for
-            # rows its historical analysis could not attribute; treat it
-            # like an empty label so those rows stay `unattributed`.
+            # Registry sentinel "Unknown" stays unattributed.
             if not label or label == "Unknown":
                 continue
             labels[(int(row["btc_height"]), row["btc_header_hash"])] = label
 
     n = 0
     for s in stale:
-        # A row can carry real coinbase evidence (its own binary, or a
-        # coinbase grafted from another chain's observation of the same
-        # header). Coinbase attribution outranks the historical registry,
-        # so never overwrite it.
+        # Coinbase evidence outranks the historical registry.
         if s.get("attribution_basis") == "coinbase":
             continue
         label = labels.get((s["height"], s["hash"]))
@@ -228,22 +157,11 @@ def apply_rsk_historical_labels(stale: list[dict]) -> None:
 
 
 def apply_template_producers(stale: list[dict]) -> None:
-    """Fold coinbase-derived tag-owner labels into template-producer labels.
-
-    The fold table's evidence is stratum-job and coinbase-tag measurement, so
-    it applies only to rows whose label came from the coinbase
-    (`attribution_basis=coinbase`). An `rsk_historical` label is a
-    miner-address attribution with no coinbase behind it, so it is carried
-    into `template_producer` unfolded rather than upgraded to a
-    template-producer claim; unattributed rows carry "Unknown".
-    """
+    """Fold only ``attribution_basis=coinbase``. Historical and unattributed labels stay unfolded."""
     for s in stale:
         tag = s.get("pool") or "Unknown"
-        # The fold's evidence is coinbase-TAG measurement, so it applies
-        # only when the label came from an actual tag observation (scriptSig
-        # or OP_RETURN); a payout-address-only identification is coinbase
-        # evidence for the tag OWNER but observes no tag, so it is carried
-        # unfolded.
+        # Address-only coinbase evidence names the tag owner and has no tag
+        # to fold. Only scriptSig and OP_RETURN matches fold.
         if s.get("attribution_basis") == "coinbase" and s.get("_pool_match") in (
             "tag",
             "op_return",
@@ -256,22 +174,13 @@ def apply_template_producers(stale: list[dict]) -> None:
 def load_attributed_stales(
     min_height: int = 0, allow_partial: bool = False
 ) -> list[dict]:
-    """Load, merge, tag, and attribute the merge-mining-recovered stales.
+    """This repo's loaders, descendants, and RSK observations. The census is not merged.
 
-    The record set is this repo's own evidence: AuxPoW-recovered direct
-    stales from every chain loader, the stale descendants, and RSK
-    observations. The upstream census is NOT merged here; labelling the
-    combined census-plus-recovered set is the stale-rate analysis's job,
-    and the companion repo assembles it from these same functions.
-
-    *min_height* is passed verbatim to every loader as a plain height floor;
-    the default of 0 admits everything available.
+    ``min_height`` is a plain floor; 0 admits everything available.
     """
     require_committed_inputs()
     require_blocks_archive(allow_partial=allow_partial)
-    # Rebuild the identification tables from disk so this run's labels match
-    # the dataset state the meta sidecar records, even in a long-lived
-    # process that edited the registry clone since the previous run.
+    # Rebuild pool tables so labels match the sidecar, even after a registry edit.
     reset_runtime_pool_tables()
 
     print("Loading merge-mining-recovered stale records ...")
@@ -301,10 +210,7 @@ def load_attributed_stales(
     apply_rsk_historical_labels(stale)
     apply_template_producers(stale)
 
-    # Bind provenance to this batch. Publication can happen much later in a
-    # library caller, by which time the registry or the archive may have
-    # moved; the sidecar must describe the state that produced these
-    # labels, not the state at write time.
+    # Provenance is this batch's inputs, not the state at a later write.
     batch = AttributedStales(stale)
     batch.min_height = min_height
     batch.provenance = _capture_provenance(allow_partial, rejected)
@@ -312,13 +218,7 @@ def load_attributed_stales(
 
 
 def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> None:
-    """Write the per-stale-block attribution export to *path*.
-
-    Records carry working keys beyond the export contract (`_scriptsig_hex`
-    and `_outputs_str` survive both the .bin tagging path and the duplicate
-    graft in `merge_stale_sources`), so every row is projected onto the
-    declared columns rather than handed to DictWriter as-is.
-    """
+    """Project onto ``ATTRIBUTION_COLUMNS``. Working keys are not part of the export."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=ATTRIBUTION_COLUMNS, lineterminator="\n")
@@ -328,15 +228,9 @@ def dump_attributions_csv(stale: list[dict], path: Path = ATTRIBUTIONS_CSV) -> N
 
 
 def _repository_input_files() -> list[Path]:
-    """The repository files whose content shapes the export.
+    """Loader CSVs, descendant and error-block inputs, and every module here.
 
-    Data side: every committed loader CSV, the stale descendants and their
-    stale-descendant observation ledger, and the error-blocks exclusion inputs.
-    Code side:
-    every module in this package. Two runs with the same commit but
-    different local edits to any of these can produce different labels, so
-    the sidecar fingerprints their content rather than relying on the
-    commit-plus-dirty flag alone.
+    Local edits change labels, so the sidecar hashes content, not just the commit.
     """
     files = sorted(VALIDATED_STALES_DIR.glob("*.csv"))
     files += [
@@ -345,20 +239,13 @@ def _repository_input_files() -> list[Path]:
         ERROR_BLOCKS_CSV,
         ERROR_BLOCKS_MTP_CONTEXT_CSV,
     ]
-    # Every module in the package, not a hand-listed subset: the loaders
-    # reach helpers transitively (error_blocks, bitcoin_binary, ...), and a
-    # curated list silently goes stale as those imports change.
+    # Every module: a hand-listed subset goes stale as imports change.
     files += sorted(Path(__file__).resolve().parent.glob("*.py"))
     return files
 
 
 def _repository_inputs_fingerprint(files: list[Path] | None = None) -> str:
-    """SHA-256 over every repository file the export consumes.
-
-    Fixed publication inputs must remain present between the preflight guard
-    and provenance capture. Missing files therefore fail instead of silently
-    disappearing from the digest.
-    """
+    """SHA-256 of the export inputs. A missing file fails instead of leaving the digest."""
     h = hashlib.sha256()
     for f in files if files is not None else _repository_input_files():
         h.update(f.name.encode())
@@ -384,13 +271,9 @@ def archive_blob_map() -> dict[str, str]:
 
 
 def archive_inventory() -> tuple[set[str] | None, set[str]]:
-    """Block-binary filenames tracked at HEAD, and those on disk.
+    """HEAD names, not the index, so a staged deletion cannot shrink the manifest.
 
-    The tracked set is the only manifest of what a complete archive looks
-    like. It is read from HEAD rather than the index so a staged deletion
-    cannot shrink it, and compared by name rather than by count so an
-    untracked stray cannot mask a missing binary. It is None when the clone
-    is not a git checkout, where no manifest exists to compare against.
+    Compared by name. ``None`` when the clone is not a git checkout.
     """
     present = {p.name for p in BLOCKS_DIR.glob("*.bin")}
     proc = subprocess.run(
@@ -418,13 +301,9 @@ def archive_inventory() -> tuple[set[str] | None, set[str]]:
 
 
 class AttributedStales(list):
-    """The attributed records, carrying what produced them.
+    """A list plus the floor and input snapshot that produced it.
 
-    A plain list to every consumer, but it also remembers the height floor
-    that bounded it and a snapshot of the inputs that were read. Binding
-    those to the batch rather than to module state means a caller can load
-    twice and publish either one without the second load's provenance
-    landing on the first one's CSV.
+    Bound to the batch, so a second load cannot overwrite the first CSV's provenance.
     """
 
     # None means "not bound by a load": a batch a caller assembled itself
@@ -458,19 +337,14 @@ def _capture_provenance(allow_partial: bool, rejected: int = 0) -> dict:
             "state": clone_state(STALE_DIR),
             "input_fingerprint": _stale_inputs_fingerprint(),
             "archive": {
-                # An empty tracked inventory proves nothing about what
-                # should be present, so it is not a verified archive.
+                # An empty tracked inventory is not a verified archive.
                 "verifiable": bool(expected_names),
                 "expected": (
                     len(expected_names) if expected_names is not None else None
                 ),
                 "present": len(present_names),
                 "missing": len(missing),
-                # A binary that was present but rejected leaves its row on
-                # the same weaker evidence as an absent one, so the run is
-                # partial even when every tracked name is on disk. So is a
-                # run with no manifest to compare against: nothing is
-                # missing only because nothing is known to be expected.
+                # A rejected binary, or no manifest, is still a partial run.
                 "rejected": rejected,
                 "partial": bool(missing) or bool(rejected) or not expected_names,
                 "allow_partial": allow_partial,
@@ -480,14 +354,9 @@ def _capture_provenance(allow_partial: bool, rejected: int = 0) -> dict:
 
 
 def require_committed_inputs() -> None:
-    """Stop when a committed loader input is absent.
+    """A missing CSV is indistinguishable from a real zero-row chain.
 
-    A missing CSV makes its loader return no rows, which is
-    indistinguishable in the export from a chain that genuinely recovered
-    no stales (several chains legitimately have zero-row inputs). Presence
-    is therefore checked before loading rather than inferred from counts.
-    A chain registered in ``CANONICAL_ONLY_CHAINS`` is the explicit exception:
-    its reviewed evidence contains no direct-stale publication artifact.
+    ``CANONICAL_ONLY_CHAINS`` have no direct-stale artifact on purpose.
     """
     missing = [
         VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
@@ -500,22 +369,15 @@ def require_committed_inputs() -> None:
     if not STALE_DESCENDANT_OBSERVATIONS_CSV.exists():
         missing.append(STALE_DESCENDANT_OBSERVATIONS_CSV)
     if not missing:
-        # Presence is not enough: a zero-byte or header-truncated CSV
-        # yields no rows and is indistinguishable in the export from a
-        # chain that genuinely recovered none.
+        # A truncated CSV also looks like a genuine zero-row chain.
         unreadable = []
         for key, _date in CHAINS_BY_AUXPOW_ACTIVATION:
             path = VALIDATED_STALES_DIR / f"{key}_validated_stales.csv"
             if key in CANONICAL_ONLY_CHAINS and not path.exists():
                 continue
-            # RSK has no spec and bitcoin-vault's is keyed with an
-            # underscore, so a plain lookup silently skipped the identity
-            # columns for exactly those two chains.
+            # RSK has no spec; bitcoin-vault's key uses an underscore.
             spec = _LOADER_SPECS.get(key) or _LOADER_SPECS.get(key.replace("-", "_"))
-            # Every column an attribution path actually consumes, not just
-            # the identity ones: a CSV that keeps its identity columns but
-            # loses the coinbase evidence still yields rows, silently
-            # weakened to Unknown.
+            # Coinbase columns too: identity alone would still emit Unknown rows.
             required = {
                 "classification",
                 "validation_status",
@@ -572,14 +434,9 @@ def require_committed_inputs() -> None:
 
 
 def require_blocks_archive(allow_partial: bool = False) -> None:
-    """Stop when the fetched blocks/ archive is missing or incomplete.
+    """A missing binary silently downgrades that row to AuxPoW-only evidence.
 
-    The census clone's raw blocks are a coinbase source for recovered
-    headers, and a binary that is merely absent downgrades that row to
-    AuxPoW-only evidence without any visible failure. Both the CLI and
-    library callers (the companion analysis repo) check this before
-    assembling a record set. *allow_partial* attributes from whatever is
-    present, which the meta sidecar then records.
+    ``allow_partial`` continues and the sidecar records it.
     """
     expected, present = archive_inventory()
     if not present:
@@ -590,8 +447,7 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
             "coinbase source for recovered headers; an empty or missing "
             "archive would silently produce weaker labels."
         )
-    # An empty tracked inventory is not a complete archive: a checkout that
-    # tracks no binaries tells us nothing about what should be present.
+    # No tracked binaries means there is no manifest to compare.
     if not expected and not allow_partial:
         raise FileNotFoundError(
             f"Cannot verify the block archive at {STALE_DIR}: it tracks no "
@@ -615,15 +471,7 @@ def require_blocks_archive(allow_partial: bool = False) -> None:
 
 
 def _stale_inputs_fingerprint() -> str:
-    """SHA-256 over the consumed stale-blocks input (the blocks/ binaries).
-
-    The raw blocks are the only part of the stale-blocks clone this export
-    reads (as a coinbase source for recovered headers the census also
-    archived). The clone is as editable as the registry clone, and the
-    commit + dirty flag alone cannot distinguish two different working-tree
-    edits. The run already reads every matching binary, so hashing them
-    costs comparably to the export itself.
-    """
+    """SHA-256 of the blocks/ binaries. Commit and dirty flag do not distinguish edits."""
     h = hashlib.sha256()
     if BLOCKS_DIR.is_dir():
         for f in sorted(BLOCKS_DIR.glob("*.bin")):
@@ -631,10 +479,7 @@ def _stale_inputs_fingerprint() -> str:
             try:
                 h.update(f.read_bytes())
             except OSError:
-                # A partial run reached here despite an unusable binary, so
-                # re-reading it must not abort provenance capture. The
-                # marker keeps the digest distinct from both an absent file
-                # and an empty one.
+                # Distinct from an absent file and from an empty one.
                 h.update(b"<unreadable>")
     return h.hexdigest()
 
@@ -645,15 +490,7 @@ def write_attribution_meta(
     min_height: int = 0,
     allow_partial: bool = False,
 ) -> Path:
-    """Record the dataset state the export was produced from.
-
-    The registry is read from its working tree on every run (a local fork is
-    a supported workflow), so an export is reproducible only together with
-    the registry state that produced it. The sidecar records the pinned and
-    actual commits, the dirty flag, and the content fingerprint of the pool
-    dataset, plus the same for the stale-blocks clone and the per-basis row
-    counts.
-    """
+    """Pin, commit, dirty flag, and content fingerprints for the working-tree inputs."""
     # The batch knows what produced it; the arguments are the fallback for
     # a caller that assembled records itself.
     provenance = getattr(stale, "provenance", None) or _capture_provenance(
@@ -662,10 +499,7 @@ def write_attribution_meta(
     batch_floor = getattr(stale, "min_height", None)
     if batch_floor is not None:
         min_height = batch_floor
-    # The sidecar describes a specific CSV, so it carries that CSV's own
-    # hash. Publishing two files can never be one atomic act, but this
-    # makes a mismatched pair detectable by any consumer rather than
-    # silently believable.
+    # The sidecar hashes this CSV so a mixed pair is detectable.
     meta = {
         "artifact": {
             "csv_name": csv_path.name,
@@ -714,17 +548,9 @@ def publish_attribution_artifacts(
     min_height: int = 0,
     allow_partial: bool = False,
 ) -> tuple[Path, Path]:
-    """Write the export and its sidecar, replacing the previous pair together.
+    """Stage both files and replace them only after both succeed.
 
-    Both files are built in a staging directory and moved into place only
-    once both succeed, so a failed run cannot leave a half-written pair.
-    This mirrors the staged-artifact rule the monitor-evidence build
-    already follows.
-
-    Two files cannot be swapped in one atomic act, so the sidecar also
-    carries the CSV's own hash: a reader that finds a mismatch knows it is
-    looking at a mixed pair from an interrupted rerun, rather than
-    trusting provenance that describes different labels.
+    The sidecar's CSV hash makes an interrupted mixed pair detectable.
     """
     batch_floor = getattr(stale, "min_height", None)
     if batch_floor is not None:

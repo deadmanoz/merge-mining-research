@@ -1,31 +1,7 @@
 #!/usr/bin/env python3
-"""
-Phase 3: Classify Elastos AuxPoW extracts as canonical, stale, or unknown.
+"""Classify Elastos AuxPoW extracts as canonical, stale, or unknown.
 
-The archived scan starts at ELA height 177,000 and first retains a non-dummy
-parent proof at ELA 177,153 (August 2018), mapping to BTC height 538,457. Every
-extracted row is therefore post-BCH. Expected-nBits validation against the
-canonical Bitcoin chain is one part of the shared direct-stale publication
-gate and rejects Bitcoin-family headers whose difficulty context is not BTC's.
-
-Pipeline:
-  Step 1: PoW filter (pure Python, no RPC):
-    SHA256d(header) ≤ target(nBits). Retains only headers meeting
-    their own encoded target. Deduplicate by btc_header_hash to minimise
-    RPC volume because multiple ELA blocks often share the same parent.
-
-  Step 2: Bitcoin Core classification (batch RPC):
-    getblockheader(hash) with positive confirmations: canonical.
-    Otherwise, getblockheader(prev) with positive confirmations: STALE;
-    the remainder are UNKNOWN.
-
-  Step 3: direct-stale context validation:
-    Apply active-parent placement, median-time-past, historical block-version,
-    coinbase scriptSig, BIP34 height, and canonical-at-height nBits checks.
-    A candidate is accepted only when every available-evidence gate passes.
-
-Output: bucket-split canonical, stale, unknown, and error-block CSVs, the
-committed validated-stales CSV, and a rejected direct-stale audit CSV.
+Every retained parent is post-BCH. Expected-nBits validation is part of the available-evidence gate and is not full-block validation.
 """
 
 import argparse

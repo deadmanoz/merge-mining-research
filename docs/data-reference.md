@@ -16,10 +16,8 @@ for the research semantics these columns encode.
 - **Line endings.** All committed CSVs are LF.
 - **Encoding of the gate verdict.** The chain-specific publication gate runs at
   classification time and its verdict is persisted per row as
-  `validation_status` / `expected_nbits`. For chains exposing the required
-  evidence, it checks header hash and self-PoW, active-parent linkage, expected
-  `nBits`, median-time-past, Bitcoin's historical minimum block versions,
-  coinbase scriptSig length, and BIP34's coinbase-height rule. RSK has no
+  `validation_status` / `expected_nbits`. The checks are in
+  [research contracts](research-contracts.md#research-semantics). RSK has no
   recoverable parent coinbase scriptSig, so it cannot independently apply the
   two coinbase-dependent checks; exact-key cross-chain exclusions protect known
   shared failures. Loaders read and filter the persisted verdict; they never
@@ -298,24 +296,15 @@ provenance:
   child event can witness exactly one Bitcoin parent, while distinct child
   events from the same chain may witness the same parent.
 
-Reconciliation evaluates every authenticated candidate, begins only from the
-declared trusted-root set, and verifies the full predecessor path. A direct
-stale root is accepted only when its predecessor is on Bitcoin's active main
-chain. A consensus-invalid full-proof-of-work candidate is classified as an
-error block before stale-descendant publication. `source_classification` in the
-witness ledger records the archive bucket for audit; it does not decide the
-parent verdict. Attribution requires this ledger and validates it against the
-parent table before admitting any descendant. The four ancestry-derived error
-blocks are reviewed members of the canonical `error_blocks.csv` and
-`error_block_observations.csv` module.
-Reconciliation treats their hashes as terminal error verdicts and fails closed
-if it finds any additional consensus-invalid candidate. Children and deeper
-descendants of a catalogued error terminal inherit that invalid verdict and go
-only to the disposable error-candidate diagnostic. The diagnostic also retains
-incomplete or low-work rows as publication blockers, but only an authenticated
-full-PoW violation is classified for canonical error-module admission. A
-candidate is likewise unpublishable when the committed epoch reference cannot
-supply canonical `expected_nbits` for its inferred height.
+Reconciliation rules, error precedence, source-bucket limits, and the
+unpublishable missing-`nBits` case are in
+[research contracts](research-contracts.md#research-semantics). Attribution
+requires this witness ledger and validates it against the parent table before
+admitting any descendant. The four ancestry-derived error blocks are reviewed
+members of the canonical `error_blocks.csv` and
+`error_block_observations.csv` module. Reconciliation treats their hashes as
+terminal error verdicts and fails closed if it finds any additional
+consensus-invalid candidate.
 
 An unresolved observation remains in its raw source; withdrawing an unsupported
 accepted verdict removes its parent and witness claims from the accepted tables

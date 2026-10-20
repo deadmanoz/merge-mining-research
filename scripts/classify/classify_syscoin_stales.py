@@ -1,25 +1,7 @@
 #!/usr/bin/env python3
 """Classify Syscoin AuxPoW extracts as canonical, stale, or unknown.
 
-Syscoin extraction writes one row per merge-mined Syscoin block with the
-embedded Bitcoin parent header and coinbase transaction, in the canonical
-classifier input schema (``btc_header_hex`` / ``btc_header_hash`` / ``btc_bits``
-plus the ``sys_height`` provenance column). This wrapper runs the shared
-classifier helpers:
-
-1. keep only unique headers that meet the Bitcoin nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-The nBits validation gate is non-skippable: it marks parent headers that share a
-BTC ancestor but use an easier (non-BTC) target as REJECTED rather than counting
-them as BTC stales.
-
-Syscoin has no chain-specific input handling -- the raw extract already uses the
-shared schema -- so this is a plain ``run_classifier`` wrapper. It exposes
-``--validated-output`` so the committed VALID-only loader CSV can be written to
-an explicit path, and keeps the historical ``--input`` default of
-``data/auxpow_raw.csv``.
+The nBits gate is non-skippable. The raw extract already uses the shared schema.
 """
 
 from __future__ import annotations

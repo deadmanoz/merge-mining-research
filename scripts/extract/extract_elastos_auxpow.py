@@ -1,29 +1,7 @@
 #!/usr/bin/env python3
-"""
-Extract Bitcoin AuxPoW headers from the Elastos (ELA) blockchain.
+"""Extract Bitcoin AuxPoW headers from Elastos.
 
-Elastos RPC returns the `auxpow` field as a hex-encoded blob using the standard
-CAuxPow field layout. Elastos uses chain ID 1224 for tree-index validation.
-This script fetches `getblockbyheight` for each ELA height, parses the
-AuxPoW hex, and writes the Bitcoin parent header + coinbase data to CSV.
-
-Supports the hybrid extraction flow described in
-`docs/chains/elastos.md`:
-
-  # Phase 2a: local node (high concurrency, no rate limit)
-  python3 extract_elastos_auxpow.py \\
-      --rpc-url http://localhost:20336 \\
-      --start 177000 --end 1817251 \\
-      --rpc-concurrency 32 \\
-      --output data/elastos_auxpow_raw.csv
-
-  # Phase 2b: public endpoint (rate-limited)
-  python3 extract_elastos_auxpow.py \\
-      --rpc-url https://api.elastos.io/ela \\
-      --start 1817251 \\
-      --rpc-concurrency 8 \\
-      --output data/elastos_auxpow_raw.csv \\
-      --resume
+The auxpow field is hex in the standard CAuxPow layout. Chain ID 1224 is used for tree-index validation.
 """
 
 import argparse

@@ -1,15 +1,8 @@
-"""Hydrate the canonical subset of the archived VCash explorer sample.
+"""Canonical subset of the archived VCash explorer sample.
 
-The private VCash Wayback scrape preserves a child-chain height/hash to Bitcoin
-parent-hash mapping, but not the 80-byte Bitcoin parent header or its coinbase.
-For mappings independently classified as canonical, Bitcoin Core can supply
-that missing evidence losslessly.  This module joins the two private TSVs,
-reconfirms every selected parent against Bitcoin Core, and emits normalized
-monitor-facing rows.
-
-This is deliberately a *partial canonical subset*.  It is not a VCash chain
-recovery, and it never promotes the hash-only ``unknown`` rows to stale or
-unknown-classified evidence.
+The scrape maps child height/hash to a Bitcoin parent hash. Core supplies the
+header and coinbase for mappings already classified canonical. Hash-only
+unknown rows are not promoted.
 """
 
 from __future__ import annotations
@@ -315,13 +308,9 @@ def _require_canonical(
 
 
 def _header_fields(header_hex: str, *, expected_hash: str) -> dict[str, str]:
-    """Parse an 80-byte raw Bitcoin header hex string into row-ready fields.
+    """80-byte header that must sha256d to ``expected_hash``.
 
-    Verifies the header hashes (SHA256d) to ``expected_hash`` and returns
-    ``btc_prev_hash``/``btc_bits`` as display-order lowercase hex,
-    ``btc_time``/``btc_nonce`` as decimal strings, and ``btc_header_hex`` as
-    the normalized 80-byte header hex. Raises ``ValueError`` on malformed hex,
-    wrong length, or a hash mismatch.
+    Hashes are display-order hex. ``btc_time`` and ``btc_nonce`` are decimal.
     """
     normalized = header_hex.strip().lower()
     try:
@@ -349,14 +338,9 @@ def _header_fields(header_hex: str, *, expected_hash: str) -> dict[str, str]:
 
 
 def _coinbase_fields(block: Mapping[str, Any], *, btc_hash: str) -> dict[str, str]:
-    """Extract coinbase fields from a verbosity-2 ``getblock`` result.
+    """Coinbase scriptSig, canonical outputs, and full tx hex from a verbosity-2 ``getblock``.
 
-    Returns ``coinbase_scriptsig_hex``, ``coinbase_outputs`` (the shared
-    canonical rendering via ``format_outputs_canonical``), and
-    ``full_coinbase_hex`` (empty string if Core did not include it), all
-    lowercase. Raises ``ValueError``
-    if the block carries no decoded coinbase transaction, no coinbase input,
-    or a malformed scriptSig/output script.
+    Raises when the decoded coinbase input or an output script is missing.
     """
     txs = block.get("tx")
     if not isinstance(txs, list) or not txs or not isinstance(txs[0], Mapping):

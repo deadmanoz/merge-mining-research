@@ -1,44 +1,7 @@
 #!/usr/bin/env python3
 """Classify extracted AuxPoW Bitcoin headers against the canonical chain.
 
-Takes the CSV output from extract_auxpow_from_blkdat.py (all self-target-PoW-
-valid headers) and queries a local Bitcoin Core node to classify each as:
-
-  canonical    — hash exists in the canonical chain (the common case)
-  stale        — not canonical, but prev_hash IS in the canonical chain
-  unknown      — neither hash nor prev_hash in the canonical chain
-  error_block  — a full-proof-of-work stale candidate whose own bytes prove it
-                 broke a Bitcoin consensus rule
-
-For direct-stale candidates, applies the shared available-evidence validation
-profile: active-parent placement, median-time-past, historical minimum block
-version, coinbase scriptSig bounds, BIP34 height commitment, and expected
-Bitcoin nBits at the recovered height. The rejections are then handed to the
-shared ``route_rejected_stale_rows``, which re-derives the broken rules from
-each row's own bytes: a proven consensus violation becomes an ``error_block``
-written to its own sibling artifact, a contamination (nBits) rejection becomes
-an ``unknown``, and a rejection whose evidence proves nothing stays a stale.
-
-Inputs must retain complete exact coinbase output scripts. Raw-script and
-canonical-rendered vectors are normalized before classification and every
-output split uses the final rendering. Explicitly filtered or partial output
-claims fail before RPC or writes; no subsequent rendering repair is required.
-
-Usage:
-    python3 classify_auxpow_candidates.py \
-        --input ~/i0coin-snapshot/i0coin_auxpow_test.csv \
-        --output ~/i0coin-snapshot/i0coin_stales.csv \
-        --classified-output ~/i0coin-snapshot/i0coin_classified.csv \
-        --evidence-output ~/i0coin-snapshot/i0coin_evidence.csv \
-        --rpc-url http://127.0.0.1:8332 \
-        --rpc-user bitcoin
-
-RPC credentials resolve via the shared ``get_btc_auth`` cascade: explicit
-``--rpc-user``/``--rpc-pass``, then ``BITCOIN_RPC_USER``/``BITCOIN_RPC_PASSWORD``,
-then the node's ``.cookie``, then ``bitcoin.conf`` -- so a secret need not be
-put in the process arguments.
-
-Requires: Python 3.10+
+Buckets are canonical, stale (prev-hash on the active chain), unknown, and error_block (a full-work stale whose own bytes prove a consensus-rule break). Direct stales use the shared available-evidence profile, which is not full-block validation. Complete exact coinbase output scripts are required; filtered or partial claims fail before RPC or writes.
 """
 
 import argparse
@@ -129,11 +92,7 @@ class RpcClient:
 
     @staticmethod
     def _validate_response(response, expected_id):
-        """Reject batch responses that are malformed or out of contract.
-
-        Requires a dict with the expected ``id``, both ``result`` and
-        ``error`` fields present, and never both populated at once.
-        """
+        """Reject a batch response that is malformed, mis-identified, or both result and error."""
         if not isinstance(response, dict):
             raise RpcProtocolError(
                 f"RPC batch response for id {expected_id} is not an object"
@@ -153,11 +112,7 @@ class RpcClient:
             )
 
     def _request_batch(self, pending, allowed_error_codes):
-        """Issue one RPC batch for the pending cache keys and fill the cache.
-
-        Errors whose code is in ``allowed_error_codes`` cache as None
-        (block not found); any other error aborts the run.
-        """
+        """Issue one RPC batch. Allowed error codes cache as absent; any other error aborts."""
         calls = []
         call_keys = {}
         for cache_key in pending:
@@ -244,12 +199,9 @@ class RpcClient:
         allowed_error_codes=frozenset(),
         progress_label=None,
     ):
-        """Return results aligned with ``params_by_call`` using bounded batches.
+        """Return results aligned with ``params_by_call``.
 
-        Only explicitly allowed JSON-RPC errors are converted to ``None``.
-        Transport errors, unexpected RPC errors, and malformed or mismatched
-        batch responses abort the run instead of being mistaken for absent
-        blocks.
+        Only explicitly allowed RPC errors become None. Malformed batches abort.
         """
         keys = [(method, tuple(params)) for params in params_by_call]
         pending = []
@@ -325,9 +277,8 @@ OUTPUT_FIELDS = [
     "expected_nbits",
 ]
 
-# The error-block peer alone carries the pipe-joined rule set the routing
-# derived, matching the shared writer, Hathor classifier, and the reconciler. Its
-# three publication siblings keep OUTPUT_FIELDS unchanged.
+# Only the error-block peer carries the pipe-joined rule set.
+# The other publication siblings keep OUTPUT_FIELDS unchanged.
 ERROR_BLOCK_FIELDS = [*OUTPUT_FIELDS, RULES_VIOLATED_COLUMN]
 
 EVIDENCE_FIELDS = [
@@ -623,14 +574,9 @@ def _write_publication_rows_atomic(path, rows):
 
 
 def _write_error_block_rows_atomic(path, rows):
-    """Write error blocks on the publication schema plus their rule set.
+    """Write error blocks with the rule set that justifies them.
 
-    The rules are the evidence for the error-block claim, and
-    ``validation_status`` does not carry them: it names the one gate that fired
-    first, which for an unapplied retarget is a generic nBits mismatch and for
-    a multi-rule header is only the primary violation. ``route_rejected_stale_rows``
-    stashes the set on every row it routes here, so a missing key means the
-    contract broke and should raise rather than publish a blank claim.
+    ``validation_status`` names only the first gate. A missing rule-set key raises rather than publishing a blank claim.
     """
     _write_dict_rows_atomic(
         path,
@@ -643,14 +589,9 @@ def _write_error_block_rows_atomic(path, rows):
 
 
 def _publication_row(row):
-    """Map the i0coin classifier row contract to the compact CSV schema.
+    """Map one classifier row onto the compact publication schema.
 
-    Stale validation diagnostics belong to the rows the gate actually judged:
-    stale rows, and the error blocks routing carved out of them, whose REJECTED
-    verdict is the whole content of the row. Canonical and unknown publication
-    rows use the same empty diagnostic fields emitted by the shared classifiers
-    (a re-routed unknown's verdict survives in the full classified output);
-    the full classified and evidence outputs retain their richer annotations.
+    Diagnostic fields are kept for stale and error_block rows only.
     """
     classification = row.get("classification", "")
     is_gated = classification in ("stale", "error_block")
@@ -675,16 +616,9 @@ def _publication_row(row):
 
 
 def _derive_publication_split_paths(stale_csv):
-    """Return the canonical, unknown, and error-block peers a refresh owns.
+    """Return the canonical, unknown, and error-block peers a refresh replaces.
 
-    Publication output is a four-bucket artifact family, matching the shared
-    classifiers. Re-running a refresh transactionally replaces the family.
-
-    The error-block peer is owned here because this classifier's own pass now
-    produces error blocks: routing moves a rejected row whose bytes prove a
-    consensus violation out of the stale bucket, so a refresh that did not
-    republish that file would silently drop those rows from every bucket of a
-    family it claims to replace completely.
+    The error-block file is part of that family; omitting it would drop those rows.
     """
     canonical, unknown, error_blocks = derive_split_paths(str(stale_csv))
     return Path(canonical), Path(unknown), Path(error_blocks)
@@ -706,8 +640,7 @@ def _publish_artifact_family(staged_destinations):
                 )
                 os.close(backup_fd)
                 backup = Path(backup_name)
-                # Reserve a unique sibling name, then move the live artifact
-                # onto it.
+                # The temp name only reserves a sibling path for the live file.
                 backup.unlink()
                 os.replace(destination, backup)
                 moved_previous.append((backup, destination))
@@ -762,11 +695,7 @@ def _publish_artifact_family(staged_destinations):
 
 
 def _write_publication_inventory(stale_csv, rows):
-    """Authenticate, normalize, and transactionally publish four buckets.
-
-    The error bucket is written on ERROR_BLOCK_FIELDS and keeps its rule set;
-    its three siblings keep OUTPUT_FIELDS byte-identical.
-    """
+    """Publish four buckets. Only the error bucket keeps the rule set."""
     buckets = {"canonical": [], "stale": [], "unknown": [], "error_block": []}
     for row_number, row in enumerate(rows, start=2):
         _require_authenticated_child_header_with_context(row, row_number=row_number)
@@ -779,11 +708,8 @@ def _write_publication_inventory(stale_csv, rows):
                 f"{classification!r}"
             )
         if classification == "error_block":
-            # Same contract as ``_write_error_block_rows_atomic``: the error
-            # bucket alone keeps the pipe-joined rule set that justifies its
-            # rows, and a missing key raises rather than publishing a blank
-            # claim. ``_publication_row`` drops it with every other diagnostic
-            # column, so it is restored here.
+            # The error bucket keeps the rule set. A missing key raises
+            # rather than publishing a blank claim.
             publication_row[RULES_VIOLATED_COLUMN] = row[RULES_VIOLATED_COLUMN]
         bucket.append(publication_row)
 
@@ -890,9 +816,8 @@ def classify_and_validate(
 
     for row_number, row in enumerate(rows, start=2):
         _validate_candidate_parent_header(row, row_number=row_number)
-        # This producer consumes complete extracted coinbases. Final output
-        # rendering belongs here, before every split, not in a later repair
-        # pass. A historical decoded projection cannot recover missing bytes.
+        # Render complete coinbase outputs before any split. A later pass
+        # cannot recover bytes this input never had.
         try:
             outputs = row.get("coinbase_outputs", "")
             if any(not token.strip() for token in outputs.replace("|", ";").split(";")):
@@ -991,16 +916,8 @@ def classify_and_validate(
         if not _is_canonical(parent_header):
             stats["unknown"] += 1
             if classified is not None:
-                # Deliberately NOT the shared PLACEMENT_REJECTION string. That
-                # verdict is REJECTED-prefixed because the shared gate meets the
-                # row later, after Phase 2 already called it a stale, and the
-                # driver has to take the stale label back. Here the row never
-                # became a stale: the parent lookup resolves to unknown in the
-                # same step that would have made it one, so the row's state is
-                # already final on the primary axis and there is nothing to
-                # reject. An UNKNOWN prefix also keeps it out of the REJECTED-row
-                # sweeps, which would otherwise count every unknown as an
-                # unrecognised rejection.
+                # UNKNOWN, not REJECTED: this row never became a stale, and a
+                # REJECTED prefix would be counted by the rejected-row sweeps.
                 classified[input_index] = {
                     **row,
                     "btc_stale_height": "",
@@ -1098,12 +1015,8 @@ def classify_and_validate(
             entry_list = validated
             stats["validated"] += 1
         else:
-            # The shared contamination verdict: this row's difficulty is not
-            # Bitcoin's at the recovered height, so the header belongs to
-            # another SHA-256 chain. Carrying NBITS_MISMATCH_PREFIX verbatim is
-            # what lets route_rejected_stale_rows recognise it as contamination
-            # rather than a judgement on a Bitcoin block. The post-BCH-fork hint
-            # is appended, not spliced into the prefix.
+            # Keep NBITS_MISMATCH_PREFIX verbatim so routing treats this as
+            # contamination, not a Bitcoin-block judgement. The fork hint is appended.
             nbits_match = "false"
             status = (
                 f"{NBITS_MISMATCH_PREFIX} "
@@ -1135,11 +1048,8 @@ def classify_and_validate(
             "nbits_match": nbits_match,
             "post_bch_fork": str(post_bch).lower(),
             "validation_status": status,
-            # Internal keys the shared router needs and this pass already holds:
-            # the authoritative prev+1 height, the canonical parent's
-            # median-time-past, and the candidate bits under the shared gates'
-            # own column name. Every writer here either builds its fields
-            # explicitly or drops extras, so none of these can reach a CSV.
+            # Router inputs only: prev+1 height, parent MTP, and bits.
+            # Writers drop these columns, so they do not reach a CSV.
             "btc_height": str(stale_height),
             "btc_bits": stale_nbits,
             "_parent_median_time_past": parent_median_time_past,
@@ -1156,11 +1066,8 @@ def classify_and_validate(
             f"status: {status}"
         )
 
-    # Routing: sort the rejections by what each one actually means. A row whose
-    # bytes prove a broken consensus rule is an error block, not a stale; a
-    # contamination (nBits) rejection is not a direct stale at all; a rejection
-    # whose evidence proves nothing stays a stale. The router mutates each row
-    # in place, so the classified inventory is filled in only afterwards.
+    # A proven consensus break is an error block. nBits contamination is
+    # unknown. A rejection that proves nothing stays stale.
     route_rejected_stale_rows(rejected)
     error_blocks = [row for row in rejected if row["classification"] == "error_block"]
     rerouted_unknowns = [row for row in rejected if row["classification"] == "unknown"]
@@ -1181,12 +1088,8 @@ def classify_and_validate(
     if classified is not None and any(row is None for row in classified):
         raise RuntimeError("internal error: classified inventory is incomplete")
 
-    # Write normalized publication outputs. The full classifier inventory below
-    # retains the source-specific diagnostic columns. The rejection log keeps
-    # every row the gate turned down, including the ones routing moved to
-    # unknown -- those have no artifact of their own in this mode, and dropping
-    # them would lose them from the run entirely. Error blocks do have their own
-    # artifact, so they are written there instead of counted as rejected stales.
+    # Keep rerouted unknowns in the rejection log; they have no other artifact
+    # in this mode. Error blocks are written to their own file.
     excluded = load_error_block_keys()
     validated = [
         row

@@ -148,7 +148,7 @@ This is a complete pinned active-chain scan, not recovery of every historical
 Qbit fork. The last 100 blocks present at endpoint selection and subsequent
 growth are outside its declared scope. All four accepted stale headers are
 already present upstream and witnessed by RSK; Qbit contributes independent
-observations, not new stale identities. Application import remains separate.
+observations, not new stale identities.
 
 ## Investigation of the 24 unknown parents
 

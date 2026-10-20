@@ -384,13 +384,6 @@ parents extend the known BIP66-invalid root; none is an accepted stale event.
 - `docs/data-reference.md`: schemas and value vocabularies.
 - `LICENSE-DATA`: data licensing terms.
 
-These 1,639 rows define the accepted Namecoin direct header-candidate set for this
-release. This is not a claim of full Bitcoin block validity or exhaustive chain
-coverage because complete Bitcoin block bodies are generally unavailable and
-the source snapshot boundary is not publicly documented. Full re-extraction
-and the archived unknown-origin investigations still require private source
-inventories and are not reproduced by this repository.
-
 The four P2SH-invalid parents at 173,928, 173,957, 173,998 and 174,605
 are excluded from accepted stales. Their original Namecoin child identities
 and authenticated full-body coinbases are retained in the error publication.

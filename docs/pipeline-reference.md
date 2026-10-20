@@ -1,7 +1,6 @@
 # Pipeline implementation reference
 
-This reference describes package ownership and producer lifecycles. Read it
-before changing producers, source discovery, classification or publication.
+Read before changing producers, source discovery, classification or publication.
 All paths and commands are relative to the repository root.
 
 ## Contents

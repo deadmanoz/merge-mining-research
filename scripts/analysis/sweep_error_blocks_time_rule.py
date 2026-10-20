@@ -112,14 +112,11 @@ from stale_blocks_analysis.auxpow_parse import (  # noqa: E402
 )
 from stale_blocks_analysis.config import BIP34_HEIGHT  # noqa: E402
 
-# Bitcoin's MAX_FUTURE_BLOCK_TIME: a block's nTime must not exceed the
-# network-adjusted time plus this bound. The sweep's future-limit reference
-# is the canonical parent's block time (see module docstring).
+# Two hours. This sweep compares against parent block time, not
+# network-adjusted time, so a future-limit hit is not auto-promoted.
 MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60
 
-# Unknown-row inventories sit next to the stale ones for the classified chains;
-# the canonical-fill scratch chains (syscoin/elastos/fractal) have no
-# classified unknown inventory.
+# Scratch chains have no classified unknown inventory.
 UNKNOWN_INVENTORY_GLOB: dict[str, str] = {
     chain: str(Path(STALE_INVENTORIES[chain]).with_name(f"{chain}_unknown_blocks.csv"))
     for chain in UNKNOWN_INVENTORY_BASELINE_ROWS
@@ -156,19 +153,11 @@ class Candidate:
     block_hash: str
     n_time: int  # re-derived from the header bytes
     meets_full_pow: bool
-    # Whether the claimed height is authoritative: True only for stale rows
-    # whose classifier set btc_height = (active-chain prev height) + 1. For
-    # unknown rows and the canonical-fill-scratch stale inventories the
-    # btc_height is not verified against the canonical chain, so a time-rule
-    # check against it is uninterpretable.
+    # Authoritative only when a stale row's height is active-prev + 1.
+    # Unknown rows and scratch inventories are not canonical-verified.
     authoritative_height: bool = False
-    # Whether the header digest meets the CANONICAL expected-nBits target at
-    # the claimed height (the inventory's expected_nbits column, else the
-    # epoch table at the height's epoch start). None when neither source
-    # yields a parseable target. Meeting only the header's own embedded bits
-    # is not enough: an easy self-declared-target header is a
-    # share/contamination, not a confirmed error block (the same rule the
-    # offline validator enforces).
+    # Canonical expected nBits, not the header's own target.
+    # None if that target cannot be evaluated. An easy self-declared target is a share.
     meets_expected_pow: bool | None = None
     parent_mtp: int | None = None
     parent_time: int | None = None
@@ -177,15 +166,8 @@ class Candidate:
 
     @property
     def is_error_block_candidate(self) -> bool:
-        # Only time_below_mtp is a promotable error-block finding: its parent
-        # MTP is committed canonical context, so the violation re-derives
-        # offline. time_beyond_future_limit uses an approximate neighbor-time
-        # reference (Bitcoin's real network-adjusted-time bound is not
-        # reconstructable offline) and is deferred in the validator, so those
-        # rows are manual-review flags, never auto-promoted. A promotable
-        # finding must ALSO meet the canonical expected-nBits target: an easy
-        # self-declared-target header is a share/contamination, not a
-        # confirmed error block.
+        # Only time_below_mtp can be promoted, and only at canonical nBits.
+        # The future-limit check is not network-adjusted time and stays a flag.
         return (
             self.meets_full_pow
             and self.meets_expected_pow is True
@@ -217,15 +199,11 @@ class ChainReport:
     untrustworthy_height: int = 0
     time_below_mtp: int = 0
     time_beyond_future_limit: int = 0
-    # Full-PoW time_below_mtp violations whose digest does NOT meet the
-    # canonical expected-nBits target at the claimed height:
-    # share/contamination observations, never confirmed error blocks.
+    # time_below_mtp rows that miss canonical nBits are shares, not error blocks.
     canonical_target_fail: int = 0
     already_in_dataset: int = 0
     new_findings: list[Candidate] = field(default_factory=list)
-    # Distinct (height, hash) NEW-finding keys: the same new BTC error block
-    # can be witnessed in several sibling-chain inventories, so the
-    # new_findings observation list overcounts distinct blocks.
+    # Distinct (height, hash) keys. Sibling chains can witness the same new block.
     new_finding_keys: set[tuple[int, str]] = field(default_factory=set)
     # time_beyond_future_limit rows (approximate reference, deferred in the
     # validator): manual-review flags, kept separate from promotable findings.
@@ -247,10 +225,9 @@ def parse_header(header_hex: str) -> tuple[int, int, int] | None:
 
 
 def reverify_full_pow(header_hex: str) -> tuple[bool, int, int] | None:
-    """Re-verify full PoW from the committed header bytes.
+    """Return ``(meets_target, n_time, bits)`` from the header bytes, or None.
 
-    Returns (meets_target, n_time, bits) with both fields re-derived from the
-    header, or None when the header cannot be parsed.
+    nTime and bits are re-derived from the header, not from columns.
     """
     parsed = parse_header(header_hex)
     if parsed is None:
@@ -262,20 +239,9 @@ def reverify_full_pow(header_hex: str) -> tuple[bool, int, int] | None:
 
 
 def claimed_height(row: dict[str, str]) -> tuple[int | None, str]:
-    """Return the trustworthy claimed height for a row, or (None, why).
+    """Return ``(height, reason)`` for a trustworthy ``btc_height``.
 
-    The claimed height is the ``btc_height`` column, corroborated against the
-    decoded BIP34 coinbase height when a coinbase scriptSig is present: a
-    disagreement means the height is not trustworthy. Rows without a
-    scriptSig (or with an unparseable one) keep the column value — the
-    classifier derived it from the child-chain evidence.
-
-    The BIP34 corroboration only applies where the BIP34 height commitment is
-    in force (height >= ``BIP34_HEIGHT``). Before BIP34 activation the
-    scriptSig's first push was NOT a consensus height commitment, so a
-    pre-BIP34 row whose first pushed integer differs from ``btc_height`` is
-    not a contradiction: the authoritative stale inventory's ``btc_height``
-    is trustworthy on its own and the row is kept.
+    At and after BIP34, a present scriptSig must encode that height. Before BIP34 the first push is not a consensus height, so a mismatch is not a contradiction.
     """
     height_text = (row.get("btc_height") or "").strip()
     if not height_text:
@@ -284,11 +250,8 @@ def claimed_height(row: dict[str, str]) -> tuple[int | None, str]:
         height = int(height_text)
     except ValueError:
         return None, f"malformed btc_height {height_text!r}"
-    # Bound to the plausible canonical range: these inventories carry
-    # contamination rows whose btc_height is a garbage integer (a misparsed
-    # hash), and a claimed height above the canonical tip has no parent MTP
-    # to check against. MAX_PLAUSIBLE_HEIGHT is a generous forward margin
-    # over the ~900k tip at sweep time.
+    # Above the plausible tip there is no parent MTP. Those heights are
+    # garbage-integer contamination, not candidates.
     if height <= 0 or height > MAX_PLAUSIBLE_HEIGHT:
         return None, f"implausible btc_height {height}"
     scriptsig_hex = (row.get("coinbase_scriptsig_hex") or "").strip()
@@ -304,12 +267,9 @@ def claimed_height(row: dict[str, str]) -> tuple[int | None, str]:
 
 
 def apply_time_rules(n_time: int, parent_mtp: int, parent_time: int) -> str:
-    """Return the violated time-rule token, or "" when both rules pass.
+    """Return ``time_below_mtp`` or ``time_beyond_future_limit``, or an empty string.
 
-    ``time_below_mtp``: nTime must be strictly greater than the canonical
-    parent's median-time-past. ``time_beyond_future_limit``: nTime must not
-    exceed the canonical parent's block time + MAX_FUTURE_BLOCK_TIME (the
-    committed neighbor-evidence reference; see module docstring).
+    The future-limit reference is parent time plus two hours, not network-adjusted time.
     """
     if n_time <= parent_mtp:
         return "time_below_mtp"
@@ -318,13 +278,8 @@ def apply_time_rules(n_time: int, parent_mtp: int, parent_time: int) -> str:
     return ""
 
 
-# Remote helper run on the archive host: reads claimed heights (one per line)
-# from stdin and emits "height time mediantime" per line, resolving each
-# canonical hash and header over a single persistent JSON-RPC HTTP connection
-# with request batching. Per-height ``bitcoin-cli`` subprocesses would take
-# ~8 hours at these inventories' ~650k distinct claimed heights; this batched
-# connection does it in under a minute. RPC credentials are read from the
-# node's own config on the remote host, never committed here.
+# Remote helper. Credentials stay in the node config on the archive host
+# and are not stored in this script.
 _REMOTE_MTP_HELPER = r"""
 import http.client, json, base64, sys
 conf = {}
@@ -365,21 +320,14 @@ for i in range(0, len(heights), BATCH):
 
 
 def ssh_mtp_fetcher(heights: list[int]) -> dict[int, dict[str, int]]:
-    """Batch-fetch canonical block time/MTP for heights via one ssh session.
+    """Fetch canonical time and MTP for the given heights.
 
-    Ships a small helper to the archive host that resolves each height's
-    canonical hash and header over a single persistent batched JSON-RPC
-    connection (see ``_REMOTE_MTP_HELPER``), emitting ``height time
-    mediantime`` lines. Heights whose fetch fails are omitted from the result
-    (the caller treats a missing height as unavailable context, never as a
-    pass).
+    A height omitted from the result is unavailable context, not a pass.
     """
     if not heights:
         return {}
     stdin_text = "\n".join(str(h) for h in sorted(set(heights))) + "\n"
-    # Ship the helper to a remote temp path (its source goes through this
-    # call's stdin), then run it with the heights on stdin — the helper
-    # source and the heights cannot share one stdin stream.
+    # The helper source and the heights cannot share one stdin stream.
     helper_path = "/tmp/mmr_time_sweep_mtp_helper.py"
     write = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", ARCHIVE_HOST, f"cat > {helper_path}"],
@@ -444,12 +392,7 @@ def fetch_mtp_context(
     fetcher: MtpFetcher,
     cache_path: Path,
 ) -> dict[int, dict[str, int]]:
-    """Return canonical time/MTP for every height, using and updating the cache.
-
-    Only heights missing from the cache are fetched; newly fetched context is
-    merged in and the cache rewritten. A fetch failure raises (the caller
-    fails closed).
-    """
+    """Return cached canonical time and MTP. A fetch failure raises."""
     cached = load_mtp_cache(cache_path)
     missing = sorted(h for h in heights if h not in cached)
     if missing:
@@ -467,11 +410,7 @@ def collect_candidates(
     report: ChainReport,
     nbits_by_epoch: dict[int, int] | None = None,
 ) -> list[Candidate]:
-    """Collect PoW-verified candidates from one chain's inventories.
-
-    Raises OSError/subprocess errors upward so the caller marks the chain
-    unreachable; per-row parse problems are tallied, never fatal.
-    """
+    """Collect PoW-valid candidates. Per-row parse problems are tallied, not fatal."""
     if nbits_by_epoch is None:
         nbits_by_epoch = load_nbits_by_epoch()
     candidates: list[Candidate] = []
@@ -501,10 +440,7 @@ def collect_candidates(
             else:
                 report.pow_fail += 1
                 continue  # a share/near row, not an error block
-            # Candidate identity (and hence dataset membership) is keyed on
-            # the display hash derived from the header bytes, never the
-            # inventory's btc_header_hash column: the PoW check already
-            # parsed the header, so this digest is authoritative.
+            # Identity is the header-derived display hash, not the inventory hash column.
             block_hash = header_display_hash(row.get("btc_header_hex") or "")
             if block_hash is None:
                 report.pow_unparseable += 1
@@ -518,10 +454,8 @@ def collect_candidates(
                     block_hash=block_hash,
                     n_time=n_time,
                     meets_full_pow=True,
-                    # The classified stale inventories carry an
-                    # authoritative canonical height (classifier-derived from
-                    # an active-chain prev). Unknown rows and the scratch
-                    # stale inventories do not.
+                    # Stale rows on non-scratch chains have an active-prev height.
+                    # Unknown rows and scratch inventories do not.
                     authoritative_height=(
                         source == "stale" and chain in AUTHORITATIVE_HEIGHT_CHAINS
                     ),
@@ -574,16 +508,9 @@ def evaluate_candidate(
     dataset_keys: set[tuple[int, str]],
     report: ChainReport,
 ) -> None:
-    """Apply the time rules to one PoW-verified candidate and tally it.
+    """Apply the time rules to one PoW-verified candidate.
 
-    A candidate without an authoritative claimed height (unknown rows, and
-    the canonical-fill-scratch stale inventories) carries a btc_height that
-    is not verified against the canonical chain, so a time-rule check against
-    it is uninterpretable — it is tallied as ``untrustworthy_height`` and
-    never as a violation. Authoritative-height rows (the 16 regen-chain stale
-    inventories, whose classifier set btc_height from an active-chain prev)
-    are checked directly: their height is trustworthy by construction, so
-    even a large nTime gap is a real, interpretable condition.
+    A non-authoritative height (unknown or scratch) is tallied untrustworthy and is not a violation.
     """
     if not cand.authoritative_height:
         report.untrustworthy_height += 1
@@ -912,13 +839,8 @@ def main(argv: list[str] | None = None) -> int:
     ):
         return 1
 
-    # Batch-fetch the canonical parent context once for all distinct claimed
-    # heights, then evaluate the time rules per candidate. Only candidates
-    # with an AUTHORITATIVE claimed height are ever MTP-evaluated (unknown
-    # rows and the canonical-fill-scratch stale inventories are tallied as
-    # untrustworthy without a time-rule check), so only their parent heights
-    # are requested: fetching context for the (potentially millions of)
-    # unevaluated untrustworthy-height candidates would waste the node fetch.
+    # MTP is evaluated only for authoritative heights. Unknown and scratch
+    # rows are tallied untrustworthy and are not fetched.
     all_heights = {
         cand.height - 1
         for chain in candidates_by_chain
@@ -938,13 +860,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    # The committed report must only ever present a COMPLETE sweep: every
-    # requested parent height must have canonical MTP context. A partial
-    # context (the RPC result omitted even one requested height) would leave
-    # those candidates unevaluated while the report could still state "no
-    # time_below_mtp violations found" — an incomplete sweep presented as
-    # complete. Refuse the committed write in that case, naming the missing
-    # heights; --allow-partial --output-dir remains the diagnostic escape.
+    # Every requested parent height must have MTP context. A missing height
+    # would let an incomplete sweep claim no time_below_mtp violations.
     missing_mtp = sorted(h for h in all_heights if h not in mtp_context)
     if missing_mtp and not args.allow_partial:
         print(

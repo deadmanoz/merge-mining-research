@@ -154,8 +154,9 @@ The current Kraft generation excludes six catalogue parents and contains
 
 The former two strict observations at Bitcoin 363,733 and 363,735 now
 publish as errors. The current projection contains **0 strict and 0 weak**
-I0coin observations. Unknown relevance is a separate classification axis; it does not
-promote an unanchored parent to an accepted direct stale.
+I0coin observations. Unknown relevance stays on its own axis and does not
+promote an unanchored parent to an accepted direct stale
+([research contracts](../research-contracts.md)).
 
 ### Novelty
 

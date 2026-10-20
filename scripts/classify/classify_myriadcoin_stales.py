@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
 """Classify Myriadcoin SHA-256d AuxPoW extracts as canonical, stale, or unknown.
 
-Myriadcoin extraction (scripts/extract/extract_myriadcoin_auxpow.py) already
-selects the SHA-256d branch via the nVersion algo bits (BLOCK_VERSION_ALGO =
-7 << 9, SHA-256d encoded as 0) and the AuxPoW flag, writing one row per
-merge-mined SHA-256d block with the embedded Bitcoin parent header and coinbase
-transaction. That multi-algo branch selection is an EXTRACTOR concern; this
-classifier has no per-row algo filter. It uses the shared classifier helpers:
-
-1. keep only unique headers that meet the Bitcoin nBits target,
-2. classify them against Bitcoin Core as canonical / stale / unknown, and
-3. validate stale nBits against the canonical Bitcoin epoch target.
-
-Myriadcoin's fStrictChainId=false means the SHA-256d branch accepts AuxPoW from
-any SHA-256d parent. In practice Bitcoin is the only parent miners use, and the
-Phase 1 checks whether the parent header meets its encoded target. Bitcoin
-parent linkage is established by the later RPC classification and validation.
+SHA-256d is algo 0. ``fStrictChainId`` is false, so the branch does not identify a Bitcoin parent. The nBits gate is non-skippable.
 """
 
 from __future__ import annotations

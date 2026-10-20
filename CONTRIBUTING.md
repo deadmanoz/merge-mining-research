@@ -1,50 +1,21 @@
 # Contributing
 
-Thanks for your interest in this project. It is a research pipeline rather than a
-conventional application: the important outputs are claims, datasets, figures, and
-methodology docs. Contributions that add a new merge-mined chain recovery, correct
-an attribution, tighten the methodology, or improve reproducibility are all welcome.
-New chain data and AI-assisted contributions are both explicitly welcome; the
-sections below spell out where the coverage gaps are and how verification works.
+Contributions that add a merge-mined chain recovery, correct an attribution,
+tighten the methodology, or improve reproducibility are welcome, including new
+chain data and AI-assisted work.
 
 ## Especially welcome: new data
 
-New data is the most valuable thing you can bring to this project, and a small,
-verifiable addition is as welcome as a large one. Two kinds of gap in the
-README's [child-chain coverage](README.md#child-chain-coverage) tables are worth
-calling out because closing either one is exactly the sort of contribution we
-want.
-
-**Chains with no recovered data.** Five surveyed candidates reached the
-infrastructure stage but yielded no block data at all: BLAST, Bitcoin Stash,
-Fusioncoin, Jax.Network, and Jincoin. For any of these, a reachable peer, a
-block archive, an explorer dump, or a working sync path would be a genuine
-first. See [`docs/chains/surveyed-infra.md`](docs/chains/surveyed-infra.md) for
-what was tried and where each one is currently blocked.
-
-**Chains with partial or bounded coverage.** Several integrated chains have known
-holes where more history would extend or firm up the result:
-
-- **VCash** is canonical-only: 68 of 767 archived mappings are hydrated, 699
-  remain unresolved, and no VCash blockchain has been recovered.
-- **i0coin** is bounded by a January 2018 third-party snapshot, so its committed
-  counts are provisional.
-- **Huntercoin** uses the Kraft native dump with an observed July 2021
-  endpoint; later history and native active-chain validation would extend the
-  current evidence.
-- **Xaya** uses the Kraft dump with the former snapshot tail gap closed in
-  stored ancestry. Ten side headers remain unlinked, and native active-chain
-  membership and full consensus were not replayed.
-- **Syscoin** covers only the fresh-genesis 2019 chain; the retired 2016 to 2019
-  Syscoin chain was not extracted.
-- **Bitcoin Vault** was recovered from a third-party Blockbook API with no node
-  available; its post-2021 weak-share era yields no further accepted candidates.
-
-The per-chain notes under [`docs/chains/`](docs/chains/) record the exact hole in
-each case. Raw block data, node datadirs, snapshots, peer addresses, or archive
-locations are all useful even when you cannot run the recovery pipeline
-yourself. Open an issue describing what you have, and we can work out how to
-extract and validate it.
+The coverage holes are the README
+[child-chain coverage](README.md#child-chain-coverage) tables: five surveyed
+candidates with no block data (BLAST, Bitcoin Stash, Fusioncoin, Jax.Network,
+and Jincoin), and the partial or bounded rows (VCash, i0coin, Huntercoin,
+Xaya, Syscoin, and Bitcoin Vault). What was tried for the blocked candidates
+is in [`docs/chains/surveyed-infra.md`](docs/chains/surveyed-infra.md). Raw
+block data, node datadirs, snapshots, peer addresses, or archive locations are
+useful even without running the pipeline. The per-chain notes under
+[`docs/chains/`](docs/chains/) record each hole. Open an issue describing what
+you have.
 
 ## Setup
 
@@ -86,18 +57,8 @@ check, lint, and test suite for pull requests and pushes to `main`.
 
 ## Data boundaries
 
-Be strict about what belongs in git:
-
-- Commit only the canonical, compact loader inputs (for example
-  `data/validated-stales/*_validated_stales.csv`, including RSK, plus
-  `data/stale_descendants.csv` and the error-blocks dataset
-  `data/error-blocks/error_blocks.csv` with its
-  `data/error-blocks/mtp_context.csv` sidecar).
-- Do not commit fetched upstream data under `data/stale-blocks/`, raw extracts,
-  PoW-passing intermediates, full classifier outputs, marker SQLite/Parquet
-  outputs, or node datadirs.
-- Private or bulky per-chain artifacts belong in a private archive, not in this
-  repo.
+Committed surfaces and the private-archive boundary are in
+[research contracts](docs/research-contracts.md#data-boundaries).
 
 ## Adding a chain or changing a claim
 
