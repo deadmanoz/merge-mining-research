@@ -9,8 +9,8 @@ catalogue (`bad-cb-amount`) via retained full-block body evidence from
 from `data/validated-stales/namecoin_validated_stales.csv` and refreshing the
 committed Monitor evidence and novelty report. Expand `TEMPLATE_PRODUCER_MAP`
 in `template_producers` with the remaining `AntPool & friends` proxy-pool rows
-documented by 0xB10C (`Ultimus Pool`, `Braiins Pool`, `SecPool`, `EMCDPool`,
-`Rawpool`, `WhitePool`, `Mining Squared`), and document in
+directly measured in 0xB10C's Stratum studies (`Ultimus Pool`, `Braiins Pool`,
+`Rawpool`), and document in
 `docs/pool-attribution.md` and `docs/chains/rsk.md` how coinbase-wins
 precedence resolves RSK `0xcf5072f792246690c75c63638e3d98bb2554ff2c` (including
 875,589 to `AntPool`).

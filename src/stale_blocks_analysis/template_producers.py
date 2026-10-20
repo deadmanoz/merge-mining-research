@@ -110,12 +110,13 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "evidence": (
             "Ultimus Pool-Braiins Pool 89% weighted Merkle-branch similarity "
             "within the AntPool template cluster (0xB10C obs 12, stratum data "
-            "2024-06..2024-09); co-emitted all four cached-fee empty-block "
-            "fork jobs (0xB10C obs 14, 2024-12..2025-03) and included in the "
-            "cluster through April 2025 (0xB10C blog/015). Window opens at "
-            "846720 (first DAA epoch start on/after the 2024-06-01 obs-12 "
-            "stratum window start) and ends at 895104, the first DAA epoch "
-            "start after April 2025, the last period blog/015 documents."
+            "2024-06..2024-09); co-emitted three of the four cached-fee "
+            "empty-block fork jobs (873559, 875590, 885797; 0xB10C obs 14, "
+            "2024-12..2025-03) and included in the cluster through April 2025 "
+            "(0xB10C blog/015). Window opens at 846720 (first DAA epoch start "
+            "on/after the 2024-06-01 obs-12 stratum window start) and ends at "
+            "895104, the first DAA epoch start after April 2025, the last "
+            "period blog/015 documents."
         ),
     },
     {
@@ -126,37 +127,12 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
         "evidence": (
             "Braiins Pool-Ultimus Pool 89% weighted Merkle-branch similarity "
             "within the AntPool template cluster (0xB10C obs 12, stratum data "
-            "2024-06..2024-09); co-emitted all four invalid fork jobs "
-            "including building on its own stale block at 885796 (0xB10C obs "
-            "14), and remained in the cluster through April 2025 (0xB10C "
-            "blog/015). Window opens at 846720 (first DAA epoch start on/after "
-            "the 2024-06-01 obs-12 stratum window start) and ends at 895104."
-        ),
-    },
-    {
-        "tag_label": "SecPool",
-        "template_producer": "AntPool & friends",
-        "valid_from_height": 846_720,
-        "valid_to_height": 895_104,
-        "evidence": (
-            "SecPool sub-cluster included in 'AntPool & friends' (0xB10C obs "
-            "12 and blog/015). Window opens at 846720 (first DAA epoch start "
-            "on/after the 2024-06-01 obs-12 stratum window start) and ends at "
-            "895104, the first DAA epoch start after April 2025, the last "
-            "period blog/015 documents."
-        ),
-    },
-    {
-        "tag_label": "EMCDPool",
-        "template_producer": "AntPool & friends",
-        "valid_from_height": 846_720,
-        "valid_to_height": 895_104,
-        "evidence": (
-            "EMCD stratum endpoint proxies SecPool within the 'AntPool & "
-            "friends' cluster (0xB10C obs 12 and blog/015). Window opens at "
-            "846720 (first DAA epoch start on/after the 2024-06-01 obs-12 "
-            "stratum window start) and ends at 895104, the first DAA epoch "
-            "start after April 2025, the last period blog/015 documents."
+            "2024-06..2024-09); co-emitted three of the four invalid fork jobs "
+            "(873559, 875590, and 885797 building on its own stale block at "
+            "885796; 0xB10C obs 14), and remained in the cluster through "
+            "April 2025 (0xB10C blog/015). Window opens at 846720 (first DAA "
+            "epoch start on/after the 2024-06-01 obs-12 stratum window start) "
+            "and ends at 895104."
         ),
     },
     {
@@ -177,28 +153,13 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
     {
         "tag_label": "Rawpool",
         "template_producer": "AntPool & friends",
-        "valid_from_height": 874_944,
+        "valid_from_height": 887_040,
         "valid_to_height": 895_104,
         "evidence": (
-            "Rawpool collector co-emitted all four cached-fee empty-block "
-            "fork jobs (0xB10C obs 14, 2024-12..2025-03; 874944 is the first "
-            "DAA epoch start on/after the first 2024-12-10 fork job at 874155) "
-            "and is documented in the cluster through April 2025 (0xB10C "
-            "blog/015, ending at 895104)."
-        ),
-    },
-    {
-        "tag_label": "WhitePool",
-        "template_producer": "AntPool & friends",
-        "valid_from_height": 874_944,
-        "valid_to_height": 895_104,
-        "evidence": (
-            "stratum.work's Rawpool collector receives '/WhitePool/' coinbase "
-            "tags and co-emitted all four cached-fee empty-block fork jobs "
-            "(0xB10C obs 14, 2024-12..2025-03; 874944 is the first DAA epoch "
-            "start on/after the first 2024-12-10 fork job at 874155) and is "
-            "documented in the cluster through April 2025 (0xB10C blog/015, "
-            "ending at 895104)."
+            "Rawpool co-emitted the cached-fee empty-block fork job at 885797 "
+            "on 2025-03-01 (0xB10C obs 14; 887040 is the first DAA epoch start "
+            "on/after that 2025-03-01 observation) and is documented in the "
+            "cluster through April 2025 (0xB10C blog/015, ending at 895104)."
         ),
     },
     {
@@ -222,19 +183,6 @@ TEMPLATE_PRODUCER_MAP: tuple[dict, ...] = (
             "height 858816 = first DAA epoch start on/after the switch date "
             "per data/bitcoin-epoch-reference. Ends at 895104, the first DAA "
             "epoch start after April 2025, the last period blog/015 documents."
-        ),
-    },
-    {
-        "tag_label": "Mining Squared",
-        "template_producer": "AntPool & friends",
-        "valid_from_height": 891_072,
-        "valid_to_height": 895_104,
-        "evidence": (
-            "Mining Squared (/bsquared/) launched at height 890394 "
-            "(2025-04-01; 891072 is the first DAA epoch start on/after "
-            "launch) as an 'AntPool & friends' template clone in April 2025 "
-            "(0xB10C blog/015). Ends at 895104, the first DAA epoch start "
-            "after April 2025, the last period blog/015 documents."
         ),
     },
 )
